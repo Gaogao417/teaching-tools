@@ -1,0 +1,148 @@
+:root {
+  --bg: #fdf8f3;
+  --panel: #ffffff;
+  --ink: #1e293b;
+  --muted: #64748b;
+  --line: rgba(148, 163, 184, 0.2);
+  --primary: #f97316;
+  --role-opposite: #f97316;
+  --role-adjacent: #10b981;
+  --role-hypotenuse: #6366f1;
+  --shadow: 0 18px 30px rgba(30, 41, 59, 0.08);
+  --radius: 18px;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: "STZhongsong", "Songti SC", "PingFang SC", serif;
+  background:
+    radial-gradient(circle at top left, rgba(255, 239, 213, 0.95), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(204, 234, 221, 0.95), transparent 28%),
+    linear-gradient(180deg, #f8f5ef, #f0ebe0 70%, #ece4d6);
+}
+button, input { font: inherit; }
+button { border: none; cursor: pointer; }
+.page-shell { width: min(1180px, calc(100vw - 28px)); margin: 0 auto; padding: 28px 0 44px; display: grid; gap: 22px; }
+.panel {
+  background: var(--panel);
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+.hero-panel, .practice-panel, .result-page { display: grid; gap: 18px; }
+.eyebrow { color: var(--primary); font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+h1, h2, h3, p { margin: 0; }
+.muted-copy { color: var(--muted); }
+.student-bar, .action-row, .top-stats { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+input {
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.96);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.primary-btn, .secondary-btn {
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-weight: 700;
+}
+.primary-btn { background: var(--primary); color: white; }
+.secondary-btn { background: #fff7ed; color: #9a3412; }
+.primary-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.home-grid, .practice-layout { display: grid; grid-template-columns: 320px 1fr; gap: 18px; }
+.nav-panel, .detail-panel, .panel-side, .canvas-card { display: grid; gap: 16px; }
+.tree-block, .tree-chapter, .tree-list, .history-list, .step-list, .metric-grid, .card-grid { display: grid; gap: 12px; }
+.tree-grade { font-weight: 700; }
+.tree-chapter-title { color: var(--muted); font-size: 0.95rem; }
+.tree-task {
+  text-align: left;
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 12px;
+  color: var(--ink);
+}
+.tree-task.active { background: #fff7ed; color: #9a3412; }
+.detail-head { display: grid; gap: 8px; }
+.info-card {
+  background: #fffdfa;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 16px;
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+.metric-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.metric-grid div { display: grid; gap: 6px; }
+.metric-grid span { color: var(--muted); font-size: 0.92rem; }
+.metric-grid strong { font-size: 1.2rem; }
+.steps-list { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+.history-row { display: flex; justify-content: space-between; gap: 12px; }
+.practice-topbar { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.canvas-card, .panel-side {
+  background: #fffdfa;
+  border-radius: 16px;
+  border: 1px solid rgba(148,163,184,0.12);
+  padding: 18px;
+}
+.action-banner {
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff7ed;
+  color: #9a3412;
+}
+.triangle-stage {
+  min-height: 340px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, rgba(241,245,249,0.6), rgba(255,255,255,0.9));
+  border-radius: 16px;
+}
+.vertex-label, .edge-label { fill: #475569; font-weight: 700; }
+.question-stage { display: grid; gap: 14px; }
+.fraction-card {
+  display: grid;
+  gap: 8px;
+  width: min(320px, 100%);
+  padding: 18px;
+  border-radius: 16px;
+  background: #fff7ed;
+}
+.fraction-bar { height: 2px; background: rgba(154, 52, 18, 0.2); }
+.input-grid { display: grid; gap: 12px; }
+.input-grid label, .step-card label { display: grid; gap: 8px; }
+.step-card {
+  background: #f8fafc;
+  border-radius: 14px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  border: 1px solid transparent;
+}
+.step-card.active { border-color: rgba(249, 115, 22, 0.35); background: #fff7ed; }
+.fraction-inline { display: flex; align-items: center; gap: 8px; }
+.chart-shell { display: grid; gap: 8px; }
+.chart-empty, .chart-caption { color: var(--muted); font-size: 0.92rem; }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+.modal-card {
+  width: min(560px, 100%);
+  background: white;
+  border-radius: 20px;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+  box-shadow: 0 30px 60px rgba(15, 23, 42, 0.18);
+}
+
+@media (max-width: 900px) {
+  .home-grid, .practice-layout { grid-template-columns: 1fr; }
+}
