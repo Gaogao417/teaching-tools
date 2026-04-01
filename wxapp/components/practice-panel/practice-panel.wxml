@@ -1,0 +1,94 @@
+<view class="panel task-panel layout-{{layoutMode}}">
+  <view class="action-banner">{{actionBanner}}</view>
+
+  <view wx:if="{{problem.kind === 'meaning'}}" class="task-shell">
+    <view class="formula-card">
+      <view class="formula-main">{{problem.formula}}</view>
+      <view class="formula-sub">请选择分子边和分母边</view>
+    </view>
+
+    <view class="slot-grid">
+      <view class="slot-card">
+        <view class="slot-label">分子边</view>
+        <view class="slot-value">{{selectedNumeratorLabel}}</view>
+      </view>
+      <view class="slot-card">
+        <view class="slot-label">分母边</view>
+        <view class="slot-value">{{selectedDenominatorLabel}}</view>
+      </view>
+    </view>
+
+    <view class="choice-grid layout-{{layoutMode}}">
+      <block wx:for="{{roleCards}}" wx:key="id">
+        <view class="choice-card" style="border-color: {{item.color}}33;">
+          <view class="choice-copy">{{item.label}} · {{item.side}}</view>
+          <view class="choice-actions layout-{{layoutMode}}">
+            <button class="ghost-btn choice-btn" data-role="{{item.id}}" data-slot="numerator" bindtap="handleChooseRole">设为分子</button>
+            <button class="ghost-btn choice-btn" data-role="{{item.id}}" data-slot="denominator" bindtap="handleChooseRole">设为分母</button>
+          </view>
+        </view>
+      </block>
+    </view>
+  </view>
+
+  <view wx:elif="{{problem.kind === 'ratioToSide'}}" class="task-shell">
+    <view class="formula-card">
+      <view class="formula-main">{{problem.formula}}</view>
+      <view class="formula-sub">请把数值填写到对应边上</view>
+    </view>
+
+    <view class="field-grid">
+      <block wx:for="{{edgeFields}}" wx:key="side">
+        <view class="field-card">
+          <view class="field-label">{{item.side}} · {{item.label}}</view>
+          <input class="field-input" data-side="{{item.side}}" bindinput="handleEdgeInput" value="{{item.value}}" placeholder="输入长度" />
+        </view>
+      </block>
+    </view>
+  </view>
+
+  <view wx:else class="task-shell">
+    <view class="formula-card">
+      <view class="formula-main">分步求值</view>
+      <view class="formula-sub">{{problem.prompt}}</view>
+    </view>
+
+    <view class="stepper-list">
+      <view class="step-card">
+        <view class="step-head">1. {{problem.teacherSteps[0]}}</view>
+        <block wx:for="{{knownFields}}" wx:key="id">
+          <view class="field-row layout-{{layoutMode}}">
+            <text class="field-row-label">{{item.label}}</text>
+            <input class="field-input inline-input" data-role="{{item.id}}" bindinput="handleKnownInput" value="{{item.value}}" placeholder="没有可留空" />
+          </view>
+        </block>
+      </view>
+
+      <view class="step-card">
+        <view class="step-head">2. {{problem.teacherSteps[1]}}</view>
+        <block wx:for="{{ratioFields}}" wx:key="id">
+          <view class="field-row layout-{{layoutMode}}">
+            <text class="field-row-label">{{item.label}}</text>
+            <input class="field-input inline-input" data-role="{{item.id}}" bindinput="handleRatioInput" value="{{item.value}}" placeholder="z 比系数" />
+          </view>
+        </block>
+      </view>
+
+      <view class="step-card">
+        <view class="step-head">3. {{problem.teacherSteps[2]}}</view>
+        <input class="field-input" bindinput="handleThirdInput" value="{{thirdInput}}" placeholder="补出的第三边长度" />
+      </view>
+
+      <view class="step-card">
+        <view class="step-head">4. {{problem.teacherSteps[3]}}</view>
+        <view class="fraction-row layout-{{layoutMode}}">
+          <input class="field-input fraction-input" data-slot="numerator" bindinput="handleFinalInput" value="{{finalInputs.numerator}}" placeholder="分子" />
+          <text class="fraction-divider">/</text>
+          <input class="field-input fraction-input" data-slot="denominator" bindinput="handleFinalInput" value="{{finalInputs.denominator}}" placeholder="分母" />
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <button class="primary-btn submit-btn" bindtap="handleSubmit">提交答案</button>
+</view>

@@ -1,0 +1,22 @@
+<view class="panel topbar layout-{{layoutMode}}">
+  <view class="topbar-head">
+    <view class="topbar-actions">
+      <button class="ghost-btn mini-btn" bindtap="handleBackHome">返回首页</button>
+      <button class="secondary-btn mini-btn" bindtap="handleRestart">重新开始本组</button>
+    </view>
+    <view class="topbar-copy">
+      <view class="topbar-title">{{title}}</view>
+      <view class="pill">第 {{currentIndex + 1}} / {{total}} 题 · {{formattedTime}}</view>
+    </view>
+  </view>
+
+  <view class="progress-box">
+    <view class="progress-row">
+      <text>练习进度</text>
+      <text>{{progressPercent}}%</text>
+    </view>
+    <view class="progress-track">
+      <view class="progress-fill" style="width: {{progressPercent}}%;"></view>
+    </view>
+  </view>
+</view>

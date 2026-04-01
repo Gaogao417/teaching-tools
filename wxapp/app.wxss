@@ -1,0 +1,72 @@
+page {
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(235, 214, 185, 0.9), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(209, 228, 215, 0.88), transparent 26%),
+    linear-gradient(180deg, #f6efe3 0%, #efe5d4 100%);
+  color: #1f2937;
+  font-family: "PingFang SC", "Hiragino Sans GB", sans-serif;
+}
+
+.screen {
+  min-height: 100vh;
+  padding: 24rpx;
+  box-sizing: border-box;
+}
+
+.panel {
+  background: rgba(255, 253, 248, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 28rpx;
+  box-shadow: 0 16rpx 36rpx rgba(70, 56, 38, 0.08);
+}
+
+.section-title {
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.muted {
+  color: #64748b;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  background: rgba(201, 111, 58, 0.12);
+  color: #a04f22;
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, #d67f45, #bc6133);
+  color: #fff;
+  border: none;
+  border-radius: 999rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+  padding: 0 32rpx;
+  box-sizing: border-box;
+}
+
+.secondary-btn {
+  background: rgba(201, 111, 58, 0.12);
+  color: #a04f22;
+  border: none;
+  border-radius: 999rpx;
+  font-size: 28rpx;
+  padding: 0 28rpx;
+  box-sizing: border-box;
+}
+
+.ghost-btn {
+  background: rgba(71, 85, 105, 0.08);
+  color: #475569;
+  border: none;
+  border-radius: 999rpx;
+  font-size: 28rpx;
+  padding: 0 28rpx;
+  box-sizing: border-box;
+}
