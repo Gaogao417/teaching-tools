@@ -5,7 +5,13 @@
 - `frontend/`: React + Vite 前端
 - `backend/`: Express + SQLite 后端
 - `shared/`: 前后端共享契约
+- `docs/`: 项目级设计文档与架构文档
 - `trigonometry-practice.html`: 旧原型，保留为视觉与逻辑参考
+
+设计文档入口：
+
+- 项目级文档见 `docs/`
+- `docs/` 是当前唯一有效的设计规范来源
 
 ## 本地开发
 
