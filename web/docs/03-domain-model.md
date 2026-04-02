@@ -28,7 +28,7 @@
 
 ## 顶层对象
 
-推荐最终围绕下面 7 类对象建模：
+推荐最终围绕下面 8 类对象建模：
 
 - `Task`
 - `ExerciseInstance`
@@ -36,7 +36,8 @@
 - `FlowSpec`
 - `GuideSpec`
 - `FeedbackSpec`
-- `RuntimeState`
+- `ServerRuntimeState`
+- `ClientDraftState`
 
 ## ExerciseRuntimeSpec
 
@@ -48,11 +49,21 @@
 type ExerciseRuntimeSpec = {
   instance: ExerciseInstance
   runtimeState: ServerRuntimeState
-  draftState?: ClientDraftState
 }
 ```
 
-当前阶段也可以把 `draftState` 保留在前端，不直接放入服务端响应；但从概念上，它属于同一运行时对象的一部分。
+`ExerciseRuntimeSpec` 专指服务端下发给前端运行时的对象。
+
+前端本地维护的 `ClientDraftState` 不属于服务端返回契约，而是运行时在客户端额外组合的局部状态。
+
+如果需要描述“前端当前看到的完整运行时快照”，应使用单独概念，例如：
+
+```ts
+type ClientRuntimeSnapshot = {
+  spec: ExerciseRuntimeSpec
+  draft: ClientDraftState
+}
+```
 
 ## Task
 
@@ -345,15 +356,13 @@ type FeedbackCue = {
 
 前端运行时负责把 key 映射到具体动画和音效实现。
 
-## RuntimeState
+## ServerRuntimeState
 
-`RuntimeState` 是当前关卡实例在某一时刻的可见状态。
+`ServerRuntimeState` 是服务端权威运行时状态。
 
-它由后端主状态与前端局部草稿态共同组成。
+它表示当前关卡实例在规则层已经推进到哪里。
 
-### 服务端主状态
-
-建议结构：
+### 建议结构
 
 ```ts
 type ServerRuntimeState = {
@@ -365,9 +374,13 @@ type ServerRuntimeState = {
 }
 ```
 
-### 前端局部草稿态
+## ClientDraftState
 
-建议结构：
+`ClientDraftState` 是前端运行时本地维护的瞬时输入态。
+
+它只表达“学生当前正在输入或选择什么”，不表达最终规则判断结果。
+
+### 建议结构
 
 ```ts
 type ClientDraftState = {
@@ -378,7 +391,9 @@ type ClientDraftState = {
 }
 ```
 
-这两部分必须分开建模。
+## 两者关系
+
+`ServerRuntimeState` 与 `ClientDraftState` 必须分开建模。
 
 前端可以修改 `ClientDraftState`，但不能伪造 `ServerRuntimeState`。
 

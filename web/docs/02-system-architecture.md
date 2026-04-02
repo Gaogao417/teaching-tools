@@ -237,11 +237,10 @@ Route
   -> PracticePage
     -> ExerciseRuntimeHost
       -> WorkspaceScene
-        -> TriangleCanvas
-        -> EdgeHotspot
-        -> ValueInputAnchor
-        -> FormulaSlots
-        -> HighlightOverlay
+        -> SceneRenderer
+        -> InteractionZoneLayer
+        -> InputAnchorLayer
+        -> OverlayLayer
       -> GuidePanel
         -> ActionBanner
         -> StepTracker
@@ -287,16 +286,16 @@ db/
 
 典型对象包括：
 
-- `TriangleCanvas`
-- `EdgeHotspot`
-- `VertexMarker`
-- `EdgeLabel`
-- `ValueInputAnchor`
-- `FractionSlots`
-- `DropZone`
+- `SceneRenderer`
+- `InteractionZone`
+- `InputAnchor`
+- `SceneLabel`
 - `SceneOverlay`
+- `FormulaComposer`
 
 这些对象接收 schema 和 state，输出标准事件。
+
+针对具体场景的对象库，例如三角形专用对象，应属于某个场景插件或 feature 实现，不应在项目级架构文档中被视为通用运行时本体。
 
 ### Guide / Feedback Library
 
