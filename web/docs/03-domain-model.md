@@ -4,90 +4,94 @@
 
 这个项目的领域模型不应只描述“题目数据”，而应描述“教学关卡运行时”。
 
-也就是说，模型不仅要覆盖：
+因此，顶层模型不再围绕 `MeaningProblem` / `RatioToSideProblem` / `GuidedSolveProblem` 展开，而围绕下面 8 类对象展开：
 
-- 题目是什么
-- 答案是什么
+- `TaskDefinition`
+- `ContentDefinition`
+- `ExerciseInstance`
+- `ExerciseRuntimeSpec`
+- `ServerRuntimeState`
+- `ClientDraftState`
+- `PracticeSessionSnapshot`
+- `ResultSnapshot`
 
-还要覆盖：
-
-- 场景里有哪些对象
-- 学生可以做哪些动作
-- 这些动作如何按步骤推进
-- 系统如何把反馈传给前端运行时
-
-因此，领域模型的核心对象应是 `ExerciseRuntimeSpec`，而不是仅仅是 `MeaningProblem` / `RatioToSideProblem` / `GuidedSolveProblem`。
+其中最关键的不是再发明一个大表，而是把任务目录、内容模板、规则引擎三层边界先划清。
 
 ## 建模原则
 
 - 题型是内容实例，不是页面类型
-- 场景、动作、流程、反馈必须可以独立建模
-- 后端保存真值，前端消费运行时描述
-- DSL 必须描述语义，不描述 DOM
-- 通用模型优先于题型特化字段
+- 目录信息、可序列化内容、规则逻辑必须分层
+- 后端保存规则真值，前端消费运行时描述
+- DSL 只描述语义，不描述 DOM 和样式实现
+- runtime-first types 是主模型，legacy problem types 只是兼容层
 
-## 顶层对象
+## 三层边界
 
-推荐最终围绕下面 8 类对象建模：
+| 层 | 作用 | 允许包含 | 不允许包含 |
+| --- | --- | --- | --- |
+| `TaskDefinition` | 任务目录与入口 | 标题、摘要、难度、样题、`engineKind`、`contentId` | 判题逻辑、step 推进、运行时状态 |
+| `ContentDefinition` | 可序列化内容模板 | prompt、scene、flow、guide、feedback、初始变量 | 函数、规则判断、组件实现细节 |
+| `EnginePlugin` | 代码形式规则引擎 | 实例生成、动作处理、状态推进、运行时组装 | shared wire schema、页面实现细节 |
 
-- `Task`
-- `ExerciseInstance`
-- `SceneSpec`
-- `FlowSpec`
-- `GuideSpec`
-- `FeedbackSpec`
-- `ServerRuntimeState`
-- `ClientDraftState`
+`EnginePlugin` 是领域模型的关键边界，但它只存在于 backend code，不属于 shared contract。
 
-## ExerciseRuntimeSpec
+## TaskDefinition
 
-`ExerciseRuntimeSpec` 是前端运行时消费的顶层对象，用来把场景、流程、引导、反馈组合成一个可执行关卡。
+`TaskDefinition` 是任务目录节点。
 
 建议结构：
 
 ```ts
-type ExerciseRuntimeSpec = {
-  instance: ExerciseInstance
-  runtimeState: ServerRuntimeState
-}
-```
-
-`ExerciseRuntimeSpec` 专指服务端下发给前端运行时的对象。
-
-前端本地维护的 `ClientDraftState` 不属于服务端返回契约，而是运行时在客户端额外组合的局部状态。
-
-如果需要描述“前端当前看到的完整运行时快照”，应使用单独概念，例如：
-
-```ts
-type ClientRuntimeSnapshot = {
-  spec: ExerciseRuntimeSpec
-  draft: ClientDraftState
-}
-```
-
-## Task
-
-`Task` 是教学内容入口，用于首页任务树和会话创建，不直接代表一次练习中的关卡实例。
-
-建议结构：
-
-```ts
-type Task = {
-  id: string
+type TaskDefinition = {
+  id: TaskId
   title: string
   summary: string
   difficulty: "easy" | "medium" | "hard"
-  category: string
-  engineKind: string
+  engineKind: ExerciseEngineKind
+  contentId: string
+  sample: {
+    prompt: string
+    answerPreview?: string
+  }
+  steps: string[]
+  catalogMeta: {
+    gradeId: string
+    gradeName: string
+    chapterId: string
+    chapterName: string
+    color?: string
+  }
 }
 ```
 
-其中：
+它用于首页任务树和会话入口，不直接代表 session 中的一题。
 
-- `id` 是任务标识
-- `engineKind` 表示该任务由哪种运行时模板承接
+## ContentDefinition
 
-`meaning`、`ratioToSide`、`guidedSolve` 当前可以先继续作为 `TaskId`，但模型上应理解为具体任务，而不是固定死的页面分支。
+`ContentDefinition` 是内容模板。
+
+建议结构：
+
+```ts
+type ContentDefinition = {
+  id: string
+  engineKind: ExerciseEngineKind
+  taskId: TaskId
+  version: string
+  promptTemplate: string
+  sceneTemplate: unknown
+  flowTemplate: unknown
+  guideTemplate: unknown
+  feedbackTemplate: unknown
+  initialVariables?: Record<string, string>
+}
+```
+
+当前阶段最重要的约束不是字段长什么样，而是：
+
+- 必须可序列化
+- 必须可版本化
+- 必须不包含规则代码
 
 ## ExerciseInstance
 
@@ -100,6 +104,7 @@ type ExerciseInstance = {
   instanceId: string
   taskId: string
   engineKind: string
+  contentId: string
   prompt: string
   scene: SceneSpec
   flow: FlowSpec
@@ -108,20 +113,37 @@ type ExerciseInstance = {
 }
 ```
 
-它是后端发给前端运行时的核心内容对象。
+它是前端运行时直接消费的内容对象。
+
+## ExerciseRuntimeSpec
+
+`ExerciseRuntimeSpec` 是服务端返回给前端的运行时规格。
+
+建议结构：
+
+```ts
+type ExerciseRuntimeSpec = {
+  instance: ExerciseInstance
+  runtimeState: ServerRuntimeState
+}
+```
+
+前端本地草稿态不属于服务端返回对象。
+
+如果前端需要表达“当前看到的完整快照”，应使用：
+
+```ts
+type ClientRuntimeSnapshot = {
+  spec: ExerciseRuntimeSpec
+  draft: ClientDraftState
+}
+```
 
 ## SceneSpec
 
-`SceneSpec` 描述左侧工作区里有哪些对象，以及这些对象如何被识别和操作。
+`SceneSpec` 描述左侧工作区有哪些对象，以及这些对象如何被操作。
 
-### 作用
-
-- 定义工作区中的几何对象
-- 定义可交互区域
-- 定义输入锚点
-- 定义只读标签和视觉标记
-
-### 建议结构
+建议结构：
 
 ```ts
 type SceneSpec = {
@@ -135,36 +157,24 @@ type SceneSpec = {
 
 ### SceneEntity
 
+`SceneEntity` 表示工作区对象本体。
+
+建议类型：
+
 ```ts
 type SceneEntity =
-  | TriangleEntity
-  | EdgeEntity
-  | VertexEntity
-  | FormulaEntity
-  | TextEntity
-```
-
-例如三角形类题目可以至少包含：
-
-- `TriangleEntity`
-- 3 个 `EdgeEntity`
-- 3 个 `VertexEntity`
-
-### SceneOverlay
-
-`SceneOverlay` 用于定义不直接参与点击、但会跟随运行时状态变化的可视层。
-
-```ts
-type SceneOverlay = {
-  id: string
-  overlayKind: "highlight" | "mask" | "guide-line" | "badge"
-  targetRef?: string
-}
+  | TriangleSceneEntity
+  | EdgeSceneEntity
+  | VertexSceneEntity
+  | FormulaSceneEntity
+  | TextSceneEntity
 ```
 
 ### InteractionZone
 
-`InteractionZone` 用于抽象命中区，而不是直接依赖某个具体 SVG 实现。
+`InteractionZone` 表示命中区，而不是具体 DOM。
+
+建议结构：
 
 ```ts
 type InteractionZone = {
@@ -172,23 +182,15 @@ type InteractionZone = {
   zoneKind: "edge" | "vertex" | "region" | "slot" | "input"
   targetRef: string
   shape: ZoneShape
-  accepts?: AllowedActionType[]
+  accepts?: RuntimeActionType[]
 }
-
-type ZoneShape =
-  | { type: "lineCorridor"; from: string; to: string; width: number }
-  | { type: "polygon"; points: Array<{ x: number; y: number }> }
-  | { type: "anchor"; x: number; y: number; radius?: number }
 ```
-
-这层定义是为了保证：
-
-- 斜边可以有独立命中区定义
-- 工作区交互不绑死在某一版 DOM 结构上
 
 ### SceneAnchor
 
-`SceneAnchor` 用于定义值输入、标签、公式槽等挂载点。
+`SceneAnchor` 表示输入锚点、标签锚点或公式槽。
+
+建议结构：
 
 ```ts
 type SceneAnchor = {
@@ -200,19 +202,25 @@ type SceneAnchor = {
 }
 ```
 
+### SceneOverlay
+
+`SceneOverlay` 表示不直接参与输入，但会随状态变化的视觉层。
+
+建议结构：
+
+```ts
+type SceneOverlay = {
+  id: string
+  overlayKind: "highlight" | "mask" | "guide-line" | "badge"
+  targetRef?: string
+}
+```
+
 ## FlowSpec
 
-`FlowSpec` 描述关卡如何推进，等价于游戏任务系统里的 mission flow。
+`FlowSpec` 描述关卡如何推进。
 
-### 作用
-
-- 定义步骤列表
-- 定义当前激活步骤
-- 定义每一步允许的动作
-- 定义提交模式
-- 定义解锁条件
-
-### 建议结构
+建议结构：
 
 ```ts
 type FlowSpec = {
@@ -231,25 +239,15 @@ type FlowStep = {
 }
 ```
 
-`guidedSolve` 的分步推进、`meaning` 的先选分子再选分母，都应落在这层，而不是散在页面分支里。
+`meaning` 的先选分子再选分母、`guidedSolve` 的多步骤解锁，都属于这层，而不是页面内分支逻辑。
 
 ## ActionSpec
 
-`ActionSpec` 是 DSL 的核心，定义“学生现在可以做什么”。
+`ActionSpec` 是运行时 DSL 的动作原语。
 
-它应是语义动作，而不是前端实现动作。
-
-### 建议动作原语
+建议结构：
 
 ```ts
-type AllowedActionType =
-  | "select"
-  | "input"
-  | "assign"
-  | "compose"
-  | "clear"
-  | "submit"
-
 type ActionSpec =
   | {
       type: "select"
@@ -272,36 +270,22 @@ type ActionSpec =
       slots: string[]
     }
   | {
+      type: "clear"
+      target?: string
+    }
+  | {
       type: "submit"
       stepId: string
     }
 ```
 
-这套原语是为了抽象出所有题型共享的教学交互范式：
-
-- `select`
-  识别对象
-- `input`
-  对对象输入值
-- `assign`
-  把值放到目标上
-- `compose`
-  组成表达式或关系
-- `submit`
-  推进当前步骤
+动作原语表达语义，不表达前端实现细节。
 
 ## GuideSpec
 
-`GuideSpec` 描述右侧引导区应该向学生展示什么。
+`GuideSpec` 描述右侧引导区的内容。
 
-### 作用
-
-- 呈现当前目标
-- 呈现步骤列表
-- 呈现教师口令
-- 呈现错误提示与下一步提示
-
-### 建议结构
+建议结构：
 
 ```ts
 type GuideSpec = {
@@ -319,19 +303,13 @@ type GuideStepItem = {
 }
 ```
 
-右侧引导区使用这层模型，不直接绑定具体题型组件。
+右侧引导区必须是只读层，不承载主输入控件。
 
 ## FeedbackSpec
 
-`FeedbackSpec` 描述动作结果在前端应该触发什么反馈类型。
+`FeedbackSpec` 描述动作结果会触发什么语义反馈。
 
-### 作用
-
-- 统一正确 / 错误 / 完成反馈
-- 统一局部高亮与全局反馈 key
-- 让组件库和运行时通过 key 协作
-
-### 建议结构
+建议结构：
 
 ```ts
 type FeedbackSpec = {
@@ -347,22 +325,13 @@ type FeedbackCue = {
 }
 ```
 
-这里的 `key` 只表达语义，例如：
-
-- `pulse-correct`
-- `shake-wrong`
-- `highlight-edge`
-- `play-correct-sound`
-
-前端运行时负责把 key 映射到具体动画和音效实现。
+后端只返回语义 cue，前端负责映射到音效、动画和高亮。
 
 ## ServerRuntimeState
 
 `ServerRuntimeState` 是服务端权威运行时状态。
 
-它表示当前关卡实例在规则层已经推进到哪里。
-
-### 建议结构
+建议结构：
 
 ```ts
 type ServerRuntimeState = {
@@ -376,11 +345,9 @@ type ServerRuntimeState = {
 
 ## ClientDraftState
 
-`ClientDraftState` 是前端运行时本地维护的瞬时输入态。
+`ClientDraftState` 是前端本地草稿态。
 
-它只表达“学生当前正在输入或选择什么”，不表达最终规则判断结果。
-
-### 建议结构
+建议结构：
 
 ```ts
 type ClientDraftState = {
@@ -391,85 +358,71 @@ type ClientDraftState = {
 }
 ```
 
-## 两者关系
+它只表达当前输入，不表达规则真值。
 
-`ServerRuntimeState` 与 `ClientDraftState` 必须分开建模。
+## PracticeSessionSnapshot
 
-前端可以修改 `ClientDraftState`，但不能伪造 `ServerRuntimeState`。
-
-## Session
-
-`Session` 是一次练习会话容器。
+`PracticeSessionSnapshot` 是练习页消费的 session 级快照。
 
 建议结构：
 
 ```ts
-type Session = {
+type PracticeSessionSnapshot = {
   sessionId: string
-  studentName: string
   taskId: string
-  exerciseInstances: ExerciseInstance[]
+  studentName: string
   currentIndex: number
-  phase: "answering" | "correct_pause" | "wrong_feedback" | "group_finished"
+  instanceCount: number
   elapsedMs: number
+  phase: "answering" | "correct_pause" | "wrong_feedback" | "group_finished"
+  runtime?: ExerciseRuntimeSpec
 }
 ```
 
-`Session` 属于 runtime host，负责在多个关卡实例之间推进。
+当前页面真正依赖的是当前活动实例的 runtime，而不是一整组 legacy `Problem[]`。
 
-## 标准动作事件
+## ResultSnapshot
 
-前端组件库与运行时之间不应直接传业务 payload，而应传标准动作事件。
+`ResultSnapshot` 是完成后结果页消费的数据。
 
-建议结构：
+它属于持久化结果层，不参与运行时判题。
 
-```ts
-type RuntimeActionEvent = {
-  type: AllowedActionType
-  targetId?: string
-  value?: string
-  sourceId?: string
-  stepId?: string
-}
-```
-
-运行时再把这些动作转换为 API payload。
-
-这样组件层就不需要理解：
-
-- 当前是 Group 1 还是 Group 3
-- 当前要调哪个后端接口字段
-
-## 题型如何落入通用模型
+## 当前 3 个任务如何落入通用模型
 
 ### meaning
 
-- `SceneSpec`
-  三角形、三条边、两个公式槽
-- `FlowSpec`
-  先选分子，再选分母
-- `ActionSpec`
-  `select + compose`
+- `TaskDefinition`
+  首页任务入口
+- `ContentDefinition`
+  选择两条边、按顺序组成分子/分母
+- `EnginePlugin`
+  根据参考角判断选边顺序是否正确
 
 ### ratioToSide
 
-- `SceneSpec`
-  三角形、边输入锚点
-- `FlowSpec`
-  填完三边后提交
-- `ActionSpec`
-  `input + submit`
+- `TaskDefinition`
+  首页任务入口
+- `ContentDefinition`
+  三边输入锚点、整题提交
+- `EnginePlugin`
+  校验三边长度并推进状态
 
 ### guidedSolve
 
-- `SceneSpec`
-  三角形、步骤输入锚点、最终分式槽
-- `FlowSpec`
-  多步骤顺序解锁
-- `ActionSpec`
-  `input + compose + submit`
+- `TaskDefinition`
+  首页任务入口
+- `ContentDefinition`
+  多步骤 flow、逐步解锁、最终公式槽
+- `EnginePlugin`
+  维护步骤状态并推进到完成
 
-这说明当前 3 个题型不是 3 套架构，只是同一 runtime model 的 3 种内容实例。
+这说明当前 3 个任务不是 3 套架构，只是同一 runtime model 的 3 个内容实例。
+
+## Legacy 模型的定位
+
+`Problem`、`MeaningProblem`、`RatioToSideProblem`、`GuidedSolveProblem`、`ProblemRenderSchema` 当前仍可存在，但只作为兼容层。
+
+它们不再是领域模型的主路径，不应再作为新增设计的中心。
 
 ## 非目标
 
@@ -477,26 +430,13 @@ type RuntimeActionEvent = {
 
 - 像素级布局策略
 - 组件样式实现
-- 动画具体参数
+- 动画参数
 - 前端框架细节
 - 教研后台编辑器
 
-这些都应在领域模型之下单独解决。
+## 当前默认决策
 
-## 与 `shared/contracts.ts` 的关系
-
-后续应按下面顺序推进：
-
-1. 先在本文件冻结通用 runtime model
-2. 再把 `shared/contracts.ts` 改造成 runtime-first 的契约
-3. 最后把现有 `MeaningProblem` / `RatioToSideProblem` / `GuidedSolveProblem` 迁移为该模型的具体实例
-
-在迁移完成前，可以暂时保留现有题型字段，但新增设计应优先围绕：
-
-- `SceneSpec`
-- `FlowSpec`
-- `GuideSpec`
-- `FeedbackSpec`
-- `RuntimeActionEvent`
-
-来扩展，而不是继续给单个题型堆专属字段。
+- 先冻结本文件中的 runtime-first model
+- 再让 `shared/contracts.ts` 对齐本文件
+- 再让 backend / frontend 主路径切到该模型
+- legacy problem types 只保留到 runtime-first 主路径稳定为止

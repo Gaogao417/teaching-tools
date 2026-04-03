@@ -2,53 +2,42 @@
 
 ## 摘要
 
-API 不应只被理解为“给页面喂数据”，而应被理解为“给教学运行时提供关卡实例与状态推进”。
+API 的目标不是“给页面喂题目字段”，而是“给教学运行时提供实例、动作入口和状态推进”。
 
-因此，接口契约的核心不是某个页面要几个字段，而是：
+因此，接口主模型应围绕下面 3 类对象展开：
 
-- 后端如何下发一个可执行的教学关卡实例
-- 前端如何上报标准化动作
-- 后端如何返回新的运行时状态
+- `TaskDefinition` / `TaskTreeResponse`
+- `PracticeSessionSnapshot` / `ExerciseRuntimeSpec`
+- `RuntimeActionEvent` / `RuntimeActionResponse`
 
-当前项目处于过渡阶段：
+当前项目仍处在兼容阶段，所以本文件同时定义：
 
-- 现网契约仍以 `Problem + AnswerPayload` 为主
-- 新架构目标是演进到 `ExerciseRuntimeSpec + RuntimeActionEvent`
-
-本文件同时定义：
-
-- 当前兼容契约
-- 目标运行时契约
-- 迁移约束
-
-术语约束：
-
-- `ExerciseRuntimeSpec` 专指服务端返回给前端的运行时规格
-- 前端本地草稿态不属于 API 返回对象
-- 客户端若需要组合本地快照，应在前端自行用 `ExerciseRuntimeSpec + ClientDraftState` 组合
+- 目标 runtime-first 契约
+- 当前保留的 legacy 契约
+- 迁移与兼容规则
 
 ## 契约原则
 
 - 服务端是规则权威源
-- 前端不上传标准答案，只上传动作或当前步骤的输入
-- 所有字段使用语义命名，不暴露 DOM 或组件实现细节
-- 允许兼容期内同时保留旧题型 payload 和新 runtime payload
-- `shared/contracts.ts` 是最终类型真相源
+- 前端上传动作或当前步骤输入，不上传标准答案
+- shared contract 只暴露语义字段，不暴露 DOM / CSS 细节
+- `EnginePlugin` 是后端内部实现边界，不进入 shared wire schema
+- legacy contract 允许短期保留，但不是新的主路径
 
 ## 资源模型
 
-当前系统主要有 4 类 API 资源：
+系统主要暴露 4 类资源：
 
 - `task`
-  教学任务入口与任务树
+  首页任务树和任务摘要
 - `session`
   一次练习会话
-- `exercise-instance`
-  session 中的单题实例
+- `exercise-runtime`
+  当前活动关卡实例及其状态
 - `result`
-  练习完成后的结果快照
+  完成后的结果快照
 
-## 当前兼容接口
+## 目标运行时契约
 
 ### 1. 获取任务树
 
@@ -56,9 +45,10 @@ API 不应只被理解为“给页面喂数据”，而应被理解为“给教�
 
 作用：
 
-- 获取首页任务树与任务摘要
+- 获取首页任务树
+- 返回由 `TaskDefinition` 投影出来的任务摘要
 
-当前响应：
+响应：
 
 ```ts
 interface TaskTreeResponse {
@@ -66,132 +56,70 @@ interface TaskTreeResponse {
 }
 ```
 
-### 2. 获取任务历史
+说明：
 
-`GET /api/task-history/:taskId?studentName=...`
+- `TaskTreeResponse` 是目录投影，不是 authored source
+- authored source 应是 `TaskDefinition`
 
-作用：
-
-- 获取学生在某任务下的历史记录
-
-当前响应：
-
-```ts
-interface TaskHistoryResponse {
-  taskId: string
-  studentName: string
-  items: TaskHistoryItem[]
-}
-```
-
-### 3. 创建练习 session
+### 2. 创建练习 session
 
 `POST /api/practice/start`
 
 作用：
 
 - 创建新的练习会话
-- 返回 session 与题目实例列表
+- 生成首题 runtime
 
-当前请求：
+请求：
 
 ```ts
 interface StartPracticeRequest {
-  taskId: string
+  taskId: TaskId
   studentName: string
 }
 ```
 
-当前响应：
+目标响应：
 
 ```ts
 interface StartPracticeResponse {
   sessionId: string
-  taskId: string
+  taskId: TaskId
   studentName: string
-  problems: Problem[]
-  startedAt: string
-}
-```
-
-### 4. 提交答案
-
-`POST /api/practice/answer`
-
-作用：
-
-- 提交当前题或当前步骤的作答
-- 返回后端判定结果与新的题目状态
-
-当前请求：
-
-```ts
-interface AnswerRequest {
-  sessionId: string
-  problemId: string
-  payload: AnswerPayload
-}
-```
-
-当前响应：
-
-```ts
-interface AnswerResponse {
-  correct: boolean
-  allSolved: boolean
-  hint?: string
-  problemState: Problem
-  nextIndex: number
+  currentIndex: number
+  instanceCount: number
+  elapsedMs: number
   phase: SessionPhase
+  runtime?: ExerciseRuntimeSpec
 }
 ```
 
-### 5. 恢复 session
+### 3. 恢复 session
 
 `GET /api/practice/session/:sessionId`
 
 作用：
 
-- 刷新或重进页面时恢复当前 session
+- 刷新或重进时恢复当前 session
 
-当前响应：
+目标响应：
 
 ```ts
 interface RestorePracticeResponse {
   sessionId: string
-  taskId: string
+  taskId: TaskId
   studentName: string
   currentIndex: number
-  problems: Problem[]
+  instanceCount: number
   elapsedMs: number
   phase: SessionPhase
+  runtime?: ExerciseRuntimeSpec
 }
 ```
 
-### 6. 完成练习
+### 4. Runtime Spec
 
-`POST /api/practice/finish`
-
-作用：
-
-- 结束 session
-- 返回结果快照
-
-### 7. 查询结果
-
-`GET /api/practice/result/:sessionId`
-
-作用：
-
-- 获取已持久化的结果页数据
-
-## 目标运行时契约
-
-目标架构下，练习页应消费“运行时关卡实例”，而不是只消费题型分支数据。
-
-### 1. Runtime Spec
-
-后端应能返回：
+`ExerciseRuntimeSpec` 是服务端返回给前端运行时的核心对象。
 
 ```ts
 interface ExerciseRuntimeSpec {
@@ -200,24 +128,23 @@ interface ExerciseRuntimeSpec {
 }
 ```
 
-其中 `instance` 包含：
+其中 `instance` 至少包含：
 
 - `scene`
 - `flow`
 - `guide`
 - `feedback`
 
-这意味着前端不需要再自己从题型字段推导：
+### 5. Runtime Action
 
-- 当前有哪些可点击区域
-- 当前步骤允许哪些动作
-- 右侧应该展示哪些步骤和提示
+`POST /api/practice/runtime-action`
 
-### 2. Runtime Action
+作用：
 
-前端应向后端上报标准动作，而不是让组件层直接知道题型特有 payload。
+- 接收前端标准动作
+- 返回新的 runtime state 与反馈
 
-建议请求结构：
+请求：
 
 ```ts
 interface RuntimeActionRequest {
@@ -239,78 +166,47 @@ interface RuntimeActionEvent {
 }
 ```
 
-### 3. Runtime Patch
+### 6. Runtime Action Response
 
-后端响应不应只回答“对/错”，还应返回新的运行时可见状态。
-
-建议响应结构：
+目标响应：
 
 ```ts
 interface RuntimeActionResponse {
   accepted: boolean
   evaluation: "correct" | "wrong" | "progress"
   runtimeState: ServerRuntimeState
-  instancePatch?: Partial<ExerciseInstance>
+  runtime?: ExerciseRuntimeSpec
   feedback?: RuntimeFeedbackPacket
   nextIndex: number
   phase: SessionPhase
 }
 ```
 
-其中：
+约束：
 
-- `accepted`
-  动作是否合法
-- `evaluation`
-  本次动作是推进、答对还是答错
-- `instancePatch`
-  如步骤摘要、引导文案、局部 scene 状态发生变化，可增量返回
-- `feedback`
-  返回语义级反馈 cue，而不是前端样式类名
+- 默认优先返回完整 `runtime`
+- 若未来引入 patch，patch 只能是优化，不是主路径依赖
 
-## 当前到目标的迁移策略
+### 7. 完成练习
 
-### 阶段 1: 兼容增强
+`POST /api/practice/finish`
 
-保留现有：
+作用：
 
-- `Problem`
-- `AnswerPayload`
-- `AnswerResponse`
+- 结束 session
+- 返回结果快照
 
-同时新增但不强制启用：
+### 8. 查询结果
 
-- `ExerciseRuntimeSpec`
-- `RuntimeActionEvent`
-- `RuntimeFeedbackPacket`
+`GET /api/practice/result/:sessionId`
 
-允许旧页面继续工作，新页面开始按 runtime model 实现。
+作用：
 
-### 阶段 2: 双轨接口
-
-在现有 `submitAnswer` 保持不变的情况下，新增 runtime 风格接口，例如：
-
-- `POST /api/practice/runtime-action`
-
-或在原接口中新增：
-
-- `mode: "legacy" | "runtime"`
-
-### 阶段 3: Runtime First
-
-当 `PracticePage` 已重构为 `ExerciseRuntimeHost` 后：
-
-- 页面内部不再基于 `problem.type` 写大分支
-- 组件层只上报标准动作
-- 后端以 runtime state 驱动页面更新
-
-届时旧题型 payload 可以退化为兼容层，而不是主契约。
+- 获取完成后的结果页数据
 
 ## 反馈契约
 
-反馈契约必须保持语义化。
-
-后端可以返回：
+反馈必须保持语义化。
 
 ```ts
 interface RuntimeFeedbackPacket {
@@ -320,22 +216,22 @@ interface RuntimeFeedbackPacket {
 }
 ```
 
+后端可以返回：
+
+- 正确提示
+- 错误提示
+- 完成提示
+- 局部高亮目标
+
 后端不应返回：
 
-- CSS class 名
-- 动画时长实现细节
-- DOM 选择器
-
-前端运行时负责把 feedback cue 映射成实际：
-
-- 音效
-- 页面动效
-- 边高亮
-- 步骤状态闪动
+- CSS class
+- 动画时长
+- DOM selector
 
 ## 错误语义
 
-统一错误响应保持：
+统一错误响应：
 
 ```ts
 interface ApiErrorResponse {
@@ -346,29 +242,61 @@ interface ApiErrorResponse {
 }
 ```
 
-运行时契约下，建议新增这些错误语义：
+运行时主路径必须预留这些错误语义：
 
 - `ACTION_NOT_ALLOWED`
-  当前步骤不允许该动作
 - `INSTANCE_NOT_ACTIVE`
-  当前题不是激活题
 - `RUNTIME_CONTRACT_INVALID`
-  服务端生成的 runtime spec 非法
+- `LEGACY_SESSION_EXPIRED`
 
-这些错误不一定要立刻实现，但应预留。
+其中 `LEGACY_SESSION_EXPIRED` 用于旧 session 在迁移后不再可恢复的情况。
 
-## 版本与兼容规则
+## Legacy 兼容契约
 
-- 新字段优先以可选字段方式加入，避免一次性打断现有实现
-- 一次迁移只替换一层：
-  - 先加 runtime types
-  - 再加 runtime endpoint
-  - 再改前端 runtime host
-- 若 `docs/03-domain-model.md` 与接口设计冲突，以领域模型先修正，再更新契约
+当前保留的 legacy contract 包括：
+
+- `Problem`
+- `AnswerPayload`
+- `AnswerRequest`
+- `AnswerResponse`
+- `ProblemRenderSchema`
+- `POST /api/practice/answer`
+
+### Legacy 接口定位
+
+`POST /api/practice/answer` 在迁移期内可以保留，但角色固定为：
+
+- 接收旧 payload
+- 适配为 runtime action
+- 复用同一条 runtime-first backend pipeline
+
+它不再应该承载独立判题逻辑。
+
+### Legacy session 恢复策略
+
+- 旧结果快照保留
+- 旧进行中 session 可失效
+- 若恢复失败，应返回显式错误，而不是静默产出半兼容 runtime
+
+## 迁移顺序
+
+迁移顺序固定如下：
+
+1. 先冻结 docs
+2. 再冻结 shared contracts
+3. 再让 backend start / restore / runtime-action 切到 runtime-first
+4. 最后让 frontend 主路径切到 runtime-first
+
+兼容原则：
+
+- 一次只替换一层
+- legacy contract 可以暂留，但不得继续扩展
+- 若 `03-domain-model.md` 与接口定义冲突，以领域模型为准先修正，再同步接口文档
 
 ## 当前默认决策
 
-- 当前主接口保持兼容
-- 新架构按 runtime-first 设计类型
-- `ProblemRenderSchema` 视为过渡结构，不是最终通用 DSL
-- `RuntimeActionEvent` 是后续组件库与后端协作的标准动作模型
+- `ExerciseRuntimeSpec + RuntimeActionEvent` 是目标主契约
+- `Problem + AnswerPayload` 是兼容契约
+- `ProblemRenderSchema` 是过渡结构，不是最终 DSL
+- `StartPracticeResponse` / `RestorePracticeResponse` 应收敛到 `PracticeSessionSnapshot`
+- 新增任务不得绕开 runtime-first contract 直接加专属接口字段
