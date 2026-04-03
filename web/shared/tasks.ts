@@ -18,6 +18,7 @@ export const TASK_NODES: Record<TaskId, TaskNode> = {
     title: TASK_LABELS.meaning,
     summary: "识别三角比对应的分子边与分母边。",
     difficulty: "easy",
+    engineKind: "triangle-trig",
     sample: {
       prompt: "已知参考角 A，指出 sin A 的分子边和分母边。",
     },
@@ -33,6 +34,7 @@ export const TASK_NODES: Record<TaskId, TaskNode> = {
     title: TASK_LABELS.ratioToSide,
     summary: "根据已知三角比，补全三边长度。",
     difficulty: "medium",
+    engineKind: "triangle-trig",
     sample: {
       prompt: "已知 sin A = 3/5，请把三个边长填到三角形对应位置。",
     },
@@ -48,6 +50,7 @@ export const TASK_NODES: Record<TaskId, TaskNode> = {
     title: TASK_LABELS.guidedSolve,
     summary: "根据两条已知边，逐步求出目标三角比。",
     difficulty: "hard",
+    engineKind: "triangle-trig",
     sample: {
       prompt: "已知两条边的长度关系，分步求出目标三角比。",
     },

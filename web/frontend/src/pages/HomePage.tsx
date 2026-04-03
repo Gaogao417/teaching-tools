@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { TaskHistoryResponse, TaskNode, TaskTreeResponse } from "../../../shared/contracts";
+import { ChapterNode, GradeNode, TaskHistoryResponse, TaskNode, TaskTreeResponse } from "../../../shared/contracts";
 import { api } from "../api/client";
 import { Chart } from "../components/Chart";
 import { getStudentName, setStudentName } from "../utils/storage";
@@ -10,20 +10,53 @@ function formatSeconds(ms: number | null | undefined) {
   return `${((ms || 0) / 1000).toFixed(1)}s`;
 }
 
+function findFirstTask(tree: TaskTreeResponse | null) {
+  return tree?.grades[0]?.chapters[0]?.tasks[0] || null;
+}
+
+function findTaskPath(taskId: string, tree: TaskTreeResponse | null) {
+  if (!tree) return null;
+  for (const grade of tree.grades) {
+    for (const chapter of grade.chapters) {
+      const task = chapter.tasks.find((item) => item.id === taskId);
+      if (task) {
+        return { grade, chapter, task };
+      }
+    }
+  }
+  return null;
+}
+
 export function HomePage() {
   const navigate = useNavigate();
   const [tree, setTree] = useState<TaskTreeResponse | null>(null);
-  const [studentNameValue, setStudentNameValue] = useState(getStudentName());
-  const [savedStudentName, setSavedStudentNameState] = useState(getStudentName());
+  const storedStudentName = getStudentName();
+  const [studentNameValue, setStudentNameValue] = useState(storedStudentName);
+  const [savedStudentName, setSavedStudentNameState] = useState(storedStudentName);
   const [selectedTaskId, setSelectedTaskId] = useState("meaning");
   const [history, setHistory] = useState<TaskHistoryResponse | null>(null);
+  const [expandedGradeIds, setExpandedGradeIds] = useState<string[]>([]);
+  const [expandedChapterIds, setExpandedChapterIds] = useState<string[]>([]);
 
   useEffect(() => {
     api.getTaskTree().then(setTree).catch(console.error);
   }, []);
 
+  useEffect(() => {
+    if (!tree) return;
+    const firstTask = findFirstTask(tree);
+    const currentPath = findTaskPath(selectedTaskId, tree);
+    const nextPath = currentPath || (firstTask ? findTaskPath(firstTask.id, tree) : null);
+    if (!currentPath && firstTask) {
+      setSelectedTaskId(firstTask.id);
+    }
+    if (!nextPath) return;
+    setExpandedGradeIds((current) => (current.length ? current : [nextPath.grade.id]));
+    setExpandedChapterIds((current) => (current.length ? current : [nextPath.chapter.id]));
+  }, [selectedTaskId, tree]);
+
   const selectedTask = useMemo(() => {
-    return tree?.grades[0]?.chapters[0]?.tasks.find((task) => task.id === selectedTaskId) || null;
+    return findTaskPath(selectedTaskId, tree)?.task || null;
   }, [tree, selectedTaskId]);
 
   useEffect(() => {
@@ -48,9 +81,49 @@ export function HomePage() {
 
   const saveName = () => {
     const trimmed = studentNameValue.trim();
+    if (!trimmed) return;
     setStudentName(trimmed);
     setSavedStudentNameState(trimmed);
+    setStudentNameValue(trimmed);
   };
+
+  const handleNameKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    saveName();
+  };
+
+  const toggleExpanded = (id: string, current: string[]) =>
+    current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+
+  const toggleGrade = (gradeId: string) => {
+    setExpandedGradeIds((current) => toggleExpanded(gradeId, current));
+  };
+
+  const toggleChapter = (chapterId: string) => {
+    setExpandedChapterIds((current) => toggleExpanded(chapterId, current));
+  };
+
+  const selectTask = (gradeId: string, chapterId: string, taskId: string) => {
+    setSelectedTaskId(taskId);
+    setExpandedGradeIds((current) => (current.includes(gradeId) ? current : [...current, gradeId]));
+    setExpandedChapterIds((current) => (current.includes(chapterId) ? current : [...current, chapterId]));
+  };
+
+  const renderTaskButton = (grade: GradeNode, chapter: ChapterNode, task: TaskNode) => (
+    <button
+      key={task.id}
+      type="button"
+      className={`tree-node tree-task ${task.id === selectedTaskId ? "active" : ""}`}
+      onClick={() => selectTask(grade.id, chapter.id, task.id)}
+    >
+      <span className="tree-label">
+        <span className="tree-arrow tree-dot">•</span>
+        <span>{task.title}</span>
+      </span>
+      <span className="tree-meta">{task.difficulty}</span>
+    </button>
+  );
 
   return (
     <div className="page-shell">
@@ -64,42 +137,70 @@ export function HomePage() {
           <input
             value={studentNameValue}
             onChange={(event) => setStudentNameValue(event.target.value)}
-            placeholder="请输入学生姓名"
+            onKeyDown={handleNameKeyDown}
+            placeholder="请输入学生姓名后按回车"
           />
-          <button className="secondary-btn" type="button" onClick={saveName}>
+          <button className="secondary-btn" type="button" onClick={saveName} disabled={!studentNameValue.trim()}>
             保存姓名
           </button>
+          <span className="student-hint">
+            {savedStudentName ? `当前学生：${savedStudentName}` : "输入姓名并按回车后即可开始练习"}
+          </span>
         </div>
       </section>
 
       <section className="home-grid">
         <aside className="panel nav-panel">
-          <h2>任务导航</h2>
-          {tree?.grades.map((grade) => (
-            <div key={grade.id} className="tree-block">
-              <div className="tree-grade">{grade.name}</div>
-              {grade.chapters.map((chapter) => (
-                <div key={chapter.id} className="tree-chapter">
-                  <div className="tree-chapter-title">{chapter.name}</div>
-                  <div className="tree-list">
-                    {chapter.tasks.map((task) => (
-                      <button
-                        key={task.id}
-                        type="button"
-                        className={`tree-task ${task.id === selectedTaskId ? "active" : ""}`}
-                        onClick={() => setSelectedTaskId(task.id)}
-                      >
-                        {task.title}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
+          <div className="tree-header">
+            <h2>任务导航</h2>
+            <p className="muted-copy">年级 → 章节 → 任务</p>
+          </div>
+          <div className="tree-body">
+            {tree?.grades.map((grade) => {
+              const gradeExpanded = expandedGradeIds.includes(grade.id);
+              return (
+                <section key={grade.id} className="tree-block">
+                  <button type="button" className="tree-node tree-grade" onClick={() => toggleGrade(grade.id)}>
+                    <span className="tree-label">
+                      <span className="tree-arrow">{gradeExpanded ? "▾" : "▸"}</span>
+                      <span>{grade.name}</span>
+                    </span>
+                  </button>
+
+                  {gradeExpanded && (
+                    <div className="tree-branch">
+                      {grade.chapters.map((chapter) => {
+                        const chapterExpanded = expandedChapterIds.includes(chapter.id);
+                        return (
+                          <section key={chapter.id} className="tree-chapter">
+                            <button
+                              type="button"
+                              className="tree-node tree-chapter-title"
+                              onClick={() => toggleChapter(chapter.id)}
+                            >
+                              <span className="tree-label">
+                                <span className="tree-arrow">{chapterExpanded ? "▾" : "▸"}</span>
+                                <span>{chapter.name}</span>
+                              </span>
+                            </button>
+
+                            {chapterExpanded && (
+                              <div className="tree-branch tree-task-list">
+                                {chapter.tasks.map((task) => renderTaskButton(grade, chapter, task))}
+                              </div>
+                            )}
+                          </section>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
         </aside>
 
-        {selectedTask && (
+        {selectedTask ? (
           <section className="panel detail-panel">
             <div className="detail-head">
               <div className="eyebrow">{selectedTask.difficulty}</div>
@@ -153,6 +254,13 @@ export function HomePage() {
               >
                 开始练习
               </button>
+            </div>
+          </section>
+        ) : (
+          <section className="panel detail-panel">
+            <div className="detail-head">
+              <h2>请先选择任务</h2>
+              <p className="muted-copy">当前没有可用任务，或任务树尚未加载完成。</p>
             </div>
           </section>
         )}

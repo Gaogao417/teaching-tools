@@ -2,6 +2,8 @@ import {
   AnswerPayload,
   AnswerResponse,
   FinishPracticeResponse,
+  RuntimeActionEvent,
+  RuntimeActionResponse,
   RestorePracticeResponse,
   ResultSnapshot,
   StartPracticeResponse,
@@ -44,6 +46,11 @@ export const api = {
     request<AnswerResponse>("/api/practice/answer", {
       method: "POST",
       body: JSON.stringify({ sessionId, problemId, payload }),
+    }),
+  submitRuntimeAction: (sessionId: string, instanceId: string, action: RuntimeActionEvent) =>
+    request<RuntimeActionResponse>("/api/practice/runtime-action", {
+      method: "POST",
+      body: JSON.stringify({ sessionId, instanceId, action }),
     }),
   restorePractice: (sessionId: string) =>
     request<RestorePracticeResponse>(`/api/practice/session/${sessionId}`),

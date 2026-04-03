@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 import { z } from "zod";
 import { TASK_TREE } from "../../shared/tasks";
-import { finishPractice, getResult, getTaskHistory, restorePractice, startPractice, submitAnswer } from "./services/practiceService";
+import { finishPractice, getResult, getTaskHistory, restorePractice, startPractice, submitAnswer, submitRuntimeAction } from "./services/practiceService";
 
 const taskIdSchema = z.enum(["meaning", "ratioToSide", "guidedSolve"]);
 
@@ -63,6 +63,27 @@ export function createApp() {
         })
         .parse(req.body);
       res.json(submitAnswer(body.sessionId, body.problemId, body.payload));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/practice/runtime-action", (req, res, next) => {
+    try {
+      const body = z
+        .object({
+          sessionId: z.string().min(1),
+          instanceId: z.string().min(1),
+          action: z.object({
+            type: z.enum(["select", "input", "assign", "compose", "clear", "submit"]),
+            targetId: z.string().optional(),
+            value: z.string().optional(),
+            sourceId: z.string().optional(),
+            stepId: z.string().optional(),
+          }),
+        })
+        .parse(req.body);
+      res.json(submitRuntimeAction(body.sessionId, body.instanceId, body.action));
     } catch (error) {
       next(error);
     }

@@ -1,67 +1,117 @@
-import type { Dispatch, SetStateAction } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import {
-  AnswerPayload,
-  GuidedSolveProblem,
+import type {
+  ClientDraftState,
+  ExerciseRuntimeSpec,
+  FeedbackEffectKey,
   Problem,
-  Role,
+  ResultSnapshot,
+  Side,
+  TaskHistoryItem,
   TaskId,
 } from "../../../shared/contracts";
 import { api } from "../api/client";
-import { TriangleStage } from "../components/TriangleStage";
+import { Chart } from "../components/Chart";
 import { clearStoredSessionId, getStoredSessionId, getStudentName, setStoredSessionId } from "../utils/storage";
+import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
+import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
 
 const AUTO_ADVANCE_DELAY = 700;
+const CHART_LIMIT = 10;
+const TASK_COLOR: Record<TaskId, string> = {
+  meaning: "#b85c38",
+  ratioToSide: "#1f8a70",
+  guidedSolve: "#d97706",
+};
+
+type PracticeSession = {
+  sessionId: string;
+  taskId: TaskId;
+  studentName: string;
+  problems: Problem[];
+  currentIndex: number;
+  elapsedMs: number;
+  phase: "answering" | "correct_pause" | "wrong_feedback" | "group_finished";
+  runtime?: ExerciseRuntimeSpec;
+};
+
+function emptyDraft(): ClientDraftState {
+  return {
+    selections: {},
+    inputs: {},
+    transientFeedback: [],
+  };
+}
 
 function formatSeconds(ms: number | null | undefined) {
   if (!Number.isFinite(ms)) return "--";
   return `${((ms || 0) / 1000).toFixed(1)}s`;
 }
 
-type LocalState = {
-  numeratorRole: Role | "";
-  denominatorRole: Role | "";
-  placements: Record<"AB" | "BC" | "AC", string>;
-  guidedRatio: Record<string, string>;
-  guidedThird: string;
-  guidedFinal: { numerator: string; denominator: string };
-};
+function average(values: number[]) {
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
 
-const emptyLocalState: LocalState = {
-  numeratorRole: "",
-  denominatorRole: "",
-  placements: { AB: "", BC: "", AC: "" },
-  guidedRatio: {},
-  guidedThird: "",
-  guidedFinal: { numerator: "", denominator: "" },
-};
+function bestFromHistory(history: TaskHistoryItem[]) {
+  return history.length ? Math.min(...history.map((item) => item.elapsedMs)) : null;
+}
+
+function avgFromHistory(history: TaskHistoryItem[]) {
+  return average(history.slice(-5).map((item) => item.elapsedMs));
+}
+
+function taskOrderLabel(taskId: TaskId) {
+  if (taskId === "meaning") return "第 1 组";
+  if (taskId === "ratioToSide") return "第 2 组";
+  return "第 3 组";
+}
+
+function feedbackKind(runtime?: ExerciseRuntimeSpec, fallback: FeedbackEffectKey = "correct"): FeedbackEffectKey {
+  const cue = runtime?.instance.feedback.correct[0]?.key;
+  return cue === "wrong" || cue === "finish" || cue === "correct" ? cue : fallback;
+}
 
 export function PracticePage() {
   const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: TaskId }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [session, setSession] = useState<{
-    sessionId: string;
-    taskId: TaskId;
-    studentName: string;
-    problems: Problem[];
-    currentIndex: number;
-    elapsedMs: number;
-    phase: "answering" | "correct_pause" | "wrong_feedback" | "group_finished";
-  } | null>(null);
-  const [feedback, setFeedback] = useState("");
   const [loading, setLoading] = useState(true);
-  const [localState, setLocalState] = useState<LocalState>(emptyLocalState);
-  const [modalSnapshot, setModalSnapshot] = useState<null | Awaited<ReturnType<typeof api.finishPractice>>["resultSnapshot"]>(null);
+  const [session, setSession] = useState<PracticeSession | null>(null);
+  const [history, setHistory] = useState<TaskHistoryItem[]>([]);
+  const [draft, setDraft] = useState<ClientDraftState>(emptyDraft());
+  const [feedback, setFeedback] = useState<{ tone: "idle" | "success" | "error"; title: string; body: string }>({
+    tone: "idle",
+    title: "准备开始",
+    body: "左侧负责操作，右侧负责引导。",
+  });
+  const [hoveredSide, setHoveredSide] = useState<Side | null>(null);
+  const [modalSnapshot, setModalSnapshot] = useState<ResultSnapshot | null>(null);
   const advanceTimer = useRef<number | null>(null);
+  const sessionRef = useRef<PracticeSession | null>(null);
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const { effectKind, triggerFeedback, prefersReducedMotion } = usePracticeFeedback();
+
+  const problem = session ? session.problems[session.currentIndex] ?? null : null;
+  const runtime = session?.runtime;
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    return () => {
+      if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     const studentName = getStudentName();
-    if (!studentName || !taskId) {
+    if (!taskId || !studentName) {
       navigate("/");
       return;
     }
+
     const sessionIdFromUrl = searchParams.get("sessionId");
     const stored = getStoredSessionId(taskId);
     const restoreId = sessionIdFromUrl || stored;
@@ -69,17 +119,29 @@ export function PracticePage() {
     const boot = async () => {
       setLoading(true);
       try {
+        const historyResponse = await api.getTaskHistory(taskId, studentName, CHART_LIMIT).catch(() => null);
+        if (historyResponse) {
+          setHistory(historyResponse.items);
+        }
+
         if (restoreId) {
           const restored = await api.restorePractice(restoreId);
-          setSession(restored);
+          setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
           setStoredSessionId(taskId, restored.sessionId);
           setSearchParams({ sessionId: restored.sessionId }, { replace: true });
-        } else {
-          const started = await api.startPractice(taskId, studentName);
-          setSession({ ...started, currentIndex: 0, elapsedMs: 0, phase: "answering" });
-          setStoredSessionId(taskId, started.sessionId);
-          setSearchParams({ sessionId: started.sessionId }, { replace: true });
+          return;
         }
+
+        const started = await api.startPractice(taskId, studentName);
+        setSession({
+          ...started,
+          currentIndex: 0,
+          elapsedMs: 0,
+          phase: "answering",
+          runtime: started.runtime,
+        });
+        setStoredSessionId(taskId, started.sessionId);
+        setSearchParams({ sessionId: started.sessionId }, { replace: true });
       } finally {
         setLoading(false);
       }
@@ -89,297 +151,288 @@ export function PracticePage() {
   }, [navigate, searchParams, setSearchParams, taskId]);
 
   useEffect(() => {
-    return () => {
-      if (advanceTimer.current) {
-        window.clearTimeout(advanceTimer.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     if (!session || session.phase === "group_finished") return;
     const timer = window.setInterval(() => {
-      setSession((current) =>
-        current
-          ? {
-              ...current,
-              elapsedMs: current.elapsedMs + 100,
-            }
-          : current,
-      );
+      setSession((current) => {
+        if (!current || current.phase === "group_finished") return current;
+        return { ...current, elapsedMs: current.elapsedMs + 100 };
+      });
     }, 100);
     return () => window.clearInterval(timer);
   }, [session?.sessionId, session?.phase]);
 
-  const problem = useMemo(() => {
-    if (!session) return null;
-    return session.problems[session.currentIndex] || null;
-  }, [session]);
-
   useEffect(() => {
-    setLocalState(emptyLocalState);
+    setDraft(emptyDraft());
+    setHoveredSide(null);
   }, [problem?.id]);
 
-  const handleRoleClick = (role: Role) => {
-    if (!problem || problem.type !== "meaning") return;
-    if (!localState.numeratorRole) {
-      setLocalState((current) => ({ ...current, numeratorRole: role }));
-      return;
-    }
-    if (!localState.denominatorRole) {
-      const payload: AnswerPayload = {
-        type: "meaning",
-        numeratorRole: localState.numeratorRole,
-        denominatorRole: role,
-      };
-      void submit(payload);
+  const refreshHistory = async (nextTaskId: TaskId, studentName: string) => {
+    const historyResponse = await api.getTaskHistory(nextTaskId, studentName, CHART_LIMIT).catch(() => null);
+    if (historyResponse) {
+      setHistory(historyResponse.items);
     }
   };
 
-  const submit = async (payload: AnswerPayload) => {
-    if (!session || !problem) return;
-    const response = await api.submitAnswer(session.sessionId, problem.id, payload);
-    const nextProblems = session.problems.map((item) => (item.id === response.problemState.id ? response.problemState : item));
-    setSession((current) =>
-      current
-        ? {
-            ...current,
-            problems: nextProblems,
-            currentIndex: response.phase === "correct_pause" && !response.allSolved ? current.currentIndex : response.nextIndex,
-            phase: response.phase,
-          }
-        : current,
-    );
-    setFeedback(response.correct ? "回答正确" : response.hint || "请再试一次");
+  const startNewSession = async () => {
+    if (!taskId) return;
+    const studentName = getStudentName();
+    if (!studentName) {
+      navigate("/");
+      return;
+    }
+    setLoading(true);
+    try {
+      clearStoredSessionId(taskId);
+      setModalSnapshot(null);
+      const started = await api.startPractice(taskId, studentName);
+      setSession({
+        ...started,
+        currentIndex: 0,
+        elapsedMs: 0,
+        phase: "answering",
+        runtime: started.runtime,
+      });
+      setDraft(emptyDraft());
+      setStoredSessionId(taskId, started.sessionId);
+      setSearchParams({ sessionId: started.sessionId }, { replace: true });
+      await refreshHistory(taskId, studentName);
+      setFeedback({ tone: "idle", title: "已重新开始", body: "新一组题目已生成。" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const scheduleAdvance = (sessionId: string) => {
+    if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
+    advanceTimer.current = window.setTimeout(async () => {
+      const restored = await api.restorePractice(sessionId);
+      setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
+    }, AUTO_ADVANCE_DELAY);
+  };
+
+  const finishPractice = async (currentSession: PracticeSession) => {
+    const finished = await api.finishPractice(currentSession.sessionId);
+    setModalSnapshot(finished.resultSnapshot);
+    clearStoredSessionId(currentSession.taskId);
+    await refreshHistory(currentSession.taskId, currentSession.studentName);
+    triggerFeedback("finish");
+    setFeedback({
+      tone: "success",
+      title: "本组已完成",
+      body: "成绩面板已生成，可继续练习或查看详细结果。",
+    });
+  };
+
+  const submitRuntimeAction = async (action: { type: "submit" | "clear"; stepId?: string; value?: string; targetId?: string }) => {
+    const currentSession = sessionRef.current;
+    const currentProblem = currentSession ? currentSession.problems[currentSession.currentIndex] : null;
+    if (!currentSession || !currentProblem) return;
+
+    const response = await api.submitRuntimeAction(currentSession.sessionId, currentProblem.id, {
+      type: action.type,
+      stepId: action.stepId,
+      value: action.value,
+      targetId: action.targetId,
+    });
+
+    if (action.type === "clear") {
+      setDraft(emptyDraft());
+      setFeedback({ tone: "idle", title: "已清空", body: "左侧草稿已清空。" });
+      return;
+    }
+
+    const nextSession: PracticeSession = {
+      ...currentSession,
+      problems: currentSession.problems,
+      currentIndex:
+        response.phase === "correct_pause" && response.nextIndex > currentSession.currentIndex
+          ? currentSession.currentIndex
+          : response.nextIndex,
+      phase: response.phase,
+      runtime: response.runtime,
+    };
+
+    setSession(nextSession);
+
+    if (response.evaluation === "wrong") {
+      const restored = await api.restorePractice(currentSession.sessionId);
+      setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
+      setFeedback({
+        tone: "error",
+        title: "再试一次",
+        body: response.runtime?.instance.guide.hint || "回到左侧再检查一步。",
+      });
+      triggerFeedback("wrong");
+      return;
+    }
+
+    setFeedback({
+      tone: "success",
+      title: response.phase === "answering" ? "当前步骤正确" : "回答正确",
+      body:
+        response.phase === "correct_pause"
+          ? "左侧操作已正确，稍后自动进入下一题。"
+          : response.phase === "group_finished"
+            ? "本组已完成。"
+            : "继续在左侧完成下一步。",
+    });
+    triggerFeedback(feedbackKind(response.runtime));
+
     if (response.phase === "correct_pause") {
-      advanceTimer.current = window.setTimeout(async () => {
-        const restored = await api.restorePractice(session.sessionId);
-        setSession(restored);
-      }, AUTO_ADVANCE_DELAY);
+      scheduleAdvance(currentSession.sessionId);
+      return;
     }
+
     if (response.phase === "group_finished") {
-      const finished = await api.finishPractice(session.sessionId);
-      setModalSnapshot(finished.resultSnapshot);
-      clearStoredSessionId(session.taskId);
-    }
-  };
-
-  const submitRatio = () => {
-    void submit({
-      type: "ratioToSide",
-      placements: localState.placements,
-    });
-  };
-
-  const submitGuided = (stepKey: "ratio" | "third" | "final") => {
-    if (stepKey === "ratio") {
-      void submit({
-        type: "guidedSolve",
-        stepKey,
-        value: localState.guidedRatio,
-      });
+      await finishPractice(nextSession);
       return;
     }
-    if (stepKey === "third") {
-      void submit({
-        type: "guidedSolve",
-        stepKey,
-        value: { third: localState.guidedThird },
-      });
-      return;
-    }
-    void submit({
-      type: "guidedSolve",
-      stepKey,
-      value: localState.guidedFinal,
-    });
+
+    const restored = await api.restorePractice(currentSession.sessionId);
+    setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
+    setDraft(emptyDraft());
   };
 
-  if (loading || !session || !problem) {
-    return <div className="page-shell"><section className="panel">加载中…</section></div>;
+  const currentProgress = session ? `${session.currentIndex + 1} / ${session.problems.length}` : "--";
+  const historyPoints = history.map((item) => ({ elapsedMs: item.elapsedMs, clearedAt: item.clearedAt }));
+  const bestMs = bestFromHistory(history);
+  const avgMs = avgFromHistory(history);
+
+  if (loading || !session || !problem || !runtime) {
+    return (
+      <div className="page-shell">
+        <section className="panel">加载中…</section>
+      </div>
+    );
   }
 
-  const progress = `${session.currentIndex + 1} / ${session.problems.length}`;
-
   return (
-    <div className="page-shell">
-      <section className="panel practice-panel">
-        <div className="practice-topbar">
-          <div>
-            <div className="eyebrow">{session.studentName}</div>
-            <h1>{problem.type === "meaning" ? "第 1 组" : problem.type === "ratioToSide" ? "第 2 组" : "第 3 组"}</h1>
-          </div>
-          <div className="top-stats">
-            <span>题号 {progress}</span>
-            <span>状态 {session.phase}</span>
-            <span>耗时 {formatSeconds(session.elapsedMs)}</span>
-          </div>
-        </div>
+    <div className={`page-shell practice-route effect-${effectKind || "idle"}`}>
+      <section className="panel practice-port-shell">
+        <PracticeEffectsLayer effectKind={effectKind} reducedMotion={prefersReducedMotion} />
+        <div className="practice-modern-shell">
+          <header className="practice-modern-topbar">
+            <div className="practice-modern-actions">
+              <button className="ghost-btn" type="button" onClick={() => navigate("/")}>
+                返回首页
+              </button>
+              <button className="secondary-btn" type="button" onClick={() => void startNewSession()}>
+                重新开始本组
+              </button>
+            </div>
 
-        <div className="practice-layout">
-          <div className="canvas-card">
-            <div className="action-banner">{feedback || "先观察题目，再开始作答。"}</div>
-            <TriangleStage problem={problem} onRoleClick={handleRoleClick} />
-          </div>
-
-          <div className="panel-side">
-            {problem.type === "meaning" && (
-              <div className="question-stage">
-                <h2>求 {problem.target.toUpperCase()} {problem.referenceAngle}</h2>
-                <div className="fraction-card">
-                  <div>{localState.numeratorRole || "分子边 ?"}</div>
-                  <div className="fraction-bar" />
-                  <div>{localState.denominatorRole || "分母边 ?"}</div>
+            <div className="practice-modern-progress">
+              <div className="practice-modern-progress-head">
+                <div>
+                  <div className="eyebrow">{taskOrderLabel(session.taskId)}</div>
+                  <h1>{runtime.instance.guide.banner}</h1>
                 </div>
-                <p className="muted-copy">点击三角形边，按顺序选择分子边和分母边。</p>
+                <div className="practice-modern-progress-copy">第 {currentProgress} 题</div>
               </div>
-            )}
-
-            {problem.type === "ratioToSide" && (
-              <div className="question-stage">
-                <h2>
-                  {problem.target.toUpperCase()} {problem.referenceAngle} = {problem.ratio.numerator}/{problem.ratio.denominator}
-                </h2>
-                <div className="input-grid">
-                  {problem.ui.edges.map((edge) => (
-                    <label key={edge}>
-                      <span>{edge}</span>
-                      <input
-                        value={localState.placements[edge]}
-                        onChange={(event) =>
-                          setLocalState((current) => ({
-                            ...current,
-                            placements: { ...current.placements, [edge]: event.target.value },
-                          }))
-                        }
-                      />
-                    </label>
-                  ))}
-                </div>
-                <button className="primary-btn" type="button" onClick={submitRatio}>
-                  提交答案
-                </button>
+              <div className="practice-modern-dots" aria-hidden="true">
+                {session.problems.map((item, index) => {
+                  const cls =
+                    index < session.currentIndex ? "done" : index === session.currentIndex ? "active" : "pending";
+                  return <span key={item.id} className={`practice-modern-dot ${cls}`} />;
+                })}
               </div>
-            )}
+              <div className="practice-modern-mini-stats">
+                <article className="practice-modern-stat">
+                  <span>当前耗时</span>
+                  <strong>{formatSeconds(session.elapsedMs)}</strong>
+                </article>
+                <article className="practice-modern-stat">
+                  <span>本组最佳</span>
+                  <strong>{formatSeconds(bestMs)}</strong>
+                </article>
+                <article className="practice-modern-stat">
+                  <span>最近平均</span>
+                  <strong>{formatSeconds(avgMs)}</strong>
+                </article>
+              </div>
+            </div>
+          </header>
 
-            {problem.type === "guidedSolve" && (
-              <GuidedPanel problem={problem} localState={localState} setLocalState={setLocalState} submitGuided={submitGuided} />
-            )}
+          <div className="practice-modern-main">
+            <ExerciseRuntimeHost
+              problem={problem}
+              runtime={runtime}
+              sessionPhase={session.phase}
+              draft={draft}
+              setDraft={setDraft}
+              inputRefs={inputRefs}
+              hoveredSide={hoveredSide}
+              onHoverSide={setHoveredSide}
+              onSubmit={(action) => void submitRuntimeAction({ type: "submit", ...action })}
+              onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
+            />
+          </div>
+
+          <div className="practice-modern-bottom">
+            <div className={`practice-feedback-card ${feedback.tone}`}>
+              <strong>{feedback.title}</strong>
+              <p>{feedback.body}</p>
+              <span className={`practice-inline-status ${feedback.tone}`}>{runtime.instance.guide.hint}</span>
+            </div>
+
+            <div className="practice-coach-card">
+              <div className="practice-section-head">
+                <strong>提示</strong>
+                <span>下一步提示</span>
+              </div>
+              <p>{runtime.instance.guide.hint || runtime.instance.prompt}</p>
+            </div>
+
+            <div className="practice-history-card">
+              <div className="practice-section-head">
+                <strong>耗时折线</strong>
+                <span>最近 {Math.min(history.length, CHART_LIMIT)} 次记录</span>
+              </div>
+              <Chart points={historyPoints} color={TASK_COLOR[session.taskId]} />
+            </div>
           </div>
         </div>
       </section>
 
       {modalSnapshot && (
-        <div className="modal-backdrop">
-          <div className="modal-card">
-            <div className="eyebrow">本组完成</div>
-            <h2>{modalSnapshot.title}</h2>
-            <p>{modalSnapshot.copy}</p>
-            <div className="metric-grid">
-              <div><span>本次耗时</span><strong>{formatSeconds(modalSnapshot.elapsedMs)}</strong></div>
-              <div><span>本组最佳</span><strong>{formatSeconds(modalSnapshot.bestMs)}</strong></div>
-              <div><span>最近平均</span><strong>{formatSeconds(modalSnapshot.avgMs)}</strong></div>
-              <div><span>首次正确率</span><strong>{Math.round(modalSnapshot.firstTryAccuracy * 100)}%</strong></div>
-            </div>
-            <div className="action-row">
-              <button className="secondary-btn" type="button" onClick={() => navigate(`/practice/${session.taskId}`)}>
-                再来一组
-              </button>
-              <button className="primary-btn" type="button" onClick={() => navigate(`/result/${session.sessionId}`)}>
-                查看结果
-              </button>
-            </div>
-          </div>
-        </div>
+        <CompletionModal
+          snapshot={modalSnapshot}
+          onRetry={() => void startNewSession()}
+          onResult={() => navigate(`/result/${session.sessionId}`)}
+        />
       )}
     </div>
   );
 }
 
-function GuidedPanel({
-  problem,
-  localState,
-  setLocalState,
-  submitGuided,
+function CompletionModal({
+  snapshot,
+  onRetry,
+  onResult,
 }: {
-  problem: GuidedSolveProblem;
-  localState: LocalState;
-  setLocalState: Dispatch<SetStateAction<LocalState>>;
-  submitGuided: (stepKey: "ratio" | "third" | "final") => void;
+  snapshot: ResultSnapshot;
+  onRetry: () => void;
+  onResult: () => void;
 }) {
-  const currentStep =
-    (["ratio", "third", "final"] as const).find((key) => !problem.stepState[key].done) || "final";
-
   return (
-    <div className="question-stage">
-      <h2>求 {problem.target.toUpperCase()} {problem.referenceAngle}</h2>
-      <p className="muted-copy">
-        已知 {problem.given.map((item) => `${item.edge}=${item.value}`).join("，")}
-      </p>
-
-      <div className="step-list">
-        <div className={`step-card ${currentStep === "ratio" ? "active" : ""}`}>
-          <strong>第 2 步：写最简 z 比</strong>
-          <div className="input-grid">
-            {problem.given.map((item) => (
-              <label key={item.role}>
-                <span>{item.role}</span>
-                <input
-                  value={localState.guidedRatio[item.role] || ""}
-                  onChange={(event) =>
-                    setLocalState((current) => ({
-                      ...current,
-                      guidedRatio: { ...current.guidedRatio, [item.role]: event.target.value },
-                    }))
-                  }
-                />
-              </label>
-            ))}
-          </div>
-          <button className="secondary-btn" type="button" onClick={() => submitGuided("ratio")} disabled={currentStep !== "ratio"}>
-            提交这一步
-          </button>
+    <div className="modal-backdrop">
+      <div className="modern-completion-modal">
+        <div className="eyebrow">本组完成</div>
+        <h2>{snapshot.title}</h2>
+        <p>{snapshot.copy}</p>
+        <div className="metric-grid">
+          <div><span>本次耗时</span><strong>{formatSeconds(snapshot.elapsedMs)}</strong></div>
+          <div><span>本组最佳</span><strong>{formatSeconds(snapshot.bestMs)}</strong></div>
+          <div><span>最近平均</span><strong>{formatSeconds(snapshot.avgMs)}</strong></div>
+          <div><span>首次正确率</span><strong>{Math.round(snapshot.firstTryAccuracy * 100)}%</strong></div>
         </div>
-
-        <div className={`step-card ${currentStep === "third" ? "active" : ""}`}>
-          <strong>第 3 步：补第三边</strong>
-          <label>
-            <span>第三边</span>
-            <input
-              value={localState.guidedThird}
-              onChange={(event) => setLocalState((current) => ({ ...current, guidedThird: event.target.value }))}
-            />
-          </label>
-          <button className="secondary-btn" type="button" onClick={() => submitGuided("third")} disabled={currentStep !== "third"}>
-            提交这一步
+        <Chart points={snapshot.history} color={snapshot.color} />
+        <div className="action-row">
+          <button className="secondary-btn" type="button" onClick={onRetry}>
+            再练一组
           </button>
-        </div>
-
-        <div className={`step-card ${currentStep === "final" ? "active" : ""}`}>
-          <strong>第 4 步：代回目标三角比</strong>
-          <div className="fraction-inline">
-            <input
-              value={localState.guidedFinal.numerator}
-              onChange={(event) =>
-                setLocalState((current) => ({
-                  ...current,
-                  guidedFinal: { ...current.guidedFinal, numerator: event.target.value },
-                }))
-              }
-            />
-            <span>/</span>
-            <input
-              value={localState.guidedFinal.denominator}
-              onChange={(event) =>
-                setLocalState((current) => ({
-                  ...current,
-                  guidedFinal: { ...current.guidedFinal, denominator: event.target.value },
-                }))
-              }
-            />
-          </div>
-          <button className="primary-btn" type="button" onClick={() => submitGuided("final")} disabled={currentStep !== "final"}>
-            提交答案
+          <button className="primary-btn" type="button" onClick={onResult}>
+            查看详细结果
           </button>
         </div>
       </div>
