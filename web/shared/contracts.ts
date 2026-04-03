@@ -8,14 +8,12 @@ export type SessionPhase =
   | "group_finished";
 
 export type ProblemStatus = "pending" | "correct" | "wrong";
-
 export type TrigFunction = "sin" | "cos" | "tan" | "cot";
 export type Angle = "A" | "C";
 export type Role = "opposite" | "adjacent" | "hypotenuse";
 export type Side = "AB" | "BC" | "AC";
-export type GuidedStepKey = "mark" | "ratio" | "third" | "final";
+export type GuidedStepKey = "ratio" | "third" | "final";
 export type FeedbackEffectKey = "correct" | "wrong" | "finish";
-export type GuideStepStatus = "done" | "active" | "pending";
 export type RuntimeStepStatus = "locked" | "active" | "done";
 export type RuntimeEvaluation = "correct" | "wrong" | "progress";
 export type RuntimeActionType = "select" | "input" | "assign" | "compose" | "clear" | "submit";
@@ -26,68 +24,71 @@ export type SceneAnchorKind = "value-input" | "label" | "formula-slot" | "badge"
 export type SceneOverlayKind = "highlight" | "mask" | "guide-line" | "badge";
 export type FeedbackScope = "global" | "workspace" | "guide";
 
-// Legacy: v0 workspace schema used by the current PracticePage implementation.
-
 export interface XYPoint {
   x: number;
   y: number;
 }
 
-export interface SideHitZoneLine {
-  kind: "line";
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  strokeWidth: number;
+export interface CatalogMeta {
+  gradeId: string;
+  gradeName: string;
+  chapterId: string;
+  chapterName: string;
+  color?: string;
 }
 
-export interface SideHitZonePolygon {
-  kind: "polygon";
-  points: XYPoint[];
-}
-
-export type SideHitZone = SideHitZoneLine | SideHitZonePolygon;
-
-export interface TriangleWorkspaceSideSchema {
-  side: Side;
-  role: Role;
-  label: XYPoint;
-  input: XYPoint;
-  hitZone: SideHitZone;
-}
-
-export interface TriangleWorkspaceSchema {
-  stage: {
-    width: number;
-    height: number;
-  };
-  vertices: Record<"A" | "B" | "C", XYPoint>;
-  rightAnglePath: string;
-  referenceAnglePath: string;
-  sides: TriangleWorkspaceSideSchema[];
-}
-
-export interface GuideStepSchema {
-  id: string;
+export interface TaskDefinition {
+  id: TaskId;
   title: string;
-  body: string;
-  status: GuideStepStatus;
+  summary: string;
+  difficulty: "easy" | "medium" | "hard";
+  engineKind: ExerciseEngineKind;
+  contentId: string;
+  sample: {
+    prompt: string;
+    answerPreview?: string;
+  };
+  steps: string[];
+  catalogMeta: CatalogMeta;
 }
 
-export interface ProblemRenderSchema {
-  workspace: TriangleWorkspaceSchema;
-  guide: {
-    title: string;
-    body: string;
-    steps: GuideStepSchema[];
-  };
-  feedback: {
-    correct: FeedbackEffectKey;
-    wrong: FeedbackEffectKey;
-    finish: FeedbackEffectKey;
-  };
+export interface GuideTemplateStepDefinition {
+  stepId: string;
+  title: string;
+  summary: string;
 }
+
+export interface TriangleTrigContentDefinition {
+  id: string;
+  engineKind: "triangle-trig";
+  taskId: TaskId;
+  version: string;
+  promptTemplate: string;
+  sceneTemplate: {
+    sceneKind: "triangle";
+    stage: {
+      width: number;
+      height: number;
+    };
+  };
+  flowTemplate: {
+    completionPolicy: "single-step" | "multi-step" | "whole-problem";
+    stepOrder: string[];
+    guideSteps: GuideTemplateStepDefinition[];
+  };
+  guideTemplate: {
+    banner: string;
+    hint: string;
+  };
+  feedbackTemplate: {
+    correct: FeedbackEffectKey[];
+    wrong: FeedbackEffectKey[];
+    finish: FeedbackEffectKey[];
+  };
+  initialVariables?: Record<string, string>;
+}
+
+export type ContentDefinition = TriangleTrigContentDefinition;
 
 export interface SceneEntityBase {
   id: string;
@@ -97,6 +98,8 @@ export interface SceneEntityBase {
 export interface TriangleSceneEntity extends SceneEntityBase {
   kind: "triangle";
   vertices: Record<string, XYPoint>;
+  rightAnglePath: string;
+  referenceAnglePath: string;
 }
 
 export interface EdgeSceneEntity extends SceneEntityBase {
@@ -123,6 +126,8 @@ export interface FormulaSceneEntity extends SceneEntityBase {
 export interface TextSceneEntity extends SceneEntityBase {
   kind: "text";
   text: string;
+  x?: number;
+  y?: number;
 }
 
 export type SceneEntity =
@@ -167,12 +172,16 @@ export interface SceneAnchor {
   entityRef?: string;
   x: number;
   y: number;
+  placeholder?: string;
+  value?: string;
+  label?: string;
 }
 
 export interface SceneOverlay {
   id: string;
   overlayKind: SceneOverlayKind;
   targetRef?: string;
+  label?: string;
 }
 
 export interface SceneSpec {
@@ -285,6 +294,7 @@ export interface ExerciseInstance {
   instanceId: string;
   taskId: string;
   engineKind: ExerciseEngineKind;
+  contentId: string;
   prompt: string;
   scene: SceneSpec;
   flow: FlowSpec;
@@ -300,6 +310,20 @@ export interface ExerciseRuntimeSpec {
 export interface ClientRuntimeSnapshot {
   spec: ExerciseRuntimeSpec;
   draft: ClientDraftState;
+}
+
+export interface PracticeSessionSnapshot {
+  sessionId: string;
+  taskId: TaskId;
+  studentName: string;
+  currentIndex: number;
+  instanceCount: number;
+  elapsedMs: number;
+  phase: SessionPhase;
+  runtime?: ExerciseRuntimeSpec;
+  legacy?: {
+    problems?: LegacyProblem[];
+  };
 }
 
 export interface RuntimeActionEvent {
@@ -360,110 +384,14 @@ export interface TaskHistoryResponse {
   items: TaskHistoryItem[];
 }
 
-export interface BaseProblem {
-  id: string;
-  taskId: TaskId;
-  type: TaskId;
-  index: number;
-  status: ProblemStatus;
-  attempts: number;
-  firstTryCorrect: boolean | null;
-  runtime?: ExerciseRuntimeSpec;
-}
-
-export interface MeaningProblem extends BaseProblem {
-  type: "meaning";
-  prompt: string;
-  target: TrigFunction;
-  referenceAngle: Angle;
-  renderSchema: ProblemRenderSchema;
-  ui: {
-    numeratorLabel: string;
-    denominatorLabel: string;
-    selectableRoles: Role[];
-  };
-}
-
-export interface RatioToSideProblem extends BaseProblem {
-  type: "ratioToSide";
-  prompt: string;
-  target: TrigFunction;
-  referenceAngle: Angle;
-  renderSchema: ProblemRenderSchema;
-  ratio: {
-    numerator: string;
-    denominator: string;
-  };
-  ui: {
-    edges: Side[];
-  };
-}
-
-export interface GuidedSolveProblem extends BaseProblem {
-  type: "guidedSolve";
-  prompt: string;
-  target: TrigFunction;
-  referenceAngle: Angle;
-  renderSchema: ProblemRenderSchema;
-  knownType: TrigFunction;
-  given: Array<{
-    edge: Side;
-    value: string;
-    role: Role;
-  }>;
-  stepKeys: GuidedStepKey[];
-  stepState: Record<
-    GuidedStepKey,
-    {
-      done: boolean;
-      value: string;
-    }
-  >;
-}
-
-export type Problem = MeaningProblem | RatioToSideProblem | GuidedSolveProblem;
-
-export interface MeaningAnswerPayload {
-  type: "meaning";
-  numeratorRole: Role;
-  denominatorRole: Role;
-}
-
-export interface RatioToSideAnswerPayload {
-  type: "ratioToSide";
-  placements: Partial<Record<Side, string>>;
-}
-
-export interface GuidedSolveAnswerPayload {
-  type: "guidedSolve";
-  stepKey: GuidedStepKey;
-  value: Record<string, string>;
-}
-
-export type AnswerPayload =
-  | MeaningAnswerPayload
-  | RatioToSideAnswerPayload
-  | GuidedSolveAnswerPayload;
-
 export interface StartPracticeRequest {
   taskId: TaskId;
   studentName: string;
 }
 
-export interface StartPracticeResponse {
-  sessionId: string;
-  taskId: TaskId;
-  studentName: string;
-  problems: Problem[];
-  startedAt: string;
-  runtime?: ExerciseRuntimeSpec;
-}
+export interface StartPracticeResponse extends PracticeSessionSnapshot {}
 
-export interface AnswerRequest {
-  sessionId: string;
-  problemId: string;
-  payload: AnswerPayload;
-}
+export interface RestorePracticeResponse extends PracticeSessionSnapshot {}
 
 export interface RuntimeActionRequest {
   sessionId: string;
@@ -471,37 +399,14 @@ export interface RuntimeActionRequest {
   action: RuntimeActionEvent;
 }
 
-export interface AnswerResponse {
-  correct: boolean;
-  allSolved: boolean;
-  hint?: string;
-  problemState: Problem;
-  nextIndex: number;
-  phase: SessionPhase;
-  runtime?: ExerciseRuntimeSpec;
-  feedback?: RuntimeFeedbackPacket;
-}
-
 export interface RuntimeActionResponse {
   accepted: boolean;
   evaluation: RuntimeEvaluation;
   runtimeState: ServerRuntimeState;
-  instancePatch?: Partial<ExerciseInstance>;
   runtime?: ExerciseRuntimeSpec;
   feedback?: RuntimeFeedbackPacket;
   nextIndex: number;
   phase: SessionPhase;
-}
-
-export interface RestorePracticeResponse {
-  sessionId: string;
-  taskId: TaskId;
-  studentName: string;
-  currentIndex: number;
-  problems: Problem[];
-  elapsedMs: number;
-  phase: SessionPhase;
-  runtime?: ExerciseRuntimeSpec;
 }
 
 export interface ResultSnapshot {
@@ -550,7 +455,173 @@ export interface ApiErrorResponse {
       | "ACTION_NOT_ALLOWED"
       | "INSTANCE_NOT_ACTIVE"
       | "RUNTIME_CONTRACT_INVALID"
+      | "LEGACY_SESSION_EXPIRED"
       | "INTERNAL_ERROR";
     message: string;
   };
 }
+
+// Legacy compatibility types. These remain for compatibility endpoints and adapters only.
+
+export interface GuideStepSchema {
+  id: string;
+  title: string;
+  body: string;
+  status: "done" | "active" | "pending";
+}
+
+export interface SideHitZoneLine {
+  kind: "line";
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  strokeWidth: number;
+}
+
+export interface SideHitZonePolygon {
+  kind: "polygon";
+  points: XYPoint[];
+}
+
+export type SideHitZone = SideHitZoneLine | SideHitZonePolygon;
+
+export interface TriangleWorkspaceSideSchema {
+  side: Side;
+  role: Role;
+  label: XYPoint;
+  input: XYPoint;
+  hitZone: SideHitZone;
+}
+
+export interface TriangleWorkspaceSchema {
+  stage: {
+    width: number;
+    height: number;
+  };
+  vertices: Record<"A" | "B" | "C", XYPoint>;
+  rightAnglePath: string;
+  referenceAnglePath: string;
+  sides: TriangleWorkspaceSideSchema[];
+}
+
+export interface ProblemRenderSchema {
+  workspace: TriangleWorkspaceSchema;
+  guide: {
+    title: string;
+    body: string;
+    steps: GuideStepSchema[];
+  };
+  feedback: {
+    correct: FeedbackEffectKey;
+    wrong: FeedbackEffectKey;
+    finish: FeedbackEffectKey;
+  };
+}
+
+export interface BaseProblem {
+  id: string;
+  taskId: TaskId;
+  type: TaskId;
+  index: number;
+  status: ProblemStatus;
+  attempts: number;
+  firstTryCorrect: boolean | null;
+  runtime?: ExerciseRuntimeSpec;
+}
+
+export type LegacyGuidedStepKey = "mark" | GuidedStepKey;
+
+export interface MeaningProblem extends BaseProblem {
+  type: "meaning";
+  prompt: string;
+  target: TrigFunction;
+  referenceAngle: Angle;
+  renderSchema: ProblemRenderSchema;
+  ui: {
+    numeratorLabel: string;
+    denominatorLabel: string;
+    selectableRoles: Role[];
+  };
+}
+
+export interface RatioToSideProblem extends BaseProblem {
+  type: "ratioToSide";
+  prompt: string;
+  target: TrigFunction;
+  referenceAngle: Angle;
+  renderSchema: ProblemRenderSchema;
+  ratio: {
+    numerator: string;
+    denominator: string;
+  };
+  ui: {
+    edges: Side[];
+  };
+}
+
+export interface GuidedSolveProblem extends BaseProblem {
+  type: "guidedSolve";
+  prompt: string;
+  target: TrigFunction;
+  referenceAngle: Angle;
+  renderSchema: ProblemRenderSchema;
+  knownType: TrigFunction;
+  given: Array<{
+    edge: Side;
+    value: string;
+    role: Role;
+  }>;
+  stepKeys: LegacyGuidedStepKey[];
+  stepState: Record<
+    LegacyGuidedStepKey,
+    {
+      done: boolean;
+      value: string;
+    }
+  >;
+}
+
+export type LegacyProblem = MeaningProblem | RatioToSideProblem | GuidedSolveProblem;
+
+export interface MeaningAnswerPayload {
+  type: "meaning";
+  numeratorRole: Role;
+  denominatorRole: Role;
+}
+
+export interface RatioToSideAnswerPayload {
+  type: "ratioToSide";
+  placements: Partial<Record<Side, string>>;
+}
+
+export interface GuidedSolveAnswerPayload {
+  type: "guidedSolve";
+  stepKey: GuidedStepKey;
+  value: Record<string, string>;
+}
+
+export type AnswerPayload =
+  | MeaningAnswerPayload
+  | RatioToSideAnswerPayload
+  | GuidedSolveAnswerPayload;
+
+export interface AnswerRequest {
+  sessionId: string;
+  problemId: string;
+  payload: AnswerPayload;
+}
+
+export interface AnswerResponse {
+  correct: boolean;
+  allSolved: boolean;
+  hint?: string;
+  problemState: LegacyProblem;
+  nextIndex: number;
+  phase: SessionPhase;
+  runtime?: ExerciseRuntimeSpec;
+  feedback?: RuntimeFeedbackPacket;
+}
+
+/** @deprecated Use LegacyProblem in compatibility code only. */
+export type Problem = LegacyProblem;

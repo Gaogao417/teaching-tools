@@ -4,7 +4,8 @@ import type {
   ClientDraftState,
   ExerciseRuntimeSpec,
   FeedbackEffectKey,
-  Problem,
+  LegacyProblem,
+  PracticeSessionSnapshot,
   ResultSnapshot,
   Side,
   TaskHistoryItem,
@@ -24,15 +25,10 @@ const TASK_COLOR: Record<TaskId, string> = {
   guidedSolve: "#d97706",
 };
 
-type PracticeSession = {
-  sessionId: string;
-  taskId: TaskId;
-  studentName: string;
-  problems: Problem[];
-  currentIndex: number;
-  elapsedMs: number;
-  phase: "answering" | "correct_pause" | "wrong_feedback" | "group_finished";
-  runtime?: ExerciseRuntimeSpec;
+type PracticeSession = PracticeSessionSnapshot & {
+  legacy?: {
+    problems?: LegacyProblem[];
+  };
 };
 
 function emptyDraft(): ClientDraftState {
@@ -92,8 +88,17 @@ export function PracticePage() {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const { effectKind, triggerFeedback, prefersReducedMotion } = usePracticeFeedback();
 
-  const problem = session ? session.problems[session.currentIndex] ?? null : null;
+  const problems = session?.legacy?.problems || [];
+  const problem = session ? problems[session.currentIndex] ?? null : null;
   const runtime = session?.runtime;
+
+  const toPracticeSession = (
+    snapshot: PracticeSessionSnapshot & {
+      legacy?: {
+        problems?: LegacyProblem[];
+      };
+    },
+  ): PracticeSession => snapshot;
 
   useEffect(() => {
     sessionRef.current = session;
@@ -126,20 +131,14 @@ export function PracticePage() {
 
         if (restoreId) {
           const restored = await api.restorePractice(restoreId);
-          setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
+          setSession(toPracticeSession(restored));
           setStoredSessionId(taskId, restored.sessionId);
           setSearchParams({ sessionId: restored.sessionId }, { replace: true });
           return;
         }
 
         const started = await api.startPractice(taskId, studentName);
-        setSession({
-          ...started,
-          currentIndex: 0,
-          elapsedMs: 0,
-          phase: "answering",
-          runtime: started.runtime,
-        });
+        setSession(toPracticeSession(started));
         setStoredSessionId(taskId, started.sessionId);
         setSearchParams({ sessionId: started.sessionId }, { replace: true });
       } finally {
@@ -185,13 +184,7 @@ export function PracticePage() {
       clearStoredSessionId(taskId);
       setModalSnapshot(null);
       const started = await api.startPractice(taskId, studentName);
-      setSession({
-        ...started,
-        currentIndex: 0,
-        elapsedMs: 0,
-        phase: "answering",
-        runtime: started.runtime,
-      });
+      setSession(toPracticeSession(started));
       setDraft(emptyDraft());
       setStoredSessionId(taskId, started.sessionId);
       setSearchParams({ sessionId: started.sessionId }, { replace: true });
@@ -206,7 +199,7 @@ export function PracticePage() {
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
     advanceTimer.current = window.setTimeout(async () => {
       const restored = await api.restorePractice(sessionId);
-      setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
+      setSession(toPracticeSession(restored));
     }, AUTO_ADVANCE_DELAY);
   };
 
@@ -225,10 +218,10 @@ export function PracticePage() {
 
   const submitRuntimeAction = async (action: { type: "submit" | "clear"; stepId?: string; value?: string; targetId?: string }) => {
     const currentSession = sessionRef.current;
-    const currentProblem = currentSession ? currentSession.problems[currentSession.currentIndex] : null;
+    const currentProblem = currentSession ? (currentSession.legacy?.problems || [])[currentSession.currentIndex] : null;
     if (!currentSession || !currentProblem) return;
 
-    const response = await api.submitRuntimeAction(currentSession.sessionId, currentProblem.id, {
+    const response = await api.submitRuntimeAction(currentSession.sessionId, currentSession.runtime?.instance.instanceId || currentProblem.id, {
       type: action.type,
       stepId: action.stepId,
       value: action.value,
@@ -243,7 +236,6 @@ export function PracticePage() {
 
     const nextSession: PracticeSession = {
       ...currentSession,
-      problems: currentSession.problems,
       currentIndex:
         response.phase === "correct_pause" && response.nextIndex > currentSession.currentIndex
           ? currentSession.currentIndex
@@ -289,11 +281,11 @@ export function PracticePage() {
     }
 
     const restored = await api.restorePractice(currentSession.sessionId);
-    setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
+    setSession(toPracticeSession(restored));
     setDraft(emptyDraft());
   };
 
-  const currentProgress = session ? `${session.currentIndex + 1} / ${session.problems.length}` : "--";
+  const currentProgress = session ? `${session.currentIndex + 1} / ${session.instanceCount}` : "--";
   const historyPoints = history.map((item) => ({ elapsedMs: item.elapsedMs, clearedAt: item.clearedAt }));
   const bestMs = bestFromHistory(history);
   const avgMs = avgFromHistory(history);
@@ -330,10 +322,11 @@ export function PracticePage() {
                 <div className="practice-modern-progress-copy">第 {currentProgress} 题</div>
               </div>
               <div className="practice-modern-dots" aria-hidden="true">
-                {session.problems.map((item, index) => {
+                {Array.from({ length: session.instanceCount }, (_, index) => {
                   const cls =
                     index < session.currentIndex ? "done" : index === session.currentIndex ? "active" : "pending";
-                  return <span key={item.id} className={`practice-modern-dot ${cls}`} />;
+                  const key = problems[index]?.id || `instance-${index}`;
+                  return <span key={key} className={`practice-modern-dot ${cls}`} />;
                 })}
               </div>
               <div className="practice-modern-mini-stats">

@@ -325,6 +325,8 @@ function buildScene(problem: Problem): SceneSpec {
       id: "triangle-main",
       kind: "triangle",
       vertices: workspace.vertices,
+      rightAnglePath: workspace.rightAnglePath,
+      referenceAnglePath: workspace.referenceAnglePath,
     },
     ...(["AB", "BC", "AC"] as Side[]).map((side) => {
       const schema = workspace.sides.find((item) => item.side === side)!;
@@ -565,6 +567,7 @@ function buildExerciseInstance(problem: Problem): ExerciseInstance {
     instanceId: problem.id,
     taskId: problem.taskId,
     engineKind: "triangle-trig",
+    contentId: `legacy.${problem.taskId}`,
     prompt: problem.prompt,
     scene: buildScene(problem),
     flow: buildFlow(problem),
@@ -808,9 +811,14 @@ export function startPractice(taskId: TaskId, studentName: string): StartPractic
     sessionId,
     taskId,
     studentName: trimmed,
-    problems: problems.map((item) => item.publicProblem),
-    startedAt,
+    currentIndex: 0,
+    instanceCount: problems.length,
+    elapsedMs: 0,
+    phase: "answering",
     runtime: buildRuntime(problems[0].publicProblem, "answering"),
+    legacy: {
+      problems: problems.map((item) => item.publicProblem),
+    },
   };
 }
 
@@ -998,7 +1006,6 @@ export function submitRuntimeAction(
     accepted: true,
     evaluation: legacy.correct ? (legacy.phase === "answering" ? "progress" : "correct") : "wrong",
     runtimeState: legacy.runtime?.runtimeState || buildRuntimeState(legacy.problemState, legacy.phase),
-    instancePatch: legacy.runtime?.instance,
     runtime: legacy.runtime,
     feedback: legacy.feedback,
     nextIndex: legacy.nextIndex,
@@ -1082,13 +1089,16 @@ export function restorePractice(sessionId: string): RestorePracticeResponse {
     taskId: session.task_id,
     studentName: session.student_name,
     currentIndex: session.current_index,
-    problems: loadProblemRows(sessionId).map((item) => item.publicProblem),
+    instanceCount: loadProblemRows(sessionId).length,
     elapsedMs: Math.max(0, elapsedMs),
     phase: session.phase,
     runtime: (() => {
       const current = loadProblemRows(sessionId)[session.current_index]?.publicProblem;
       return current ? buildRuntime(current, session.phase) : undefined;
     })(),
+    legacy: {
+      problems: loadProblemRows(sessionId).map((item) => item.publicProblem),
+    },
   };
 }
 
