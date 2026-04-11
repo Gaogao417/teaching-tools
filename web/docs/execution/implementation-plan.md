@@ -100,11 +100,11 @@
 
 ### 验收清单
 
-- [ ] `02` 已明确前端组件树和后端责任区
-- [ ] `03` 已明确三层模型及运行时顶层对象
-- [ ] `04` 已明确目标契约与兼容契约
-- [ ] `features/practice` 已明确 PracticePage 不是题型实现页
-- [ ] 文档中没有继续把 `ProblemRenderSchema` 当最终 DSL
+- [x] `02` 已明确前端组件树和后端责任区
+- [x] `03` 已明确三层模型及运行时顶层对象
+- [x] `04` 已明确目标契约与兼容契约
+- [x] `features/practice` 已明确 PracticePage 不是题型实现页
+- [x] 文档中没有继续把 `ProblemRenderSchema` 当最终 DSL
 
 ## 阶段 2：共享契约冻结
 
@@ -138,11 +138,11 @@
 
 ### 验收清单
 
-- [ ] `TaskDefinition` 已存在并可驱动首页任务树
-- [ ] `ContentDefinition` 已存在并表达当前 3 类任务内容
-- [ ] `PracticeSessionSnapshot` 已存在
-- [ ] `Problem` 系列类型已明确标记为 legacy
-- [ ] shared 主路径命名与 docs 一致
+- [x] `TaskDefinition` 已存在并可驱动首页任务树
+- [x] `ContentDefinition` 已存在并表达当前 3 类任务内容
+- [x] `PracticeSessionSnapshot` 已存在
+- [x] `Problem` 系列类型已明确标记为 legacy
+- [x] shared 主路径命名与 docs 一致
 
 ## 阶段 3：后端 runtime engine 重构
 

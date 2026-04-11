@@ -18,7 +18,8 @@ db.exec(`
     current_index INTEGER NOT NULL,
     started_at TEXT NOT NULL,
     finished_at TEXT,
-    finished INTEGER NOT NULL DEFAULT 0
+    finished INTEGER NOT NULL DEFAULT 0,
+    schema_version INTEGER NOT NULL DEFAULT 2
   );
 
   CREATE TABLE IF NOT EXISTS practice_problems (
@@ -29,6 +30,20 @@ db.exec(`
     problem_index INTEGER NOT NULL,
     public_json TEXT NOT NULL,
     answer_key_json TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS practice_instances (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    content_id TEXT NOT NULL,
+    engine_kind TEXT NOT NULL,
+    instance_index INTEGER NOT NULL,
+    content_json TEXT NOT NULL,
+    instance_json TEXT NOT NULL,
+    engine_state_json TEXT NOT NULL,
+    runtime_state_json TEXT NOT NULL,
     FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE
   );
 
@@ -46,3 +61,8 @@ db.exec(`
     FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE
   );
 `);
+
+const sessionColumns = db.prepare("PRAGMA table_info(practice_sessions)").all() as Array<{ name: string }>;
+if (!sessionColumns.some((column) => column.name === "schema_version")) {
+  db.exec("ALTER TABLE practice_sessions ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1");
+}

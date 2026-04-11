@@ -2,7 +2,8 @@ import cors from "cors";
 import express from "express";
 import { z } from "zod";
 import { TASK_TREE } from "../../shared/tasks";
-import { finishPractice, getResult, getTaskHistory, restorePractice, startPractice, submitAnswer, submitRuntimeAction } from "./services/practiceService";
+import { finishPractice, restorePractice, startPractice, submitAnswer, submitRuntimeAction } from "./services/runtime/sessionRuntimeService";
+import { getResult, getTaskHistory } from "./services/practiceService";
 
 const taskIdSchema = z.enum(["meaning", "ratioToSide", "guidedSolve"]);
 
