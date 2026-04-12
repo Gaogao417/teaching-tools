@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import type {
   ClientDraftState,
   ExerciseRuntimeSpec,
@@ -13,7 +13,9 @@ import type {
 } from "../../../shared/contracts";
 import { api } from "../api/client";
 import { Chart } from "../components/Chart";
-import { clearStoredSessionId, getStoredSessionId, getStudentName, setStoredSessionId } from "../utils/storage";
+import type { WorkspaceOutletContext } from "../components/layout/workspaceContext";
+import { formatSeconds } from "../components/layout/workspaceUtils";
+import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from "../utils/storage";
 import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
 import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
 
@@ -37,11 +39,6 @@ function emptyDraft(): ClientDraftState {
     inputs: {},
     transientFeedback: [],
   };
-}
-
-function formatSeconds(ms: number | null | undefined) {
-  if (!Number.isFinite(ms)) return "--";
-  return `${((ms || 0) / 1000).toFixed(1)}s`;
 }
 
 function average(values: number[]) {
@@ -71,7 +68,9 @@ function feedbackKind(runtime?: ExerciseRuntimeSpec, fallback: FeedbackEffectKey
 export function PracticePage() {
   const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: TaskId }>();
+  const { studentName, requestAuth } = useOutletContext<WorkspaceOutletContext>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const sessionIdFromUrl = searchParams.get("sessionId");
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [history, setHistory] = useState<TaskHistoryItem[]>([]);
@@ -92,14 +91,6 @@ export function PracticePage() {
   const problem = session ? problems[session.currentIndex] ?? null : null;
   const runtime = session?.runtime;
 
-  const toPracticeSession = (
-    snapshot: PracticeSessionSnapshot & {
-      legacy?: {
-        problems?: LegacyProblem[];
-      };
-    },
-  ): PracticeSession => snapshot;
-
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
@@ -111,43 +102,55 @@ export function PracticePage() {
   }, []);
 
   useEffect(() => {
-    const studentName = getStudentName();
     if (!taskId || !studentName) {
-      navigate("/");
+      setSession(null);
+      setLoading(false);
       return;
     }
 
-    const sessionIdFromUrl = searchParams.get("sessionId");
-    const stored = getStoredSessionId(taskId);
-    const restoreId = sessionIdFromUrl || stored;
+    let cancelled = false;
 
     const boot = async () => {
       setLoading(true);
       try {
         const historyResponse = await api.getTaskHistory(taskId, studentName, CHART_LIMIT).catch(() => null);
-        if (historyResponse) {
+        if (!cancelled && historyResponse) {
           setHistory(historyResponse.items);
         }
 
+        const restoreId = sessionIdFromUrl || getStoredSessionId(taskId);
         if (restoreId) {
-          const restored = await api.restorePractice(restoreId);
-          setSession(toPracticeSession(restored));
-          setStoredSessionId(taskId, restored.sessionId);
-          setSearchParams({ sessionId: restored.sessionId }, { replace: true });
-          return;
+          try {
+            const restored = await api.restorePractice(restoreId);
+            if (cancelled) return;
+            setSession(restored);
+            setStoredSessionId(taskId, restored.sessionId);
+            if (sessionIdFromUrl !== restored.sessionId) {
+              setSearchParams({ sessionId: restored.sessionId }, { replace: true });
+            }
+            return;
+          } catch {
+            clearStoredSessionId(taskId);
+          }
         }
 
         const started = await api.startPractice(taskId, studentName);
-        setSession(toPracticeSession(started));
+        if (cancelled) return;
+        setSession(started);
         setStoredSessionId(taskId, started.sessionId);
         setSearchParams({ sessionId: started.sessionId }, { replace: true });
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
     void boot();
-  }, [navigate, searchParams, setSearchParams, taskId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId, studentName, sessionIdFromUrl, setSearchParams]);
 
   useEffect(() => {
     if (!session || session.phase === "group_finished") return;
@@ -165,8 +168,8 @@ export function PracticePage() {
     setHoveredSide(null);
   }, [problem?.id]);
 
-  const refreshHistory = async (nextTaskId: TaskId, studentName: string) => {
-    const historyResponse = await api.getTaskHistory(nextTaskId, studentName, CHART_LIMIT).catch(() => null);
+  const refreshHistory = async (nextTaskId: TaskId, nextStudentName: string) => {
+    const historyResponse = await api.getTaskHistory(nextTaskId, nextStudentName, CHART_LIMIT).catch(() => null);
     if (historyResponse) {
       setHistory(historyResponse.items);
     }
@@ -174,9 +177,8 @@ export function PracticePage() {
 
   const startNewSession = async () => {
     if (!taskId) return;
-    const studentName = getStudentName();
     if (!studentName) {
-      navigate("/");
+      requestAuth();
       return;
     }
     setLoading(true);
@@ -184,12 +186,12 @@ export function PracticePage() {
       clearStoredSessionId(taskId);
       setModalSnapshot(null);
       const started = await api.startPractice(taskId, studentName);
-      setSession(toPracticeSession(started));
+      setSession(started);
       setDraft(emptyDraft());
       setStoredSessionId(taskId, started.sessionId);
       setSearchParams({ sessionId: started.sessionId }, { replace: true });
       await refreshHistory(taskId, studentName);
-      setFeedback({ tone: "idle", title: "已重新开始", body: "新一组题目已生成。" });
+      setFeedback({ tone: "idle", title: "已重新开始", body: "新的一组题目已经生成。" });
     } finally {
       setLoading(false);
     }
@@ -199,7 +201,7 @@ export function PracticePage() {
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
     advanceTimer.current = window.setTimeout(async () => {
       const restored = await api.restorePractice(sessionId);
-      setSession(toPracticeSession(restored));
+      setSession(restored);
     }, AUTO_ADVANCE_DELAY);
   };
 
@@ -212,7 +214,7 @@ export function PracticePage() {
     setFeedback({
       tone: "success",
       title: "本组已完成",
-      body: "成绩面板已生成，可继续练习或查看详细结果。",
+      body: "结果层已经生成，你可以继续训练或查看详细结果。",
     });
   };
 
@@ -221,16 +223,20 @@ export function PracticePage() {
     const currentProblem = currentSession ? (currentSession.legacy?.problems || [])[currentSession.currentIndex] : null;
     if (!currentSession || !currentProblem) return;
 
-    const response = await api.submitRuntimeAction(currentSession.sessionId, currentSession.runtime?.instance.instanceId || currentProblem.id, {
-      type: action.type,
-      stepId: action.stepId,
-      value: action.value,
-      targetId: action.targetId,
-    });
+    const response = await api.submitRuntimeAction(
+      currentSession.sessionId,
+      currentSession.runtime?.instance.instanceId || currentProblem.id,
+      {
+        type: action.type,
+        stepId: action.stepId,
+        value: action.value,
+        targetId: action.targetId,
+      },
+    );
 
     if (action.type === "clear") {
       setDraft(emptyDraft());
-      setFeedback({ tone: "idle", title: "已清空", body: "左侧草稿已清空。" });
+      setFeedback({ tone: "idle", title: "已清空", body: "左侧草稿已经清空。" });
       return;
     }
 
@@ -263,9 +269,9 @@ export function PracticePage() {
       title: response.phase === "answering" ? "当前步骤正确" : "回答正确",
       body:
         response.phase === "correct_pause"
-          ? "左侧操作已正确，稍后自动进入下一题。"
+          ? "左侧操作已经正确，稍后自动进入下一题。"
           : response.phase === "group_finished"
-            ? "本组已完成。"
+            ? "本组已经完成。"
             : "继续在左侧完成下一步。",
     });
     triggerFeedback(feedbackKind(response.runtime));
@@ -281,7 +287,7 @@ export function PracticePage() {
     }
 
     const restored = await api.restorePractice(currentSession.sessionId);
-    setSession(toPracticeSession(restored));
+    setSession(restored);
     setDraft(emptyDraft());
   };
 
@@ -290,23 +296,59 @@ export function PracticePage() {
   const bestMs = bestFromHistory(history);
   const avgMs = avgFromHistory(history);
 
+  if (!taskId) {
+    return (
+      <section className="panel workspace-panel">
+        <div className="detail-head">
+          <h2>未找到训练任务</h2>
+          <p className="text-muted">请先从左侧导航树选择一个任务。</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (!studentName) {
+    return (
+      <section className="panel workspace-panel workspace-lock-panel">
+        <div className="detail-head">
+          <div className="eyebrow">Training Locked</div>
+          <h2>填写姓名后才能开始或恢复训练</h2>
+          <p>
+            当前任务链接已经就绪，但系统还不能记录你的历史和 session。输入姓名后，这个工作区会直接恢复到可训练状态。
+          </p>
+        </div>
+        <div className="action-row">
+          <button className="btn btn-primary" type="button" onClick={requestAuth}>
+            现在填写姓名
+          </button>
+          <button className="btn btn-ghost" type="button" onClick={() => navigate("/")}>
+            回到任务概览
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   if (loading || !session || !problem || !runtime) {
     return (
-      <div className="page-shell">
-        <section className="panel panel-pad">加载中…</section>
-      </div>
+      <section className="panel workspace-panel">
+        <div className="detail-head">
+          <h2>正在准备训练环境</h2>
+          <p className="text-muted">系统会优先尝试恢复进行中的 session，否则自动生成一组新题。</p>
+        </div>
+      </section>
     );
   }
 
   return (
-    <div className={`page-shell practice-route effect-${effectKind || "idle"}`}>
+    <div className={`workspace-route-panel practice-route effect-${effectKind || "idle"}`}>
       <section className="panel practice-port-shell">
         <PracticeEffectsLayer effectKind={effectKind} reducedMotion={prefersReducedMotion} />
         <div className="practice-modern-shell">
           <header className="practice-modern-topbar">
             <div className="practice-modern-actions">
               <button className="btn btn-ghost" type="button" onClick={() => navigate("/")}>
-                返回首页
+                回到任务概览
               </button>
               <button className="btn btn-secondary" type="button" onClick={() => void startNewSession()}>
                 重新开始本组
@@ -414,10 +456,22 @@ function CompletionModal({
         <h2>{snapshot.title}</h2>
         <p>{snapshot.copy}</p>
         <div className="metric-grid">
-          <div><span>本次耗时</span><strong>{formatSeconds(snapshot.elapsedMs)}</strong></div>
-          <div><span>本组最佳</span><strong>{formatSeconds(snapshot.bestMs)}</strong></div>
-          <div><span>最近平均</span><strong>{formatSeconds(snapshot.avgMs)}</strong></div>
-          <div><span>首次正确率</span><strong>{Math.round(snapshot.firstTryAccuracy * 100)}%</strong></div>
+          <div>
+            <span>本次耗时</span>
+            <strong>{formatSeconds(snapshot.elapsedMs)}</strong>
+          </div>
+          <div>
+            <span>本组最佳</span>
+            <strong>{formatSeconds(snapshot.bestMs)}</strong>
+          </div>
+          <div>
+            <span>最近平均</span>
+            <strong>{formatSeconds(snapshot.avgMs)}</strong>
+          </div>
+          <div>
+            <span>首次正确率</span>
+            <strong>{Math.round(snapshot.firstTryAccuracy * 100)}%</strong>
+          </div>
         </div>
         <Chart points={snapshot.history} color={snapshot.color} />
         <div className="action-row">
