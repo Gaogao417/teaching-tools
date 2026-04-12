@@ -9,23 +9,29 @@
   --color-accent-bg: #fff7ed;
   --color-accent-text: #9a3412;
   --color-overlay: rgba(15, 23, 42, 0.38);
+  --color-success: #22c55e;
+  --color-success-text: #15803d;
+  --color-danger: #ef4444;
+  --color-danger-text: #b91c1c;
+  --color-warning: #f59e0b;
+  --color-slate-600: #475569;
 
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
-  --space-6: 32px;
+  --space-6: 40px;
 
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 18px;
   --radius-pill: 999px;
 
-  --shadow-color: 42, 36, 28;
-  --shadow-sm: 0 8px 18px rgba(var(--shadow-color), 0.06);
-  --shadow-md: 0 16px 32px rgba(var(--shadow-color), 0.08);
-  --shadow-lg: 0 30px 60px rgba(var(--shadow-color), 0.18);
+  --shadow-color: 15, 23, 42;
+  --shadow-sm: 0 4px 12px rgba(var(--shadow-color), 0.03);
+  --shadow-md: 0 12px 24px rgba(var(--shadow-color), 0.06);
+  --shadow-lg: 0 24px 48px rgba(var(--shadow-color), 0.1);
 
   --text-xs: 12px;
   --text-sm: 14px;
@@ -41,13 +47,48 @@
 
   --text-main: var(--color-ink);
   --text-muted: var(--color-muted);
+  --text-accent: var(--color-accent-text);
+  --text-success: var(--color-success-text);
+  --text-danger: var(--color-danger-text);
+  --surface-soft: #fffdfa;
+  --surface-subtle: rgba(248, 250, 252, 0.86);
+  --surface-elevated: rgba(255, 252, 247, 0.96);
+  --surface-input: rgba(255, 255, 255, 0.96);
+  --surface-card: rgba(255, 255, 255, 0.92);
+  --border-soft: rgba(148, 163, 184, 0.12);
+  --border-muted: rgba(148, 163, 184, 0.16);
+  --border-subtle: rgba(148, 163, 184, 0.14);
+  --border-accent: rgba(249, 115, 22, 0.22);
+  --border-accent-strong: rgba(249, 115, 22, 0.4);
+  --border-success: rgba(34, 197, 94, 0.22);
+  --border-danger: rgba(239, 68, 68, 0.24);
+  --fill-neutral-soft: rgba(42, 48, 38, 0.05);
+  --fill-accent-soft: rgba(184, 92, 56, 0.12);
+  --fill-accent-soft-hover: rgba(184, 92, 56, 0.06);
+  --fill-success-soft: rgba(34, 197, 94, 0.12);
+  --fill-success-muted: rgba(34, 197, 94, 0.08);
+  --fill-danger-soft: rgba(239, 68, 68, 0.12);
+  --fill-danger-surface: rgba(254, 242, 242, 0.92);
+  --fill-track: rgba(148, 163, 184, 0.25);
+  --fill-track-strong: rgba(148, 163, 184, 0.26);
+  --fill-ghost-soft: rgba(71, 85, 105, 0.08);
   --panel-bg: var(--color-panel);
   --panel-border: rgba(255, 255, 255, 0.72);
   --panel-shadow: var(--shadow-md);
-  --panel-padding: var(--space-5);
+  --panel-padding: 32px;
   --btn-height-md: 44px;
   --btn-height-lg: 52px;
   --btn-padding-inline: 18px;
+  --fx-success: var(--color-success);
+  --fx-danger: var(--color-danger);
+  --fx-warning: var(--color-warning);
+  --focus-ring: rgba(249, 115, 22, 0.18);
+  --btn-primary-shadow: 0 10px 22px rgba(201, 111, 58, 0.18);
+  --tone-accent-gradient: linear-gradient(180deg, rgba(255, 252, 247, 0.97), rgba(252, 245, 235, 0.94));
+  --tone-stage-gradient:
+    radial-gradient(circle at top left, rgba(255, 247, 237, 0.8), transparent 32%),
+    linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(248, 250, 252, 0.96));
+  --tone-card-gradient: linear-gradient(180deg, rgba(241, 245, 249, 0.6), rgba(255, 255, 255, 0.9));
 
   --role-opposite: #f97316;
   --role-adjacent: #0f766e;
@@ -79,13 +120,14 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text-main);
-  font-family: "STZhongsong", "Songti SC", "PingFang SC", serif;
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   line-height: var(--leading-normal);
   letter-spacing: 0;
-  background:
-    radial-gradient(circle at top left, rgba(255, 239, 213, 0.95), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(204, 234, 221, 0.95), transparent 28%),
-    linear-gradient(180deg, #f8f5ef, #f0ebe0 70%, #ece4d6);
+  background-color: #fcfaf7;
+  background-image: 
+    radial-gradient(circle at 0% 0%, rgba(255, 247, 237, 0.8) 0%, transparent 40%),
+    radial-gradient(circle at 100% 100%, rgba(255, 255, 255, 0.6) 0%, transparent 40%);
+  background-attachment: fixed;
 }
 
 button,
@@ -102,16 +144,16 @@ button {
 
 input {
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--surface-input);
   border-radius: var(--radius-md);
-  padding: 12px 14px;
+  padding: var(--space-3);
   color: var(--text-main);
 }
 
 button:focus-visible,
 input:focus-visible,
 .practice-hit-zone.is-interactive:focus-visible {
-  outline: 3px solid rgba(249, 115, 22, 0.18);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -151,7 +193,7 @@ p {
   align-items: center;
   width: fit-content;
   color: var(--primary);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   font-weight: var(--weight-bold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -160,13 +202,13 @@ p {
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: fit-content;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-pill);
   background: var(--color-accent-bg);
   color: var(--color-accent-text);
-  font-size: 0.92rem;
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
 }
 
@@ -178,7 +220,7 @@ p {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: var(--btn-height-md);
   padding: 0 var(--btn-padding-inline);
   border-radius: var(--radius-md);
@@ -214,7 +256,7 @@ p {
 .btn-primary {
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-strong));
   color: white;
-  box-shadow: 0 10px 22px rgba(201, 111, 58, 0.18);
+  box-shadow: var(--btn-primary-shadow);
 }
 
 .btn-secondary {
@@ -224,13 +266,13 @@ p {
 
 .btn-ghost,
 .tiny-btn {
-  background: rgba(71, 85, 105, 0.08);
-  color: #475569;
+  background: var(--fill-ghost-soft);
+  color: var(--color-slate-600);
 }
 
 .tiny-btn {
   min-height: 38px;
-  padding: 0 14px;
-  font-size: 0.92rem;
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
 }

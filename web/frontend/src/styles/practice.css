@@ -1,6 +1,6 @@
 .practice-route .practice-port-shell {
   position: relative;
-  padding: 18px;
+  padding: var(--space-4);
   overflow: hidden;
 }
 
@@ -79,11 +79,11 @@
 }
 
 .practice-fx-particle.correct {
-  background: #22c55e;
+  background: var(--fx-success);
 }
 
 .practice-fx-particle.finish {
-  background: #f59e0b;
+  background: var(--fx-warning);
 }
 
 .practice-fx-confetti {
@@ -92,7 +92,7 @@
   width: 10px;
   height: 18px;
   border-radius: 3px;
-  background: linear-gradient(180deg, #f59e0b, #fb7185);
+  background: linear-gradient(180deg, var(--fx-warning), #fb7185);
   opacity: 0;
   animation: practice-confetti 1.8s ease-out forwards;
   animation-delay: var(--delay);
@@ -110,11 +110,11 @@
 .modern-panel-stage,
 .modern-step-list {
   display: grid;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .practice-modern-shell {
-  gap: 18px;
+  gap: var(--space-4);
 }
 
 .practice-modern-topbar,
@@ -124,11 +124,11 @@
 .practice-coach-card,
 .practice-history-card,
 .modern-completion-modal {
-  padding: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 252, 247, 0.97), rgba(252, 245, 235, 0.94));
-  box-shadow: 0 16px 32px rgba(42, 36, 28, 0.08);
+  padding: var(--space-4);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-md);
 }
 
 .practice-modern-actions,
@@ -139,7 +139,7 @@
 .practice-section-head,
 .practice-role-legend {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
   align-items: center;
 }
@@ -150,60 +150,61 @@
 }
 
 .practice-modern-progress-copy {
-  color: #9a3412;
-  font-weight: 700;
-  background: #fff7ed;
-  border-radius: 999px;
-  padding: 8px 12px;
+  color: var(--text-accent);
+  font-weight: var(--weight-bold);
+  background: var(--color-accent-bg);
+  border-radius: var(--radius-pill);
+  padding: var(--space-2) var(--space-3);
 }
 
 .practice-modern-dots {
   display: flex;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .practice-modern-dot {
   width: 14px;
   height: 14px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.25);
+  border-radius: var(--radius-pill);
+  background: var(--fill-track);
   transition: transform 0.18s ease, background 0.18s ease;
 }
 
 .practice-modern-dot.active {
-  background: #f97316;
+  background: var(--primary);
   transform: scale(1.14);
 }
 
 .practice-modern-dot.done {
-  background: #22c55e;
+  background: var(--fx-success);
 }
 
 .practice-modern-stat {
   min-width: 140px;
   flex: 1 1 0;
-  padding: 14px;
-  border-radius: 14px;
-  background: rgba(42, 48, 38, 0.04);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface-soft);
   display: grid;
-  gap: 6px;
+  gap: var(--space-2);
+  border: 1px solid var(--border-soft);
 }
 
 .practice-modern-stat span,
 .practice-section-head span,
 .modern-feedback-chip {
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: var(--text-sm);
 }
 
 .practice-modern-stat strong {
-  font-size: 1.12rem;
+  font-size: var(--text-md);
 }
 
 .practice-modern-main,
 .practice-modern-bottom {
   display: grid;
-  gap: 18px;
+  gap: var(--space-4);
   align-items: start;
 }
 
@@ -217,11 +218,11 @@
 
 .practice-modern-banner {
   position: relative;
-  padding: 16px 18px 16px 46px;
-  border-radius: 14px;
-  background: linear-gradient(120deg, rgba(184, 92, 56, 0.12), rgba(255, 247, 237, 0.95));
-  color: #9a3412;
-  font-weight: 700;
+  padding: var(--space-4) var(--space-4) var(--space-4) 46px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(120deg, var(--fill-accent-soft), rgba(255, 247, 237, 0.95));
+  color: var(--text-accent);
+  font-weight: var(--weight-bold);
 }
 
 .practice-modern-banner::before {
@@ -235,11 +236,9 @@
 .practice-triangle-stage {
   position: relative;
   min-height: 380px;
-  border-radius: 18px;
-  padding: 18px;
-  background:
-    radial-gradient(circle at top left, rgba(255, 247, 237, 0.8), transparent 32%),
-    linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(248, 250, 252, 0.96));
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  background: var(--tone-stage-gradient);
   overflow: hidden;
 }
 
@@ -251,22 +250,22 @@
 .practice-side-label,
 .practice-vertex-label,
 .vertex-label {
-  fill: #475569;
-  font-weight: 700;
+  fill: var(--color-slate-600);
+  font-weight: var(--weight-bold);
   pointer-events: none;
 }
 
 .practice-vertex-dot {
-  fill: rgba(255, 252, 247, 0.98);
+  fill: var(--surface-elevated);
   stroke: rgba(90, 82, 72, 0.32);
   stroke-width: 1.4;
   pointer-events: none;
 }
 
 .practice-hover-note {
-  fill: #9a3412;
+  fill: var(--text-accent);
   font-size: 0.88rem;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   pointer-events: none;
 }
 
@@ -303,42 +302,42 @@
 .practice-final-stack input,
 .modern-inline-fraction input {
   text-align: center;
-  box-shadow: 0 8px 18px rgba(42, 36, 28, 0.12);
+  box-shadow: var(--shadow-sm);
 }
 
 .practice-edge-input {
   position: absolute;
   z-index: 2;
   width: 74px;
-  padding: 8px 10px;
-  border-radius: 12px;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
   transform: translate(-50%, -50%);
 }
 
 .practice-edge-input.is-error,
 .modern-inline-fraction input.is-error,
 .practice-final-stack input.is-error {
-  border-color: #ef4444;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px var(--fill-danger-soft);
 }
 
 .practice-angle-badge {
   position: absolute;
   right: 18px;
   top: 18px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(184, 92, 56, 0.14);
-  color: #9a3412;
-  font-weight: 700;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--fill-accent-soft);
+  color: var(--text-accent);
+  font-weight: var(--weight-bold);
 }
 
 .practice-role-legend {
   position: absolute;
   left: 18px;
   bottom: 18px;
-  color: #475569;
-  font-size: 0.9rem;
+  color: var(--color-slate-600);
+  font-size: var(--text-sm);
 }
 
 .practice-workspace-footer {
@@ -348,7 +347,7 @@
   bottom: 18px;
   z-index: 2;
   display: grid;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .practice-inline-formula,
@@ -356,16 +355,16 @@
 .practice-final-inline {
   width: fit-content;
   max-width: 100%;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(255, 252, 247, 0.96);
-  box-shadow: 0 12px 24px rgba(42, 36, 28, 0.08);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-md);
 }
 
 .practice-fraction-preview,
 .modern-fraction-card {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .practice-fraction-preview {
@@ -374,16 +373,16 @@
 
 .practice-fraction-slot,
 .modern-fraction-slot {
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.92);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
   color: var(--muted);
 }
 
 .practice-fraction-slot.active,
 .modern-fraction-slot.active {
-  border: 1px dashed rgba(249, 115, 22, 0.4);
-  color: #9a3412;
+  border: 1px dashed var(--border-accent-strong);
+  color: var(--text-accent);
 }
 
 .practice-fraction-slot.filled,
@@ -396,7 +395,7 @@
 .modern-fraction-bar,
 .practice-final-bar {
   height: 2px;
-  background: rgba(148, 163, 184, 0.26);
+  background: var(--fill-track-strong);
 }
 
 .practice-final-inline {
@@ -404,46 +403,46 @@
   right: 18px;
   bottom: 56px;
   display: grid;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .practice-final-stack {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   width: 84px;
 }
 
 .modern-panel-pill {
   width: fit-content;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(184, 92, 56, 0.12);
-  color: #9a3412;
-  font-size: 0.92rem;
-  font-weight: 700;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--fill-accent-soft);
+  color: var(--text-accent);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
 }
 
 .modern-step-card,
 .modern-side-row {
-  padding: 16px;
-  border-radius: 14px;
-  background: rgba(248, 250, 252, 0.86);
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
 }
 
 .modern-step-card {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .modern-step-card.active {
-  border-color: rgba(249, 115, 22, 0.28);
-  background: #fff7ed;
+  border-color: var(--border-accent);
+  background: var(--color-accent-bg);
 }
 
 .modern-step-card.done {
-  background: rgba(34, 197, 94, 0.08);
-  border-color: rgba(34, 197, 94, 0.18);
+  background: var(--fill-success-muted);
+  border-color: var(--border-success);
 }
 
 .modern-step-card.pending {
@@ -451,54 +450,54 @@
 }
 
 .modern-step-card.needs-attention {
-  border-color: rgba(239, 68, 68, 0.24);
-  background: rgba(254, 242, 242, 0.92);
+  border-color: var(--border-danger);
+  background: var(--fill-danger-surface);
 }
 
 .modern-feedback-chip {
   width: fit-content;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(42, 48, 38, 0.05);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--fill-neutral-soft);
 }
 
 .modern-feedback-chip.wrong_feedback {
-  background: rgba(239, 68, 68, 0.12);
-  color: #b91c1c;
+  background: var(--fill-danger-soft);
+  color: var(--text-danger);
 }
 
 .modern-feedback-chip.correct_pause,
 .modern-feedback-chip.group_finished {
-  background: rgba(34, 197, 94, 0.12);
-  color: #15803d;
+  background: var(--fill-success-soft);
+  color: var(--text-success);
 }
 
 .practice-feedback-card.success {
-  border-color: rgba(34, 197, 94, 0.22);
+  border-color: var(--border-success);
 }
 
 .practice-feedback-card.error {
-  border-color: rgba(239, 68, 68, 0.24);
+  border-color: var(--border-danger);
 }
 
 .practice-inline-status {
   display: inline-flex;
   width: fit-content;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(42, 48, 38, 0.05);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--fill-neutral-soft);
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
 }
 
 .practice-inline-status.success {
-  background: rgba(34, 197, 94, 0.12);
-  color: #15803d;
+  background: var(--fill-success-soft);
+  color: var(--text-success);
 }
 
 .practice-inline-status.error {
-  background: rgba(239, 68, 68, 0.12);
-  color: #b91c1c;
+  background: var(--fill-danger-soft);
+  color: var(--text-danger);
 }
 
 .modal-backdrop {
@@ -507,7 +506,7 @@
   background: var(--color-overlay);
   display: grid;
   place-items: center;
-  padding: 18px;
+  padding: var(--space-4);
   z-index: 40;
 }
 
@@ -616,7 +615,7 @@
 
 @media (max-width: 720px) {
   .practice-route .practice-port-shell {
-    padding: 14px;
+    padding: var(--space-3);
   }
 
   .practice-modern-progress-head,
@@ -627,13 +626,13 @@
 
   .practice-triangle-stage {
     min-height: 340px;
-    padding: 12px;
+    padding: var(--space-3);
   }
 
   .practice-role-legend,
   .practice-final-inline,
   .practice-workspace-footer {
     position: static;
-    margin-top: 12px;
+    margin-top: var(--space-3);
   }
 }
