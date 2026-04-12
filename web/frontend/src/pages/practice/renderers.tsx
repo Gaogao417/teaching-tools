@@ -306,7 +306,7 @@ function RatioWorkspace({
           >
             清空左侧输入
           </button>
-          <button className="primary-btn" type="button" onClick={onSubmitRatio}>
+          <button className="btn btn-primary" type="button" onClick={onSubmitRatio}>
             提交左侧答案
           </button>
         </div>
@@ -500,7 +500,7 @@ function GuidedWorkspace({
           >
             清空左侧步骤
           </button>
-          <button className="primary-btn" type="button" onClick={onSubmitGuided}>
+          <button className="btn btn-primary" type="button" onClick={onSubmitGuided}>
             提交左侧步骤
           </button>
         </div>
@@ -515,7 +515,7 @@ function MeaningGuide({ problem, sessionPhase, localState }: GuideProps<MeaningP
     <div className="modern-panel-stage">
       <span className="modern-panel-pill">{taskOrderLabel(problem.type)}</span>
       <h2>{problem.renderSchema.guide.title}</h2>
-      <p className="muted-copy">{problem.renderSchema.guide.body}</p>
+      <p className="text-muted">{problem.renderSchema.guide.body}</p>
       <div className="modern-fraction-card">
         <div className={`modern-fraction-slot ${localState.numeratorRole ? "filled" : "active"}`}>
           {localState.numeratorRole ? `${ROLE_LABELS[localState.numeratorRole]} (${mapping[localState.numeratorRole]})` : "分子边 ?"}
@@ -535,7 +535,7 @@ function RatioGuide({ problem, sessionPhase }: GuideProps<RatioToSideProblem>) {
     <div className="modern-panel-stage">
       <span className="modern-panel-pill">{taskOrderLabel(problem.type)}</span>
       <h2>{problem.renderSchema.guide.title}</h2>
-      <p className="muted-copy">{problem.renderSchema.guide.body}</p>
+      <p className="text-muted">{problem.renderSchema.guide.body}</p>
       <GuideStepList problem={problem} sessionPhase={sessionPhase} />
     </div>
   );
@@ -546,7 +546,7 @@ function GuidedGuide({ problem, sessionPhase }: GuideProps<GuidedSolveProblem>) 
     <div className="modern-panel-stage">
       <span className="modern-panel-pill">{taskOrderLabel(problem.type)}</span>
       <h2>{problem.renderSchema.guide.title}</h2>
-      <p className="muted-copy">{problem.renderSchema.guide.body}</p>
+      <p className="text-muted">{problem.renderSchema.guide.body}</p>
       <GuideStepList problem={problem} sessionPhase={sessionPhase} />
     </div>
   );

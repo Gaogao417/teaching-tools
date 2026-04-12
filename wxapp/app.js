@@ -5,7 +5,7 @@ App({
       colorMuted: '#64748b',
       colorPaper: '#f6efe3',
       colorPanel: '#fffdf8',
-      colorPrimary: '#c96f3a'
+      colorPrimary: '#f97316'
     }
   }
 })

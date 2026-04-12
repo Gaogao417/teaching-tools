@@ -1,0 +1,255 @@
+.page-shell {
+  width: min(1180px, calc(100vw - 28px));
+  margin: 0 auto;
+  padding: 28px 0 44px;
+  display: grid;
+  gap: 22px;
+}
+
+.hero-panel,
+.result-page {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.student-bar,
+.action-row,
+.top-stats {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.student-lockup {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.student-lockup-label,
+.student-hint {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 18px;
+}
+
+.nav-panel,
+.detail-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.nav-panel {
+  align-content: start;
+  max-height: min(72vh, 820px);
+  overflow: hidden;
+  gap: 14px;
+  padding: 20px;
+}
+
+.detail-panel {
+  padding: 24px;
+}
+
+.tree-block,
+.tree-chapter,
+.history-list,
+.metric-grid,
+.card-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.tree-header,
+.tree-body,
+.tree-branch,
+.tree-task-list,
+.detail-head,
+.info-card {
+  display: grid;
+}
+
+.tree-header {
+  gap: 4px;
+}
+
+.tree-body {
+  gap: 10px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.tree-block,
+.tree-chapter {
+  gap: 8px;
+}
+
+.tree-branch {
+  gap: 8px;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px dashed rgba(148, 163, 184, 0.28);
+}
+
+.tree-task-list {
+  gap: 6px;
+}
+
+.tree-node {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.tree-node:hover {
+  background: rgba(184, 92, 56, 0.06);
+  transform: translateY(-1px);
+}
+
+.tree-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tree-arrow {
+  width: 14px;
+  color: var(--muted);
+  text-align: center;
+  flex: none;
+}
+
+.tree-dot {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.tree-grade {
+  font-weight: 700;
+}
+
+.tree-chapter-title {
+  color: #475569;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.tree-task {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: #f8fafc;
+  color: var(--ink);
+}
+
+.tree-task.active {
+  background: #fff7ed;
+  border-color: rgba(249, 115, 22, 0.22);
+  color: #9a3412;
+  box-shadow: 0 8px 18px rgba(184, 92, 56, 0.12);
+}
+
+.tree-meta {
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+
+.detail-head {
+  gap: 8px;
+}
+
+.info-card {
+  gap: 12px;
+  padding: 18px;
+  background: #fffdfa;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 16px;
+}
+
+.metric-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.metric-grid div {
+  display: grid;
+  gap: 6px;
+}
+
+.metric-grid span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.metric-grid strong {
+  font-size: 1.2rem;
+}
+
+.steps-list {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 10px;
+}
+
+.history-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.triangle-stage {
+  min-height: 340px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0.6), rgba(255, 255, 255, 0.9));
+  border-radius: 16px;
+}
+
+.vertex-label,
+.edge-label {
+  fill: #475569;
+  font-weight: 700;
+}
+
+.chart-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.chart-empty,
+.chart-caption {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+@media (max-width: 900px) {
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .nav-panel {
+    max-height: none;
+  }
+}

@@ -30,7 +30,7 @@
     <view class="panel trend-card">
       <view class="trend-head">
         <view class="section-title">历史趋势</view>
-        <view class="muted">与上次相比 {{snapshot.deltaText}}</view>
+        <view class="text-muted">与上次相比 {{snapshot.deltaText}}</view>
       </view>
 
       <view wx:if="{{!chartBars.length}}" class="trend-empty">暂无历史数据</view>
@@ -40,7 +40,7 @@
             <view class="trend-bar" style="width: {{item.width}}%; background: {{snapshot.color}};"></view>
             <view class="trend-copy">
               <text>{{item.elapsedText}}</text>
-              <text class="muted">{{item.clearedAtText}}</text>
+              <text class="text-muted">{{item.clearedAtText}}</text>
             </view>
           </view>
         </block>
@@ -48,8 +48,8 @@
     </view>
 
     <view class="panel action-card">
-      <button class="primary-btn action-btn" bindtap="retry">再练一组</button>
-      <button class="ghost-btn action-btn ghost-action" bindtap="backHome">返回首页</button>
+      <button class="btn btn-primary action-btn" bindtap="retry">再练一组</button>
+      <button class="btn btn-ghost action-btn ghost-action" bindtap="backHome">返回首页</button>
     </view>
   </view>
 

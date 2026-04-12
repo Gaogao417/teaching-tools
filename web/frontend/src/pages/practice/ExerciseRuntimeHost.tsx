@@ -159,7 +159,7 @@ function MeaningWorkspace({ problem, draft, setDraft, hoveredSide, onHoverSide, 
             清空左侧选择
           </button>
           <button
-            className="primary-btn"
+            className="btn btn-primary"
             type="button"
             disabled={selected.length < 2}
             onClick={() =>
@@ -226,7 +226,7 @@ function RatioWorkspace({ problem, draft, setDraft, inputRefs, hoveredSide, onHo
             清空左侧输入
           </button>
           <button
-            className="primary-btn"
+            className="btn btn-primary"
             type="button"
             onClick={() =>
               onSubmit({
@@ -343,7 +343,7 @@ function GuidedWorkspace({ problem, draft, setDraft, inputRefs, hoveredSide, onH
             清空左侧步骤
           </button>
           <button
-            className="primary-btn"
+            className="btn btn-primary"
             type="button"
             onClick={() => {
               if (step === "ratio") {
@@ -394,7 +394,7 @@ function GuidePanel({ runtime, sessionPhase }: { runtime: ExerciseRuntimeSpec; s
     <div className="modern-panel-stage">
       <span className="modern-panel-pill">{runtime.instance.taskId}</span>
       <h2>{runtime.instance.guide.banner}</h2>
-      <p className="muted-copy">{runtime.instance.prompt}</p>
+      <p className="text-muted">{runtime.instance.prompt}</p>
       <div className="modern-step-list">
         {runtime.instance.guide.stepItems.map((step) => (
           <article key={step.stepId} className={`modern-step-card ${step.status} ${runtime.runtimeState.currentStepId === step.stepId ? "current" : ""}`}>

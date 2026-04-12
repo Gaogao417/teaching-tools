@@ -20,7 +20,7 @@ export function ResultPage() {
   }, [sessionId]);
 
   if (!snapshot) {
-    return <div className="page-shell"><section className="panel">加载结果中…</section></div>;
+    return <div className="page-shell"><section className="panel panel-pad">加载结果中…</section></div>;
   }
 
   return (
@@ -40,10 +40,10 @@ export function ResultPage() {
         <Chart points={snapshot.history} color={snapshot.color} />
 
         <div className="action-row">
-          <button className="secondary-btn" type="button" onClick={() => navigate(`/practice/${snapshot.taskId}`)}>
+          <button className="btn btn-secondary" type="button" onClick={() => navigate(`/practice/${snapshot.taskId}`)}>
             再练一组
           </button>
-          <button className="primary-btn" type="button" onClick={() => navigate("/")}>
+          <button className="btn btn-primary" type="button" onClick={() => navigate("/")}>
             返回首页
           </button>
         </div>

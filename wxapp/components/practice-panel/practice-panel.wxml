@@ -23,8 +23,8 @@
         <view class="choice-card" style="border-color: {{item.color}}33;">
           <view class="choice-copy">{{item.label}} · {{item.side}}</view>
           <view class="choice-actions layout-{{layoutMode}}">
-            <button class="ghost-btn choice-btn" data-role="{{item.id}}" data-slot="numerator" bindtap="handleChooseRole">设为分子</button>
-            <button class="ghost-btn choice-btn" data-role="{{item.id}}" data-slot="denominator" bindtap="handleChooseRole">设为分母</button>
+            <button class="btn btn-ghost choice-btn" data-role="{{item.id}}" data-slot="numerator" bindtap="handleChooseRole">设为分子</button>
+            <button class="btn btn-ghost choice-btn" data-role="{{item.id}}" data-slot="denominator" bindtap="handleChooseRole">设为分母</button>
           </view>
         </view>
       </block>
@@ -90,5 +90,5 @@
     </view>
   </view>
 
-  <button class="primary-btn submit-btn" bindtap="handleSubmit">提交答案</button>
+  <button class="btn btn-primary submit-btn" bindtap="handleSubmit">提交答案</button>
 </view>

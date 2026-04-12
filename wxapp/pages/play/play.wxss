@@ -1,3 +1,12 @@
+.screen,
+.play-screen {
+  box-sizing: border-box;
+}
+
+.play-screen {
+  padding: 24rpx;
+}
+
 .loading-panel {
   padding: 32rpx;
 }

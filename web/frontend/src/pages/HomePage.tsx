@@ -131,7 +131,7 @@ export function HomePage() {
         <div>
           <div className="eyebrow">三角比速度训练</div>
           <h1>选择课程任务</h1>
-          <p className="muted-copy">先填写学生姓名，再选择任务并开始练习。</p>
+          <p className="text-muted">先填写学生姓名，再选择任务并开始练习。</p>
         </div>
         <div className="student-bar">
           <input
@@ -140,7 +140,7 @@ export function HomePage() {
             onKeyDown={handleNameKeyDown}
             placeholder="请输入学生姓名后按回车"
           />
-          <button className="secondary-btn" type="button" onClick={saveName} disabled={!studentNameValue.trim()}>
+          <button className="btn btn-secondary" type="button" onClick={saveName} disabled={!studentNameValue.trim()}>
             保存姓名
           </button>
           <span className="student-hint">
@@ -153,7 +153,7 @@ export function HomePage() {
         <aside className="panel nav-panel">
           <div className="tree-header">
             <h2>任务导航</h2>
-            <p className="muted-copy">年级 → 章节 → 任务</p>
+            <p className="text-muted">年级 → 章节 → 任务</p>
           </div>
           <div className="tree-body">
             {tree?.grades.map((grade) => {
@@ -248,7 +248,7 @@ export function HomePage() {
 
             <div className="action-row">
               <button
-                className="primary-btn"
+                className="btn btn-primary"
                 disabled={!savedStudentName}
                 onClick={() => navigate(`/practice/${selectedTask.id}`)}
               >
@@ -260,7 +260,7 @@ export function HomePage() {
           <section className="panel detail-panel">
             <div className="detail-head">
               <h2>请先选择任务</h2>
-              <p className="muted-copy">当前没有可用任务，或任务树尚未加载完成。</p>
+              <p className="text-muted">当前没有可用任务，或任务树尚未加载完成。</p>
             </div>
           </section>
         )}

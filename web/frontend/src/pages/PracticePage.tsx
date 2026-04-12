@@ -293,7 +293,7 @@ export function PracticePage() {
   if (loading || !session || !problem || !runtime) {
     return (
       <div className="page-shell">
-        <section className="panel">加载中…</section>
+        <section className="panel panel-pad">加载中…</section>
       </div>
     );
   }
@@ -305,10 +305,10 @@ export function PracticePage() {
         <div className="practice-modern-shell">
           <header className="practice-modern-topbar">
             <div className="practice-modern-actions">
-              <button className="ghost-btn" type="button" onClick={() => navigate("/")}>
+              <button className="btn btn-ghost" type="button" onClick={() => navigate("/")}>
                 返回首页
               </button>
-              <button className="secondary-btn" type="button" onClick={() => void startNewSession()}>
+              <button className="btn btn-secondary" type="button" onClick={() => void startNewSession()}>
                 重新开始本组
               </button>
             </div>
@@ -421,10 +421,10 @@ function CompletionModal({
         </div>
         <Chart points={snapshot.history} color={snapshot.color} />
         <div className="action-row">
-          <button className="secondary-btn" type="button" onClick={onRetry}>
+          <button className="btn btn-secondary" type="button" onClick={onRetry}>
             再练一组
           </button>
-          <button className="primary-btn" type="button" onClick={onResult}>
+          <button className="btn btn-primary" type="button" onClick={onResult}>
             查看详细结果
           </button>
         </div>

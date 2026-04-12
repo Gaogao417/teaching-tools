@@ -1,6 +1,6 @@
 <view class="screen home-screen layout-{{layoutMode}}">
   <view class="mobile-bar" wx:if="{{useDrawer}}">
-    <button class="ghost-btn nav-btn" bindtap="toggleDrawer">任务导航</button>
+    <button class="btn btn-ghost nav-btn" bindtap="toggleDrawer">任务导航</button>
   </view>
 
   <view class="home-layout layout-{{layoutMode}}">
@@ -10,7 +10,7 @@
       <view class="tree-header">
         <view>
           <view class="section-title">课程任务</view>
-          <view class="muted tree-subtitle">年级 -> 章节 -> 任务</view>
+          <view class="text-muted tree-subtitle">年级 -> 章节 -> 任务</view>
         </view>
         <text class="tree-close" wx:if="{{useDrawer}}" bindtap="closeDrawer">关闭</text>
       </view>
@@ -98,7 +98,7 @@
           </view>
         </view>
 
-        <button class="primary-btn start-btn" bindtap="startPractice">开始练习</button>
+        <button class="btn btn-primary start-btn" bindtap="startPractice">开始练习</button>
       </block>
     </view>
   </view>
