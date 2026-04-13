@@ -16,21 +16,22 @@ import { Chart } from "../components/Chart";
 import type { WorkspaceOutletContext } from "../components/layout/workspaceContext";
 import { formatSeconds } from "../components/layout/workspaceUtils";
 import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from "../utils/storage";
-import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
 import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
+import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
 
 const AUTO_ADVANCE_DELAY = 700;
 const CHART_LIMIT = 10;
-const TASK_COLOR: Record<TaskId, string> = {
-  meaning: "#b85c38",
-  ratioToSide: "#1f8a70",
-  guidedSolve: "#d97706",
-};
 
 type PracticeSession = PracticeSessionSnapshot & {
   legacy?: {
     problems?: LegacyProblem[];
   };
+};
+
+type FeedbackState = {
+  tone: "idle" | "success" | "error";
+  title: string;
+  body: string;
 };
 
 function emptyDraft(): ClientDraftState {
@@ -75,7 +76,7 @@ export function PracticePage() {
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [history, setHistory] = useState<TaskHistoryItem[]>([]);
   const [draft, setDraft] = useState<ClientDraftState>(emptyDraft());
-  const [feedback, setFeedback] = useState<{ tone: "idle" | "success" | "error"; title: string; body: string }>({
+  const [feedback, setFeedback] = useState<FeedbackState>({
     tone: "idle",
     title: "准备开始",
     body: "左侧负责操作，右侧负责引导。",
@@ -166,7 +167,15 @@ export function PracticePage() {
   useEffect(() => {
     setDraft(emptyDraft());
     setHoveredSide(null);
-  }, [problem?.id]);
+    setFeedback((current) => {
+      if (!runtime || current.tone !== "success") return current;
+      return {
+        tone: "idle",
+        title: "继续作答",
+        body: runtime.instance.guide.hint || runtime.instance.prompt,
+      };
+    });
+  }, [problem?.id, runtime]);
 
   const refreshHistory = async (nextTaskId: TaskId, nextStudentName: string) => {
     const historyResponse = await api.getTaskHistory(nextTaskId, nextStudentName, CHART_LIMIT).catch(() => null);
@@ -292,7 +301,6 @@ export function PracticePage() {
   };
 
   const currentProgress = session ? `${session.currentIndex + 1} / ${session.instanceCount}` : "--";
-  const historyPoints = history.map((item) => ({ elapsedMs: item.elapsedMs, clearedAt: item.clearedAt }));
   const bestMs = bestFromHistory(history);
   const avgMs = avgFromHistory(history);
 
@@ -313,9 +321,7 @@ export function PracticePage() {
         <div className="detail-head">
           <div className="eyebrow">Training Locked</div>
           <h2>填写姓名后才能开始或恢复训练</h2>
-          <p>
-            当前任务链接已经就绪，但系统还不能记录你的历史和 session。输入姓名后，这个工作区会直接恢复到可训练状态。
-          </p>
+          <p>当前任务链接已经就绪，但系统还不能记录你的历史和 session。输入姓名后，这个工作区会直接恢复到可训练状态。</p>
         </div>
         <div className="action-row">
           <button className="btn btn-primary" type="button" onClick={requestAuth}>
@@ -371,19 +377,10 @@ export function PracticePage() {
                   return <span key={key} className={`practice-modern-dot ${cls}`} />;
                 })}
               </div>
-              <div className="practice-modern-mini-stats">
-                <article className="practice-modern-stat">
-                  <span>当前耗时</span>
-                  <strong>{formatSeconds(session.elapsedMs)}</strong>
-                </article>
-                <article className="practice-modern-stat">
-                  <span>本组最佳</span>
-                  <strong>{formatSeconds(bestMs)}</strong>
-                </article>
-                <article className="practice-modern-stat">
-                  <span>最近平均</span>
-                  <strong>{formatSeconds(avgMs)}</strong>
-                </article>
+              <div className="practice-modern-mini-stats" aria-label="练习状态">
+                <span>当前耗时 {formatSeconds(session.elapsedMs)}</span>
+                <span>本组最佳 {formatSeconds(bestMs)}</span>
+                <span>最近平均 {formatSeconds(avgMs)}</span>
               </div>
             </div>
           </header>
@@ -392,6 +389,7 @@ export function PracticePage() {
             <ExerciseRuntimeHost
               problem={problem}
               runtime={runtime}
+              feedback={feedback}
               sessionPhase={session.phase}
               draft={draft}
               setDraft={setDraft}
@@ -401,30 +399,6 @@ export function PracticePage() {
               onSubmit={(action) => void submitRuntimeAction({ type: "submit", ...action })}
               onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
             />
-          </div>
-
-          <div className="practice-modern-bottom">
-            <div className={`practice-feedback-card ${feedback.tone}`}>
-              <strong>{feedback.title}</strong>
-              <p>{feedback.body}</p>
-              <span className={`practice-inline-status ${feedback.tone}`}>{runtime.instance.guide.hint}</span>
-            </div>
-
-            <div className="practice-coach-card">
-              <div className="practice-section-head">
-                <strong>提示</strong>
-                <span>下一步提示</span>
-              </div>
-              <p>{runtime.instance.guide.hint || runtime.instance.prompt}</p>
-            </div>
-
-            <div className="practice-history-card">
-              <div className="practice-section-head">
-                <strong>耗时折线</strong>
-                <span>最近 {Math.min(history.length, CHART_LIMIT)} 次记录</span>
-              </div>
-              <Chart points={historyPoints} color={TASK_COLOR[session.taskId]} />
-            </div>
           </div>
         </div>
       </section>

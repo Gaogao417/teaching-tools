@@ -7,13 +7,14 @@ import type {
   Role,
   Side,
 } from "../../../../shared/contracts";
-import { ROLE_LABELS, sideMap, SIDE_SEQUENCE } from "./renderers";
+import { ROLE_LABELS, SIDE_SEQUENCE, sideMap } from "./renderers";
 
 type InputRefs = MutableRefObject<Record<string, HTMLInputElement | null>>;
 
 type Props = {
   problem: Problem;
   runtime: ExerciseRuntimeSpec;
+  feedback: { tone: "idle" | "success" | "error"; title: string; body: string };
   sessionPhase: "answering" | "correct_pause" | "wrong_feedback" | "group_finished";
   draft: ClientDraftState;
   setDraft: Dispatch<SetStateAction<ClientDraftState>>;
@@ -55,7 +56,12 @@ function TriangleBase({
   const workspace = problem.renderSchema.workspace;
 
   return (
-    <svg viewBox={`0 0 ${workspace.stage.width} ${workspace.stage.height}`} width="100%" height="100%" aria-label="直角三角形教具">
+    <svg
+      viewBox={`0 0 ${workspace.stage.width} ${workspace.stage.height}`}
+      width="100%"
+      height="100%"
+      aria-label="直角三角形练习图"
+    >
       <polygon
         points={Object.values(workspace.vertices)
           .map((point) => `${point.x},${point.y}`)
@@ -117,7 +123,15 @@ function TriangleBase({
   );
 }
 
-function MeaningWorkspace({ problem, draft, setDraft, hoveredSide, onHoverSide, onSubmit, onClear }: Props & { problem: Extract<Problem, { type: "meaning" }> }) {
+function MeaningWorkspace({
+  problem,
+  draft,
+  setDraft,
+  hoveredSide,
+  onHoverSide,
+  onSubmit,
+  onClear,
+}: Props & { problem: Extract<Problem, { type: "meaning" }> }) {
   const selected = selectedMeaningRoles(problem, draft);
   const mapping = sideMap(problem.referenceAngle);
 
@@ -141,17 +155,19 @@ function MeaningWorkspace({ problem, draft, setDraft, hoveredSide, onHoverSide, 
       <div className="practice-angle-badge">参考角 {problem.referenceAngle}</div>
       <div className="practice-role-legend">
         {Object.entries(mapping).map(([role, side]) => (
-          <span key={role}>{ROLE_LABELS[role as Role]} = {side}</span>
+          <span key={role}>
+            {ROLE_LABELS[role as Role]} = {side}
+          </span>
         ))}
       </div>
       <div className="practice-workspace-footer">
         <div className="practice-fraction-preview">
           <div className={`practice-fraction-slot ${selected[0] ? "filled" : "active"}`}>
-            {selected[0] ? `${ROLE_LABELS[selected[0].role]} (${selected[0].side})` : "分子边 ?"}
+            {selected[0] ? `${ROLE_LABELS[selected[0].role]} (${selected[0].side})` : "分子边"}
           </div>
           <div className="practice-fraction-bar" />
           <div className={`practice-fraction-slot ${selected[1] ? "filled" : ""}`}>
-            {selected[1] ? `${ROLE_LABELS[selected[1].role]} (${selected[1].side})` : "分母边 ?"}
+            {selected[1] ? `${ROLE_LABELS[selected[1].role]} (${selected[1].side})` : "分母边"}
           </div>
         </div>
         <div className="practice-workspace-actions">
@@ -177,7 +193,16 @@ function MeaningWorkspace({ problem, draft, setDraft, hoveredSide, onHoverSide, 
   );
 }
 
-function RatioWorkspace({ problem, draft, setDraft, inputRefs, hoveredSide, onHoverSide, onSubmit, onClear }: Props & { problem: Extract<Problem, { type: "ratioToSide" }> }) {
+function RatioWorkspace({
+  problem,
+  draft,
+  setDraft,
+  inputRefs,
+  hoveredSide,
+  onHoverSide,
+  onSubmit,
+  onClear,
+}: Props & { problem: Extract<Problem, { type: "ratioToSide" }> }) {
   return (
     <div className="practice-triangle-stage ratioToSide">
       <TriangleBase problem={problem} hoveredSide={hoveredSide} onHoverSide={onHoverSide} />
@@ -247,7 +272,16 @@ function RatioWorkspace({ problem, draft, setDraft, inputRefs, hoveredSide, onHo
   );
 }
 
-function GuidedWorkspace({ problem, draft, setDraft, inputRefs, hoveredSide, onHoverSide, onSubmit, onClear }: Props & { problem: GuidedSolveProblem }) {
+function GuidedWorkspace({
+  problem,
+  draft,
+  setDraft,
+  inputRefs,
+  hoveredSide,
+  onHoverSide,
+  onSubmit,
+  onClear,
+}: Props & { problem: GuidedSolveProblem }) {
   const step = currentGuidedStep(problem);
   const known = new Set(problem.given.map((item) => item.edge));
   const thirdSide = SIDE_SEQUENCE.find((side) => !known.has(side)) ?? "AC";
@@ -280,32 +314,35 @@ function GuidedWorkspace({ problem, draft, setDraft, inputRefs, hoveredSide, onH
             />
           );
         })}
-      {step === "third" && (() => {
-        const schema = problem.renderSchema.workspace.sides.find((side) => side.side === thirdSide);
-        if (!schema) return null;
-        return (
-          <input
-            ref={(node) => {
-              inputRefs.current.third = node;
-            }}
-            className="practice-edge-input"
-            style={{
-              left: `${(schema.input.x / problem.renderSchema.workspace.stage.width) * 100}%`,
-              top: `${(schema.input.y / problem.renderSchema.workspace.stage.height) * 100}%`,
-            }}
-            value={draft.inputs.third || ""}
-            onChange={(event) =>
-              setDraft((current) => ({
-                ...current,
-                inputs: { ...current.inputs, third: event.target.value },
-              }))
-            }
-          />
-        );
-      })()}
+      {step === "third" &&
+        (() => {
+          const schema = problem.renderSchema.workspace.sides.find((side) => side.side === thirdSide);
+          if (!schema) return null;
+          return (
+            <input
+              ref={(node) => {
+                inputRefs.current.third = node;
+              }}
+              className="practice-edge-input"
+              style={{
+                left: `${(schema.input.x / problem.renderSchema.workspace.stage.width) * 100}%`,
+                top: `${(schema.input.y / problem.renderSchema.workspace.stage.height) * 100}%`,
+              }}
+              value={draft.inputs.third || ""}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  inputs: { ...current.inputs, third: event.target.value },
+                }))
+              }
+            />
+          );
+        })()}
       {step === "final" && (
         <div className="practice-final-inline">
-          <span>{problem.target.toUpperCase()} {problem.referenceAngle} =</span>
+          <span>
+            {problem.target.toUpperCase()} {problem.referenceAngle} =
+          </span>
           <div className="practice-final-stack">
             <input
               ref={(node) => {
@@ -389,23 +426,37 @@ function runtimePrompt(problem: Problem) {
   return problem.prompt;
 }
 
+function ContextualIsland({
+  feedback,
+  fallback,
+}: {
+  feedback: Props["feedback"];
+  fallback: string;
+}) {
+  const title = feedback.tone === "idle" ? "下一步提示" : feedback.title;
+  const message = feedback.tone === "idle" ? fallback : feedback.body;
+
+  return (
+    <div className={`contextual-island ${feedback.tone}`} aria-live="polite" aria-atomic="true">
+      <span className="contextual-island-label">{title}</span>
+      <p>{message}</p>
+    </div>
+  );
+}
+
 function GuidePanel({ runtime, sessionPhase }: { runtime: ExerciseRuntimeSpec; sessionPhase: Props["sessionPhase"] }) {
   return (
     <div className="modern-panel-stage">
       <span className="modern-panel-pill">{runtime.instance.taskId}</span>
-      <h2>{runtime.instance.guide.banner}</h2>
-      <p className="text-muted">{runtime.instance.prompt}</p>
       <div className="modern-step-list">
         {runtime.instance.guide.stepItems.map((step) => (
           <article key={step.stepId} className={`modern-step-card ${step.status} ${runtime.runtimeState.currentStepId === step.stepId ? "current" : ""}`}>
             <strong>{step.title}</strong>
-            <p>{step.summary || (step.status === "done" ? "已完成" : "等待当前步骤解锁。")}</p>
+            <p>{step.summary || (step.status === "done" ? "已完成。" : "等待当前步骤解锁。")}</p>
           </article>
         ))}
       </div>
-      <div className={`modern-feedback-chip ${sessionPhase}`}>
-        {runtime.instance.guide.statusCopy}
-      </div>
+      <div className={`modern-feedback-chip ${sessionPhase}`}>{runtime.instance.guide.statusCopy}</div>
     </div>
   );
 }
@@ -421,7 +472,7 @@ export function ExerciseRuntimeHost(props: Props) {
   return (
     <>
       <div className="practice-modern-canvas-card">
-        <div className="practice-modern-banner">{props.runtime.instance.guide.hint || props.runtime.instance.prompt}</div>
+        <ContextualIsland feedback={props.feedback} fallback={props.runtime.instance.guide.hint || props.runtime.instance.prompt} />
         {workspace}
       </div>
       <div className="practice-modern-panel">

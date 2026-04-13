@@ -435,6 +435,7 @@
 }
 
 @media (max-width: 1180px) {
+
   .workspace-panel-head,
   .workspace-overview-grid {
     grid-template-columns: 1fr;
