@@ -23,6 +23,8 @@ export type InteractionZoneKind = "edge" | "vertex" | "region" | "slot" | "input
 export type SceneAnchorKind = "value-input" | "label" | "formula-slot" | "badge";
 export type SceneOverlayKind = "highlight" | "mask" | "guide-line" | "badge";
 export type FeedbackScope = "global" | "workspace" | "guide";
+export type SceneTextVariant = "inline-formula" | "angle-badge" | "note";
+export type FormulaSceneLayout = "fraction";
 
 export interface XYPoint {
   x: number;
@@ -120,7 +122,10 @@ export interface VertexSceneEntity extends SceneEntityBase {
 export interface FormulaSceneEntity extends SceneEntityBase {
   kind: "formula";
   label: string;
+  x?: number;
+  y?: number;
   slots?: string[];
+  layout?: FormulaSceneLayout;
 }
 
 export interface TextSceneEntity extends SceneEntityBase {
@@ -128,6 +133,7 @@ export interface TextSceneEntity extends SceneEntityBase {
   text: string;
   x?: number;
   y?: number;
+  variant?: SceneTextVariant;
 }
 
 export type SceneEntity =

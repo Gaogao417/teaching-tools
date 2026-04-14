@@ -275,6 +275,7 @@ function buildRuntimeState(state: TriangleTrigEngineState, phase: SessionPhase):
 }
 
 function buildEntities(state: TriangleTrigEngineState): SceneEntity[] {
+  const currentStep = state.taskId === "guidedSolve" ? guidedCurrentStep(state) : null;
   const entities: SceneEntity[] = [
     {
       id: "triangle-main",
@@ -309,6 +310,7 @@ function buildEntities(state: TriangleTrigEngineState): SceneEntity[] {
     text: `参考角 ${state.referenceAngle}`,
     x: 372,
     y: 40,
+    variant: "angle-badge",
   });
 
   if (state.taskId === "ratioToSide") {
@@ -318,6 +320,7 @@ function buildEntities(state: TriangleTrigEngineState): SceneEntity[] {
       text: `${state.target.toUpperCase()} ${state.referenceAngle} = ${state.ratio.numerator}/${state.ratio.denominator}`,
       x: 80,
       y: 34,
+      variant: "inline-formula",
     });
   }
 
@@ -328,7 +331,19 @@ function buildEntities(state: TriangleTrigEngineState): SceneEntity[] {
       text: `已知 ${state.given.map((item) => `${item.edge}=${item.value}`).join("，")}`,
       x: 80,
       y: 34,
+      variant: "inline-formula",
     });
+    if (currentStep === "final") {
+      entities.push({
+        id: "guided-final-formula",
+        kind: "formula",
+        label: `${state.target.toUpperCase()} ${state.referenceAngle} =`,
+        slots: ["final-numerator", "final-denominator"],
+        x: 364,
+        y: 330,
+        layout: "fraction",
+      });
+    }
   }
 
   return entities;

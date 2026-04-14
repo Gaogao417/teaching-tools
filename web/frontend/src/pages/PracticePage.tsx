@@ -4,7 +4,6 @@ import type {
   ClientDraftState,
   ExerciseRuntimeSpec,
   FeedbackEffectKey,
-  LegacyProblem,
   PracticeSessionSnapshot,
   ResultSnapshot,
   Side,
@@ -22,11 +21,7 @@ import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
 const AUTO_ADVANCE_DELAY = 700;
 const CHART_LIMIT = 10;
 
-type PracticeSession = PracticeSessionSnapshot & {
-  legacy?: {
-    problems?: LegacyProblem[];
-  };
-};
+type PracticeSession = PracticeSessionSnapshot;
 
 type FeedbackState = {
   tone: "idle" | "success" | "error";
@@ -88,8 +83,6 @@ export function PracticePage() {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const { effectKind, triggerFeedback, prefersReducedMotion } = usePracticeFeedback();
 
-  const problems = session?.legacy?.problems || [];
-  const problem = session ? problems[session.currentIndex] ?? null : null;
   const runtime = session?.runtime;
 
   useEffect(() => {
@@ -175,7 +168,7 @@ export function PracticePage() {
         body: runtime.instance.guide.hint || runtime.instance.prompt,
       };
     });
-  }, [problem?.id, runtime]);
+  }, [runtime?.instance.instanceId, runtime]);
 
   const refreshHistory = async (nextTaskId: TaskId, nextStudentName: string) => {
     const historyResponse = await api.getTaskHistory(nextTaskId, nextStudentName, CHART_LIMIT).catch(() => null);
@@ -229,12 +222,12 @@ export function PracticePage() {
 
   const submitRuntimeAction = async (action: { type: "submit" | "clear"; stepId?: string; value?: string; targetId?: string }) => {
     const currentSession = sessionRef.current;
-    const currentProblem = currentSession ? (currentSession.legacy?.problems || [])[currentSession.currentIndex] : null;
-    if (!currentSession || !currentProblem) return;
+    const currentRuntime = currentSession?.runtime;
+    if (!currentSession || !currentRuntime) return;
 
     const response = await api.submitRuntimeAction(
       currentSession.sessionId,
-      currentSession.runtime?.instance.instanceId || currentProblem.id,
+      currentRuntime.instance.instanceId,
       {
         type: action.type,
         stepId: action.stepId,
@@ -335,7 +328,7 @@ export function PracticePage() {
     );
   }
 
-  if (loading || !session || !problem || !runtime) {
+  if (loading || !session || !runtime) {
     return (
       <section className="panel workspace-panel">
         <div className="detail-head">
@@ -385,9 +378,7 @@ export function PracticePage() {
 
           <div className="practice-immersive-main">
             <ExerciseRuntimeHost
-              problem={problem}
               runtime={runtime}
-              feedback={feedback}
               sessionPhase={session.phase}
               draft={draft}
               setDraft={setDraft}
@@ -396,7 +387,6 @@ export function PracticePage() {
               onHoverSide={setHoveredSide}
               onSubmit={(action) => void submitRuntimeAction({ type: "submit", ...action })}
               onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
-              taskTitle={runtime.instance.prompt}
               taskGroup={taskOrderLabel(session.taskId)}
             />
           </div>
