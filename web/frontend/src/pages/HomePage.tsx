@@ -153,7 +153,6 @@ export function HomePage() {
         <aside className="panel nav-panel">
           <div className="tree-header">
             <h2>任务导航</h2>
-            <p className="text-muted">年级 → 章节 → 任务</p>
           </div>
           <div className="tree-body">
             {tree?.grades.map((grade) => {

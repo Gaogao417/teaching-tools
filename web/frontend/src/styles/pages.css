@@ -96,14 +96,14 @@
 }
 
 .tree-branch {
-  gap: var(--space-2);
-  margin-left: var(--space-3);
-  padding-left: var(--space-3);
-  border-left: 1px dashed var(--border-muted);
+  gap: 4px;
+  margin-left: 16px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-soft);
 }
 
 .tree-task-list {
-  gap: var(--space-2);
+  gap: 2px;
 }
 
 .tree-node {
@@ -111,21 +111,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
+  gap: var(--space-2);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
   text-align: left;
-  transition:
-    background 0.16s ease,
-    border-color 0.16s ease,
-    transform 0.16s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .tree-node:hover {
-  background: var(--fill-accent-soft-hover);
-  transform: translateY(-1px);
+  background: var(--fill-neutral-soft);
 }
 
 .tree-label {
@@ -145,34 +141,35 @@
 .tree-dot {
   font-size: var(--text-sm);
   line-height: 1;
+  opacity: 0.5;
 }
 
 .tree-grade {
   font-weight: 700;
+  padding: 8px 10px;
 }
 
 .tree-chapter-title {
   color: var(--color-slate-600);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
+  padding: 8px 10px;
 }
 
 .tree-task {
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-subtle);
-  color: var(--ink);
+  color: var(--color-slate-800);
+  font-size: var(--text-sm);
 }
 
 .tree-task.active {
   background: var(--color-accent-bg);
-  border-color: var(--border-accent);
   color: var(--text-accent);
-  box-shadow: var(--shadow-sm);
+  font-weight: var(--weight-medium);
 }
 
 .tree-meta {
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
 }
 
@@ -272,13 +269,22 @@
 }
 
 .workspace-topbar {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
-.workspace-topbar-copy {
-  display: grid;
-  gap: var(--space-2);
+.workspace-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.workspace-app-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  color: var(--ink);
 }
 
 .workspace-topbar-actions {
@@ -286,17 +292,22 @@
   gap: var(--space-3);
   align-items: center;
   flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 .workspace-drawer-trigger {
-  display: none;
+  display: inline-flex;
+  padding: var(--space-2);
+  color: var(--muted);
+}
+.workspace-drawer-trigger:hover {
+  color: var(--ink);
+  background: var(--fill-neutral-soft);
 }
 
 .workspace-shell {
   min-height: 0;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: var(--space-4);
   align-items: start;
 }
@@ -307,11 +318,7 @@
 }
 
 .workspace-sidebar {
-  position: sticky;
-  top: var(--space-4);
-  max-height: calc(100vh - 120px);
-  overflow: hidden;
-  padding: var(--space-5);
+  display: none;
 }
 
 .workspace-sidebar-shell {
@@ -338,6 +345,28 @@
 
 .workspace-panel {
   padding: var(--panel-padding);
+}
+
+.surface-canvas {
+  background: var(--surface-subtle);
+  border: 2px dashed var(--border-soft);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  height: 100%;
+  min-height: min(60vh, 600px);
+  gap: var(--space-3);
+  padding: var(--panel-padding);
+}
+
+.surface-canvas .canvas-title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  color: var(--ink);
+  letter-spacing: 0.05em;
 }
 
 .workspace-panel-head,
@@ -416,10 +445,11 @@
 }
 
 .workspace-drawer-backdrop {
-  display: none;
+  display: flex;
   background: var(--color-overlay);
   align-items: stretch;
   justify-content: flex-start;
+  z-index: 100;
 }
 
 .workspace-drawer {
@@ -428,6 +458,14 @@
   padding: var(--space-5);
   border-radius: 0;
   overflow: auto;
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-lg);
+  animation: slideIn 0.2s ease-out forwards;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
 }
 
 .workspace-result-panel {

@@ -44,10 +44,6 @@ export function SidebarNav({
     <div className="workspace-sidebar-shell">
       <div className="tree-header">
         <h2>任务导航</h2>
-        <p className="text-muted">年级 → 章节 → 任务</p>
-        <span className="workspace-sidebar-status">
-          {isStudentReady ? "已解锁训练记录" : "可浏览，训练未解锁"}
-        </span>
       </div>
 
       <div className="tree-body">
