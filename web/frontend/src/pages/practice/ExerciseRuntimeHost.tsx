@@ -1,3 +1,4 @@
+import type React from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type {
   ClientDraftState,
@@ -23,6 +24,8 @@ type Props = {
   onHoverSide: (side: Side | null) => void;
   onSubmit: (action: { stepId: string; value: string }) => void;
   onClear: (target?: string) => void;
+  taskTitle: string;
+  taskGroup?: string;
 };
 
 function edgeRole(problem: Problem, side: Side): Role {
@@ -135,7 +138,7 @@ function MeaningWorkspace({
   const selected = selectedMeaningRoles(problem, draft);
   const mapping = sideMap(problem.referenceAngle);
 
-  return (
+  const canvas = (
     <div className="practice-triangle-stage meaning">
       <TriangleBase
         problem={problem}
@@ -152,45 +155,42 @@ function MeaningWorkspace({
           });
         }}
       />
-      <div className="practice-angle-badge">参考角 {problem.referenceAngle}</div>
-      <div className="practice-role-legend">
-        {Object.entries(mapping).map(([role, side]) => (
-          <span key={role}>
-            {ROLE_LABELS[role as Role]} = {side}
-          </span>
-        ))}
+    </div>
+  );
+
+  const stepPreview = (
+    <div className="step-preview">
+      <div className="practice-fraction-preview">
+        <div className={`practice-fraction-slot ${selected[0] ? "filled" : "active"}`}>
+          {selected[0] ? `${ROLE_LABELS[selected[0].role]} (${selected[0].side})` : "分子边"}
+        </div>
+        <div className="practice-fraction-bar" />
+        <div className={`practice-fraction-slot ${selected[1] ? "filled" : ""}`}>
+          {selected[1] ? `${ROLE_LABELS[selected[1].role]} (${selected[1].side})` : "分母边"}
+        </div>
       </div>
-      <div className="practice-workspace-footer">
-        <div className="practice-fraction-preview">
-          <div className={`practice-fraction-slot ${selected[0] ? "filled" : "active"}`}>
-            {selected[0] ? `${ROLE_LABELS[selected[0].role]} (${selected[0].side})` : "分子边"}
-          </div>
-          <div className="practice-fraction-bar" />
-          <div className={`practice-fraction-slot ${selected[1] ? "filled" : ""}`}>
-            {selected[1] ? `${ROLE_LABELS[selected[1].role]} (${selected[1].side})` : "分母边"}
-          </div>
-        </div>
-        <div className="practice-workspace-actions">
-          <button className="tiny-btn" type="button" onClick={() => onClear("meaning-selection")}>
-            清空左侧选择
-          </button>
-          <button
-            className="btn btn-primary"
-            type="button"
-            disabled={selected.length < 2}
-            onClick={() =>
-              onSubmit({
-                stepId: "pick-roles",
-                value: `${selected[0].role}|${selected[1].role}`,
-              })
-            }
-          >
-            提交左侧答案
-          </button>
-        </div>
+      <div className="practice-workspace-actions">
+        <button className="tiny-btn" type="button" onClick={() => onClear("meaning-selection")}>
+          清空左侧选择
+        </button>
+        <button
+          className="btn btn-primary"
+          type="button"
+          disabled={selected.length < 2}
+          onClick={() =>
+            onSubmit({
+              stepId: "pick-roles",
+              value: `${selected[0].role}|${selected[1].role}`,
+            })
+          }
+        >
+          提交本步
+        </button>
       </div>
     </div>
   );
+
+  return { canvas, stepPreview };
 }
 
 function RatioWorkspace({
@@ -203,7 +203,7 @@ function RatioWorkspace({
   onSubmit,
   onClear,
 }: Props & { problem: Extract<Problem, { type: "ratioToSide" }> }) {
-  return (
+  const canvas = (
     <div className="practice-triangle-stage ratioToSide">
       <TriangleBase problem={problem} hoveredSide={hoveredSide} onHoverSide={onHoverSide} />
       {problem.renderSchema.workspace.sides.map((schema) => (
@@ -242,34 +242,39 @@ function RatioWorkspace({
         />
       ))}
       <div className="practice-angle-badge">参考角 {problem.referenceAngle}</div>
-      <div className="practice-workspace-footer">
-        <div className="practice-inline-formula">
-          {problem.target.toUpperCase()} {problem.referenceAngle} = {problem.ratio.numerator}/{problem.ratio.denominator}
-        </div>
-        <div className="practice-workspace-actions">
-          <button className="tiny-btn" type="button" onClick={() => onClear("edge-length")}>
-            清空左侧输入
-          </button>
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={() =>
-              onSubmit({
-                stepId: "fill-lengths",
-                value: JSON.stringify({
-                  AB: draft.inputs.AB || "",
-                  BC: draft.inputs.BC || "",
-                  AC: draft.inputs.AC || "",
-                }),
-              })
-            }
-          >
-            提交左侧答案
-          </button>
-        </div>
+    </div>
+  );
+
+  const stepPreview = (
+    <div className="step-preview">
+      <div className="practice-inline-formula">
+        【目标比值�?{problem.target.toUpperCase()} {problem.referenceAngle} = {problem.ratio.numerator}/{problem.ratio.denominator}
+      </div>
+      <div className="practice-workspace-actions">
+        <button className="tiny-btn" type="button" onClick={() => onClear("edge-length")}>
+          恢复空白
+        </button>
+        <button
+          className="btn btn-primary"
+          type="button"
+          onClick={() =>
+            onSubmit({
+              stepId: "fill-lengths",
+              value: JSON.stringify({
+                AB: draft.inputs.AB || "",
+                BC: draft.inputs.BC || "",
+                AC: draft.inputs.AC || "",
+              }),
+            })
+          }
+        >
+          提交本步
+        </button>
       </div>
     </div>
   );
+
+  return { canvas, stepPreview };
 }
 
 function GuidedWorkspace({
@@ -286,7 +291,7 @@ function GuidedWorkspace({
   const known = new Set(problem.given.map((item) => item.edge));
   const thirdSide = SIDE_SEQUENCE.find((side) => !known.has(side)) ?? "AC";
 
-  return (
+  const canvas = (
     <div className="practice-triangle-stage guidedSolve">
       <TriangleBase problem={problem} hoveredSide={hoveredSide} onHoverSide={onHoverSide} />
       {step === "ratio" &&
@@ -373,111 +378,126 @@ function GuidedWorkspace({
         </div>
       )}
       <div className="practice-angle-badge">参考角 {problem.referenceAngle}</div>
-      <div className="practice-workspace-footer">
-        <div className="practice-inline-formula">{runtimePrompt(problem)}</div>
-        <div className="practice-workspace-actions">
-          <button className="tiny-btn" type="button" onClick={() => onClear(step)}>
-            清空左侧步骤
-          </button>
-          <button
-            className="btn btn-primary"
-            type="button"
-            onClick={() => {
-              if (step === "ratio") {
-                onSubmit({
-                  stepId: "ratio",
-                  value: JSON.stringify(
-                    Object.fromEntries(problem.given.map((item) => [item.role, draft.inputs[`ratio-${item.role}`] || ""])),
-                  ),
-                });
-                return;
-              }
-              if (step === "third") {
-                onSubmit({
-                  stepId: "third",
-                  value: JSON.stringify({ third: draft.inputs.third || "" }),
-                });
-                return;
-              }
+    </div>
+  );
+
+  const stepPreview = (
+    <div className="step-preview">
+      <div className="practice-workspace-actions">
+        <button className="tiny-btn" type="button" onClick={() => onClear(step)}>
+          撤销修改
+        </button>
+        <button
+          className="btn btn-primary"
+          type="button"
+          onClick={() => {
+            if (step === "ratio") {
               onSubmit({
-                stepId: "final",
-                value: JSON.stringify({
-                  numerator: draft.inputs["final-top"] || "",
-                  denominator: draft.inputs["final-bottom"] || "",
-                }),
+                stepId: "ratio",
+                value: JSON.stringify(
+                  Object.fromEntries(problem.given.map((item) => [item.role, draft.inputs[`ratio-${item.role}`] || ""])),
+                ),
               });
-            }}
-          >
-            提交左侧步骤
-          </button>
-        </div>
+              return;
+            }
+            if (step === "third") {
+              onSubmit({
+                stepId: "third",
+                value: JSON.stringify({ third: draft.inputs.third || "" }),
+              });
+              return;
+            }
+            onSubmit({
+              stepId: "final",
+              value: JSON.stringify({
+                numerator: draft.inputs["final-top"] || "",
+                denominator: draft.inputs["final-bottom"] || "",
+              }),
+            });
+          }}
+        >
+          提交本步
+        </button>
       </div>
     </div>
   );
+
+  return { canvas, stepPreview };
 }
 
-function runtimePrompt(problem: Problem) {
-  if (problem.type === "guidedSolve") {
-    return `已知 ${problem.given.map((item) => `${item.edge}=${item.value}`).join("，")}`;
-  }
-  if (problem.type === "ratioToSide") {
-    return `${problem.target.toUpperCase()} ${problem.referenceAngle} = ${problem.ratio.numerator}/${problem.ratio.denominator}`;
-  }
-  return problem.prompt;
-}
-
-function ContextualIsland({
-  feedback,
-  fallback,
+function GuidePanel({
+  runtime,
+  sessionPhase,
+  stepPreview,
+  taskTitle,
+  taskGroup,
 }: {
-  feedback: Props["feedback"];
-  fallback: string;
+  runtime: ExerciseRuntimeSpec;
+  sessionPhase: Props["sessionPhase"];
+  stepPreview: React.ReactNode;
+  taskTitle: string;
+  taskGroup?: string;
 }) {
-  const title = feedback.tone === "idle" ? "下一步提示" : feedback.title;
-  const message = feedback.tone === "idle" ? fallback : feedback.body;
-
   return (
-    <div className={`contextual-island ${feedback.tone}`} aria-live="polite" aria-atomic="true">
-      <span className="contextual-island-label">{title}</span>
-      <p>{message}</p>
-    </div>
-  );
-}
-
-function GuidePanel({ runtime, sessionPhase }: { runtime: ExerciseRuntimeSpec; sessionPhase: Props["sessionPhase"] }) {
-  return (
-    <div className="modern-panel-stage">
-      <span className="modern-panel-pill">{runtime.instance.taskId}</span>
-      <div className="modern-step-list">
-        {runtime.instance.guide.stepItems.map((step) => (
-          <article key={step.stepId} className={`modern-step-card ${step.status} ${runtime.runtimeState.currentStepId === step.stepId ? "current" : ""}`}>
-            <strong>{step.title}</strong>
-            <p>{step.summary || (step.status === "done" ? "已完成。" : "等待当前步骤解锁。")}</p>
-          </article>
-        ))}
+    <div className="practice-guide-timeline">
+      <div className="timeline-header">
+        {taskGroup && <span className="task-group-tag">{taskGroup}</span>}
+        <h2 className="guide-prompt">{taskTitle}</h2>
       </div>
-      <div className={`modern-feedback-chip ${sessionPhase}`}>{runtime.instance.guide.statusCopy}</div>
+      <div className="timeline-flow">
+        {runtime.instance.guide.stepItems.map((step) => {
+          const isCurrent = runtime.runtimeState.currentStepId === step.stepId;
+          return (
+            <div key={step.stepId} className={`step-flow-item ${step.status} ${isCurrent ? "current" : ""}`}>
+              <div className="step-indicator" />
+              <div className="step-content">
+                <strong>{step.title}</strong>
+                {(isCurrent || step.status === "active") && (
+                  <p>{step.summary || "请在左侧区域作答。"}</p>
+                )}
+                {isCurrent && (
+                  <div className={`step-inline-feedback ${sessionPhase}`}>
+                    {runtime.instance.guide.statusCopy}
+                  </div>
+                )}
+                {isCurrent && stepPreview && (
+                  <div className="step-preview">
+                    {stepPreview}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 export function ExerciseRuntimeHost(props: Props) {
-  let workspace = <GuidedWorkspace {...props} problem={props.problem as GuidedSolveProblem} />;
+  let renderer: { canvas: React.ReactNode; stepPreview: React.ReactNode };
   if (props.problem.type === "meaning") {
-    workspace = <MeaningWorkspace {...props} problem={props.problem} />;
+    renderer = MeaningWorkspace({ ...props, problem: props.problem });
   } else if (props.problem.type === "ratioToSide") {
-    workspace = <RatioWorkspace {...props} problem={props.problem} />;
+    renderer = RatioWorkspace({ ...props, problem: props.problem });
+  } else {
+    renderer = GuidedWorkspace({ ...props, problem: props.problem as GuidedSolveProblem });
   }
 
   return (
     <>
-      <div className="practice-modern-canvas-card">
-        <ContextualIsland feedback={props.feedback} fallback={props.runtime.instance.guide.hint || props.runtime.instance.prompt} />
-        {workspace}
+      <div className="practice-canvas-zone">
+        {renderer.canvas}
       </div>
-      <div className="practice-modern-panel">
-        <GuidePanel runtime={props.runtime} sessionPhase={props.sessionPhase} />
-      </div>
+      <aside className="practice-guide-zone">
+        <GuidePanel
+          runtime={props.runtime}
+          sessionPhase={props.sessionPhase}
+          stepPreview={renderer.stepPreview}
+          taskTitle={props.taskTitle}
+          taskGroup={props.taskGroup}
+        />
+      </aside>
     </>
   );
 }

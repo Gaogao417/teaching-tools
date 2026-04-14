@@ -211,11 +211,6 @@ function MeaningWorkspace({
         })}
       </TriangleBase>
       <div className="practice-angle-badge">参考角 {problem.referenceAngle}</div>
-      <div className="practice-role-legend">
-        {Object.entries(mapping).map(([role, side]) => (
-          <span key={role}>{ROLE_LABELS[role as Role]} = {side}</span>
-        ))}
-      </div>
       <div className="practice-workspace-footer">
         <div className="practice-fraction-preview">
           <div className={`practice-fraction-slot ${localState.numeratorRole ? "filled" : "active"}`}>

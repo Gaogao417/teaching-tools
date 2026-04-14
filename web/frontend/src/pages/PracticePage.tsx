@@ -348,44 +348,42 @@ export function PracticePage() {
 
   return (
     <div className={`workspace-route-panel practice-route effect-${effectKind || "idle"}`}>
-      <section className="panel practice-port-shell">
+      <div className="practice-progress-track" aria-hidden="true">
+        <div
+          className="practice-progress-fill"
+          style={{ width: `${session ? (session.currentIndex / session.instanceCount) * 100 : 0}%` }}
+        />
+      </div>
+
+      <section className="practice-port-shell">
         <PracticeEffectsLayer effectKind={effectKind} reducedMotion={prefersReducedMotion} />
-        <div className="practice-modern-shell">
-          <header className="practice-modern-topbar">
-            <div className="practice-modern-actions">
-              <button className="btn btn-ghost" type="button" onClick={() => navigate("/")}>
-                回到任务概览
+
+        <div className="practice-immersive-shell">
+          <header className="practice-ambient-topbar">
+            <div className="practice-ambient-left">
+              <button className="btn btn-ghost btn-circle" type="button" onClick={() => navigate("/")} title="回到任务概览">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
               </button>
-              <button className="btn btn-secondary" type="button" onClick={() => void startNewSession()}>
-                重新开始本组
+              <button className="btn btn-ghost btn-circle" type="button" onClick={() => void startNewSession()} title="重新开始本组">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                  <path d="M3 3v5h5"></path>
+                </svg>
               </button>
             </div>
 
-            <div className="practice-modern-progress">
-              <div className="practice-modern-progress-head">
-                <div>
-                  <div className="eyebrow">{taskOrderLabel(session.taskId)}</div>
-                  <h1>{runtime.instance.guide.banner}</h1>
-                </div>
-                <div className="practice-modern-progress-copy">第 {currentProgress} 题</div>
-              </div>
-              <div className="practice-modern-dots" aria-hidden="true">
-                {Array.from({ length: session.instanceCount }, (_, index) => {
-                  const cls =
-                    index < session.currentIndex ? "done" : index === session.currentIndex ? "active" : "pending";
-                  const key = problems[index]?.id || `instance-${index}`;
-                  return <span key={key} className={`practice-modern-dot ${cls}`} />;
-                })}
-              </div>
-              <div className="practice-modern-mini-stats" aria-label="练习状态">
-                <span>当前耗时 {formatSeconds(session.elapsedMs)}</span>
-                <span>本组最佳 {formatSeconds(bestMs)}</span>
-                <span>最近平均 {formatSeconds(avgMs)}</span>
+            <div className="practice-ambient-right" aria-label="练习状态">
+              <div className="stat-pill-group">
+                <span className="stat-pill-main">进度 <strong>{currentProgress}</strong></span>
+                <span className="stat-pill-sub">{formatSeconds(session.elapsedMs)}</span>
               </div>
             </div>
           </header>
 
-          <div className="practice-modern-main">
+          <div className="practice-immersive-main">
             <ExerciseRuntimeHost
               problem={problem}
               runtime={runtime}
@@ -398,6 +396,8 @@ export function PracticePage() {
               onHoverSide={setHoveredSide}
               onSubmit={(action) => void submitRuntimeAction({ type: "submit", ...action })}
               onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
+              taskTitle={runtime.instance.prompt}
+              taskGroup={taskOrderLabel(session.taskId)}
             />
           </div>
         </div>
