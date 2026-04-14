@@ -36,9 +36,9 @@ export function TaskOverviewPanel() {
   if (!focusedTask) {
     return (
       <section className="panel workspace-panel">
-        <div className="detail-head">
-          <h2>正在加载任务树</h2>
-          <p className="text-muted">稍等一下，我们会把默认任务聚焦到主区域。</p>
+        <div className="surface-canvas">
+          <h2 className="canvas-title">学生练习工作台</h2>
+          <p className="text-muted">请点击左上角的菜单开始选择任务</p>
         </div>
       </section>
     );

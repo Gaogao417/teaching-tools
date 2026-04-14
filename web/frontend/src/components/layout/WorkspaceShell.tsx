@@ -14,26 +14,8 @@ type PreviewState = {
   anchorRect: DOMRect;
 };
 
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.matchMedia("(max-width: 980px)").matches : false,
-  );
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const query = window.matchMedia("(max-width: 980px)");
-    const update = () => setIsMobile(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-
-  return isMobile;
-}
-
 export function WorkspaceShell() {
   const location = useLocation();
-  const isMobile = useIsMobile();
   const contentRef = useRef<HTMLDivElement | null>(null);
   const previewCloseTimer = useRef<number | null>(null);
   const [tree, setTree] = useState<Awaited<ReturnType<typeof api.getTaskTree>> | null>(null);
@@ -41,7 +23,7 @@ export function WorkspaceShell() {
   const [expandedGradeIds, setExpandedGradeIds] = useState<string[]>([]);
   const [expandedChapterIds, setExpandedChapterIds] = useState<string[]>([]);
   const [previewState, setPreviewState] = useState<PreviewState | null>(null);
-  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [isNavDrawerOpen, setIsNavDrawerOpen] = useState(false);
   const [studentName, setStudentNameState] = useState(() => getStudentName());
   const [studentNameDraft, setStudentNameDraft] = useState(() => getStudentName());
   const [isAuthOpen, setIsAuthOpen] = useState(() => !getStudentName());
@@ -116,9 +98,7 @@ export function WorkspaceShell() {
     setFocusedTaskIdState(taskId);
     setExpandedGradeIds((current) => (current.includes(gradeId) ? current : [...current, gradeId]));
     setExpandedChapterIds((current) => (current.includes(chapterId) ? current : [...current, chapterId]));
-    if (isMobile) {
-      setIsMobileDrawerOpen(false);
-    }
+    setIsNavDrawerOpen(false);
   };
 
   const cancelPreviewClose = () => {
@@ -129,7 +109,7 @@ export function WorkspaceShell() {
   };
 
   const handlePreviewOpen = (taskId: TaskId, element: HTMLElement) => {
-    if (isMobile || taskId === activeTaskId) return;
+    if (taskId === activeTaskId) return;
     cancelPreviewClose();
     setPreviewState({ taskId, anchorRect: element.getBoundingClientRect() });
   };
@@ -190,16 +170,18 @@ export function WorkspaceShell() {
   return (
     <div className="workspace-app">
       <header className="workspace-topbar">
-        <div className="workspace-topbar-copy">
-          <div className="eyebrow">Unified Workspace</div>
-          <h1>三角比高频训练工作区</h1>
-          <p className="text-muted">统一浏览任务、进入训练，并在同一壳层内查看结果。</p>
+        <div className="workspace-topbar-left">
+          <button className="btn btn-ghost workspace-drawer-trigger" type="button" onClick={() => setIsNavDrawerOpen(true)} title="打开导航">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <h1 className="workspace-app-title">三角比高频训练</h1>
         </div>
 
         <div className="workspace-topbar-actions">
-          <button className="btn btn-ghost workspace-drawer-trigger" type="button" onClick={() => setIsMobileDrawerOpen(true)}>
-            打开任务树
-          </button>
           <div className="student-lockup">
             <span className="student-lockup-label">当前学生</span>
             <strong>{studentName || "未填写姓名"}</strong>
@@ -213,14 +195,13 @@ export function WorkspaceShell() {
       </header>
 
       <div className="workspace-shell">
-        <aside className="panel workspace-sidebar">{sidebar}</aside>
         <main className="workspace-content" ref={contentRef}>
           <Outlet context={outletContext} />
         </main>
       </div>
 
-      {isMobile && isMobileDrawerOpen && (
-        <div className="workspace-drawer-backdrop" role="presentation" onClick={() => setIsMobileDrawerOpen(false)}>
+      {isNavDrawerOpen && (
+        <div className="workspace-drawer-backdrop" role="presentation" onClick={() => setIsNavDrawerOpen(false)}>
           <div className="panel workspace-drawer" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             {sidebar}
           </div>
