@@ -1,4 +1,4 @@
-import type { TaskId } from "../../../shared/contracts";
+import type { ExerciseEngineKind, TaskId } from "../../../shared/contracts";
 import { db } from "../db/database";
 
 export type RuntimeInstanceRow = {
@@ -6,7 +6,7 @@ export type RuntimeInstanceRow = {
   session_id: string;
   task_id: TaskId;
   content_id: string;
-  engine_kind: "triangle-trig";
+  engine_kind: ExerciseEngineKind;
   instance_index: number;
   content_json: string;
   instance_json: string;

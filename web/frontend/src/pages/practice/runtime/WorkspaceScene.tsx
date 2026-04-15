@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type {
   ClientDraftState,
@@ -6,8 +6,8 @@ import type {
   FormulaSceneEntity,
   SceneAnchor,
   SceneEntity,
-  Side,
 } from "../../../../../shared/contracts";
+import type { Side } from "../../../../../shared/triangleTrig";
 import {
   currentStep,
   edgeSideFromRef,
@@ -15,18 +15,13 @@ import {
   findEntity,
   orderedSelectionPreview,
 } from "./sceneUtils";
+import type { WorkspaceRendererProps } from "./workspaceRenderers";
 
 type InputRefs = MutableRefObject<Record<string, HTMLInputElement | null>>;
 
-type WorkspaceSceneProps = {
-  runtime: ExerciseRuntimeSpec;
-  draft: ClientDraftState;
-  setDraft: Dispatch<SetStateAction<ClientDraftState>>;
-  inputRefs: InputRefs;
+type WorkspaceSceneProps = WorkspaceRendererProps & {
   hoveredSide: Side | null;
   onHoverSide: (side: Side | null) => void;
-  onSubmit: (action: { stepId: string; value: string }) => void;
-  onClear: (target?: string) => void;
 };
 
 function FormulaEntity({
@@ -389,7 +384,7 @@ function OverlayLayer({
   );
 }
 
-export function WorkspaceScene({
+function WorkspaceScene({
   runtime,
   draft,
   setDraft,
@@ -443,5 +438,17 @@ export function WorkspaceScene({
         />
       </div>
     </div>
+  );
+}
+
+export function TriangleTrigWorkspaceRenderer(props: WorkspaceRendererProps) {
+  const [hoveredSide, setHoveredSide] = useState<Side | null>(null);
+
+  return (
+    <WorkspaceScene
+      {...props}
+      hoveredSide={hoveredSide}
+      onHoverSide={setHoveredSide}
+    />
   );
 }

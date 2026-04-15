@@ -1,19 +1,17 @@
 import {
   AnswerPayload,
-  ContentDefinition,
   ExerciseRuntimeSpec,
   GuidedSolveProblem,
-  GuidedStepKey,
   LegacyProblem,
   MeaningProblem,
   ProblemRenderSchema,
   RatioToSideProblem,
-  Role,
+  TaskDefinition,
+  TriangleTrigContentDefinition,
   RuntimeActionEvent,
   SessionPhase,
-  Side,
-  TaskDefinition,
 } from "../../../../shared/contracts";
+import type { GuidedStepKey, Role, Side } from "../../../../shared/triangleTrig";
 import { TriangleTrigEngineState } from "./triangleTrigEngine";
 
 function roleSideMap(referenceAngle: "A" | "C"): Record<Role, Side> {
@@ -108,7 +106,7 @@ function projectedPhase(state: TriangleTrigEngineState, sessionPhase: SessionPha
 
 export function projectLegacyProblem(
   _task: TaskDefinition,
-  _content: ContentDefinition,
+  _content: TriangleTrigContentDefinition,
   state: TriangleTrigEngineState,
   runtime: ExerciseRuntimeSpec,
   sessionPhase: SessionPhase,

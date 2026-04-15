@@ -5,6 +5,10 @@ export function getTaskTree() {
   return TASK_TREE;
 }
 
+export function hasTaskDefinition(taskId: string): taskId is TaskId {
+  return taskId in TASK_DEFINITIONS;
+}
+
 export function getTaskDefinition(taskId: TaskId): TaskDefinition {
   const task = TASK_DEFINITIONS[taskId];
   if (!task) {

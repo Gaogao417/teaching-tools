@@ -1,17 +1,13 @@
 import {
   ActionSpec,
-  Angle,
-  ContentDefinition,
   ExerciseInstance,
   ExerciseRuntimeSpec,
   FeedbackCue,
   FeedbackSpec,
   FlowSpec,
-  GuidedStepKey,
   GuideSpec,
   InteractionZone,
   ProblemStatus,
-  Role,
   RuntimeActionEvent,
   RuntimeEvaluation,
   RuntimeFeedbackPacket,
@@ -20,12 +16,12 @@ import {
   SceneSpec,
   ServerRuntimeState,
   SessionPhase,
-  Side,
   TaskDefinition,
-  TaskId,
-  TrigFunction,
+  TriangleTrigContentDefinition,
   XYPoint,
 } from "../../../../shared/contracts";
+import type { Angle, GuidedStepKey, Role, Side, TriangleTrigTaskId, TrigFunction } from "../../../../shared/triangleTrig";
+import type { EngineActionResult, RuntimeEngineState } from "./engineTypes";
 
 type LengthValue = { n: number; s: number };
 
@@ -45,9 +41,9 @@ type GuidedAnswerKey = {
   finalDenominator: string;
 };
 
-type TriangleTrigBaseState = {
+type TriangleTrigBaseState = RuntimeEngineState & {
   instanceId: string;
-  taskId: TaskId;
+  taskId: TriangleTrigTaskId;
   contentId: string;
   index: number;
   status: ProblemStatus;
@@ -97,15 +93,6 @@ export type TriangleTrigEngineState =
 type RuntimeDraftPayload = {
   selections?: Record<string, string[]>;
   inputs?: Record<string, string>;
-};
-
-type EngineActionResult = {
-  accepted: boolean;
-  evaluation: RuntimeEvaluation;
-  phase: SessionPhase;
-  engineState: TriangleTrigEngineState;
-  runtime: ExerciseRuntimeSpec;
-  feedback: RuntimeFeedbackPacket;
 };
 
 const ACUTE_ANGLES: Angle[] = ["A", "C"];
@@ -423,7 +410,7 @@ function buildAnchors(state: TriangleTrigEngineState): SceneAnchor[] {
   ];
 }
 
-function buildFlow(content: ContentDefinition, state: TriangleTrigEngineState): FlowSpec {
+function buildFlow(content: TriangleTrigContentDefinition, state: TriangleTrigEngineState): FlowSpec {
   if (state.taskId === "meaning") {
     const status = state.status === "correct" ? "done" : "active";
     return {
@@ -517,7 +504,7 @@ function buildFlow(content: ContentDefinition, state: TriangleTrigEngineState): 
   };
 }
 
-function buildGuide(content: ContentDefinition, state: TriangleTrigEngineState, phase: SessionPhase): GuideSpec {
+function buildGuide(content: TriangleTrigContentDefinition, state: TriangleTrigEngineState, phase: SessionPhase): GuideSpec {
   const flow = buildFlow(content, state);
   return {
     banner: content.guideTemplate.banner,
@@ -578,7 +565,7 @@ function buildScene(state: TriangleTrigEngineState): SceneSpec {
   };
 }
 
-function buildPrompt(content: ContentDefinition, state: TriangleTrigEngineState) {
+function buildPrompt(content: TriangleTrigContentDefinition, state: TriangleTrigEngineState) {
   const vars: Record<string, string> = {
     target: state.target.toUpperCase(),
     angle: state.referenceAngle,
@@ -593,7 +580,12 @@ function buildPrompt(content: ContentDefinition, state: TriangleTrigEngineState)
   return renderTemplate(content.promptTemplate, vars);
 }
 
-function buildInstance(task: TaskDefinition, content: ContentDefinition, state: TriangleTrigEngineState, phase: SessionPhase): ExerciseInstance {
+function buildInstance(
+  task: TaskDefinition,
+  content: TriangleTrigContentDefinition,
+  state: TriangleTrigEngineState,
+  phase: SessionPhase,
+): ExerciseInstance {
   return {
     instanceId: state.instanceId,
     taskId: task.id,
@@ -607,7 +599,12 @@ function buildInstance(task: TaskDefinition, content: ContentDefinition, state: 
   };
 }
 
-function toRuntime(task: TaskDefinition, content: ContentDefinition, state: TriangleTrigEngineState, phase: SessionPhase): ExerciseRuntimeSpec {
+function toRuntime(
+  task: TaskDefinition,
+  content: TriangleTrigContentDefinition,
+  state: TriangleTrigEngineState,
+  phase: SessionPhase,
+): ExerciseRuntimeSpec {
   return {
     instance: buildInstance(task, content, state, phase),
     runtimeState: buildRuntimeState(state, phase),
@@ -621,7 +618,11 @@ function computeRatioPair(triple: Record<Side, LengthValue>, trig: TrigFunction,
   return { numerator, denominator };
 }
 
-export function createTriangleTrigState(task: TaskDefinition, content: ContentDefinition, index: number): TriangleTrigEngineState {
+export function createTriangleTrigState(
+  task: TaskDefinition,
+  content: TriangleTrigContentDefinition,
+  index: number,
+): TriangleTrigEngineState {
   const target = randomItem(TRIGS);
   const referenceAngle = randomItem(ACUTE_ANGLES);
   const instanceId = crypto.randomUUID();
@@ -787,12 +788,16 @@ function cloneState(state: TriangleTrigEngineState): TriangleTrigEngineState {
   return JSON.parse(JSON.stringify(state)) as TriangleTrigEngineState;
 }
 
+export function restoreTriangleTrigState(raw: unknown): TriangleTrigEngineState {
+  return raw as TriangleTrigEngineState;
+}
+
 export function reduceTriangleTrigAction(
   task: TaskDefinition,
-  content: ContentDefinition,
+  content: TriangleTrigContentDefinition,
   currentState: TriangleTrigEngineState,
   action: RuntimeActionEvent,
-): EngineActionResult {
+): EngineActionResult<TriangleTrigEngineState> {
   const state = cloneState(currentState);
 
   if (action.type === "clear") {
@@ -871,7 +876,7 @@ export function reduceTriangleTrigAction(
 
 export function buildRuntimeForState(
   task: TaskDefinition,
-  content: ContentDefinition,
+  content: TriangleTrigContentDefinition,
   state: TriangleTrigEngineState,
   phase: SessionPhase,
 ) {

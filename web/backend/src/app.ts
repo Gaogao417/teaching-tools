@@ -1,11 +1,15 @@
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
+import type { TaskId } from "../../shared/contracts";
 import { TASK_TREE } from "../../shared/tasks";
 import { getResult, getTaskHistory } from "./services/resultsService";
 import { finishPractice, restorePractice, startPractice, submitAnswer, submitRuntimeAction } from "./services/runtime/sessionRuntimeService";
+import { hasTaskDefinition } from "./services/tasks/catalogService";
 
-const taskIdSchema = z.enum(["meaning", "ratioToSide", "guidedSolve"]);
+const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
+  message: "Invalid taskId",
+});
 
 export function createApp() {
   const app = express();

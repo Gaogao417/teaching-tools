@@ -1,5 +1,8 @@
-export type TaskId = "meaning" | "ratioToSide" | "guidedSolve";
-export type ExerciseEngineKind = "triangle-trig";
+import type { Angle, GuidedStepKey, Role, Side, TriangleTrigTaskId, TrigFunction } from "./triangleTrig";
+
+export type DemoCounterTaskId = "demoCounter";
+export type TaskId = TriangleTrigTaskId | DemoCounterTaskId;
+export type ExerciseEngineKind = "triangle-trig" | "demo-counter";
 
 export type SessionPhase =
   | "answering"
@@ -8,11 +11,6 @@ export type SessionPhase =
   | "group_finished";
 
 export type ProblemStatus = "pending" | "correct" | "wrong";
-export type TrigFunction = "sin" | "cos" | "tan" | "cot";
-export type Angle = "A" | "C";
-export type Role = "opposite" | "adjacent" | "hypotenuse";
-export type Side = "AB" | "BC" | "AC";
-export type GuidedStepKey = "ratio" | "third" | "final";
 export type FeedbackEffectKey = "correct" | "wrong" | "finish";
 export type RuntimeStepStatus = "locked" | "active" | "done";
 export type RuntimeEvaluation = "correct" | "wrong" | "progress";
@@ -63,7 +61,7 @@ export interface GuideTemplateStepDefinition {
 export interface TriangleTrigContentDefinition {
   id: string;
   engineKind: "triangle-trig";
-  taskId: TaskId;
+  taskId: TriangleTrigTaskId;
   version: string;
   promptTemplate: string;
   sceneTemplate: {
@@ -90,7 +88,27 @@ export interface TriangleTrigContentDefinition {
   initialVariables?: Record<string, string>;
 }
 
-export type ContentDefinition = TriangleTrigContentDefinition;
+export interface DemoCounterContentDefinition {
+  id: string;
+  engineKind: "demo-counter";
+  taskId: DemoCounterTaskId;
+  version: string;
+  promptTemplate: string;
+  expectedAnswer: string;
+  guideTemplate: {
+    banner: string;
+    hint: string;
+  };
+  feedbackTemplate: {
+    correct: FeedbackEffectKey[];
+    wrong: FeedbackEffectKey[];
+    finish: FeedbackEffectKey[];
+  };
+}
+
+export type ContentDefinition =
+  | TriangleTrigContentDefinition
+  | DemoCounterContentDefinition;
 
 export interface SceneEntityBase {
   id: string;

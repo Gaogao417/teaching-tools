@@ -2,10 +2,9 @@ import type {
   ClientDraftState,
   ExerciseRuntimeSpec,
   FlowStep,
-  Role,
   SceneEntity,
-  Side,
 } from "../../../../../shared/contracts";
+import type { Role, Side } from "../../../../../shared/triangleTrig";
 
 export const ROLE_LABELS: Record<Role, string> = {
   opposite: "对边",

@@ -1,8 +1,9 @@
 import type { ResultSnapshot, TaskHistoryItem, TaskId } from "../../../shared/contracts";
-import { TASK_COLORS, TASK_LABELS } from "../../../shared/tasks";
+import { TASK_COLORS } from "../../../shared/tasks";
 import { getPreviousElapsedMs, getResultSnapshot, insertResultSnapshot, listResultHistory, listTaskHistory } from "../repositories/resultRepository";
 import { markSessionFinished } from "../repositories/sessionRepository";
 import { appError } from "./runtime/errors";
+import { getTaskDefinition } from "./tasks/catalogService";
 
 type ResultSessionRecord = {
   id: string;
@@ -16,12 +17,6 @@ type ResultInstanceRecord = {
     firstTryCorrect: boolean | null;
   };
 };
-
-function groupLabel(taskId: TaskId) {
-  if (taskId === "meaning") return "\u7b2c1\u7ec4";
-  if (taskId === "ratioToSide") return "\u7b2c2\u7ec4";
-  return "\u7b2c3\u7ec4";
-}
 
 function average(values: number[]): number | null {
   if (!values.length) return null;
@@ -61,14 +56,15 @@ export function finishAndPersistResult(
 
   const previousElapsedMs = getPreviousElapsedMs(session.task_id, session.student_name);
   const history = listResultHistory(session.task_id, session.student_name);
+  const task = getTaskDefinition(session.task_id);
   const snapshot: ResultSnapshot = {
     sessionId: session.id,
     taskId: session.task_id,
     studentName: session.student_name,
     startedAt: session.started_at,
     clearedAt: finishedAt,
-    title: `${groupLabel(session.task_id)} \u5df2\u5b8c\u6210`,
-    groupLabel: TASK_LABELS[session.task_id],
+    title: `${task.title} \u5df2\u5b8c\u6210`,
+    groupLabel: task.catalogMeta.chapterName,
     elapsedMs,
     bestMs: history.length ? Math.min(...history.map((item) => item.elapsedMs), elapsedMs) : elapsedMs,
     avgMs: average([...history.map((item) => item.elapsedMs), elapsedMs].slice(-5)),

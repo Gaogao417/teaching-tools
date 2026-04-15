@@ -16,7 +16,8 @@ import { finishAndPersistResult } from "../resultsService";
 import { getTaskDefinition } from "../tasks/catalogService";
 import { resolveContentDefinition } from "./contentRegistry";
 import { getEnginePlugin } from "./engineRegistry";
-import { answerPayloadToRuntimeAction, runtimeActionToEngineAction } from "./legacyAdapter";
+import { answerPayloadToRuntimeAction } from "./legacyAdapter";
+import { type RuntimeEngineState } from "./engineTypes";
 import { appError } from "./errors";
 import { projectedPhaseForIndex, toLegacyProblemState, toPracticeSessionSnapshot } from "./runtimeSnapshotProjector";
 import { TriangleTrigEngineState } from "./triangleTrigEngine";
@@ -24,7 +25,7 @@ import { TriangleTrigEngineState } from "./triangleTrigEngine";
 type RuntimeInstanceRecord = {
   row: RuntimeInstanceRow;
   content: ContentDefinition;
-  engineState: TriangleTrigEngineState;
+  engineState: RuntimeEngineState;
 };
 
 function requireRuntimeSession(sessionId: string): SessionRow {
@@ -37,11 +38,15 @@ function requireRuntimeSession(sessionId: string): SessionRow {
 }
 
 function loadRuntimeInstances(sessionId: string): RuntimeInstanceRecord[] {
-  return listRuntimeInstancesBySessionId(sessionId).map((row) => ({
-    row,
-    content: resolveContentDefinition(row.content_id, JSON.parse(row.content_json) as ContentDefinition),
-    engineState: JSON.parse(row.engine_state_json) as TriangleTrigEngineState,
-  }));
+  return listRuntimeInstancesBySessionId(sessionId).map((row) => {
+    const content = resolveContentDefinition(row.content_id, JSON.parse(row.content_json) as ContentDefinition);
+    const plugin = getEnginePlugin(row.engine_kind);
+    return {
+      row,
+      content,
+      engineState: plugin.restoreState(JSON.parse(row.engine_state_json)),
+    };
+  });
 }
 
 const createSessionWithInstances = db.transaction((session: SessionRow, instances: RuntimeInstanceRecord[]) => {
@@ -55,7 +60,7 @@ const persistProgress = db.transaction(
     nextIndex: number,
     nextPhase: SessionPhase,
     record: RuntimeInstanceRecord,
-    engineState: TriangleTrigEngineState,
+    engineState: RuntimeEngineState,
     runtime: ReturnType<ReturnType<typeof getEnginePlugin>["buildRuntime"]>,
   ) => {
     updateRuntimeInstanceState(
@@ -139,7 +144,7 @@ export function submitRuntimeAction(
 
   const task = getTaskDefinition(activeRecord.row.task_id);
   const plugin = getEnginePlugin(activeRecord.row.engine_kind);
-  const engineAction = runtimeActionToEngineAction(action, activeRecord.engineState);
+  const engineAction = plugin.adaptAction?.(activeRecord.engineState, action) ?? action;
   const reduced = plugin.reduceAction(task, activeRecord.content, activeRecord.engineState, engineAction);
 
   let nextIndex = session.current_index;
@@ -174,11 +179,14 @@ export function submitAnswer(sessionId: string, problemId: string, payload: Answ
   if (!activeRecord || activeRecord.row.id !== problemId) {
     throw appError("PROBLEM_NOT_FOUND", "Problem not found", 404);
   }
+  if (activeRecord.row.engine_kind !== "triangle-trig") {
+    throw appError("ACTION_NOT_ALLOWED", "Legacy answer endpoint is only supported for triangle-trig", 409);
+  }
 
   const response = submitRuntimeAction(
     sessionId,
     activeRecord.row.id,
-    answerPayloadToRuntimeAction(payload, activeRecord.engineState),
+    answerPayloadToRuntimeAction(payload, activeRecord.engineState as TriangleTrigEngineState),
   );
   const refreshedSession = requireRuntimeSession(sessionId);
   const refreshedRecords = loadRuntimeInstances(sessionId);

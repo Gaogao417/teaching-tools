@@ -1,12 +1,13 @@
-import { ContentDefinition, PracticeSessionSnapshot, SessionPhase } from "../../../../shared/contracts";
+import { ContentDefinition, ExerciseEngineKind, PracticeSessionSnapshot, SessionPhase, TaskId } from "../../../../shared/contracts";
 import { getTaskDefinition } from "../tasks/catalogService";
 import { getEnginePlugin } from "./engineRegistry";
 import { projectLegacyProblem } from "./legacyAdapter";
+import { type RuntimeEngineState } from "./engineTypes";
 import { TriangleTrigEngineState } from "./triangleTrigEngine";
 
 type SessionProjectionRow = {
   id: string;
-  task_id: "meaning" | "ratioToSide" | "guidedSolve";
+  task_id: TaskId;
   student_name: string;
   phase: SessionPhase;
   current_index: number;
@@ -17,12 +18,12 @@ type SessionProjectionRow = {
 type RuntimeInstanceProjectionRecord = {
   row: {
     id: string;
-    task_id: "meaning" | "ratioToSide" | "guidedSolve";
-    engine_kind: "triangle-trig";
+    task_id: TaskId;
+    engine_kind: ExerciseEngineKind;
     instance_index: number;
   };
   content: ContentDefinition;
-  engineState: TriangleTrigEngineState;
+  engineState: RuntimeEngineState;
 };
 
 function activeRuntime(session: SessionProjectionRow, record: RuntimeInstanceProjectionRecord) {
@@ -66,14 +67,17 @@ export function toLegacyProblemState(
   session: SessionProjectionRow,
   record: RuntimeInstanceProjectionRecord,
 ) {
+  if (record.row.engine_kind !== "triangle-trig") {
+    throw new Error("Legacy problem projection is only supported for triangle-trig");
+  }
   const task = getTaskDefinition(record.row.task_id);
   const plugin = getEnginePlugin(record.row.engine_kind);
   const phase = projectedPhaseForIndex(session, record);
   const runtime = plugin.buildRuntime(task, record.content, record.engineState, phase);
   return projectLegacyProblem(
     task,
-    record.content,
-    record.engineState,
+    record.content as import("../../../../shared/contracts").TriangleTrigContentDefinition,
+    record.engineState as TriangleTrigEngineState,
     runtime,
     phase,
     record.row.instance_index === session.current_index,

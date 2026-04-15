@@ -1,37 +1,27 @@
-import { ContentDefinition, ExerciseEngineKind, RuntimeActionEvent, SessionPhase, TaskDefinition } from "../../../../shared/contracts";
+import { ExerciseEngineKind } from "../../../../shared/contracts";
+import { demoCounterEnginePlugin } from "./demoCounterEngine";
 import {
   buildRuntimeForState,
   createTriangleTrigState,
   reduceTriangleTrigAction,
-  TriangleTrigEngineState,
+  restoreTriangleTrigState,
 } from "./triangleTrigEngine";
 import { appError } from "./errors";
+import { defineEnginePlugin, type RegisteredEnginePlugin } from "./engineTypes";
+import { runtimeActionToEngineAction } from "./legacyAdapter";
 
-export type EnginePlugin = {
-  createState: (task: TaskDefinition, content: ContentDefinition, index: number) => TriangleTrigEngineState;
-  buildRuntime: (
-    task: TaskDefinition,
-    content: ContentDefinition,
-    state: TriangleTrigEngineState,
-    phase: SessionPhase,
-  ) => ReturnType<typeof buildRuntimeForState>;
-  reduceAction: (
-    task: TaskDefinition,
-    content: ContentDefinition,
-    state: TriangleTrigEngineState,
-    action: RuntimeActionEvent,
-  ) => ReturnType<typeof reduceTriangleTrigAction>;
-};
-
-const ENGINE_REGISTRY: Record<ExerciseEngineKind, EnginePlugin> = {
-  "triangle-trig": {
+const ENGINE_REGISTRY = {
+  "triangle-trig": defineEnginePlugin({
     createState: createTriangleTrigState,
+    restoreState: restoreTriangleTrigState,
+    adaptAction: (state, action) => runtimeActionToEngineAction(action, state),
     buildRuntime: buildRuntimeForState,
     reduceAction: reduceTriangleTrigAction,
-  },
-};
+  }),
+  "demo-counter": demoCounterEnginePlugin,
+} satisfies Record<ExerciseEngineKind, RegisteredEnginePlugin>;
 
-export function getEnginePlugin(engineKind: ExerciseEngineKind): EnginePlugin {
+export function getEnginePlugin(engineKind: ExerciseEngineKind): RegisteredEnginePlugin {
   const plugin = ENGINE_REGISTRY[engineKind];
   if (!plugin) {
     throw appError("RUNTIME_CONTRACT_INVALID", `Engine ${engineKind} not registered`, 500);

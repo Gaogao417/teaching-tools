@@ -19,10 +19,10 @@ const {
 const { getResult, getTaskHistory } = require("../resultsService") as typeof import("../resultsService");
 
 type TaskId = import("../../../../shared/contracts").TaskId;
-type Side = import("../../../../shared/contracts").Side;
-type Role = import("../../../../shared/contracts").Role;
 type AnswerPayload = import("../../../../shared/contracts").AnswerPayload;
 type RuntimeActionEvent = import("../../../../shared/contracts").RuntimeActionEvent;
+type Side = import("../../../../shared/triangleTrig").Side;
+type Role = import("../../../../shared/triangleTrig").Role;
 
 type MeaningState = {
   taskId: "meaning";
@@ -52,7 +52,14 @@ type GuidedState = {
   stepState: Record<"ratio" | "third" | "final", { done: boolean; value: string }>;
 };
 
-type EngineState = MeaningState | RatioState | GuidedState;
+type DemoState = {
+  taskId: "demoCounter";
+  instanceId: string;
+  status: "pending" | "correct" | "wrong";
+  expectedAnswer: string;
+};
+
+type EngineState = MeaningState | RatioState | GuidedState | DemoState;
 
 function resetDb() {
   db.exec(`
@@ -153,6 +160,18 @@ function correctRuntimeActionFor(state: EngineState): RuntimeActionEvent {
     };
   }
 
+  if (state.taskId === "demoCounter") {
+    return {
+      type: "submit",
+      stepId: "demo-answer",
+      value: JSON.stringify({
+        inputs: {
+          "demo-answer": state.expectedAnswer,
+        },
+      }),
+    };
+  }
+
   if (!state.stepState.ratio.done) {
     return {
       type: "submit",
@@ -219,6 +238,18 @@ function wrongRuntimeActionFor(state: EngineState): RuntimeActionEvent {
     };
   }
 
+  if (state.taskId === "demoCounter") {
+    return {
+      type: "submit",
+      stepId: "demo-answer",
+      value: JSON.stringify({
+        inputs: {
+          "demo-answer": "wrong-answer",
+        },
+      }),
+    };
+  }
+
   if (!state.stepState.ratio.done) {
     return {
       type: "submit",
@@ -258,6 +289,10 @@ function wrongRuntimeActionFor(state: EngineState): RuntimeActionEvent {
 }
 
 function correctLegacyPayloadFor(state: EngineState): AnswerPayload {
+  if (state.taskId === "demoCounter") {
+    throw new Error("Demo engine does not support legacy answer payloads");
+  }
+
   if (state.taskId === "meaning") {
     return {
       type: "meaning",
@@ -436,6 +471,44 @@ async function main() {
     assert.throws(
       () => restorePractice("legacy-session"),
       (error: any) => error?.body?.error?.code === "LEGACY_SESSION_EXPIRED",
+    );
+  });
+
+  await runTest("generic platform can run a non-trig demo engine through the same session lifecycle", async () => {
+    const started = startPractice("demoCounter", "Demo Student");
+    const state = currentEngineState(started.sessionId) as DemoState;
+
+    assert.equal(started.runtime?.instance.engineKind, "demo-counter");
+    assert.equal(started.runtime?.instance.scene.sceneKind, "custom");
+
+    const wrong = submitRuntimeAction(started.sessionId, state.instanceId, wrongRuntimeActionFor(state as any));
+    assert.equal(wrong.evaluation, "wrong");
+    assert.equal(wrong.phase, "wrong_feedback");
+
+    const corrected = submitRuntimeAction(started.sessionId, state.instanceId, correctRuntimeActionFor(state as any));
+    assert.equal(corrected.evaluation, "correct");
+    assert.equal(corrected.phase, "correct_pause");
+
+    const restored = restorePractice(started.sessionId);
+    assert.equal(restored.phase, "correct_pause");
+    assert.equal(restored.runtime?.instance.engineKind, "demo-counter");
+
+    const finished = finishPractice(started.sessionId);
+    assert.equal(finished.resultSnapshot.taskId, "demoCounter");
+    assert.equal(finished.resultSnapshot.groupLabel, "平台演示");
+  });
+
+  await runTest("legacy submitAnswer is rejected for non-trig engines", () => {
+    const started = startPractice("demoCounter", "Demo Student");
+
+    assert.throws(
+      () =>
+        submitAnswer(started.sessionId, started.runtime?.instance.instanceId || "", {
+          type: "meaning",
+          numeratorRole: "opposite",
+          denominatorRole: "hypotenuse",
+        }),
+      (error: any) => error?.body?.error?.code === "ACTION_NOT_ALLOWED",
     );
   });
 }

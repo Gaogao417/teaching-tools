@@ -6,7 +6,6 @@ import type {
   FeedbackEffectKey,
   PracticeSessionSnapshot,
   ResultSnapshot,
-  Side,
   TaskHistoryItem,
   TaskId,
 } from "../../../shared/contracts";
@@ -76,7 +75,6 @@ export function PracticePage() {
     title: "准备开始",
     body: "左侧负责操作，右侧负责引导。",
   });
-  const [hoveredSide, setHoveredSide] = useState<Side | null>(null);
   const [modalSnapshot, setModalSnapshot] = useState<ResultSnapshot | null>(null);
   const advanceTimer = useRef<number | null>(null);
   const sessionRef = useRef<PracticeSession | null>(null);
@@ -159,7 +157,6 @@ export function PracticePage() {
 
   useEffect(() => {
     setDraft(emptyDraft());
-    setHoveredSide(null);
     setFeedback((current) => {
       if (!runtime || current.tone !== "success") return current;
       return {
@@ -383,11 +380,8 @@ export function PracticePage() {
               draft={draft}
               setDraft={setDraft}
               inputRefs={inputRefs}
-              hoveredSide={hoveredSide}
-              onHoverSide={setHoveredSide}
               onSubmit={(action) => void submitRuntimeAction({ type: "submit", ...action })}
               onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
-              taskGroup={taskOrderLabel(session.taskId)}
             />
           </div>
         </div>

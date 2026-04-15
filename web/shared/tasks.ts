@@ -76,6 +76,28 @@ export const TASK_DEFINITIONS: Record<TaskId, TaskDefinition> = {
       color: "#d97706",
     },
   },
+  demoCounter: {
+    id: "demoCounter",
+    title: "演示引擎任务",
+    summary: "用于验证 generic engine 平台链路的最小演示任务。",
+    difficulty: "easy",
+    engineKind: "demo-counter",
+    contentId: "demo-counter.basic.v1",
+    sample: {
+      prompt: "输入指定口令并提交。",
+    },
+    steps: [
+      "在左侧输入框中输入口令。",
+      "提交后观察通用 runtime-action 和结果持久化链路。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-internal",
+      gradeName: "内部验证",
+      chapterId: "chapter-demo",
+      chapterName: "平台演示",
+      color: "#4c6ef5",
+    },
+  },
 };
 
 export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
@@ -175,6 +197,23 @@ export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
     guideTemplate: {
       banner: "分步求三角比",
       hint: "按右侧步骤提示推进，但所有输入都只在左侧完成。",
+    },
+    feedbackTemplate: {
+      correct: ["correct"],
+      wrong: ["wrong"],
+      finish: ["finish"],
+    },
+  },
+  "demo-counter.basic.v1": {
+    id: "demo-counter.basic.v1",
+    engineKind: "demo-counter",
+    taskId: "demoCounter",
+    version: "v1",
+    promptTemplate: "请输入口令“{{expectedAnswer}}”完成演示任务。",
+    expectedAnswer: "ready",
+    guideTemplate: {
+      banner: "Generic Engine Demo",
+      hint: "这是一个最小非 trig 引擎，用来验证平台层是否真正通用。",
     },
     feedbackTemplate: {
       correct: ["correct"],

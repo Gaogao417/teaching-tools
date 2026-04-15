@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, matchPath, useLocation } from "react-router-dom";
 import type { TaskId } from "../../../../shared/contracts";
+import { TASK_DEFINITIONS } from "../../../../shared/tasks";
 import { api } from "../../api/client";
 import { AuthModal } from "../common/AuthModal";
 import { SidebarNav } from "./SidebarNav";
@@ -125,9 +126,9 @@ export function WorkspaceShell() {
     const trimmed = studentNameDraft.trim();
     if (!trimmed) return;
     if (studentName && studentName !== trimmed) {
-      clearStoredSessionId("meaning");
-      clearStoredSessionId("ratioToSide");
-      clearStoredSessionId("guidedSolve");
+      for (const taskId of Object.keys(TASK_DEFINITIONS) as TaskId[]) {
+        clearStoredSessionId(taskId);
+      }
     }
     persistStudentName(trimmed);
     setStudentNameState(trimmed);
