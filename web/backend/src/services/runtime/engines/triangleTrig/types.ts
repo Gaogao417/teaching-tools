@@ -1,4 +1,13 @@
-import type { ProblemStatus } from "../../../../../../shared/contracts";
+import type {
+  FlowSpec,
+  ProblemStatus,
+  RuntimeEvaluation,
+  SceneAnchor,
+  SceneEntity,
+  SessionPhase,
+  TaskDefinition,
+  TriangleTrigContentDefinition,
+} from "../../../../../../shared/contracts";
 import type {
   Angle,
   GuidedStepKey,
@@ -85,4 +94,39 @@ export type TriangleTrigSeed = {
   instanceId: string;
   target: TrigFunction;
   referenceAngle: Angle;
+};
+
+export type TriangleTrigProjectionModel = {
+  currentStepId: string;
+  completedStepIds: string[];
+  promptVars: Record<string, string>;
+  taskEntities: SceneEntity[];
+  anchors: SceneAnchor[];
+  flow: FlowSpec;
+  defaultHint: string;
+  wrongHint: string;
+  completedSummary: (stepId: string) => string;
+};
+
+export type TriangleTrigSubmitResult = {
+  evaluation: RuntimeEvaluation;
+  phase: SessionPhase;
+};
+
+export type TriangleTrigTaskStrategy<TState extends TriangleTrigEngineState = TriangleTrigEngineState> = {
+  createState: (
+    task: TaskDefinition,
+    content: TriangleTrigContentDefinition,
+    index: number,
+    seed: TriangleTrigSeed,
+  ) => TState;
+  reduceSubmit: (
+    state: TState,
+    payload: RuntimeDraftPayload,
+    stepId: string,
+  ) => TriangleTrigSubmitResult;
+  buildProjectionModel: (
+    content: TriangleTrigContentDefinition,
+    state: TState,
+  ) => TriangleTrigProjectionModel;
 };

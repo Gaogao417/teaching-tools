@@ -1,3 +1,4 @@
+import type { MutableRefObject } from "react";
 import type {
   ClientDraftState,
   ExerciseRuntimeSpec,
@@ -5,6 +6,8 @@ import type {
   SceneEntity,
 } from "../../../../../shared/contracts";
 import type { Role, Side } from "../../../../../shared/triangleTrig";
+
+export type InputRefs = MutableRefObject<Record<string, HTMLInputElement | null>>;
 
 export const ROLE_LABELS: Record<Role, string> = {
   opposite: "对边",
