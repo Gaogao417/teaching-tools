@@ -27,6 +27,7 @@ type RuntimeActionEvent = import("../../../../shared/contracts").RuntimeActionEv
 type MeaningState = {
   taskId: "meaning";
   instanceId: string;
+  status: "pending" | "correct" | "wrong";
   referenceAngle: "A" | "C";
   answerKey: { roles: [Role, Role] };
 };
@@ -34,12 +35,14 @@ type MeaningState = {
 type RatioState = {
   taskId: "ratioToSide";
   instanceId: string;
+  status: "pending" | "correct" | "wrong";
   answerKey: { triple: Record<Side, { n: number; s: number }> };
 };
 
 type GuidedState = {
   taskId: "guidedSolve";
   instanceId: string;
+  status: "pending" | "correct" | "wrong";
   answerKey: {
     zRoles: Partial<Record<Role, string>>;
     thirdZ: string;
@@ -90,6 +93,32 @@ function currentEngineState(sessionId: string): EngineState {
        LIMIT 1 OFFSET ?`,
     )
     .get(sessionId, session.current_index) as { engine_state_json: string };
+
+  return JSON.parse(row.engine_state_json) as EngineState;
+}
+
+function runtimeInstanceCount(sessionId: string) {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM practice_instances
+       WHERE session_id = ?`,
+    )
+    .get(sessionId) as { count: number };
+
+  return row.count;
+}
+
+function engineStateAtIndex(sessionId: string, index: number): EngineState {
+  const row = db
+    .prepare(
+      `SELECT engine_state_json
+       FROM practice_instances
+       WHERE session_id = ?
+       ORDER BY instance_index ASC
+       LIMIT 1 OFFSET ?`,
+    )
+    .get(sessionId, index) as { engine_state_json: string };
 
   return JSON.parse(row.engine_state_json) as EngineState;
 }
@@ -306,6 +335,32 @@ async function runTest(name: string, fn: () => void | Promise<void>) {
 }
 
 async function main() {
+  await runTest("startPractice persists a session row and five runtime instances together", () => {
+    const started = startPractice("meaning", "Ada");
+    const session = currentSessionRow(started.sessionId);
+
+    assert.equal(session.current_index, 0);
+    assert.equal(session.phase, "answering");
+    assert.equal(runtimeInstanceCount(started.sessionId), 5);
+    assert.equal(started.legacy, undefined);
+  });
+
+  await runTest("submitRuntimeAction keeps session progress and instance state in sync", () => {
+    const started = startPractice("meaning", "Grace");
+    const state = currentEngineState(started.sessionId);
+    const response = submitRuntimeAction(started.sessionId, state.instanceId, correctRuntimeActionFor(state));
+
+    assert.equal(response.phase, "correct_pause");
+    assert.equal(response.nextIndex, 1);
+
+    const session = currentSessionRow(started.sessionId);
+    const firstInstance = engineStateAtIndex(started.sessionId, 0);
+
+    assert.equal(session.current_index, 1);
+    assert.equal(session.phase, "correct_pause");
+    assert.equal(firstInstance.status, "correct");
+  });
+
   await runTest("runtime-action pipeline can finish a full meaning session and persist a result snapshot", async () => {
     const restored = await advanceWithCorrectRuntimeActions("meaning", "Ada");
     assert.equal(restored.phase, "group_finished");

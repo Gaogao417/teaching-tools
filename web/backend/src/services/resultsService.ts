@@ -1,6 +1,7 @@
 import type { ResultSnapshot, TaskHistoryItem, TaskId } from "../../../shared/contracts";
 import { TASK_COLORS, TASK_LABELS } from "../../../shared/tasks";
-import { db } from "../db/database";
+import { getPreviousElapsedMs, getResultSnapshot, insertResultSnapshot, listResultHistory, listTaskHistory } from "../repositories/resultRepository";
+import { markSessionFinished } from "../repositories/sessionRepository";
 import { appError } from "./runtime/errors";
 
 type ResultSessionRecord = {
@@ -16,36 +17,10 @@ type ResultInstanceRecord = {
   };
 };
 
-function getResultRow(sessionId: string) {
-  return db
-    .prepare(`SELECT snapshot_json FROM practice_results WHERE session_id = ?`)
-    .get(sessionId) as { snapshot_json: string } | undefined;
-}
-
 function groupLabel(taskId: TaskId) {
   if (taskId === "meaning") return "\u7b2c1\u7ec4";
   if (taskId === "ratioToSide") return "\u7b2c2\u7ec4";
   return "\u7b2c3\u7ec4";
-}
-
-function buildResultHistory(taskId: TaskId, studentName: string, limit = 10) {
-  const rows = db
-    .prepare(
-      `SELECT snapshot_json
-       FROM practice_results
-       WHERE task_id = ? AND student_name = ?
-       ORDER BY cleared_at DESC
-       LIMIT ?`,
-    )
-    .all(taskId, studentName, limit) as Array<{ snapshot_json: string }>;
-
-  return rows
-    .map((row) => JSON.parse(row.snapshot_json) as ResultSnapshot)
-    .reverse()
-    .map((item) => ({
-      elapsedMs: item.elapsedMs,
-      clearedAt: item.clearedAt,
-    }));
 }
 
 function average(values: number[]): number | null {
@@ -54,43 +29,27 @@ function average(values: number[]): number | null {
 }
 
 export function getResult(sessionId: string): ResultSnapshot {
-  const row = getResultRow(sessionId);
+  const result = getResultSnapshot(sessionId);
 
-  if (!row) {
+  if (!result) {
     throw appError("SESSION_NOT_FOUND", "Result not found", 404);
   }
 
-  return JSON.parse(row.snapshot_json) as ResultSnapshot;
+  return result;
 }
 
 export function getTaskHistory(taskId: TaskId, studentName: string, limit = 5): TaskHistoryItem[] {
-  return db
-    .prepare(
-      `SELECT student_name, elapsed_ms, cleared_at, problem_count, first_try_accuracy
-       FROM practice_results
-       WHERE task_id = ? AND student_name = ?
-       ORDER BY cleared_at DESC
-       LIMIT ?`,
-    )
-    .all(taskId, studentName, limit)
-    .map((row: any) => ({
-      studentName: row.student_name as string,
-      elapsedMs: row.elapsed_ms as number,
-      clearedAt: row.cleared_at as string,
-      problemCount: row.problem_count as number,
-      firstTryAccuracy: row.first_try_accuracy as number,
-    }))
-    .reverse();
+  return listTaskHistory(taskId, studentName, limit);
 }
 
 export function finishAndPersistResult(
   session: ResultSessionRecord,
   instances: ResultInstanceRecord[],
 ): { resultSnapshot: ResultSnapshot; alreadyFinished?: boolean } {
-  const existing = getResultRow(session.id);
+  const existing = getResultSnapshot(session.id);
   if (existing) {
     return {
-      resultSnapshot: JSON.parse(existing.snapshot_json) as ResultSnapshot,
+      resultSnapshot: existing,
       alreadyFinished: true,
     };
   }
@@ -100,17 +59,8 @@ export function finishAndPersistResult(
   const firstTryCorrectCount = instances.filter((record) => record.engineState.firstTryCorrect).length;
   const firstTryAccuracy = instances.length ? firstTryCorrectCount / instances.length : 0;
 
-  const previous = db
-    .prepare(
-      `SELECT elapsed_ms
-       FROM practice_results
-       WHERE task_id = ? AND student_name = ?
-       ORDER BY cleared_at DESC
-       LIMIT 1`,
-    )
-    .get(session.task_id, session.student_name) as { elapsed_ms: number } | undefined;
-
-  const history = buildResultHistory(session.task_id, session.student_name);
+  const previousElapsedMs = getPreviousElapsedMs(session.task_id, session.student_name);
+  const history = listResultHistory(session.task_id, session.student_name);
   const snapshot: ResultSnapshot = {
     sessionId: session.id,
     taskId: session.task_id,
@@ -127,30 +77,23 @@ export function finishAndPersistResult(
     firstTryAccuracy,
     firstTryCorrectCount,
     color: TASK_COLORS[session.task_id],
-    deltaVsPreviousMs: previous ? elapsedMs - previous.elapsed_ms : null,
+    deltaVsPreviousMs: previousElapsedMs === null ? null : elapsedMs - previousElapsedMs,
     history: [...history, { elapsedMs, clearedAt: finishedAt }],
   };
 
-  db.prepare(`UPDATE practice_sessions SET phase = ?, finished = 1, finished_at = ? WHERE id = ?`).run(
-    "group_finished",
-    finishedAt,
-    session.id,
-  );
-  db.prepare(
-    `INSERT INTO practice_results (session_id, task_id, student_name, elapsed_ms, problem_count, first_try_accuracy, first_try_correct_count, started_at, cleared_at, snapshot_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    session.id,
-    session.task_id,
-    session.student_name,
+  insertResultSnapshot({
+    sessionId: session.id,
+    taskId: session.task_id,
+    studentName: session.student_name,
     elapsedMs,
-    instances.length,
+    problemCount: instances.length,
     firstTryAccuracy,
     firstTryCorrectCount,
-    session.started_at,
-    finishedAt,
-    JSON.stringify(snapshot),
-  );
+    startedAt: session.started_at,
+    clearedAt: finishedAt,
+    snapshot,
+  });
+  markSessionFinished(session.id, finishedAt);
 
   return { resultSnapshot: snapshot };
 }

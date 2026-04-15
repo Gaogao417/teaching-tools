@@ -9,6 +9,8 @@ import {
   StartPracticeResponse,
   TaskId,
 } from "../../../../shared/contracts";
+import { listRuntimeInstancesBySessionId, insertRuntimeInstances, type RuntimeInstanceRow, updateRuntimeInstanceState } from "../../repositories/instanceRepository";
+import { createSession, getSessionById, type SessionRow, updateSessionProgress } from "../../repositories/sessionRepository";
 import { db } from "../../db/database";
 import { finishAndPersistResult } from "../resultsService";
 import { getTaskDefinition } from "../tasks/catalogService";
@@ -19,43 +21,14 @@ import { appError } from "./errors";
 import { projectedPhaseForIndex, toLegacyProblemState, toPracticeSessionSnapshot } from "./runtimeSnapshotProjector";
 import { TriangleTrigEngineState } from "./triangleTrigEngine";
 
-type SessionRow = {
-  id: string;
-  task_id: TaskId;
-  student_name: string;
-  phase: SessionPhase;
-  current_index: number;
-  started_at: string;
-  finished_at: string | null;
-  finished: number;
-  schema_version: number;
-};
-
-type RuntimeInstanceRow = {
-  id: string;
-  session_id: string;
-  task_id: TaskId;
-  content_id: string;
-  engine_kind: "triangle-trig";
-  instance_index: number;
-  content_json: string;
-  instance_json: string;
-  engine_state_json: string;
-  runtime_state_json: string;
-};
-
 type RuntimeInstanceRecord = {
   row: RuntimeInstanceRow;
   content: ContentDefinition;
   engineState: TriangleTrigEngineState;
 };
 
-function getSessionRow(sessionId: string): SessionRow | undefined {
-  return db.prepare(`SELECT * FROM practice_sessions WHERE id = ?`).get(sessionId) as SessionRow | undefined;
-}
-
 function requireRuntimeSession(sessionId: string): SessionRow {
-  const session = getSessionRow(sessionId);
+  const session = getSessionById(sessionId);
   if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
   if (session.schema_version < 2) {
     throw appError("LEGACY_SESSION_EXPIRED", "Legacy in-progress session expired after runtime-first refactor", 409);
@@ -64,38 +37,40 @@ function requireRuntimeSession(sessionId: string): SessionRow {
 }
 
 function loadRuntimeInstances(sessionId: string): RuntimeInstanceRecord[] {
-  const rows = db
-    .prepare(
-      `SELECT *
-       FROM practice_instances
-       WHERE session_id = ?
-       ORDER BY instance_index ASC`,
-    )
-    .all(sessionId) as RuntimeInstanceRow[];
-
-  return rows.map((row) => ({
+  return listRuntimeInstancesBySessionId(sessionId).map((row) => ({
     row,
     content: resolveContentDefinition(row.content_id, JSON.parse(row.content_json) as ContentDefinition),
     engineState: JSON.parse(row.engine_state_json) as TriangleTrigEngineState,
   }));
 }
 
-function persistRuntimeRecord(
-  record: RuntimeInstanceRecord,
-  engineState: TriangleTrigEngineState,
-  runtime: ReturnType<ReturnType<typeof getEnginePlugin>["buildRuntime"]>,
-) {
-  db.prepare(
-    `UPDATE practice_instances
-     SET instance_json = ?, engine_state_json = ?, runtime_state_json = ?
-     WHERE id = ?`,
-  ).run(
-    JSON.stringify(runtime.instance),
-    JSON.stringify(engineState),
-    JSON.stringify(runtime.runtimeState),
-    record.row.id,
-  );
-}
+const createSessionWithInstances = db.transaction((session: SessionRow, instances: RuntimeInstanceRecord[]) => {
+  createSession(session);
+  insertRuntimeInstances(instances.map((record) => record.row));
+});
+
+const persistProgress = db.transaction(
+  (
+    sessionId: string,
+    nextIndex: number,
+    nextPhase: SessionPhase,
+    record: RuntimeInstanceRecord,
+    engineState: TriangleTrigEngineState,
+    runtime: ReturnType<ReturnType<typeof getEnginePlugin>["buildRuntime"]>,
+  ) => {
+    updateRuntimeInstanceState(
+      record.row.id,
+      JSON.stringify(runtime.instance),
+      JSON.stringify(engineState),
+      JSON.stringify(runtime.runtimeState),
+    );
+    updateSessionProgress(sessionId, nextIndex, nextPhase);
+  },
+);
+
+const finishPracticeTransaction = db.transaction((session: SessionRow, instances: RuntimeInstanceRecord[]) =>
+  finishAndPersistResult(session, instances),
+);
 
 export function startPractice(taskId: TaskId, studentName: string): StartPracticeResponse {
   const trimmed = studentName.trim();
@@ -106,32 +81,21 @@ export function startPractice(taskId: TaskId, studentName: string): StartPractic
   const plugin = getEnginePlugin(task.engineKind);
   const sessionId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
-
-  db.prepare(
-    `INSERT INTO practice_sessions (id, task_id, student_name, phase, current_index, started_at, finished, schema_version)
-     VALUES (?, ?, ?, ?, ?, ?, 0, 2)`,
-  ).run(sessionId, taskId, trimmed, "answering", 0, startedAt);
-
-  const insertInstance = db.prepare(
-    `INSERT INTO practice_instances (id, session_id, task_id, content_id, engine_kind, instance_index, content_json, instance_json, engine_state_json, runtime_state_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  const session: SessionRow = {
+    id: sessionId,
+    task_id: taskId,
+    student_name: trimmed,
+    phase: "answering",
+    current_index: 0,
+    started_at: startedAt,
+    finished_at: null,
+    finished: 0,
+    schema_version: 2,
+  };
 
   const instances = Array.from({ length: 5 }, (_, index) => {
     const state = plugin.createState(task, content, index);
     const runtime = plugin.buildRuntime(task, content, state, "answering");
-    insertInstance.run(
-      state.instanceId,
-      sessionId,
-      taskId,
-      content.id,
-      task.engineKind,
-      index,
-      JSON.stringify(content),
-      JSON.stringify(runtime.instance),
-      JSON.stringify(state),
-      JSON.stringify(runtime.runtimeState),
-    );
     return {
       row: {
         id: state.instanceId,
@@ -150,7 +114,7 @@ export function startPractice(taskId: TaskId, studentName: string): StartPractic
     };
   });
 
-  const session = requireRuntimeSession(sessionId);
+  createSessionWithInstances(session, instances);
   return toPracticeSessionSnapshot(session, instances);
 }
 
@@ -190,12 +154,7 @@ export function submitRuntimeAction(
   }
 
   const runtime = plugin.buildRuntime(task, activeRecord.content, reduced.engineState, nextPhase);
-  persistRuntimeRecord(activeRecord, reduced.engineState, runtime);
-  db.prepare(`UPDATE practice_sessions SET current_index = ?, phase = ? WHERE id = ?`).run(
-    nextIndex,
-    nextPhase,
-    sessionId,
-  );
+  persistProgress(sessionId, nextIndex, nextPhase, activeRecord, reduced.engineState, runtime);
 
   return {
     accepted: reduced.accepted,
@@ -244,7 +203,7 @@ export function submitAnswer(sessionId: string, problemId: string, payload: Answ
 export function finishPractice(sessionId: string): FinishPracticeResponse {
   const session = requireRuntimeSession(sessionId);
   const instances = loadRuntimeInstances(sessionId);
-  const result = finishAndPersistResult(session, instances);
+  const result = finishPracticeTransaction(session, instances);
   return {
     sessionId,
     resultSnapshot: result.resultSnapshot,
