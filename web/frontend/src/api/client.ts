@@ -1,6 +1,4 @@
 import {
-  AnswerPayload,
-  AnswerResponse,
   FinishPracticeResponse,
   RuntimeActionEvent,
   RuntimeActionResponse,
@@ -41,11 +39,6 @@ export const api = {
     request<StartPracticeResponse>("/api/practice/start", {
       method: "POST",
       body: JSON.stringify({ taskId, studentName }),
-    }),
-  submitAnswer: (sessionId: string, problemId: string, payload: AnswerPayload) =>
-    request<AnswerResponse>("/api/practice/answer", {
-      method: "POST",
-      body: JSON.stringify({ sessionId, problemId, payload }),
     }),
   submitRuntimeAction: (sessionId: string, instanceId: string, action: RuntimeActionEvent) =>
     request<RuntimeActionResponse>("/api/practice/runtime-action", {

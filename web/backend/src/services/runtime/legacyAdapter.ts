@@ -265,15 +265,19 @@ export function runtimeActionToEngineAction(
   }
 
   try {
-    const parsed = JSON.parse(action.value) as Record<string, string>;
+    const parsed = JSON.parse(action.value) as Record<string, unknown>;
+    if ("inputs" in parsed || "selections" in parsed) {
+      return action;
+    }
+
     if (state.taskId === "ratioToSide") {
       return {
         ...action,
         value: JSON.stringify({
           inputs: {
-            "side-AB": parsed.AB || "",
-            "side-BC": parsed.BC || "",
-            "side-AC": parsed.AC || "",
+            "side-AB": (parsed.AB as string | undefined) || "",
+            "side-BC": (parsed.BC as string | undefined) || "",
+            "side-AC": (parsed.AC as string | undefined) || "",
           },
         }),
       };
@@ -285,7 +289,7 @@ export function runtimeActionToEngineAction(
         ...action,
         value: JSON.stringify({
           inputs: Object.fromEntries(
-            Object.entries(parsed).map(([role, value]) => [`ratio-${role}`, value]),
+            Object.entries(parsed).map(([role, value]) => [`ratio-${role}`, value as string]),
           ),
         }),
       };
@@ -295,7 +299,7 @@ export function runtimeActionToEngineAction(
         ...action,
         value: JSON.stringify({
           inputs: {
-            "third-side": parsed.third || "",
+            "third-side": (parsed.third as string | undefined) || "",
           },
         }),
       };
@@ -304,8 +308,8 @@ export function runtimeActionToEngineAction(
       ...action,
       value: JSON.stringify({
         inputs: {
-          "final-numerator": parsed.numerator || "",
-          "final-denominator": parsed.denominator || "",
+          "final-numerator": (parsed.numerator as string | undefined) || "",
+          "final-denominator": (parsed.denominator as string | undefined) || "",
         },
       }),
     };

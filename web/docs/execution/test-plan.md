@@ -2,38 +2,49 @@
 
 ## 摘要
 
-测试必须覆盖“规则、运行时、交互”三层，而不是只测 API 或只测页面截图。
+测试必须覆盖“契约、运行时、交互边界”三层，而不是只测 API 或只测页面截图。
+
+当前默认自动化入口为：
+
+- backend: `npm test`
+- frontend: `npm run build` 作为结构回归
 
 ## 契约测试
 
-- `shared/contracts.ts` 与后端响应结构一致
-- runtime spec 字段完整且语义合法
-- 兼容层字段和 runtime-first 字段不会互相冲突
+- `shared/contracts.ts` 与后端返回结构一致
+- runtime-first 字段优先于 legacy 字段
+- `PracticeSessionSnapshot` 与 `RuntimeActionResponse` 不重新依赖页面特化字段
 
-## 后端规则测试
+## 后端运行时测试
 
 - session 创建、恢复、完成
 - 当前步骤允许和禁止的动作
-- 正确 / 错误 / 继续推进状态返回
-- 结果持久化与恢复
+- 正确 / 错误 / 自动推进 / 整组完成
+- 结果持久化与历史查询
+- `LEGACY_SESSION_EXPIRED` 显式错误语义
 
-## 前端运行时测试
+## 兼容层测试
 
-- 左侧工作区是唯一操作区
-- 右侧引导区不出现可提交输入
-- 标准动作事件能被正确采集和转发
-- feedback cue 能映射成实际反馈
+- `POST /api/practice/answer` 只作为 adapter 工作
+- legacy payload 经 adapter 后与 runtime pipeline 的推进结果一致
+- compat 路径不会绕开 `sessionRuntimeService`
+
+## 前端结构回归
+
+- `WorkspaceShell -> TaskOverviewPanel / PracticePage / ResultPage` 路由组合可正常构建
+- `ExerciseRuntimeHost` 维持 `WorkspaceScene + GuidePanel + FeedbackController` 分层
+- 左侧工作区是唯一操作区，右侧不出现主输入控件
 
 ## 集成验收场景
 
-- meaning 一题完整完成
-- ratioToSide 一题完整完成
-- guidedSolve 多步骤完成
+- `meaning` 一整组完成
+- `ratioToSide` 一整组完成
+- `guidedSolve` 多步推进完成
 - 刷新后恢复 session
 - 整组完成后进入结果流
 
 ## 回归清单
 
-- 新题型接入时，不得直接向 `PracticePage` 添加页面级题型大分支
-- 新字段加入 `contracts.ts` 后，必须同步 `docs/03` 和 `docs/04`
-- 交互变更后必须重新验证左侧操作 / 右侧引导边界
+- 新增同引擎任务时，不得向 `PracticePage` 添加任务级分支
+- 新增 shared 字段后，必须同步 `docs/03` 与 `docs/04`
+- 调整练习交互后，必须重新验证“左侧操作 / 右侧引导”边界

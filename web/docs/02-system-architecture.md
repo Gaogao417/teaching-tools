@@ -157,8 +157,8 @@ Routes
 
 - `WorkspaceShell`、`TaskOverviewPanel`、`PracticePage`、`ResultPage` 已接入主路由
 - `ExerciseRuntimeHost` 主路径已经不再按 `problem.type` 分支
-- 当前左侧工作区仍以 `TriangleScene` 作为过渡实现
-- 目标态对象层仍然保留，不因过渡实现而取消
+- `WorkspaceScene / GuidePanel / FeedbackController` 已拆出稳定边界
+- 当前三角形特化仍保留在 `SceneRenderer` 内部，不等于最终 DSL 已完全抽象完成
 
 ### 前端职责分配
 
@@ -204,6 +204,7 @@ Routes
 routes/
 services/
   tasks/
+  resultsService
   runtime/
     contentRegistry
     engineRegistry
@@ -241,11 +242,17 @@ db/
 - 兼容 `Problem + AnswerPayload`
 - 把旧请求转换成标准动作
 
+`resultsService` 负责：
+
+- 结果快照读取
+- 任务历史查询
+
 ### 后端硬约束
 
 - 后端主路径不再通过 `Problem -> buildRuntime()` 二次适配
 - `submitAnswer` 只能是 adapter，不再承载独立判题主流程
 - 新 session 必须直接走 runtime-first pipeline
+- 结果/历史查询与运行时状态推进分离，不再复用旧练习主流程服务
 
 ## 持久化边界
 

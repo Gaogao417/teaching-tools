@@ -3,21 +3,20 @@ import {
   AnswerResponse,
   ContentDefinition,
   FinishPracticeResponse,
-  PracticeSessionSnapshot,
-  ResultSnapshot,
   RuntimeActionEvent,
   RuntimeActionResponse,
   SessionPhase,
   StartPracticeResponse,
   TaskId,
 } from "../../../../shared/contracts";
-import { TASK_COLORS, TASK_LABELS } from "../../../../shared/tasks";
 import { db } from "../../db/database";
+import { finishAndPersistResult } from "../resultsService";
 import { getTaskDefinition } from "../tasks/catalogService";
 import { resolveContentDefinition } from "./contentRegistry";
 import { getEnginePlugin } from "./engineRegistry";
-import { answerPayloadToRuntimeAction, projectLegacyProblem, runtimeActionToEngineAction } from "./legacyAdapter";
+import { answerPayloadToRuntimeAction, runtimeActionToEngineAction } from "./legacyAdapter";
 import { appError } from "./errors";
+import { projectedPhaseForIndex, toLegacyProblemState, toPracticeSessionSnapshot } from "./runtimeSnapshotProjector";
 import { TriangleTrigEngineState } from "./triangleTrigEngine";
 
 type SessionRow = {
@@ -76,59 +75,9 @@ function loadRuntimeInstances(sessionId: string): RuntimeInstanceRecord[] {
 
   return rows.map((row) => ({
     row,
-    content: resolveContentDefinition(
-      row.content_id,
-      JSON.parse(row.content_json) as ContentDefinition,
-    ),
+    content: resolveContentDefinition(row.content_id, JSON.parse(row.content_json) as ContentDefinition),
     engineState: JSON.parse(row.engine_state_json) as TriangleTrigEngineState,
   }));
-}
-
-function activeRuntime(session: SessionRow, record: RuntimeInstanceRecord) {
-  const task = getTaskDefinition(record.row.task_id);
-  const plugin = getEnginePlugin(record.row.engine_kind);
-  return plugin.buildRuntime(task, record.content, record.engineState, session.phase);
-}
-
-function projectedPhaseForIndex(session: SessionRow, record: RuntimeInstanceRecord) {
-  if (record.row.instance_index === session.current_index) return session.phase;
-  return record.engineState.status === "correct" ? "correct_pause" : "answering";
-}
-
-function toSnapshot(session: SessionRow, instances: RuntimeInstanceRecord[]): PracticeSessionSnapshot {
-  const active = instances[session.current_index];
-  const runtime = active ? activeRuntime(session, active) : undefined;
-
-  const elapsedMs = session.finished_at
-    ? Date.parse(session.finished_at) - Date.parse(session.started_at)
-    : Date.now() - Date.parse(session.started_at);
-
-  return {
-    sessionId: session.id,
-    taskId: session.task_id,
-    studentName: session.student_name,
-    currentIndex: session.current_index,
-    instanceCount: instances.length,
-    elapsedMs: Math.max(0, elapsedMs),
-    phase: session.phase,
-    runtime,
-    legacy: {
-      problems: instances.map((record) => {
-        const task = getTaskDefinition(record.row.task_id);
-        const plugin = getEnginePlugin(record.row.engine_kind);
-        const phase = projectedPhaseForIndex(session, record);
-        const instanceRuntime = plugin.buildRuntime(task, record.content, record.engineState, phase);
-        return projectLegacyProblem(
-          task,
-          record.content,
-          record.engineState,
-          instanceRuntime,
-          phase,
-          record.row.instance_index === session.current_index,
-        );
-      }),
-    },
-  };
 }
 
 function persistRuntimeRecord(
@@ -146,36 +95,6 @@ function persistRuntimeRecord(
     JSON.stringify(runtime.runtimeState),
     record.row.id,
   );
-}
-
-function groupLabel(taskId: TaskId) {
-  if (taskId === "meaning") return "第 1 组";
-  if (taskId === "ratioToSide") return "第 2 组";
-  return "第 3 组";
-}
-
-function buildHistory(taskId: TaskId, studentName: string) {
-  const rows = db
-    .prepare(
-      `SELECT snapshot_json
-       FROM practice_results
-       WHERE task_id = ? AND student_name = ?
-       ORDER BY cleared_at DESC
-       LIMIT 10`,
-    )
-    .all(taskId, studentName) as Array<{ snapshot_json: string }>;
-  return rows
-    .map((row) => JSON.parse(row.snapshot_json) as ResultSnapshot)
-    .reverse()
-    .map((item) => ({
-      elapsedMs: item.elapsedMs,
-      clearedAt: item.clearedAt,
-    }));
-}
-
-function average(values: number[]): number | null {
-  if (!values.length) return null;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 export function startPractice(taskId: TaskId, studentName: string): StartPracticeResponse {
@@ -232,12 +151,12 @@ export function startPractice(taskId: TaskId, studentName: string): StartPractic
   });
 
   const session = requireRuntimeSession(sessionId);
-  return toSnapshot(session, instances);
+  return toPracticeSessionSnapshot(session, instances);
 }
 
 export function restorePractice(sessionId: string) {
   const session = requireRuntimeSession(sessionId);
-  return toSnapshot(session, loadRuntimeInstances(sessionId));
+  return toPracticeSessionSnapshot(session, loadRuntimeInstances(sessionId));
 }
 
 export function submitRuntimeAction(
@@ -305,26 +224,16 @@ export function submitAnswer(sessionId: string, problemId: string, payload: Answ
   const refreshedSession = requireRuntimeSession(sessionId);
   const refreshedRecords = loadRuntimeInstances(sessionId);
   const problemRecord = refreshedRecords.find((record) => record.row.id === problemId) || activeRecord;
-  const task = getTaskDefinition(problemRecord.row.task_id);
-  const plugin = getEnginePlugin(problemRecord.row.engine_kind);
-  const problemPhase =
+  const compatSession =
     response.phase === "group_finished" && problemRecord.row.instance_index !== refreshedSession.current_index
-      ? "correct_pause"
-      : projectedPhaseForIndex(refreshedSession, problemRecord);
-  const runtime = plugin.buildRuntime(task, problemRecord.content, problemRecord.engineState, problemPhase);
+      ? { ...refreshedSession, phase: "correct_pause" as const }
+      : { ...refreshedSession, phase: projectedPhaseForIndex(refreshedSession, problemRecord) };
 
   return {
     correct: response.evaluation !== "wrong",
     allSolved: response.phase === "group_finished",
     hint: response.evaluation === "wrong" ? response.runtime?.instance.guide.hint : undefined,
-    problemState: projectLegacyProblem(
-      task,
-      problemRecord.content,
-      problemRecord.engineState,
-      runtime,
-      problemPhase,
-      problemRecord.row.instance_index === refreshedSession.current_index,
-    ),
+    problemState: toLegacyProblemState(compatSession, problemRecord),
     nextIndex: response.nextIndex,
     phase: response.phase,
     runtime: response.runtime,
@@ -333,75 +242,12 @@ export function submitAnswer(sessionId: string, problemId: string, payload: Answ
 }
 
 export function finishPractice(sessionId: string): FinishPracticeResponse {
-  const existing = db
-    .prepare(`SELECT snapshot_json FROM practice_results WHERE session_id = ?`)
-    .get(sessionId) as { snapshot_json: string } | undefined;
-  if (existing) {
-    return {
-      sessionId,
-      resultSnapshot: JSON.parse(existing.snapshot_json) as ResultSnapshot,
-      alreadyFinished: true,
-    };
-  }
-
   const session = requireRuntimeSession(sessionId);
   const instances = loadRuntimeInstances(sessionId);
-  const finishedAt = new Date().toISOString();
-  const elapsedMs = Math.max(0, Date.parse(finishedAt) - Date.parse(session.started_at));
-  const firstTryCorrectCount = instances.filter((record) => record.engineState.firstTryCorrect).length;
-  const firstTryAccuracy = instances.length ? firstTryCorrectCount / instances.length : 0;
-
-  const previous = db
-    .prepare(
-      `SELECT elapsed_ms
-       FROM practice_results
-       WHERE task_id = ? AND student_name = ?
-       ORDER BY cleared_at DESC
-       LIMIT 1`,
-    )
-    .get(session.task_id, session.student_name) as { elapsed_ms: number } | undefined;
-
-  const history = buildHistory(session.task_id, session.student_name);
-  const snapshot: ResultSnapshot = {
+  const result = finishAndPersistResult(session, instances);
+  return {
     sessionId,
-    taskId: session.task_id,
-    studentName: session.student_name,
-    startedAt: session.started_at,
-    clearedAt: finishedAt,
-    title: `${groupLabel(session.task_id)} 已完成`,
-    groupLabel: TASK_LABELS[session.task_id],
-    elapsedMs,
-    bestMs: history.length ? Math.min(...history.map((item) => item.elapsedMs), elapsedMs) : elapsedMs,
-    avgMs: average([...history.map((item) => item.elapsedMs), elapsedMs].slice(-5)),
-    copy: `本次共完成 ${instances.length} 题，可查看详细结果与最近趋势。`,
-    problemCount: instances.length,
-    firstTryAccuracy,
-    firstTryCorrectCount,
-    color: TASK_COLORS[session.task_id],
-    deltaVsPreviousMs: previous ? elapsedMs - previous.elapsed_ms : null,
-    history: [...history, { elapsedMs, clearedAt: finishedAt }],
+    resultSnapshot: result.resultSnapshot,
+    alreadyFinished: result.alreadyFinished,
   };
-
-  db.prepare(`UPDATE practice_sessions SET phase = ?, finished = 1, finished_at = ? WHERE id = ?`).run(
-    "group_finished",
-    finishedAt,
-    sessionId,
-  );
-  db.prepare(
-    `INSERT INTO practice_results (session_id, task_id, student_name, elapsed_ms, problem_count, first_try_accuracy, first_try_correct_count, started_at, cleared_at, snapshot_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    sessionId,
-    session.task_id,
-    session.student_name,
-    elapsedMs,
-    instances.length,
-    firstTryAccuracy,
-    firstTryCorrectCount,
-    session.started_at,
-    finishedAt,
-    JSON.stringify(snapshot),
-  );
-
-  return { sessionId, resultSnapshot: snapshot };
 }

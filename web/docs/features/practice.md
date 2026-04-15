@@ -44,8 +44,13 @@ WorkspaceShell
 ```text
 PracticePage
   -> ExerciseRuntimeHost
-    -> TriangleScene   (当前过渡实现)
+    -> WorkspaceScene
+      -> SceneRenderer
+      -> InteractionZoneLayer
+      -> InputAnchorLayer
+      -> OverlayLayer
     -> GuidePanel
+    -> FeedbackController
 ```
 
 目标态仍然是：
@@ -69,8 +74,9 @@ PracticePage
 说明：
 
 - 当前代码已经实现 runtime-first 主路径
-- 但 `TriangleScene` 仍然是带三角形特化的过渡封装
-- 它不应被视为最终对象层拆分结果
+- 当前对象层已经拆出稳定的 host 结构
+- 三角形专用渲染仍然属于 `SceneRenderer` 内部的特化实现
+- 它不应被视为最终 DSL 的全部边界
 
 ## 页面分区
 
@@ -137,7 +143,7 @@ PracticePage
 
 - `PracticePage` 不能重新依赖 `problem.type`
 - `ExerciseRuntimeHost` 不能重新长出任务级分支渲染
-- `renderers.tsx` 只能继续作为 legacy 过渡文件
+- `SceneRenderer` 只允许按 `sceneKind` / `entity.kind` 分发
 - 新任务必须优先落入 runtime-first contracts，再接入练习页
 
 ## 验收条件

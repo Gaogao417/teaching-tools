@@ -270,6 +270,11 @@ interface ApiErrorResponse {
 - 适配为 runtime action
 - 复用同一条 runtime-first backend pipeline
 
+当前默认约束：
+
+- Web 前端主路径不再调用该接口
+- 该接口只用于兼容旧客户端或验证 adapter 行为
+
 它不再应该承载独立判题逻辑。
 
 ### Legacy session 恢复策略
