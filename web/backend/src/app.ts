@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { TaskId } from "../../shared/contracts";
 import { TASK_TREE } from "../../shared/tasks";
 import { getResult, getTaskHistory } from "./services/resultsService";
-import { finishPractice, restorePractice, startPractice, submitAnswer, submitRuntimeAction } from "./services/runtime/sessionRuntimeService";
+import { finishPractice, restorePractice, startPractice, submitRuntimeAction } from "./services/runtime/platform/sessionRuntimeService";
 import { hasTaskDefinition } from "./services/tasks/catalogService";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
@@ -53,21 +53,6 @@ export function createApp() {
         })
         .parse(req.body);
       res.json(startPractice(body.taskId, body.studentName));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/practice/answer", (req, res, next) => {
-    try {
-      const body = z
-        .object({
-          sessionId: z.string().min(1),
-          problemId: z.string().min(1),
-          payload: z.any(),
-        })
-        .parse(req.body);
-      res.json(submitAnswer(body.sessionId, body.problemId, body.payload));
     } catch (error) {
       next(error);
     }

@@ -23,7 +23,7 @@
 - 目录信息、可序列化内容、规则逻辑必须分层
 - 后端保存规则真值，前端消费运行时描述
 - DSL 只描述语义，不描述 DOM 和样式实现
-- runtime-first types 是主模型，legacy problem types 只是兼容层
+- runtime-first types 是主模型
 
 ## 三层边界
 
@@ -379,7 +379,7 @@ type PracticeSessionSnapshot = {
 }
 ```
 
-当前页面真正依赖的是当前活动实例的 runtime，而不是一整组 legacy `Problem[]`。
+当前页面真正依赖的是当前活动实例的 runtime。
 
 ## ResultSnapshot
 
@@ -418,12 +418,6 @@ type PracticeSessionSnapshot = {
 
 这说明当前 3 个任务不是 3 套架构，只是同一 runtime model 的 3 个内容实例。
 
-## Legacy 模型的定位
-
-`Problem`、`MeaningProblem`、`RatioToSideProblem`、`GuidedSolveProblem`、`ProblemRenderSchema` 当前仍可存在，但只作为兼容层。
-
-它们不再是领域模型的主路径，不应再作为新增设计的中心。
-
 ## 非目标
 
 本模型当前不覆盖：
@@ -439,4 +433,4 @@ type PracticeSessionSnapshot = {
 - 先冻结本文件中的 runtime-first model
 - 再让 `shared/contracts.ts` 对齐本文件
 - 再让 backend / frontend 主路径切到该模型
-- legacy problem types 只保留到 runtime-first 主路径稳定为止
+- legacy problem types 已从当前主代码路径中移除

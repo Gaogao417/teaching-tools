@@ -5,10 +5,10 @@ import type {
   TriangleTrigContentDefinition,
   TaskDefinition,
   TaskId,
-} from "../../../../shared/contracts";
-import type { Role, Side, TriangleTrigTaskId } from "../../../../shared/triangleTrig";
-import { getTaskDefinition } from "../tasks/catalogService";
-import { resolveContentDefinition } from "./contentRegistry";
+} from "../../../../../shared/contracts";
+import type { Role, Side, TriangleTrigTaskId } from "../../../../../shared/triangleTrig";
+import { getTaskDefinition } from "../../tasks/catalogService";
+import { resolveContentDefinition } from "../platform/contentRegistry";
 import {
   buildRuntimeForState,
   createTriangleTrigState,
@@ -17,7 +17,7 @@ import {
   type MeaningEngineState,
   type RatioEngineState,
   type TriangleTrigEngineState,
-} from "./triangleTrigEngine";
+} from "../engines/triangleTrig";
 
 function taskContext(taskId: TriangleTrigTaskId): { task: TaskDefinition; content: TriangleTrigContentDefinition } {
   const task = getTaskDefinition(taskId);

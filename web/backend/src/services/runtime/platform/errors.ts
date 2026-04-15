@@ -1,4 +1,4 @@
-import { ApiErrorResponse } from "../../../../shared/contracts";
+import { ApiErrorResponse } from "../../../../../shared/contracts";
 
 export function appError(code: ApiErrorResponse["error"]["code"], message: string, status = 400) {
   return {

@@ -8,21 +8,19 @@ if (existsSync(sqlitePath)) {
 }
 process.env.SQLITE_PATH = sqlitePath;
 
-const { db } = require("../../db/database") as typeof import("../../db/database");
+const { db } = require("../../../db/database") as typeof import("../../../db/database");
 const {
   finishPractice,
   restorePractice,
   startPractice,
-  submitAnswer,
   submitRuntimeAction,
-} = require("./sessionRuntimeService") as typeof import("./sessionRuntimeService");
-const { getResult, getTaskHistory } = require("../resultsService") as typeof import("../resultsService");
+} = require("../platform/sessionRuntimeService") as typeof import("../platform/sessionRuntimeService");
+const { getResult, getTaskHistory } = require("../../resultsService") as typeof import("../../resultsService");
 
-type TaskId = import("../../../../shared/contracts").TaskId;
-type AnswerPayload = import("../../../../shared/contracts").AnswerPayload;
-type RuntimeActionEvent = import("../../../../shared/contracts").RuntimeActionEvent;
-type Side = import("../../../../shared/triangleTrig").Side;
-type Role = import("../../../../shared/triangleTrig").Role;
+type TaskId = import("../../../../../shared/contracts").TaskId;
+type RuntimeActionEvent = import("../../../../../shared/contracts").RuntimeActionEvent;
+type Side = import("../../../../../shared/triangleTrig").Side;
+type Role = import("../../../../../shared/triangleTrig").Role;
 
 type MeaningState = {
   taskId: "meaning";
@@ -288,56 +286,6 @@ function wrongRuntimeActionFor(state: EngineState): RuntimeActionEvent {
   };
 }
 
-function correctLegacyPayloadFor(state: EngineState): AnswerPayload {
-  if (state.taskId === "demoCounter") {
-    throw new Error("Demo engine does not support legacy answer payloads");
-  }
-
-  if (state.taskId === "meaning") {
-    return {
-      type: "meaning",
-      numeratorRole: state.answerKey.roles[0],
-      denominatorRole: state.answerKey.roles[1],
-    };
-  }
-
-  if (state.taskId === "ratioToSide") {
-    return {
-      type: "ratioToSide",
-      placements: {
-        AB: formatLength(state.answerKey.triple.AB),
-        BC: formatLength(state.answerKey.triple.BC),
-        AC: formatLength(state.answerKey.triple.AC),
-      },
-    };
-  }
-
-  if (!state.stepState.ratio.done) {
-    return {
-      type: "guidedSolve",
-      stepKey: "ratio",
-      value: Object.fromEntries(Object.entries(state.answerKey.zRoles).map(([role, value]) => [role, value || ""])),
-    };
-  }
-
-  if (!state.stepState.third.done) {
-    return {
-      type: "guidedSolve",
-      stepKey: "third",
-      value: { third: state.answerKey.thirdZ },
-    };
-  }
-
-  return {
-    type: "guidedSolve",
-    stepKey: "final",
-    value: {
-      numerator: state.answerKey.finalNumerator,
-      denominator: state.answerKey.finalDenominator,
-    },
-  };
-}
-
 async function advanceWithCorrectRuntimeActions(taskId: TaskId, studentName: string) {
   const started = startPractice(taskId, studentName);
   let snapshot = started;
@@ -377,7 +325,6 @@ async function main() {
     assert.equal(session.current_index, 0);
     assert.equal(session.phase, "answering");
     assert.equal(runtimeInstanceCount(started.sessionId), 5);
-    assert.equal(started.legacy, undefined);
   });
 
   await runTest("submitRuntimeAction keeps session progress and instance state in sync", () => {
@@ -399,7 +346,6 @@ async function main() {
   await runTest("runtime-action pipeline can finish a full meaning session and persist a result snapshot", async () => {
     const restored = await advanceWithCorrectRuntimeActions("meaning", "Ada");
     assert.equal(restored.phase, "group_finished");
-    assert.equal(restored.legacy, undefined);
 
     const finishResponse = finishPractice(restored.sessionId);
     assert.equal(finishResponse.resultSnapshot.taskId, "meaning");
@@ -419,7 +365,6 @@ async function main() {
 
   await runTest("runtime-action clear keeps the session on the same instance and wrong answers stay in place", () => {
     const started = startPractice("guidedSolve", "Babbage");
-    assert.equal(started.legacy, undefined);
     const state = currentEngineState(started.sessionId);
 
     const cleared = submitRuntimeAction(started.sessionId, state.instanceId, {
@@ -437,29 +382,6 @@ async function main() {
 
     const restored = restorePractice(started.sessionId);
     assert.equal(restored.currentIndex, 0);
-    assert.equal(restored.legacy, undefined);
-  });
-
-  await runTest("legacy submitAnswer stays on the runtime-first pipeline for all three task families", () => {
-    for (const taskId of ["meaning", "ratioToSide", "guidedSolve"] as TaskId[]) {
-      const started = startPractice(taskId, `Student-${taskId}`);
-      assert.equal(started.legacy, undefined);
-      const state = currentEngineState(started.sessionId);
-      const response = submitAnswer(started.sessionId, state.instanceId, correctLegacyPayloadFor(state));
-
-      assert.equal(response.correct, true);
-      assert.ok(response.runtime);
-      assert.equal(response.problemState.id, state.instanceId);
-
-      const restored = restorePractice(started.sessionId);
-      assert.equal(restored.legacy, undefined);
-      if (taskId === "guidedSolve") {
-        assert.equal(restored.currentIndex, 0);
-        assert.equal(restored.runtime?.runtimeState.currentStepId, "third");
-      } else {
-        assert.equal(restored.currentIndex, 1);
-      }
-    }
   });
 
   await runTest("legacy runtime sessions from schema version 1 fail with LEGACY_SESSION_EXPIRED", () => {
@@ -498,19 +420,6 @@ async function main() {
     assert.equal(finished.resultSnapshot.groupLabel, "平台演示");
   });
 
-  await runTest("legacy submitAnswer is rejected for non-trig engines", () => {
-    const started = startPractice("demoCounter", "Demo Student");
-
-    assert.throws(
-      () =>
-        submitAnswer(started.sessionId, started.runtime?.instance.instanceId || "", {
-          type: "meaning",
-          numeratorRole: "opposite",
-          denominatorRole: "hypotenuse",
-        }),
-      (error: any) => error?.body?.error?.code === "ACTION_NOT_ALLOWED",
-    );
-  });
 }
 
 main()

@@ -12,9 +12,9 @@ import type {
   ServerRuntimeState,
   SessionPhase,
   TaskDefinition,
-} from "../../../../shared/contracts";
-import { defineEnginePlugin, type EngineActionResult, type RuntimeEngineState } from "./engineTypes";
-import { appError } from "./errors";
+} from "../../../../../../shared/contracts";
+import { defineEnginePlugin, type EngineActionResult, type RuntimeEngineState } from "../../platform/engineTypes";
+import { appError } from "../../platform/errors";
 
 export type DemoCounterEngineState = RuntimeEngineState & {
   taskId: "demoCounter";

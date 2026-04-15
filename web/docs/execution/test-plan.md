@@ -12,7 +12,7 @@
 ## 契约测试
 
 - `shared/contracts.ts` 与后端返回结构一致
-- runtime-first 字段优先于 legacy 字段
+- 仅验证 runtime-first 字段与行为
 - `PracticeSessionSnapshot` 与 `RuntimeActionResponse` 不重新依赖页面特化字段
 
 ## 后端运行时测试
@@ -22,12 +22,6 @@
 - 正确 / 错误 / 自动推进 / 整组完成
 - 结果持久化与历史查询
 - `LEGACY_SESSION_EXPIRED` 显式错误语义
-
-## 兼容层测试
-
-- `POST /api/practice/answer` 只作为 adapter 工作
-- legacy payload 经 adapter 后与 runtime pipeline 的推进结果一致
-- compat 路径不会绕开 `sessionRuntimeService`
 
 ## 前端结构回归
 

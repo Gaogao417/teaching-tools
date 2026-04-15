@@ -1,6 +1,4 @@
 import {
-  AnswerPayload,
-  AnswerResponse,
   ContentDefinition,
   FinishPracticeResponse,
   RuntimeActionEvent,
@@ -8,19 +6,17 @@ import {
   SessionPhase,
   StartPracticeResponse,
   TaskId,
-} from "../../../../shared/contracts";
-import { listRuntimeInstancesBySessionId, insertRuntimeInstances, type RuntimeInstanceRow, updateRuntimeInstanceState } from "../../repositories/instanceRepository";
-import { createSession, getSessionById, type SessionRow, updateSessionProgress } from "../../repositories/sessionRepository";
-import { db } from "../../db/database";
-import { finishAndPersistResult } from "../resultsService";
-import { getTaskDefinition } from "../tasks/catalogService";
+} from "../../../../../shared/contracts";
+import { listRuntimeInstancesBySessionId, insertRuntimeInstances, type RuntimeInstanceRow, updateRuntimeInstanceState } from "../../../repositories/instanceRepository";
+import { createSession, getSessionById, type SessionRow, updateSessionProgress } from "../../../repositories/sessionRepository";
+import { db } from "../../../db/database";
+import { finishAndPersistResult } from "../../resultsService";
+import { getTaskDefinition } from "../../tasks/catalogService";
 import { resolveContentDefinition } from "./contentRegistry";
 import { getEnginePlugin } from "./engineRegistry";
-import { answerPayloadToRuntimeAction } from "./legacyAdapter";
 import { type RuntimeEngineState } from "./engineTypes";
 import { appError } from "./errors";
-import { projectedPhaseForIndex, toLegacyProblemState, toPracticeSessionSnapshot } from "./runtimeSnapshotProjector";
-import { TriangleTrigEngineState } from "./triangleTrigEngine";
+import { toPracticeSessionSnapshot } from "./runtimeSnapshotProjector";
 
 type RuntimeInstanceRecord = {
   row: RuntimeInstanceRow;
@@ -144,8 +140,7 @@ export function submitRuntimeAction(
 
   const task = getTaskDefinition(activeRecord.row.task_id);
   const plugin = getEnginePlugin(activeRecord.row.engine_kind);
-  const engineAction = plugin.adaptAction?.(activeRecord.engineState, action) ?? action;
-  const reduced = plugin.reduceAction(task, activeRecord.content, activeRecord.engineState, engineAction);
+  const reduced = plugin.reduceAction(task, activeRecord.content, activeRecord.engineState, action);
 
   let nextIndex = session.current_index;
   let nextPhase = reduced.phase;
@@ -169,42 +164,6 @@ export function submitRuntimeAction(
     feedback: reduced.feedback,
     nextIndex,
     phase: nextPhase,
-  };
-}
-
-export function submitAnswer(sessionId: string, problemId: string, payload: AnswerPayload): AnswerResponse {
-  const session = requireRuntimeSession(sessionId);
-  const records = loadRuntimeInstances(sessionId);
-  const activeRecord = records[session.current_index];
-  if (!activeRecord || activeRecord.row.id !== problemId) {
-    throw appError("PROBLEM_NOT_FOUND", "Problem not found", 404);
-  }
-  if (activeRecord.row.engine_kind !== "triangle-trig") {
-    throw appError("ACTION_NOT_ALLOWED", "Legacy answer endpoint is only supported for triangle-trig", 409);
-  }
-
-  const response = submitRuntimeAction(
-    sessionId,
-    activeRecord.row.id,
-    answerPayloadToRuntimeAction(payload, activeRecord.engineState as TriangleTrigEngineState),
-  );
-  const refreshedSession = requireRuntimeSession(sessionId);
-  const refreshedRecords = loadRuntimeInstances(sessionId);
-  const problemRecord = refreshedRecords.find((record) => record.row.id === problemId) || activeRecord;
-  const compatSession =
-    response.phase === "group_finished" && problemRecord.row.instance_index !== refreshedSession.current_index
-      ? { ...refreshedSession, phase: "correct_pause" as const }
-      : { ...refreshedSession, phase: projectedPhaseForIndex(refreshedSession, problemRecord) };
-
-  return {
-    correct: response.evaluation !== "wrong",
-    allSolved: response.phase === "group_finished",
-    hint: response.evaluation === "wrong" ? response.runtime?.instance.guide.hint : undefined,
-    problemState: toLegacyProblemState(compatSession, problemRecord),
-    nextIndex: response.nextIndex,
-    phase: response.phase,
-    runtime: response.runtime,
-    feedback: response.feedback,
   };
 }
 

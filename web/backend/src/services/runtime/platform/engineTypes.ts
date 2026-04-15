@@ -8,7 +8,7 @@ import type {
   SessionPhase,
   TaskDefinition,
   TaskId,
-} from "../../../../shared/contracts";
+} from "../../../../../shared/contracts";
 
 export type RuntimeEngineState = {
   instanceId: string;
@@ -35,7 +35,6 @@ export type EnginePlugin<
 > = {
   createState: (task: TaskDefinition, content: TContent, index: number) => TState;
   restoreState: (raw: unknown) => TState;
-  adaptAction?: (state: TState, action: RuntimeActionEvent) => RuntimeActionEvent;
   buildRuntime: (task: TaskDefinition, content: TContent, state: TState, phase: SessionPhase) => ExerciseRuntimeSpec;
   reduceAction: (
     task: TaskDefinition,

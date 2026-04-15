@@ -12,7 +12,7 @@
 
 - 同步文档与当前 `WorkspaceShell` 信息架构
 - 把 runtime host 明确拆成对象层组件
-- 冻结并隔离 legacy 兼容面
+- 已完成 legacy 兼容面的隔离与删除
 - 为主路径补齐自动化验证
 
 ## 当前基线
@@ -52,7 +52,7 @@ Routes
 - registry 只管理 `TaskDefinition` 和 `ContentDefinition`
 - 判题逻辑和状态推进逻辑不能回流进 content 表达层或 shared wire schema
 - `PracticePage` 是 runtime route shell，不是题型实现页
-- legacy 兼容层允许存在，但不再作为新实现主路径
+- runtime-first 主路径已经完全替代 legacy 兼容层
 
 ## 执行阶段
 
@@ -73,12 +73,12 @@ Routes
 已完成：
 
 - runtime-first 主契约固定为 `ExerciseRuntimeSpec`、`PracticeSessionSnapshot`、`RuntimeActionEvent`、`RuntimeActionResponse`
-- legacy 契约降级为兼容面
+- legacy 契约已从当前代码路径移除
 
 剩余约束：
 
 - 新字段优先服务 runtime-first
-- `legacy.problems`、`ProblemRenderSchema`、`AnswerPayload` 只允许 adapter 继续消费
+- 不再允许 legacy 类型重新回流进当前代码路径
 
 ### 阶段 3：后端收口
 
@@ -86,7 +86,7 @@ Routes
 
 - `app.ts` 主入口已经接到 `runtime/sessionRuntimeService`
 - 结果与历史查询已从旧 `practiceService.ts` 拆到 `resultsService.ts`
-- `submitAnswer` 只保留 legacy adapter 角色
+- 不再保留 legacy `answer` 入口
 
 完成标准：
 
@@ -112,12 +112,12 @@ Routes
 已完成：
 
 - 后端新增 `node:test` + `tsx` 测试入口
-- 覆盖 runtime-action 主路径、legacy adapter、结果持久化、历史查询、legacy session 失效
+- 覆盖 runtime-action 主路径、结果持久化、历史查询、legacy session 失效
 
 完成标准：
 
 - `startPractice` / `restorePractice` / `runtime-action` / `finishPractice` 可自动回归
-- `/api/practice/answer` 明确只验证 adapter 行为，不再验证第二套主流程
+- 不再保留 `/api/practice/answer` 测试入口
 
 ## 测试与验收
 
@@ -125,7 +125,7 @@ Routes
 
 - 路由与 docs 一致性：`WorkspaceShell -> overview / practice / result`
 - `startPractice` / `restorePractice` / `runtime-action` / `finishPractice`
-- legacy `answer` adapter 与 runtime pipeline 的一致性
+- runtime pipeline 的单一路径一致性
 - “左侧唯一操作区、右侧只读引导区”约束
 - 清空、错误反馈、恢复 session、完成整组后的完整流转
 
@@ -134,11 +134,11 @@ Routes
 高风险点：
 
 - 把当前 `TriangleScene` 或 `WorkspaceScene` 的实现细节误判为最终 DSL
-- 让 legacy 类型重新回流进前端主路径
+- 让过时契约重新回流进前端主路径
 - 在结果/历史之外重新长出第二套服务入口
 
 每次继续推进前都要检查：
 
-- 这一步是在强化 runtime-first，还是在给 legacy 再包一层
+- 这一步是在强化 runtime-first，还是在重新引入第二套契约
 - 新逻辑有没有重新塞回 page / shared special fields / compat renderer
 - 文档记录的是当前事实还是目标态，是否混写

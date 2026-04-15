@@ -209,7 +209,6 @@ services/
     contentRegistry
     engineRegistry
     sessionRuntimeService
-    legacyAdapter
   results/
 repositories/
 db/
@@ -237,11 +236,6 @@ db/
 - runtime-action
 - finish
 
-`runtime/legacyAdapter` 负责：
-
-- 兼容 `Problem + AnswerPayload`
-- 把旧请求转换成标准动作
-
 `resultsService` 负责：
 
 - 结果快照读取
@@ -250,7 +244,6 @@ db/
 ### 后端硬约束
 
 - 后端主路径不再通过 `Problem -> buildRuntime()` 二次适配
-- `submitAnswer` 只能是 adapter，不再承载独立判题主流程
 - 新 session 必须直接走 runtime-first pipeline
 - 结果/历史查询与运行时状态推进分离，不再复用旧练习主流程服务
 
@@ -295,5 +288,4 @@ DSL 不应直接描述：
 - `TaskDefinition`、`ContentDefinition`、`EnginePlugin` 是唯一有效的三层边界
 - `WorkspaceShell` 是 `web` 的共享产品壳层
 - `PracticePage` 是 runtime route shell，不是题型实现页
-- `ProblemRenderSchema` 是过渡结构，不是最终 DSL
 - 新任务必须优先落入 runtime-first contracts，而不是继续新增页面分支

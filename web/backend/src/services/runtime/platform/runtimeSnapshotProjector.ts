@@ -1,9 +1,7 @@
-import { ContentDefinition, ExerciseEngineKind, PracticeSessionSnapshot, SessionPhase, TaskId } from "../../../../shared/contracts";
-import { getTaskDefinition } from "../tasks/catalogService";
+import { ContentDefinition, ExerciseEngineKind, PracticeSessionSnapshot, SessionPhase, TaskId } from "../../../../../shared/contracts";
+import { getTaskDefinition } from "../../tasks/catalogService";
 import { getEnginePlugin } from "./engineRegistry";
-import { projectLegacyProblem } from "./legacyAdapter";
 import { type RuntimeEngineState } from "./engineTypes";
-import { TriangleTrigEngineState } from "./triangleTrigEngine";
 
 type SessionProjectionRow = {
   id: string;
@@ -61,25 +59,4 @@ export function toPracticeSessionSnapshot(
     phase: session.phase,
     runtime,
   };
-}
-
-export function toLegacyProblemState(
-  session: SessionProjectionRow,
-  record: RuntimeInstanceProjectionRecord,
-) {
-  if (record.row.engine_kind !== "triangle-trig") {
-    throw new Error("Legacy problem projection is only supported for triangle-trig");
-  }
-  const task = getTaskDefinition(record.row.task_id);
-  const plugin = getEnginePlugin(record.row.engine_kind);
-  const phase = projectedPhaseForIndex(session, record);
-  const runtime = plugin.buildRuntime(task, record.content, record.engineState, phase);
-  return projectLegacyProblem(
-    task,
-    record.content as import("../../../../shared/contracts").TriangleTrigContentDefinition,
-    record.engineState as TriangleTrigEngineState,
-    runtime,
-    phase,
-    record.row.instance_index === session.current_index,
-  );
 }

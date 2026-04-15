@@ -2,7 +2,7 @@ import type { ResultSnapshot, TaskHistoryItem, TaskId } from "../../../shared/co
 import { TASK_COLORS } from "../../../shared/tasks";
 import { getPreviousElapsedMs, getResultSnapshot, insertResultSnapshot, listResultHistory, listTaskHistory } from "../repositories/resultRepository";
 import { markSessionFinished } from "../repositories/sessionRepository";
-import { appError } from "./runtime/errors";
+import { appError } from "./runtime/platform/errors";
 import { getTaskDefinition } from "./tasks/catalogService";
 
 type ResultSessionRecord = {

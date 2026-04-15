@@ -13,7 +13,7 @@ API 的目标不是“给页面喂题目字段”，而是“给教学运行时�
 当前项目仍处在兼容阶段，所以本文件同时定义：
 
 - 目标 runtime-first 契约
-- 当前保留的 legacy 契约
+- 当前对外契约以 runtime-first 为唯一主契约
 - 迁移与兼容规则
 
 ## 契约原则
@@ -22,7 +22,7 @@ API 的目标不是“给页面喂题目字段”，而是“给教学运行时�
 - 前端上传动作或当前步骤输入，不上传标准答案
 - shared contract 只暴露语义字段，不暴露 DOM / CSS 细节
 - `EnginePlugin` 是后端内部实现边界，不进入 shared wire schema
-- legacy contract 允许短期保留，但不是新的主路径
+- 旧 session 的失效语义仍保留，但不再保留 legacy API 契约
 
 ## 资源模型
 
@@ -251,32 +251,6 @@ interface ApiErrorResponse {
 
 其中 `LEGACY_SESSION_EXPIRED` 用于旧 session 在迁移后不再可恢复的情况。
 
-## Legacy 兼容契约
-
-当前保留的 legacy contract 包括：
-
-- `Problem`
-- `AnswerPayload`
-- `AnswerRequest`
-- `AnswerResponse`
-- `ProblemRenderSchema`
-- `POST /api/practice/answer`
-
-### Legacy 接口定位
-
-`POST /api/practice/answer` 在迁移期内可以保留，但角色固定为：
-
-- 接收旧 payload
-- 适配为 runtime action
-- 复用同一条 runtime-first backend pipeline
-
-当前默认约束：
-
-- Web 前端主路径不再调用该接口
-- 该接口只用于兼容旧客户端或验证 adapter 行为
-
-它不再应该承载独立判题逻辑。
-
 ### Legacy session 恢复策略
 
 - 旧结果快照保留
@@ -295,13 +269,12 @@ interface ApiErrorResponse {
 兼容原则：
 
 - 一次只替换一层
-- legacy contract 可以暂留，但不得继续扩展
+- runtime-first contract 不再为 legacy API 保留扩展面
 - 若 `03-domain-model.md` 与接口定义冲突，以领域模型为准先修正，再同步接口文档
 
 ## 当前默认决策
 
 - `ExerciseRuntimeSpec + RuntimeActionEvent` 是目标主契约
-- `Problem + AnswerPayload` 是兼容契约
-- `ProblemRenderSchema` 是过渡结构，不是最终 DSL
+- `ExerciseRuntimeSpec + RuntimeActionEvent` 是唯一主契约
 - `StartPracticeResponse` / `RestorePracticeResponse` 应收敛到 `PracticeSessionSnapshot`
 - 新增任务不得绕开 runtime-first contract 直接加专属接口字段
