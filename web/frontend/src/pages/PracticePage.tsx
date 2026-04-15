@@ -49,12 +49,6 @@ function avgFromHistory(history: TaskHistoryItem[]) {
   return average(history.slice(-5).map((item) => item.elapsedMs));
 }
 
-function taskOrderLabel(taskId: TaskId) {
-  if (taskId === "meaning") return "第 1 组";
-  if (taskId === "ratioToSide") return "第 2 组";
-  return "第 3 组";
-}
-
 function feedbackKind(runtime?: ExerciseRuntimeSpec, fallback: FeedbackEffectKey = "correct"): FeedbackEffectKey {
   const cue = runtime?.instance.feedback.correct[0]?.key;
   return cue === "wrong" || cue === "finish" || cue === "correct" ? cue : fallback;

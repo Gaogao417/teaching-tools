@@ -1,3 +1,4 @@
 .DS_Store
 wxapp/project.private.config.json
 .opencode/
+.claude/
