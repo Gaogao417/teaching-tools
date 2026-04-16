@@ -4,6 +4,13 @@
 
 练习页是 `WorkspaceShell` 内部的运行时主路由。
 
+在当前代码中它仍叫 `PracticePage`，但从产品语义上，它需要承载两种学习态：
+
+- `example`
+  高提示、带讲解的例题态
+- `exercise`
+  更少提示、按短练习组推进的练习态
+
 它不是某个题型的实现页，而是 runtime session 的承载页。当前主链路为：
 
 ```text
@@ -12,7 +19,7 @@ WorkspaceShell
     -> ExerciseRuntimeHost
 ```
 
-练习页的目标仍然是承接 runtime，不是重新长回题型分支。
+练习页的目标仍然是承接 runtime，不是重新长回题型分支，也不是把 `example` 和 `exercise` 分裂成两套页面壳层。
 
 ## 页面职责
 
