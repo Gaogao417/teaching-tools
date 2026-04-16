@@ -23,9 +23,9 @@ export function AuthModal({ open, value, onChange, onSubmit, canDismiss, onDismi
       <div className="workspace-auth-card panel" role="dialog" aria-modal="true" aria-labelledby="workspace-auth-title">
         <div className="workspace-auth-copy">
           <div className="eyebrow">Workspace Access</div>
-          <h2 id="workspace-auth-title">填写姓名以解锁训练记录</h2>
+          <h2 id="workspace-auth-title">Set a student name to save progress</h2>
           <p className="text-muted">
-            导航树和任务概览会保持可见。输入姓名后，系统才会开始或恢复你的训练并读取个人历史。
+            The learning map stays visible either way. Adding a name lets the app restore unfinished sessions and attach history to the current student.
           </p>
         </div>
 
@@ -35,15 +35,15 @@ export function AuthModal({ open, value, onChange, onSubmit, canDismiss, onDismi
             value={value}
             onChange={(event) => onChange(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="请输入学生姓名后按回车"
+            placeholder="Enter a student name and press Enter"
           />
           <div className="action-row">
             <button className="btn btn-primary" type="button" onClick={onSubmit} disabled={!value.trim()}>
-              解锁工作区
+              Unlock Workspace
             </button>
             {canDismiss && (
               <button className="btn btn-ghost" type="button" onClick={onDismiss}>
-                先看看任务
+                Preview Tasks
               </button>
             )}
           </div>

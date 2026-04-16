@@ -14,61 +14,102 @@ export function ResultPage() {
 
   useEffect(() => {
     if (!sessionId) return;
-    api.getResult(sessionId).then((result) => {
-      setSnapshot(result);
-      setFocusedTaskId(result.taskId as TaskId);
-    }).catch(console.error);
+    api.getResult(sessionId)
+      .then((result) => {
+        setSnapshot(result);
+        setFocusedTaskId(result.taskId as TaskId);
+      })
+      .catch(console.error);
   }, [sessionId, setFocusedTaskId]);
 
   if (!snapshot) {
     return (
-      <section className="panel workspace-panel">
+      <section className="panel workspace-panel scholar-panel">
         <div className="detail-head">
-          <h2>正在加载结果详情</h2>
-          <p className="text-muted">结果仍然会显示在同一个工作区壳层内。</p>
+          <div className="eyebrow">Session Result</div>
+          <h2>Loading the latest result snapshot</h2>
+          <p className="text-muted">Results stay inside the same workspace shell so students can move directly back into practice.</p>
         </div>
       </section>
     );
   }
 
   return (
-    <section className="panel workspace-panel workspace-result-panel">
-      <div className="detail-head">
+    <section className="panel workspace-panel workspace-result-panel scholar-panel scholar-result-panel">
+      <div className="detail-head scholar-result-hero">
         <div className="eyebrow">{snapshot.studentName}</div>
         <h2>{snapshot.title}</h2>
         <p>{snapshot.copy}</p>
+        <div className="scholar-pill-row">
+          <span className="pill">{snapshot.groupLabel}</span>
+          <span className="pill">{snapshot.problemCount} problems cleared</span>
+        </div>
       </div>
 
       <div className="metric-grid">
         <div>
-          <span>本次耗时</span>
+          <span>Session time</span>
           <strong>{formatSeconds(snapshot.elapsedMs)}</strong>
         </div>
         <div>
-          <span>本组最佳</span>
+          <span>Best time</span>
           <strong>{formatSeconds(snapshot.bestMs)}</strong>
         </div>
         <div>
-          <span>最近平均</span>
+          <span>Average</span>
           <strong>{formatSeconds(snapshot.avgMs)}</strong>
         </div>
         <div>
-          <span>首次正确率</span>
+          <span>First-try accuracy</span>
           <strong>{Math.round(snapshot.firstTryAccuracy * 100)}%</strong>
         </div>
       </div>
 
-      <article className="info-card">
-        <h3>训练走势</h3>
-        <Chart points={snapshot.history} color={snapshot.color} />
-      </article>
+      <div className="workspace-overview-grid scholar-result-grid">
+        <article className="info-card scholar-info-card">
+          <div className="scholar-card-head">
+            <span className="scholar-card-kicker">Trend</span>
+            <h3>Training curve</h3>
+          </div>
+          <Chart points={snapshot.history} color={snapshot.color} />
+        </article>
+
+        <article className="info-card scholar-info-card">
+          <div className="scholar-card-head">
+            <span className="scholar-card-kicker">Summary</span>
+            <h3>What changed</h3>
+          </div>
+          <div className="metric-grid scholar-metric-grid">
+            <div>
+              <span>Correct on first try</span>
+              <strong>
+                {snapshot.firstTryCorrectCount}/{snapshot.problemCount}
+              </strong>
+            </div>
+            <div>
+              <span>Delta vs previous</span>
+              <strong>
+                {snapshot.deltaVsPreviousMs === null ? "--" : `${snapshot.deltaVsPreviousMs > 0 ? "+" : "-"}${formatSeconds(Math.abs(snapshot.deltaVsPreviousMs))}`}
+              </strong>
+            </div>
+            <div>
+              <span>Started at</span>
+              <strong>{new Date(snapshot.startedAt).toLocaleString("zh-CN")}</strong>
+            </div>
+            <div>
+              <span>Cleared at</span>
+              <strong>{new Date(snapshot.clearedAt).toLocaleString("zh-CN")}</strong>
+            </div>
+          </div>
+        </article>
+      </div>
 
       <div className="action-row">
         <button className="btn btn-secondary" type="button" onClick={() => navigate(`/practice/${snapshot.taskId}`)}>
-          再练一组
+          Practice Again
         </button>
         <button className="btn btn-primary" type="button" onClick={() => navigate("/")}>
-          返回工作区
+          Back to Overview
         </button>
       </div>
     </section>

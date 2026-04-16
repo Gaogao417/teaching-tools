@@ -54,6 +54,11 @@ function feedbackKind(runtime?: ExerciseRuntimeSpec, fallback: FeedbackEffectKey
   return cue === "wrong" || cue === "finish" || cue === "correct" ? cue : fallback;
 }
 
+function accuracyDots(attempts: number) {
+  const filled = Math.max(1, Math.min(5, 5 - attempts));
+  return Array.from({ length: 5 }, (_, index) => index < filled);
+}
+
 export function PracticePage() {
   const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: TaskId }>();
@@ -66,8 +71,8 @@ export function PracticePage() {
   const [draft, setDraft] = useState<ClientDraftState>(emptyDraft());
   const [feedback, setFeedback] = useState<FeedbackState>({
     tone: "idle",
-    title: "准备开始",
-    body: "左侧负责操作，右侧负责引导。",
+    title: "Active Challenge",
+    body: "Complete the current runtime step from the main workspace.",
   });
   const [modalSnapshot, setModalSnapshot] = useState<ResultSnapshot | null>(null);
   const advanceTimer = useRef<number | null>(null);
@@ -155,7 +160,7 @@ export function PracticePage() {
       if (!runtime || current.tone !== "success") return current;
       return {
         tone: "idle",
-        title: "继续作答",
+        title: "Active Challenge",
         body: runtime.instance.guide.hint || runtime.instance.prompt,
       };
     });
@@ -184,7 +189,11 @@ export function PracticePage() {
       setStoredSessionId(taskId, started.sessionId);
       setSearchParams({ sessionId: started.sessionId }, { replace: true });
       await refreshHistory(taskId, studentName);
-      setFeedback({ tone: "idle", title: "已重新开始", body: "新的一组题目已经生成。" });
+      setFeedback({
+        tone: "idle",
+        title: "Active Challenge",
+        body: "A fresh challenge group is now active.",
+      });
     } finally {
       setLoading(false);
     }
@@ -206,8 +215,8 @@ export function PracticePage() {
     triggerFeedback("finish");
     setFeedback({
       tone: "success",
-      title: "本组已完成",
-      body: "结果层已经生成，你可以继续训练或查看详细结果。",
+      title: "Challenge Complete",
+      body: "The result snapshot is ready in the same runtime workspace.",
     });
   };
 
@@ -216,20 +225,20 @@ export function PracticePage() {
     const currentRuntime = currentSession?.runtime;
     if (!currentSession || !currentRuntime) return;
 
-    const response = await api.submitRuntimeAction(
-      currentSession.sessionId,
-      currentRuntime.instance.instanceId,
-      {
-        type: action.type,
-        stepId: action.stepId,
-        value: action.value,
-        targetId: action.targetId,
-      },
-    );
+    const response = await api.submitRuntimeAction(currentSession.sessionId, currentRuntime.instance.instanceId, {
+      type: action.type,
+      stepId: action.stepId,
+      value: action.value,
+      targetId: action.targetId,
+    });
 
     if (action.type === "clear") {
       setDraft(emptyDraft());
-      setFeedback({ tone: "idle", title: "已清空", body: "左侧草稿已经清空。" });
+      setFeedback({
+        tone: "idle",
+        title: "Canvas Cleared",
+        body: "The workspace draft was reset while the session stayed active.",
+      });
       return;
     }
 
@@ -250,8 +259,8 @@ export function PracticePage() {
       setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
       setFeedback({
         tone: "error",
-        title: "再试一次",
-        body: response.runtime?.instance.guide.hint || "回到左侧再检查一步。",
+        title: "Try Again",
+        body: response.runtime?.instance.guide.hint || "Review the current guide step and adjust the input in the canvas.",
       });
       triggerFeedback("wrong");
       return;
@@ -259,13 +268,13 @@ export function PracticePage() {
 
     setFeedback({
       tone: "success",
-      title: response.phase === "answering" ? "当前步骤正确" : "回答正确",
+      title: response.phase === "answering" ? "Step Solved" : "Answer Accepted",
       body:
         response.phase === "correct_pause"
-          ? "左侧操作已经正确，稍后自动进入下一题。"
+          ? "The runtime is advancing to the next prompt."
           : response.phase === "group_finished"
-            ? "本组已经完成。"
-            : "继续在左侧完成下一步。",
+            ? "The active challenge group is complete."
+            : "Continue in the workspace to finish the next step.",
     });
     triggerFeedback(feedbackKind(response.runtime));
 
@@ -284,16 +293,14 @@ export function PracticePage() {
     setDraft(emptyDraft());
   };
 
-  const currentProgress = session ? `${session.currentIndex + 1} / ${session.instanceCount}` : "--";
-  const bestMs = bestFromHistory(history);
-  const avgMs = avgFromHistory(history);
+  const dots = accuracyDots(runtime?.runtimeState.attempts || 0);
 
   if (!taskId) {
     return (
-      <section className="panel workspace-panel">
+      <section className="panel workspace-panel scholar-panel">
         <div className="detail-head">
-          <h2>未找到训练任务</h2>
-          <p className="text-muted">请先从左侧导航树选择一个任务。</p>
+          <h2>Task not found</h2>
+          <p className="text-muted">Return to the learning path and choose an available challenge.</p>
         </div>
       </section>
     );
@@ -301,18 +308,18 @@ export function PracticePage() {
 
   if (!studentName) {
     return (
-      <section className="panel workspace-panel workspace-lock-panel">
+      <section className="panel workspace-panel workspace-lock-panel scholar-panel">
         <div className="detail-head">
           <div className="eyebrow">Training Locked</div>
-          <h2>填写姓名后才能开始或恢复训练</h2>
-          <p>当前任务链接已经就绪，但系统还不能记录你的历史和 session。输入姓名后，这个工作区会直接恢复到可训练状态。</p>
+          <h2>Add a student name before starting practice</h2>
+          <p>The route is ready, but the app needs a student identity before it can create, restore, and save runtime sessions.</p>
         </div>
         <div className="action-row">
           <button className="btn btn-primary" type="button" onClick={requestAuth}>
-            现在填写姓名
+            Set Student Name
           </button>
           <button className="btn btn-ghost" type="button" onClick={() => navigate("/")}>
-            回到任务概览
+            Back to Overview
           </button>
         </div>
       </section>
@@ -321,65 +328,68 @@ export function PracticePage() {
 
   if (loading || !session || !runtime) {
     return (
-      <section className="panel workspace-panel">
+      <section className="panel workspace-panel scholar-panel">
         <div className="detail-head">
-          <h2>正在准备训练环境</h2>
-          <p className="text-muted">系统会优先尝试恢复进行中的 session，否则自动生成一组新题。</p>
+          <div className="eyebrow">Preparing Runtime</div>
+          <h2>Loading the current practice environment</h2>
+          <p className="text-muted">The app first tries to restore an active session, then creates a fresh group if nothing is in progress.</p>
         </div>
       </section>
     );
   }
 
   return (
-    <div className={`workspace-route-panel practice-route effect-${effectKind || "idle"}`}>
-      <div className="practice-progress-track" aria-hidden="true">
-        <div
-          className="practice-progress-fill"
-          style={{ width: `${session ? (session.currentIndex / session.instanceCount) * 100 : 0}%` }}
-        />
-      </div>
+    <div className={`ks-practice-page practice-route effect-${effectKind || "idle"}`}>
+      <PracticeEffectsLayer effectKind={effectKind} reducedMotion={prefersReducedMotion} />
 
-      <section className="practice-port-shell">
-        <PracticeEffectsLayer effectKind={effectKind} reducedMotion={prefersReducedMotion} />
-
-        <div className="practice-immersive-shell">
-          <header className="practice-ambient-topbar">
-            <div className="practice-ambient-left">
-              <button className="btn btn-ghost btn-circle" type="button" onClick={() => navigate("/")} title="回到任务概览">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                </svg>
-              </button>
-              <button className="btn btn-ghost btn-circle" type="button" onClick={() => void startNewSession()} title="重新开始本组">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                  <path d="M3 3v5h5"></path>
-                </svg>
-              </button>
+      <header className="ks-session-subbar">
+        <div className="ks-session-subbar-left">
+          <div className="ks-session-timer">
+            <span className="material-symbols-outlined">timer</span>
+            <span className="font-mono-timer">{formatSeconds(session.elapsedMs)}</span>
+          </div>
+          <div className="ks-session-divider" />
+          <div className="ks-session-accuracy">
+            <span>Accuracy</span>
+            <div className="ks-accuracy-dots">
+              {dots.map((filled, index) => (
+                <div key={index} className={`ks-accuracy-dot ${filled ? "filled" : ""}`} />
+              ))}
             </div>
-
-            <div className="practice-ambient-right" aria-label="练习状态">
-              <div className="stat-pill-group">
-                <span className="stat-pill-main">进度 <strong>{currentProgress}</strong></span>
-                <span className="stat-pill-sub">{formatSeconds(session.elapsedMs)}</span>
-              </div>
-            </div>
-          </header>
-
-          <div className="practice-immersive-main">
-            <ExerciseRuntimeHost
-              runtime={runtime}
-              sessionPhase={session.phase}
-              draft={draft}
-              setDraft={setDraft}
-              inputRefs={inputRefs}
-              onSubmit={(action) => void submitRuntimeAction({ type: "submit", ...action })}
-              onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
-            />
           </div>
         </div>
-      </section>
+
+        <div className="ks-session-subbar-right">
+          <span className="ks-session-task-label">{runtime.instance.taskId}</span>
+          <span className="ks-session-badge">{feedback.title}</span>
+        </div>
+      </header>
+
+      <main className="ks-practice-main">
+        <div className="ks-practice-column">
+          <section className="ks-problem-prompt-card">
+            <div className="ks-problem-glow" aria-hidden="true" />
+            <h2>
+              Solve the active runtime prompt for <span>c</span>.
+            </h2>
+            <p>
+              {runtime.instance.prompt} Use the guided workflow on the right and the workspace below to submit the current answer.
+              <span className="ks-inline-formula-note"> a² + b² = c² </span>
+            </p>
+          </section>
+
+          <ExerciseRuntimeHost
+            runtime={runtime}
+            sessionPhase={session.phase}
+            draft={draft}
+            setDraft={setDraft}
+            inputRefs={inputRefs}
+            onSubmit={(action) => void submitRuntimeAction({ type: "submit", ...action })}
+            onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
+          />
+
+        </div>
+      </main>
 
       {modalSnapshot && (
         <CompletionModal
@@ -403,35 +413,35 @@ function CompletionModal({
 }) {
   return (
     <div className="modal-backdrop">
-      <div className="modern-completion-modal">
-        <div className="eyebrow">本组完成</div>
+      <div className="modern-completion-modal scholar-completion-modal">
+        <div className="eyebrow">Challenge Complete</div>
         <h2>{snapshot.title}</h2>
         <p>{snapshot.copy}</p>
         <div className="metric-grid">
           <div>
-            <span>本次耗时</span>
+            <span>Session time</span>
             <strong>{formatSeconds(snapshot.elapsedMs)}</strong>
           </div>
           <div>
-            <span>本组最佳</span>
+            <span>Best time</span>
             <strong>{formatSeconds(snapshot.bestMs)}</strong>
           </div>
           <div>
-            <span>最近平均</span>
+            <span>Average</span>
             <strong>{formatSeconds(snapshot.avgMs)}</strong>
           </div>
           <div>
-            <span>首次正确率</span>
+            <span>First-try accuracy</span>
             <strong>{Math.round(snapshot.firstTryAccuracy * 100)}%</strong>
           </div>
         </div>
         <Chart points={snapshot.history} color={snapshot.color} />
         <div className="action-row">
           <button className="btn btn-secondary" type="button" onClick={onRetry}>
-            再练一组
+            Practice Again
           </button>
           <button className="btn btn-primary" type="button" onClick={onResult}>
-            查看详细结果
+            View Result
           </button>
         </div>
       </div>

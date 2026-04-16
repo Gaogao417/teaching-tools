@@ -35,10 +35,11 @@ export function TaskOverviewPanel() {
 
   if (!focusedTask) {
     return (
-      <section className="panel workspace-panel">
-        <div className="surface-canvas">
-          <h2 className="canvas-title">学生练习工作台</h2>
-          <p className="text-muted">请点击左上角的菜单开始选择任务</p>
+      <section className="panel workspace-panel scholar-panel scholar-empty-panel">
+        <div className="surface-canvas scholar-empty-state">
+          <div className="eyebrow">The Kinetic Scholar</div>
+          <h2 className="canvas-title">Choose a task from the learning map</h2>
+          <p className="text-muted">Open the sidebar to preview the prompt, inspect the solution path, and start a live runtime session.</p>
         </div>
       </section>
     );
@@ -47,17 +48,27 @@ export function TaskOverviewPanel() {
   const hasStoredSession = isStudentReady ? Boolean(getStoredSessionId(focusedTask.id)) : false;
 
   return (
-    <section className="panel workspace-panel">
-      <div className="workspace-panel-head">
-        <div className="detail-head">
+    <section className="panel workspace-panel scholar-panel">
+      <div className="workspace-panel-head scholar-hero-grid">
+        <div className="detail-head scholar-hero-copy">
           <div className="eyebrow">{focusedTask.difficulty}</div>
           <h2>{focusedTask.title}</h2>
           <p>{focusedTask.summary}</p>
+          <div className="scholar-pill-row">
+            <span className="pill">Engine {focusedTask.engineKind}</span>
+            <span className="pill">{focusedTask.steps.length} step path</span>
+          </div>
         </div>
-        <div className="workspace-cta-card">
-          <strong>{hasStoredSession ? "当前任务有未完成训练" : "准备开始新的训练组"}</strong>
+
+        <div className="workspace-cta-card scholar-cta-card">
+          <div className="scholar-cta-header">
+            <span className="scholar-cta-kicker">Session Control</span>
+            <strong>{hasStoredSession ? "Resume the current run" : "Start a fresh guided session"}</strong>
+          </div>
           <p className="text-muted">
-            {isStudentReady ? "点击后会进入同一个工作区中的训练主体。" : "先填写姓名，系统才能记录你的历史和恢复进度。"}
+            {isStudentReady
+              ? "Launch the current runtime shell with the same routes, restore flow, and result tracking."
+              : "Set a student name first so the app can restore unfinished sessions and attach history."}
           </p>
           <div className="action-row">
             <button
@@ -72,11 +83,11 @@ export function TaskOverviewPanel() {
                 navigate(`/practice/${focusedTask.id}`);
               }}
             >
-              {hasStoredSession ? "继续训练" : "开始训练"}
+              {hasStoredSession ? "Resume Session" : "Start Session"}
             </button>
             {!isStudentReady && (
               <button className="btn btn-secondary" type="button" onClick={requestAuth}>
-                先填写姓名
+                Set Student Name
               </button>
             )}
           </div>
@@ -84,40 +95,49 @@ export function TaskOverviewPanel() {
       </div>
 
       <div className="workspace-overview-grid">
-        <article className="info-card">
-          <h3>样题预览</h3>
+        <article className="info-card scholar-info-card">
+          <div className="scholar-card-head">
+            <span className="scholar-card-kicker">Prompt</span>
+            <h3>Sample challenge</h3>
+          </div>
           <p>{focusedTask.sample.prompt}</p>
         </article>
 
-        <article className="info-card">
-          <h3>训练概览</h3>
+        <article className="info-card scholar-info-card">
+          <div className="scholar-card-head">
+            <span className="scholar-card-kicker">Performance</span>
+            <h3>Student snapshot</h3>
+          </div>
           {isStudentReady ? (
             <div className="metric-grid">
               <div>
-                <span>累计训练</span>
-                <strong>{metrics.count ? `${metrics.count} 次` : "--"}</strong>
+                <span>Total runs</span>
+                <strong>{metrics.count || "--"}</strong>
               </div>
               <div>
-                <span>本组最佳</span>
+                <span>Best time</span>
                 <strong>{formatSeconds(metrics.best)}</strong>
               </div>
               <div>
-                <span>最近平均</span>
+                <span>Average</span>
                 <strong>{formatSeconds(metrics.avg)}</strong>
               </div>
               <div>
-                <span>最近一次</span>
+                <span>Latest run</span>
                 <strong>{formatSeconds(metrics.latest)}</strong>
               </div>
             </div>
           ) : (
-            <p className="text-muted">填写姓名后才能查看当前学生的训练历史。</p>
+            <p className="text-muted">Set a student name to load history and compare this task against previous runs.</p>
           )}
         </article>
       </div>
 
-      <article className="info-card">
-        <h3>解题步骤</h3>
+      <article className="info-card scholar-info-card">
+        <div className="scholar-card-head">
+          <span className="scholar-card-kicker">Roadmap</span>
+          <h3>Solution path</h3>
+        </div>
         <ol className="steps-list">
           {focusedTask.steps.map((step) => (
             <li key={step}>{step}</li>
@@ -125,11 +145,14 @@ export function TaskOverviewPanel() {
         </ol>
       </article>
 
-      <article className="info-card">
-        <h3>训练历史</h3>
+      <article className="info-card scholar-info-card">
+        <div className="scholar-card-head">
+          <span className="scholar-card-kicker">Trend</span>
+          <h3>Practice history</h3>
+        </div>
         {isStudentReady ? (
           <>
-            <Chart points={history?.items || []} color={focusedTask.color || "#b85c38"} />
+            <Chart points={history?.items || []} color={focusedTask.color || "#5148d7"} />
             <div className="history-list">
               {(history?.items || []).slice().reverse().map((item) => (
                 <div key={item.clearedAt} className="history-row">
@@ -140,7 +163,7 @@ export function TaskOverviewPanel() {
             </div>
           </>
         ) : (
-          <p className="text-muted">工作区会保留任务地图，但个人历史只在身份确认后读取。</p>
+          <p className="text-muted">The catalog remains visible, but history is only available after identity is confirmed.</p>
         )}
       </article>
     </section>

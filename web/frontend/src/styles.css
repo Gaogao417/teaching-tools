@@ -336,3 +336,74 @@ p {
   border: 1px solid rgba(53, 80, 200, 0.18);
   background: #fff;
 }
+
+:root {
+  --ks-primary: #5148d7;
+  --ks-primary-strong: #4036c6;
+  --ks-primary-soft: rgba(81, 72, 215, 0.12);
+  --ks-primary-surface: rgba(241, 239, 255, 0.92);
+  --ks-bg: #f4f5fb;
+  --ks-panel: rgba(255, 255, 255, 0.92);
+  --ks-muted: #5f6b85;
+  --ks-overlay: rgba(23, 27, 52, 0.42);
+
+  --color-ink: #182033;
+  --color-primary: var(--ks-primary);
+  --color-primary-strong: var(--ks-primary-strong);
+  --color-line: rgba(24, 32, 51, 0.12);
+  --color-bg: var(--ks-bg);
+  --color-panel: var(--ks-panel);
+  --color-muted: var(--ks-muted);
+  --color-accent-bg: var(--ks-primary-surface);
+  --color-accent-text: #352d9e;
+  --color-overlay: var(--ks-overlay);
+
+  --surface-soft: rgba(255, 255, 255, 0.96);
+  --surface-subtle: rgba(246, 248, 255, 0.92);
+  --surface-elevated: rgba(255, 255, 255, 0.98);
+  --border-accent: rgba(81, 72, 215, 0.22);
+  --border-accent-strong: rgba(81, 72, 215, 0.42);
+  --fill-accent-soft: rgba(81, 72, 215, 0.12);
+  --fill-accent-soft-hover: rgba(81, 72, 215, 0.06);
+  --focus-ring: rgba(81, 72, 215, 0.18);
+  --btn-primary-shadow: 0 14px 28px rgba(81, 72, 215, 0.24);
+  --tone-accent-gradient: linear-gradient(180deg, rgba(251, 251, 255, 0.97), rgba(240, 240, 255, 0.94));
+  --tone-stage-gradient:
+    radial-gradient(circle at top left, rgba(81, 72, 215, 0.12), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(32, 196, 176, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(249, 250, 255, 0.98), rgba(240, 244, 255, 0.96));
+  --tone-card-gradient: linear-gradient(180deg, rgba(240, 244, 255, 0.7), rgba(255, 255, 255, 0.94));
+}
+
+body {
+  background-color: #f4f5fb;
+  background-image:
+    radial-gradient(circle at 0% 0%, rgba(81, 72, 215, 0.14) 0%, transparent 38%),
+    radial-gradient(circle at 100% 100%, rgba(32, 196, 176, 0.12) 0%, transparent 36%),
+    linear-gradient(180deg, rgba(248, 249, 255, 1), rgba(241, 243, 252, 1));
+  font-family: "Noto Sans SC", "Inter", sans-serif;
+}
+
+.font-mono-timer {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: "FILL" 0, "wght" 500, "GRAD" 0, "opsz" 24;
+}
+
+.material-symbols-outlined.filled {
+  font-variation-settings: "FILL" 1, "wght" 500, "GRAD" 0, "opsz" 24;
+}

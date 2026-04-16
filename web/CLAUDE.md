@@ -13,8 +13,7 @@ This file defines how Codex/Claude should implement UI changes inside `web/front
 Frontend styling must come from these files first:
 
 - `frontend/src/styles.css`
-- `frontend/src/styles/pages.css`
-- `frontend/src/styles/practice.css`
+- `frontend/src/styles/`
 
 Agents must treat these files as the primary styling system for:
 

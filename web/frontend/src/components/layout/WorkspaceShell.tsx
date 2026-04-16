@@ -15,6 +15,12 @@ type PreviewState = {
   anchorRect: DOMRect;
 };
 
+function avatarLabel(studentName: string) {
+  if (!studentName.trim()) return "KS";
+  const parts = studentName.trim().split(/\s+/).slice(0, 2);
+  return parts.map((part) => part[0]?.toUpperCase() || "").join("");
+}
+
 export function WorkspaceShell() {
   const location = useLocation();
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -169,41 +175,39 @@ export function WorkspaceShell() {
   );
 
   return (
-    <div className="workspace-app">
-      <header className="workspace-topbar">
-        <div className="workspace-topbar-left">
-          <button className="btn btn-ghost workspace-drawer-trigger" type="button" onClick={() => setIsNavDrawerOpen(true)} title="打开导航">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="12" x2="21" y2="12"></line>
-              <line x1="3" y1="6" x2="21" y2="6"></line>
-              <line x1="3" y1="18" x2="21" y2="18"></line>
-            </svg>
+    <div className="ks-app-shell">
+      <header className="ks-top-nav">
+        <div className="ks-top-nav-left">
+          <button className="ks-icon-button ks-top-nav-menu" type="button" onClick={() => setIsNavDrawerOpen(true)} title="Open navigation">
+            <span className="material-symbols-outlined">menu</span>
           </button>
-          <h1 className="workspace-app-title">三角比高频训练</h1>
+          <span className="ks-top-nav-brand">The Kinetic Scholar</span>
         </div>
 
-        <div className="workspace-topbar-actions">
-          <div className="student-lockup">
-            <span className="student-lockup-label">当前学生</span>
-            <strong>{studentName || "未填写姓名"}</strong>
-          </div>
-          {!activeTaskId && (
-            <button className="btn btn-secondary" type="button" onClick={requestAuth}>
-              {studentName ? "重新填写姓名" : "填写姓名"}
-            </button>
-          )}
+        <div className="ks-top-nav-right">
+          <button className="ks-icon-button" type="button" title="Notifications">
+            <span className="material-symbols-outlined">notifications</span>
+          </button>
+          <button className="ks-icon-button" type="button" onClick={requestAuth} title="Settings">
+            <span className="material-symbols-outlined">settings</span>
+          </button>
+          <button className="ks-avatar-button" type="button" onClick={requestAuth} title={studentName || "Set student name"}>
+            <span>{avatarLabel(studentName)}</span>
+          </button>
         </div>
       </header>
 
-      <div className="workspace-shell">
-        <main className="workspace-content" ref={contentRef}>
+      <div className="ks-app-body">
+        <aside className="ks-sidebar">{sidebar}</aside>
+
+        <main className="ks-content-area" ref={contentRef}>
           <Outlet context={outletContext} />
         </main>
       </div>
 
       {isNavDrawerOpen && (
         <div className="workspace-drawer-backdrop" role="presentation" onClick={() => setIsNavDrawerOpen(false)}>
-          <div className="panel workspace-drawer" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+          <div className="panel workspace-drawer ks-mobile-drawer" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             {sidebar}
           </div>
         </div>

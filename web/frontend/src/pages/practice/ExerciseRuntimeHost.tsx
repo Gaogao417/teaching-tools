@@ -20,24 +20,30 @@ export function ExerciseRuntimeHost(props: Props) {
 
   return (
     <>
-      {Renderer ? (
-        <Renderer
-          runtime={props.runtime}
-          draft={props.draft}
-          setDraft={props.setDraft}
-          inputRefs={props.inputRefs}
-          onSubmit={props.onSubmit}
-          onClear={props.onClear}
-        />
-      ) : (
-        <section className="panel workspace-panel">
-          <div className="detail-head">
-            <h2>未注册的练习引擎</h2>
-            <p className="text-muted">{props.runtime.instance.engineKind} 暂时没有对应的工作区渲染器。</p>
-          </div>
-        </section>
-      )}
-      <GuidePanel runtime={props.runtime} sessionPhase={props.sessionPhase} taskGroup={props.taskGroup} />
+      <div className="ks-runtime-grid">
+        <div className="ks-runtime-main">
+          {Renderer ? (
+            <Renderer
+              runtime={props.runtime}
+              draft={props.draft}
+              setDraft={props.setDraft}
+              inputRefs={props.inputRefs}
+              onSubmit={props.onSubmit}
+              onClear={props.onClear}
+            />
+          ) : (
+            <section className="panel workspace-panel">
+              <div className="detail-head">
+                <h2>Renderer not registered</h2>
+                <p className="text-muted">{props.runtime.instance.engineKind} does not yet have a matching workspace renderer.</p>
+              </div>
+            </section>
+          )}
+        </div>
+
+        <GuidePanel runtime={props.runtime} sessionPhase={props.sessionPhase} taskGroup={props.taskGroup} />
+      </div>
+
       <FeedbackController runtime={props.runtime} sessionPhase={props.sessionPhase} />
     </>
   );

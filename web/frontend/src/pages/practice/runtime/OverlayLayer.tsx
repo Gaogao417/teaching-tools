@@ -8,21 +8,11 @@ export function OverlayLayer({
   draft,
   setDraft,
   inputRefs,
-  canSubmitOrderedSelection,
-  submitStepId,
-  onSubmit,
-  onClear,
-  clearTarget,
 }: {
   runtime: ExerciseRuntimeSpec;
   draft: ClientDraftState;
   setDraft: import("react").Dispatch<import("react").SetStateAction<ClientDraftState>>;
   inputRefs: InputRefs;
-  canSubmitOrderedSelection: boolean;
-  submitStepId?: string;
-  onSubmit: (action: { stepId: string; value: string }) => void;
-  onClear: (target?: string) => void;
-  clearTarget?: string;
 }) {
   const texts = findEntities(runtime.instance.scene.entities, "text");
   const formulas = findEntities(runtime.instance.scene.entities, "formula");
@@ -45,15 +35,15 @@ export function OverlayLayer({
         />
       ))}
 
-      <div className="practice-workspace-footer">
+      <div className="practice-workspace-footer ks-workspace-footer">
         {selectionPreview ? (
           <div className="practice-fraction-preview">
             <div className={`practice-fraction-slot ${selectionPreview.numerator ? "filled" : "active"}`}>
-              {selectionPreview.numerator || "第一项"}
+              {selectionPreview.numerator || "First choice"}
             </div>
             <div className="practice-fraction-bar" />
             <div className={`practice-fraction-slot ${selectionPreview.denominator ? "filled" : ""}`}>
-              {selectionPreview.denominator || "第二项"}
+              {selectionPreview.denominator || "Second choice"}
             </div>
           </div>
         ) : null}
@@ -63,29 +53,6 @@ export function OverlayLayer({
             {entity.text}
           </div>
         ))}
-
-        <div className="practice-workspace-actions">
-          <button className="tiny-btn" type="button" onClick={() => onClear(clearTarget)}>
-            清空左侧步骤
-          </button>
-          <button
-            className="btn btn-primary"
-            type="button"
-            disabled={!submitStepId || !canSubmitOrderedSelection}
-            onClick={() =>
-              submitStepId &&
-              onSubmit({
-                stepId: submitStepId,
-                value: JSON.stringify({
-                  selections: draft.selections,
-                  inputs: draft.inputs,
-                }),
-              })
-            }
-          >
-            提交左侧步骤
-          </button>
-        </div>
       </div>
     </>
   );

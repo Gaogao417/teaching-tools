@@ -20,7 +20,7 @@ type Props = {
 function taskButtonState(taskId: TaskId, focusedTaskId: TaskId | null, activeTaskId: TaskId | null) {
   const isFocused = taskId === focusedTaskId;
   const isActive = taskId === activeTaskId;
-  return `${isFocused ? "active" : ""} ${isActive ? "tree-task-live" : ""}`.trim();
+  return `${isFocused ? "active" : ""} ${isActive ? "live" : ""}`.trim();
 }
 
 export function SidebarNav({
@@ -41,71 +41,88 @@ export function SidebarNav({
   };
 
   return (
-    <div className="workspace-sidebar-shell">
-      <div className="tree-header">
-        <h2>任务导航</h2>
+    <div className="ks-sidebar-shell">
+      <div className="ks-sidebar-main">
+        <h3 className="ks-sidebar-label">Learning Path</h3>
+
+        <nav className="ks-sidebar-nav">
+          <div className="ks-sidebar-section">
+            <button type="button" className="ks-sidebar-root">
+              <span className="ks-sidebar-root-left">
+                <span className="material-symbols-outlined ks-sidebar-root-icon active">folder_open</span>
+                <span>Curriculum</span>
+              </span>
+              <span className="material-symbols-outlined ks-sidebar-chevron expanded">chevron_right</span>
+            </button>
+
+            <div className="ks-sidebar-children">
+              {tree?.grades.map((grade) => {
+                const gradeExpanded = expandedGradeIds.includes(grade.id);
+
+                return (
+                  <div key={grade.id} className="ks-sidebar-chapter">
+                    <button type="button" className="ks-sidebar-chapter-title" onClick={() => onToggleGrade(grade.id)}>
+                      <span>{grade.name}</span>
+                      <span className={`material-symbols-outlined ks-sidebar-chevron ${gradeExpanded ? "expanded" : ""}`}>chevron_right</span>
+                    </button>
+
+                    {gradeExpanded ? (
+                      <div className="ks-sidebar-task-list">
+                        {grade.chapters.map((chapter) => {
+                          const chapterExpanded = expandedChapterIds.includes(chapter.id);
+                          return (
+                            <div key={chapter.id} className="ks-sidebar-chapter">
+                              <button type="button" className="ks-sidebar-chapter-title" onClick={() => onToggleChapter(chapter.id)}>
+                                <span>{chapter.name}</span>
+                                <span className={`material-symbols-outlined ks-sidebar-chevron ${chapterExpanded ? "expanded" : ""}`}>chevron_right</span>
+                              </button>
+
+                              {chapterExpanded ? (
+                                <div className="ks-sidebar-task-list">
+                                  {chapter.tasks.map((task) => (
+                                    <button
+                                      key={task.id}
+                                      type="button"
+                                      className={`ks-sidebar-task ${taskButtonState(task.id, focusedTaskId, activeTaskId)}`}
+                                      onClick={() => onSelectTask(grade.id, chapter.id, task.id)}
+                                      onMouseEnter={(event) => openPreviewFromEvent(task.id, event)}
+                                      onMouseLeave={onPreviewClose}
+                                      onFocus={(event) => openPreviewFromEvent(task.id, event)}
+                                      onBlur={onPreviewClose}
+                                    >
+                                      {task.title}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="ks-sidebar-section">
+            <button type="button" className="ks-sidebar-root active">
+              <span className="ks-sidebar-root-left">
+                <span className="material-symbols-outlined ks-sidebar-root-icon">history</span>
+                <span>Practice History</span>
+              </span>
+              <span className="material-symbols-outlined ks-sidebar-chevron">chevron_right</span>
+            </button>
+          </div>
+        </nav>
       </div>
 
-      <div className="tree-body">
-        {tree?.grades.map((grade) => {
-          const gradeExpanded = expandedGradeIds.includes(grade.id);
-          return (
-            <section key={grade.id} className="tree-block">
-              <button type="button" className="tree-node tree-grade" onClick={() => onToggleGrade(grade.id)}>
-                <span className="tree-label">
-                  <span className="tree-arrow">{gradeExpanded ? "▾" : "▸"}</span>
-                  <span>{grade.name}</span>
-                </span>
-              </button>
-
-              {gradeExpanded && (
-                <div className="tree-branch">
-                  {grade.chapters.map((chapter) => {
-                    const chapterExpanded = expandedChapterIds.includes(chapter.id);
-                    return (
-                      <section key={chapter.id} className="tree-chapter">
-                        <button
-                          type="button"
-                          className="tree-node tree-chapter-title"
-                          onClick={() => onToggleChapter(chapter.id)}
-                        >
-                          <span className="tree-label">
-                            <span className="tree-arrow">{chapterExpanded ? "▾" : "▸"}</span>
-                            <span>{chapter.name}</span>
-                          </span>
-                        </button>
-
-                        {chapterExpanded && (
-                          <div className="tree-branch tree-task-list">
-                            {chapter.tasks.map((task) => (
-                              <button
-                                key={task.id}
-                                type="button"
-                                className={`tree-node tree-task ${taskButtonState(task.id, focusedTaskId, activeTaskId)}`}
-                                onClick={() => onSelectTask(grade.id, chapter.id, task.id)}
-                                onMouseEnter={(event) => openPreviewFromEvent(task.id, event)}
-                                onMouseLeave={onPreviewClose}
-                                onFocus={(event) => openPreviewFromEvent(task.id, event)}
-                                onBlur={onPreviewClose}
-                                aria-current={task.id === activeTaskId ? "page" : undefined}
-                              >
-                                <span className="tree-label">
-                                  <span className="tree-arrow tree-dot">•</span>
-                                  <span>{task.title}</span>
-                                </span>
-                                <span className="tree-meta">{task.difficulty}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </section>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          );
-        })}
+      <div className="ks-sidebar-footer">
+        <button type="button" className="ks-sidebar-footer-link">
+          <span className="material-symbols-outlined ks-sidebar-root-icon">group</span>
+          <span>{isStudentReady ? "Students" : "Students"}</span>
+        </button>
       </div>
     </div>
   );
