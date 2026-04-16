@@ -59,36 +59,6 @@ function WorkspaceScene({
           />
         </div>
       </div>
-
-      <div className="ks-action-area">
-        <button className="ks-clear-action" type="button" onClick={() => onClear(clearAction?.target || step.id)}>
-          <span className="material-symbols-outlined">restart_alt</span>
-          Clear Canvas
-        </button>
-
-        <div className="ks-primary-actions">
-          <button className="ks-secondary-action" type="button" disabled>
-            Skip
-          </button>
-          <button
-            className="ks-submit-action"
-            type="button"
-            disabled={!submitAction || !canSubmitOrderedSelection}
-            onClick={() =>
-              submitAction &&
-              onSubmit({
-                stepId: submitAction.stepId,
-                value: JSON.stringify({
-                  selections: draft.selections,
-                  inputs: draft.inputs,
-                }),
-              })
-            }
-          >
-            Submit Answer
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

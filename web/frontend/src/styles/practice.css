@@ -1189,113 +1189,232 @@
 
 .ks-practice-page {
   position: relative;
-  height: calc(100vh - 64px);
-  min-height: calc(100vh - 64px);
-  overflow: hidden;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
-.ks-session-subbar {
-  position: sticky;
-  top: 64px;
-  z-index: 20;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 0 32px;
-  background: rgba(255, 244, 239, 0.92);
-  backdrop-filter: blur(22px);
-  border-bottom: 1px solid rgba(169, 180, 185, 0.15);
-}
-
-.ks-session-subbar-left,
-.ks-session-subbar-right,
-.ks-session-timer,
-.ks-session-accuracy,
-.ks-primary-actions,
-.ks-action-area {
-  display: flex;
-  align-items: center;
-}
-
-.ks-session-subbar-left,
-.ks-session-subbar-right {
-  gap: 24px;
-}
-
-.ks-session-timer,
-.ks-session-accuracy {
-  gap: 8px;
-}
-
-.ks-session-timer .material-symbols-outlined {
-  color: #5148d7;
-  transform: scale(0.8);
-}
-
-.ks-session-divider {
-  width: 1px;
-  height: 16px;
-  background: rgba(169, 180, 185, 0.3);
-}
-
-.ks-session-accuracy > span {
-  color: #566166;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-}
-
-.ks-accuracy-dots {
-  display: flex;
-  gap: 4px;
-}
-
-.ks-accuracy-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #d9e4ea;
-}
-
-.ks-accuracy-dot.filled {
-  background: #506076;
-}
-
-.ks-session-task-label {
-  color: #2a3439;
-  font-size: 0.95rem;
-  font-weight: 500;
-}
-
-.ks-session-badge {
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: rgba(81, 72, 215, 0.1);
-  color: #4439cb;
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  min-height: calc(100vh - var(--ks-top-nav-height, 64px));
 }
 
 .ks-practice-main {
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
-  padding: 32px;
-  height: calc(100vh - 64px - 48px);
-  overflow: hidden;
+  padding: 20px 32px 32px;
+  min-height: calc(100vh - var(--ks-top-nav-height, 64px));
 }
 
-.ks-practice-column {
+/* ── Session bar (top strip) ── */
+.ks-session-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ks-session-header-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ks-session-kicker {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(249, 115, 22, 0.08);
+  color: #b65d17;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ks-session-header h1 {
+  max-width: 30ch;
+  font-size: 0.96rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ks-session-header-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.ks-session-timer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 20px rgba(32, 37, 61, 0.08);
+  color: #b65d17;
+}
+
+.ks-session-timer-pill .material-symbols-outlined {
+  font-size: 19px;
+}
+
+.ks-session-timer-pill strong {
+  font-size: 0.96rem;
+  font-weight: 800;
+}
+
+.ks-session-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.ks-nav-action {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: #4b5c78;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.ks-nav-action:hover:not(:disabled) {
+  background: rgba(81, 72, 215, 0.08);
+  color: #5148d7;
+}
+
+.ks-nav-action:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ks-nav-action .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.ks-history-modal {
+  width: min(760px, 100%);
+  max-height: min(82vh, 760px);
   display: grid;
+  gap: var(--space-4);
+  padding: 24px;
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(18px);
+}
+
+.ks-history-modal-head,
+.ks-history-row,
+.ks-history-row-copy,
+.ks-history-row-meta,
+.ks-history-empty {
+  display: flex;
+}
+
+.ks-history-modal-head {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ks-history-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ks-history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ks-history-row {
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(240, 244, 255, 0.82);
+  border: 1px solid rgba(81, 72, 215, 0.08);
+}
+
+.ks-history-row-copy,
+.ks-history-row-meta {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ks-history-row-copy strong,
+.ks-history-row-meta span:first-child {
+  color: var(--ink);
+}
+
+.ks-history-row-copy span,
+.ks-history-row-meta span:last-child {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.ks-history-row-meta {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.ks-history-empty {
+  min-height: 220px;
+  border-radius: 24px;
+  background: rgba(240, 244, 255, 0.72);
+  color: var(--muted);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ks-history-empty .material-symbols-outlined {
+  font-size: 42px;
+  color: #5148d7;
+}
+
+/* ── Two-column body ── */
+.ks-practice-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
   gap: 24px;
+  min-height: min(720px, calc(100vh - var(--ks-top-nav-height, 64px) - 76px));
+  align-items: stretch;
+}
+
+.ks-practice-left {
+  display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+/* ── Guide panel ── */
+.ks-guide-panel {
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+}
+
+/* Canvas occupies remaining space */
+.ks-runtime-canvas {
   min-height: 0;
   height: 100%;
 }
@@ -1303,9 +1422,56 @@
 .ks-problem-prompt-card {
   position: relative;
   overflow: hidden;
-  padding: 24px;
+  padding: 24px 32px;
   border-radius: 24px;
   background: #f0f4f7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.ks-problem-content {
+  flex: 1;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ks-problem-kicker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.ks-problem-kicker,
+.ks-problem-step-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ks-problem-kicker {
+  background: rgba(81, 72, 215, 0.08);
+  color: #4439cb;
+}
+
+.ks-problem-step-pill {
+  background: rgba(17, 24, 39, 0.06);
+  color: #324152;
+}
+
+.ks-problem-actions {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .ks-problem-glow {
@@ -1321,23 +1487,18 @@
 
 .ks-problem-prompt-card h2 {
   position: relative;
-  margin: 0 0 8px;
-  font-family: "Inter", sans-serif;
-  font-size: 1.35rem;
+  margin: 0;
+  font-size: 1.55rem;
   font-weight: 800;
   color: #2a3439;
-}
-
-.ks-problem-prompt-card h2 span {
-  color: #5148d7;
-  font-style: italic;
 }
 
 .ks-problem-prompt-card p {
   position: relative;
   margin: 0;
   color: #566166;
-  line-height: 1.7;
+  line-height: 1.65;
+  max-width: 70ch;
 }
 
 .ks-inline-formula-note {
@@ -1346,24 +1507,15 @@
   font-weight: 700;
 }
 
-.ks-runtime-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 32px;
-  align-items: stretch;
+.ks-runtime-canvas {
   min-height: 0;
   height: 100%;
-}
-
-.ks-runtime-main {
-  min-width: 0;
-  min-height: 0;
 }
 
 .ks-workspace-stack {
   display: grid;
   gap: 24px;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   height: 100%;
 }
@@ -1387,17 +1539,14 @@
 }
 
 .practice-edge-input {
-  background: rgba(255, 244, 239, 0.92);
+  background: rgba(248, 250, 255, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(22px);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
   border-radius: 16px;
 }
 
-.practice-angle-badge {
-  background: rgba(81, 72, 215, 0.1);
-  color: #4439cb;
-}
+/* Removed angle badge */
 
 .ks-workspace-footer {
   left: 24px;
@@ -1405,72 +1554,71 @@
   bottom: 24px;
 }
 
-.ks-action-area {
-  justify-content: space-between;
-  gap: 16px;
-  padding-top: 16px;
-}
+/* Moved actions to prompt card */
 
 .ks-clear-action,
 .ks-secondary-action,
 .ks-submit-action {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   border: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  font-family: "Inter", sans-serif;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ks-clear-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   color: #566166;
-  background: transparent;
-  font-weight: 600;
+  background: #f0f4f7;
 }
 
 .ks-clear-action:hover {
+  background: #e5ebf0;
   color: #5148d7;
+  transform: scale(1.05);
 }
 
 .ks-primary-actions {
-  gap: 16px;
+  display: flex;
+  gap: 12px;
 }
 
 .ks-secondary-action {
-  min-width: 120px;
-  min-height: 48px;
-  padding: 0 24px;
-  border-radius: 16px;
   background: #e1e9ee;
   color: #5148d7;
-  font-weight: 700;
+}
+
+.ks-secondary-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .ks-submit-action {
-  min-width: 180px;
-  min-height: 48px;
-  padding: 0 28px;
-  border-radius: 16px;
-  background: linear-gradient(90deg, #4439cb, #e3dfff);
-  color: #faf6ff;
-  font-weight: 800;
-  box-shadow: 0 12px 30px rgba(81, 72, 215, 0.2);
-  transition: transform 0.2s ease;
+  background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
 
 .ks-submit-action:hover:not(:disabled) {
-  transform: scale(1.02);
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
 }
 
-.ks-submit-action:disabled,
-.ks-secondary-action:disabled {
-  opacity: 0.45;
+.ks-submit-action:disabled {
+  background: #e1e9ee;
+  color: #a0aec0;
+  box-shadow: none;
   cursor: not-allowed;
 }
 
 .ks-guide-panel {
-  width: 340px;
+  width: 100%;
   min-height: 0;
+  height: 100%;
 }
 
 .ks-guide-card {
@@ -1486,9 +1634,18 @@
 
 .ks-guide-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   margin-bottom: 8px;
+}
+
+.ks-guide-header-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .ks-guide-icon {
@@ -1519,11 +1676,26 @@
   font-size: 12px;
 }
 
+.ks-guide-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  color: #17803d;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .ks-guide-timeline {
   position: relative;
   display: grid;
   gap: 28px;
   flex: 1;
+  align-content: start;
 }
 
 .ks-guide-timeline::before {
@@ -1553,6 +1725,9 @@
   justify-content: center;
   border: 4px solid #f0f4f7;
   background: #d9e4ea;
+  color: #4f5f73;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .ks-guide-step.done .ks-guide-step-dot {
@@ -1562,13 +1737,7 @@
 
 .ks-guide-step.current .ks-guide-step-dot {
   background: #5148d7;
-}
-
-.ks-guide-step.current .ks-guide-step-dot span {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #faf6ff;
+  color: #faf6ff;
 }
 
 .ks-guide-step-copy h4 {
@@ -1638,35 +1807,32 @@
 }
 
 @media (max-width: 1200px) {
-  .ks-runtime-grid {
+  .ks-session-header {
+    gap: 12px;
+  }
+
+  .ks-practice-body {
     grid-template-columns: 1fr;
-    height: auto;
+    min-height: auto;
   }
 
   .ks-guide-panel {
-    width: auto;
+    height: auto;
   }
 }
 
 @media (max-width: 900px) {
   .ks-practice-page {
-    height: auto;
-    min-height: calc(100vh - 64px);
-    overflow: visible;
-  }
-
-  .ks-session-subbar {
-    top: 64px;
-    height: auto;
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 12px 20px;
+    min-height: calc(100vh - var(--ks-top-nav-height, 64px));
   }
 
   .ks-practice-main {
-    padding: 20px;
+    padding: 16px 20px 20px;
+    min-height: calc(100vh - var(--ks-top-nav-height, 64px));
+  }
+
+  .ks-practice-left {
     height: auto;
-    overflow: visible;
   }
 
   .ks-canvas-card {
@@ -1699,13 +1865,77 @@
     padding: 16px;
   }
 
-  .ks-session-subbar {
-    padding: 12px 16px;
+  .ks-session-header {
+    gap: 6px;
   }
 
-  .ks-session-subbar-left,
-  .ks-session-subbar-right {
-    flex-wrap: wrap;
-    gap: 12px;
+  .ks-session-header-copy {
+    gap: 6px;
+  }
+
+  .ks-session-kicker {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 0.72rem;
+  }
+
+  .ks-session-header h1 {
+    max-width: 14ch;
+    font-size: 0.84rem;
+  }
+
+  .ks-session-header-right {
+    gap: 6px;
+  }
+
+  .ks-session-timer-pill {
+    min-height: 34px;
+    padding: 0 9px;
+  }
+
+  .ks-nav-action {
+    width: 30px;
+    height: 30px;
+  }
+
+  .ks-nav-action .material-symbols-outlined {
+    font-size: 18px;
+  }
+
+  .ks-history-modal {
+    padding: 20px;
+  }
+
+  .ks-history-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .ks-history-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ks-history-row-meta {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .ks-problem-prompt-card {
+    padding: 20px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ks-problem-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .ks-canvas-card {
+    padding: 20px;
+  }
+
+  .ks-guide-status-pill {
+    align-self: flex-start;
   }
 }

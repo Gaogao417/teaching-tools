@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import type {
   ClientDraftState,
@@ -12,21 +12,16 @@ import type {
 import { api } from "../api/client";
 import { Chart } from "../components/Chart";
 import type { WorkspaceOutletContext } from "../components/layout/workspaceContext";
-import { formatSeconds } from "../components/layout/workspaceUtils";
+import { findTaskPath, formatSeconds } from "../components/layout/workspaceUtils";
+import { currentStep } from "./practice/runtime/sceneUtils";
 import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from "../utils/storage";
-import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
+import { ExerciseRuntimeHost, GuidePanel, FeedbackController } from "./practice/ExerciseRuntimeHost";
 import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
 
 const AUTO_ADVANCE_DELAY = 700;
 const CHART_LIMIT = 10;
 
 type PracticeSession = PracticeSessionSnapshot;
-
-type FeedbackState = {
-  tone: "idle" | "success" | "error";
-  title: string;
-  body: string;
-};
 
 function emptyDraft(): ClientDraftState {
   return {
@@ -54,26 +49,17 @@ function feedbackKind(runtime?: ExerciseRuntimeSpec, fallback: FeedbackEffectKey
   return cue === "wrong" || cue === "finish" || cue === "correct" ? cue : fallback;
 }
 
-function accuracyDots(attempts: number) {
-  const filled = Math.max(1, Math.min(5, 5 - attempts));
-  return Array.from({ length: 5 }, (_, index) => index < filled);
-}
-
 export function PracticePage() {
   const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: TaskId }>();
-  const { studentName, requestAuth } = useOutletContext<WorkspaceOutletContext>();
+  const { studentName, requestAuth, focusedTask, tree, setTopNavContent } = useOutletContext<WorkspaceOutletContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [history, setHistory] = useState<TaskHistoryItem[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [draft, setDraft] = useState<ClientDraftState>(emptyDraft());
-  const [feedback, setFeedback] = useState<FeedbackState>({
-    tone: "idle",
-    title: "Active Challenge",
-    body: "Complete the current runtime step from the main workspace.",
-  });
   const [modalSnapshot, setModalSnapshot] = useState<ResultSnapshot | null>(null);
   const advanceTimer = useRef<number | null>(null);
   const sessionRef = useRef<PracticeSession | null>(null);
@@ -81,6 +67,12 @@ export function PracticePage() {
   const { effectKind, triggerFeedback, prefersReducedMotion } = usePracticeFeedback();
 
   const runtime = session?.runtime;
+  const taskPath = useMemo(() => findTaskPath(taskId, tree), [taskId, tree]);
+  const step = runtime ? currentStep(runtime) : null;
+  const activeStepIndex = runtime
+    ? runtime.instance.guide.stepItems.findIndex((item) => item.stepId === runtime.runtimeState.currentStepId)
+    : -1;
+  const currentStepNumber = activeStepIndex >= 0 ? activeStepIndex + 1 : null;
 
   useEffect(() => {
     sessionRef.current = session;
@@ -156,14 +148,6 @@ export function PracticePage() {
 
   useEffect(() => {
     setDraft(emptyDraft());
-    setFeedback((current) => {
-      if (!runtime || current.tone !== "success") return current;
-      return {
-        tone: "idle",
-        title: "Active Challenge",
-        body: runtime.instance.guide.hint || runtime.instance.prompt,
-      };
-    });
   }, [runtime?.instance.instanceId, runtime]);
 
   const refreshHistory = async (nextTaskId: TaskId, nextStudentName: string) => {
@@ -173,7 +157,7 @@ export function PracticePage() {
     }
   };
 
-  const startNewSession = async () => {
+  const startNewSession = useCallback(async () => {
     if (!taskId) return;
     if (!studentName) {
       requestAuth();
@@ -182,6 +166,7 @@ export function PracticePage() {
     setLoading(true);
     try {
       clearStoredSessionId(taskId);
+      setIsHistoryOpen(false);
       setModalSnapshot(null);
       const started = await api.startPractice(taskId, studentName);
       setSession(started);
@@ -189,15 +174,10 @@ export function PracticePage() {
       setStoredSessionId(taskId, started.sessionId);
       setSearchParams({ sessionId: started.sessionId }, { replace: true });
       await refreshHistory(taskId, studentName);
-      setFeedback({
-        tone: "idle",
-        title: "Active Challenge",
-        body: "A fresh challenge group is now active.",
-      });
     } finally {
       setLoading(false);
     }
-  };
+  }, [requestAuth, setSearchParams, studentName, taskId]);
 
   const scheduleAdvance = (sessionId: string) => {
     if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
@@ -213,11 +193,6 @@ export function PracticePage() {
     clearStoredSessionId(currentSession.taskId);
     await refreshHistory(currentSession.taskId, currentSession.studentName);
     triggerFeedback("finish");
-    setFeedback({
-      tone: "success",
-      title: "Challenge Complete",
-      body: "The result snapshot is ready in the same runtime workspace.",
-    });
   };
 
   const submitRuntimeAction = async (action: { type: "submit" | "clear"; stepId?: string; value?: string; targetId?: string }) => {
@@ -234,11 +209,6 @@ export function PracticePage() {
 
     if (action.type === "clear") {
       setDraft(emptyDraft());
-      setFeedback({
-        tone: "idle",
-        title: "Canvas Cleared",
-        body: "The workspace draft was reset while the session stayed active.",
-      });
       return;
     }
 
@@ -257,25 +227,10 @@ export function PracticePage() {
     if (response.evaluation === "wrong") {
       const restored = await api.restorePractice(currentSession.sessionId);
       setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
-      setFeedback({
-        tone: "error",
-        title: "Try Again",
-        body: response.runtime?.instance.guide.hint || "Review the current guide step and adjust the input in the canvas.",
-      });
       triggerFeedback("wrong");
       return;
     }
 
-    setFeedback({
-      tone: "success",
-      title: response.phase === "answering" ? "Step Solved" : "Answer Accepted",
-      body:
-        response.phase === "correct_pause"
-          ? "The runtime is advancing to the next prompt."
-          : response.phase === "group_finished"
-            ? "The active challenge group is complete."
-            : "Continue in the workspace to finish the next step.",
-    });
     triggerFeedback(feedbackKind(response.runtime));
 
     if (response.phase === "correct_pause") {
@@ -293,7 +248,83 @@ export function PracticePage() {
     setDraft(emptyDraft());
   };
 
-  const dots = accuracyDots(runtime?.runtimeState.attempts || 0);
+  const practiceTopNav = useMemo(() => {
+    if (!taskId || !studentName) return null;
+
+    return (
+      <div className="ks-session-header">
+        <div className="ks-session-header-copy">
+          <span className="ks-session-kicker">Task</span>
+          <h1>{focusedTask?.title || "Preparing practice"}</h1>
+        </div>
+
+        <div className="ks-session-header-right">
+          <div className="ks-session-timer-pill" aria-label="Session elapsed time">
+            <span className="material-symbols-outlined">timer</span>
+            <strong className="font-mono-timer">
+              {loading || !session || !runtime || !step || !currentStepNumber ? "--:--" : formatSeconds(session.elapsedMs)}
+            </strong>
+          </div>
+
+          <div className="ks-session-header-actions">
+            <button
+              className="ks-nav-action"
+              type="button"
+              title="View History"
+              aria-pressed={isHistoryOpen}
+              onClick={() => setIsHistoryOpen((current) => !current)}
+            >
+              <span className="material-symbols-outlined">history</span>
+            </button>
+            <button className="ks-nav-action" type="button" title="Back to Home" onClick={() => navigate("/")}>
+              <span className="material-symbols-outlined">home</span>
+            </button>
+            <button className="ks-nav-action" type="button" title="Retry Session" onClick={() => void startNewSession()}>
+              <span className="material-symbols-outlined">refresh</span>
+            </button>
+            <button className="ks-nav-action" type="button" title="Stop Session" disabled>
+              <span className="material-symbols-outlined">stop_circle</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }, [
+    focusedTask?.title,
+    loading,
+    navigate,
+    runtime,
+    session,
+    startNewSession,
+    studentName,
+    taskId,
+    isHistoryOpen,
+    currentStepNumber,
+    step,
+  ]);
+
+  useEffect(() => {
+    setTopNavContent(practiceTopNav ? { content: practiceTopNav, tone: "practice" } : null);
+  }, [practiceTopNav, setTopNavContent]);
+
+  useEffect(() => () => setTopNavContent(null), [setTopNavContent]);
+
+  useEffect(() => {
+    setIsHistoryOpen(false);
+  }, [taskId]);
+
+  useEffect(() => {
+    if (!isHistoryOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsHistoryOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isHistoryOpen]);
 
   if (!taskId) {
     return (
@@ -338,58 +369,102 @@ export function PracticePage() {
     );
   }
 
+  if (!step || !currentStepNumber) {
+    return null;
+  }
+
+  const selectAction = step.allowedActions.find((action) => action.type === "select");
+  const clearAction = step.allowedActions.find((action) => action.type === "clear");
+  const submitAction = step.allowedActions.find((action) => action.type === "submit");
+  const selected = selectAction?.type === "select" ? draft.selections[selectAction.target] || [] : [];
+  const canSubmitOrderedSelection =
+    selectAction?.type === "select" && selectAction.selectionKind === "ordered" ? selected.length >= 2 : true;
+
   return (
     <div className={`ks-practice-page practice-route effect-${effectKind || "idle"}`}>
       <PracticeEffectsLayer effectKind={effectKind} reducedMotion={prefersReducedMotion} />
 
-      <header className="ks-session-subbar">
-        <div className="ks-session-subbar-left">
-          <div className="ks-session-timer">
-            <span className="material-symbols-outlined">timer</span>
-            <span className="font-mono-timer">{formatSeconds(session.elapsedMs)}</span>
-          </div>
-          <div className="ks-session-divider" />
-          <div className="ks-session-accuracy">
-            <span>Accuracy</span>
-            <div className="ks-accuracy-dots">
-              {dots.map((filled, index) => (
-                <div key={index} className={`ks-accuracy-dot ${filled ? "filled" : ""}`} />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="ks-session-subbar-right">
-          <span className="ks-session-task-label">{runtime.instance.taskId}</span>
-          <span className="ks-session-badge">{feedback.title}</span>
-        </div>
-      </header>
-
       <main className="ks-practice-main">
-        <div className="ks-practice-column">
-          <section className="ks-problem-prompt-card">
-            <div className="ks-problem-glow" aria-hidden="true" />
-            <h2>
-              Solve the active runtime prompt for <span>c</span>.
-            </h2>
-            <p>
-              {runtime.instance.prompt} Use the guided workflow on the right and the workspace below to submit the current answer.
-              <span className="ks-inline-formula-note"> a² + b² = c² </span>
-            </p>
-          </section>
+        <div className="ks-practice-body">
+          <div className="ks-practice-left">
+            <section className="ks-problem-prompt-card">
+              <div className="ks-problem-glow" aria-hidden="true" />
+              <div className="ks-problem-content">
+                <div className="ks-problem-kicker-row">
+                  <span className="ks-problem-kicker">Current Prompt</span>
+                  <span className="ks-problem-step-pill">Step {currentStepNumber}</span>
+                </div>
+                <h2>{runtime.instance.prompt}</h2>
+                <p>{step.goal || runtime.instance.guide.hint || focusedTask?.summary}</p>
+              </div>
 
-          <ExerciseRuntimeHost
+              <div className="ks-problem-actions">
+                <button
+                  className="ks-clear-action"
+                  type="button"
+                  title="Clear Canvas"
+                  onClick={() => void submitRuntimeAction({ type: "clear", targetId: clearAction?.target || step.id })}
+                >
+                  <span className="material-symbols-outlined">restart_alt</span>
+                </button>
+
+                <button className="ks-secondary-action" type="button" title="Skip Action" disabled>
+                  <span className="material-symbols-outlined">skip_next</span>
+                </button>
+
+                <button
+                  className="ks-submit-action"
+                  type="button"
+                  title="Submit Answer"
+                  disabled={!submitAction || !canSubmitOrderedSelection}
+                  onClick={() =>
+                    submitAction &&
+                    submitRuntimeAction({
+                      type: "submit",
+                      stepId: submitAction.stepId,
+                      value: JSON.stringify({
+                        selections: draft.selections,
+                        inputs: draft.inputs,
+                      }),
+                    })
+                  }
+                >
+                  <span className="material-symbols-outlined">check_circle</span>
+                </button>
+              </div>
+            </section>
+
+            <ExerciseRuntimeHost
+              runtime={runtime}
+              sessionPhase={session.phase}
+              draft={draft}
+              setDraft={setDraft}
+              inputRefs={inputRefs}
+              onSubmit={(action) => void submitRuntimeAction({ type: "submit", ...action })}
+              onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
+            />
+          </div>
+
+          <GuidePanel
             runtime={runtime}
             sessionPhase={session.phase}
-            draft={draft}
-            setDraft={setDraft}
-            inputRefs={inputRefs}
-            onSubmit={(action) => void submitRuntimeAction({ type: "submit", ...action })}
-            onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
+            taskGroup={taskPath?.chapter.name}
+            taskLabel={focusedTask?.title}
           />
-
         </div>
       </main>
+
+      <FeedbackController runtime={runtime} sessionPhase={session.phase} />
+
+      {isHistoryOpen && (
+        <HistoryModal
+          history={history}
+          taskTitle={focusedTask?.title || runtime.instance.taskId}
+          studentName={studentName}
+          color={focusedTask?.color || "#5148d7"}
+          onClose={() => setIsHistoryOpen(false)}
+        />
+      )}
 
       {modalSnapshot && (
         <CompletionModal
@@ -398,6 +473,86 @@ export function PracticePage() {
           onResult={() => navigate(`/result/${session.sessionId}`)}
         />
       )}
+    </div>
+  );
+}
+
+function HistoryModal({
+  history,
+  taskTitle,
+  studentName,
+  color,
+  onClose,
+}: {
+  history: TaskHistoryItem[];
+  taskTitle: string;
+  studentName: string;
+  color: string;
+  onClose: () => void;
+}) {
+  const best = bestFromHistory(history);
+  const avg = avgFromHistory(history);
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="panel ks-history-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Practice history"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="ks-history-modal-head">
+          <div>
+            <div className="eyebrow">History</div>
+            <h2>{taskTitle}</h2>
+            <p className="text-muted">{studentName}'s recent results for this task.</p>
+          </div>
+          <button className="ks-nav-action" type="button" title="Close history" onClick={onClose}>
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+
+        <div className="metric-grid ks-history-metrics">
+          <div>
+            <span>Total runs</span>
+            <strong>{history.length || "--"}</strong>
+          </div>
+          <div>
+            <span>Best time</span>
+            <strong>{formatSeconds(best)}</strong>
+          </div>
+          <div>
+            <span>Average</span>
+            <strong>{formatSeconds(avg)}</strong>
+          </div>
+        </div>
+
+        {history.length ? (
+          <>
+            <Chart points={history} color={color} />
+            <div className="ks-history-list">
+              {history.slice().reverse().map((item) => (
+                <article key={item.clearedAt} className="ks-history-row">
+                  <div className="ks-history-row-copy">
+                    <strong>{formatSeconds(item.elapsedMs)}</strong>
+                    <span>{new Date(item.clearedAt).toLocaleString("zh-CN")}</span>
+                  </div>
+                  <div className="ks-history-row-meta">
+                    <span>{Math.round(item.firstTryAccuracy * 100)}% first try</span>
+                    <span>{item.problemCount} problems</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="ks-history-empty">
+            <span className="material-symbols-outlined">history</span>
+            <p>No history yet for this task.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

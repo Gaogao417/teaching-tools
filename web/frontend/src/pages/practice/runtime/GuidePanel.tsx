@@ -4,9 +4,10 @@ type GuidePanelProps = {
   runtime: ExerciseRuntimeSpec;
   sessionPhase: SessionPhase;
   taskGroup?: string;
+  taskLabel?: string;
 };
 
-export function GuidePanel({ runtime, sessionPhase, taskGroup }: GuidePanelProps) {
+export function GuidePanel({ runtime, sessionPhase, taskGroup, taskLabel }: GuidePanelProps) {
   return (
     <aside className="ks-guide-panel">
       <div className="ks-guide-card">
@@ -14,19 +15,22 @@ export function GuidePanel({ runtime, sessionPhase, taskGroup }: GuidePanelProps
           <div className="ks-guide-icon">
             <span className="material-symbols-outlined filled">lightbulb</span>
           </div>
-          <div>
-            <h3>Solution Path</h3>
-            <p>{taskGroup || `${runtime.instance.engineKind} guide`}</p>
+          <div className="ks-guide-header-copy">
+            <div>
+              <h3>Solution Guide</h3>
+              <p>{taskGroup || taskLabel || `${runtime.instance.engineKind} guide`}</p>
+            </div>
+            <span className="ks-guide-status-pill">Active</span>
           </div>
         </div>
 
         <div className="ks-guide-timeline">
-          {runtime.instance.guide.stepItems.map((step) => {
+          {runtime.instance.guide.stepItems.map((step, index) => {
             const isCurrent = runtime.runtimeState.currentStepId === step.stepId;
             return (
               <div key={step.stepId} className={`ks-guide-step ${step.status} ${isCurrent ? "current" : ""}`}>
                 <div className="ks-guide-step-dot">
-                  {step.status === "done" ? <span className="material-symbols-outlined">check</span> : <span />}
+                  {step.status === "done" ? <span className="material-symbols-outlined">check</span> : <span>{index + 1}</span>}
                 </div>
                 <div className="ks-guide-step-copy">
                   <h4>{step.title}</h4>

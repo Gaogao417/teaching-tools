@@ -1,7 +1,7 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { ClientDraftState, ExerciseRuntimeSpec } from "../../../../shared/contracts";
-import { FeedbackController } from "./runtime/FeedbackController";
 import { GuidePanel } from "./runtime/GuidePanel";
+import { FeedbackController } from "./runtime/FeedbackController";
 import { WORKSPACE_RENDERERS } from "./runtime/workspaceRenderers";
 
 type Props = {
@@ -15,36 +15,33 @@ type Props = {
   taskGroup?: string;
 };
 
+// Renders only the interactive canvas area.
+// GuidePanel and FeedbackController are exported separately so the parent
+// layout can place them freely in the grid.
 export function ExerciseRuntimeHost(props: Props) {
   const Renderer = WORKSPACE_RENDERERS[props.runtime.instance.engineKind];
 
   return (
-    <>
-      <div className="ks-runtime-grid">
-        <div className="ks-runtime-main">
-          {Renderer ? (
-            <Renderer
-              runtime={props.runtime}
-              draft={props.draft}
-              setDraft={props.setDraft}
-              inputRefs={props.inputRefs}
-              onSubmit={props.onSubmit}
-              onClear={props.onClear}
-            />
-          ) : (
-            <section className="panel workspace-panel">
-              <div className="detail-head">
-                <h2>Renderer not registered</h2>
-                <p className="text-muted">{props.runtime.instance.engineKind} does not yet have a matching workspace renderer.</p>
-              </div>
-            </section>
-          )}
-        </div>
-
-        <GuidePanel runtime={props.runtime} sessionPhase={props.sessionPhase} taskGroup={props.taskGroup} />
-      </div>
-
-      <FeedbackController runtime={props.runtime} sessionPhase={props.sessionPhase} />
-    </>
+    <div className="ks-runtime-canvas">
+      {Renderer ? (
+        <Renderer
+          runtime={props.runtime}
+          draft={props.draft}
+          setDraft={props.setDraft}
+          inputRefs={props.inputRefs}
+          onSubmit={props.onSubmit}
+          onClear={props.onClear}
+        />
+      ) : (
+        <section className="panel workspace-panel">
+          <div className="detail-head">
+            <h2>Renderer not registered</h2>
+            <p className="text-muted">{props.runtime.instance.engineKind} does not yet have a matching workspace renderer.</p>
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
+
+export { GuidePanel, FeedbackController };

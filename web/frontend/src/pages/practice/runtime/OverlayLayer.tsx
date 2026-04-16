@@ -17,13 +17,10 @@ export function OverlayLayer({
   const texts = findEntities(runtime.instance.scene.entities, "text");
   const formulas = findEntities(runtime.instance.scene.entities, "formula");
   const inlineTexts = texts.filter((entity) => entity.variant === "inline-formula");
-  const angleBadge = texts.find((entity) => entity.variant === "angle-badge");
   const selectionPreview = orderedSelectionPreview(runtime, draft);
 
   return (
     <>
-      {angleBadge ? <div className="practice-angle-badge">{angleBadge.text}</div> : null}
-
       {formulas.map((entity) => (
         <FormulaEntity
           key={entity.id}

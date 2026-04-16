@@ -1,4 +1,10 @@
+import type { ReactNode } from "react";
 import type { TaskId, TaskNode, TaskTreeResponse } from "../../../../shared/contracts";
+
+export type WorkspaceTopNavState = {
+  content: ReactNode;
+  tone?: "default" | "practice";
+};
 
 export type WorkspaceOutletContext = {
   tree: TaskTreeResponse | null;
@@ -9,4 +15,5 @@ export type WorkspaceOutletContext = {
   isStudentReady: boolean;
   requestAuth: () => void;
   setFocusedTaskId: (taskId: TaskId) => void;
+  setTopNavContent: (state: WorkspaceTopNavState | null) => void;
 };

@@ -6,7 +6,7 @@ import { api } from "../../api/client";
 import { AuthModal } from "../common/AuthModal";
 import { SidebarNav } from "./SidebarNav";
 import { TaskPreviewPopover } from "./TaskPreviewPopover";
-import type { WorkspaceOutletContext } from "./workspaceContext";
+import type { WorkspaceOutletContext, WorkspaceTopNavState } from "./workspaceContext";
 import { findFirstTask, findTaskPath, getTaskNode } from "./workspaceUtils";
 import { clearStoredSessionId, getStudentName, setStudentName as persistStudentName } from "../../utils/storage";
 
@@ -34,6 +34,7 @@ export function WorkspaceShell() {
   const [studentName, setStudentNameState] = useState(() => getStudentName());
   const [studentNameDraft, setStudentNameDraft] = useState(() => getStudentName());
   const [isAuthOpen, setIsAuthOpen] = useState(() => !getStudentName());
+  const [topNavContent, setTopNavContent] = useState<WorkspaceTopNavState | null>(null);
 
   const practiceMatch = matchPath("/practice/:taskId", location.pathname);
   const activeTaskId = (practiceMatch?.params.taskId as TaskId | undefined) || null;
@@ -156,6 +157,7 @@ export function WorkspaceShell() {
     isStudentReady: Boolean(studentName),
     requestAuth,
     setFocusedTaskId,
+    setTopNavContent,
   };
 
   const sidebar = (
@@ -174,15 +176,18 @@ export function WorkspaceShell() {
     />
   );
 
+  const isPracticeTopNav = topNavContent?.tone === "practice";
+
   return (
-    <div className="ks-app-shell">
-      <header className="ks-top-nav">
+    <div className={`ks-app-shell ${isPracticeTopNav ? "is-practice-session" : ""}`}>
+      <header className={`ks-top-nav ${isPracticeTopNav ? "is-practice" : ""}`}>
         <div className="ks-top-nav-left">
           <button className="ks-icon-button ks-top-nav-menu" type="button" onClick={() => setIsNavDrawerOpen(true)} title="Open navigation">
             <span className="material-symbols-outlined">menu</span>
           </button>
-          <span className="ks-top-nav-brand">The Kinetic Scholar</span>
         </div>
+
+        <div className={`ks-top-nav-center ${isPracticeTopNav ? "is-practice-fill" : ""}`}>{topNavContent?.content || null}</div>
 
         <div className="ks-top-nav-right">
           <button className="ks-icon-button" type="button" title="Notifications">
@@ -198,8 +203,6 @@ export function WorkspaceShell() {
       </header>
 
       <div className="ks-app-body">
-        <aside className="ks-sidebar">{sidebar}</aside>
-
         <main className="ks-content-area" ref={contentRef}>
           <Outlet context={outletContext} />
         </main>
