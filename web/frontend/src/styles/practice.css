@@ -1948,28 +1948,6 @@
   gap: var(--space-4);
 }
 
-.ir-problem-card {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-card);
-  border: 1px solid var(--border-muted);
-  border-radius: var(--radius-lg);
-}
-
-.ir-problem-label {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-primary);
-  white-space: nowrap;
-}
-
-.ir-problem-text {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-}
-
 .ir-canvas {
   display: flex;
   gap: var(--space-4);

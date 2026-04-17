@@ -85,12 +85,6 @@ export function CoordIsoscelesRightWorkspaceRenderer({
   return (
     <div className="practice-canvas-zone">
       <div className="ir-workspace">
-        {/* Problem card */}
-        <div className="ir-problem-card">
-          <span className="ir-problem-label">题目</span>
-          <span className="ir-problem-text">{runtime.instance.prompt}</span>
-        </div>
-
         {/* Main canvas: coordinate plane + step input */}
         <div className="ir-canvas">
           <div className="ir-plane-container">
