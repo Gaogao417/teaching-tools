@@ -99,3 +99,6 @@ Delete this appendix if `fit_level` is `supported` or `not-applicable`.
 - Why current prototypes fail:
 - Minimum new capability needed:
 - What can still be reused:
+
+<!-- Save this spec under exercises/exercise-spec-<slug>.md -->
+

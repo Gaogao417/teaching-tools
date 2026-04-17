@@ -1,0 +1,222 @@
+# Domain Model
+
+## Summary
+
+这个项目的领域模型要同时描述：
+
+- 任务目录与题型模板
+- 题库中的已批准 scenario
+- 学生做题时的 runtime
+
+因此不能把 `ContentDefinition` 和“题库里的单道题”混为一谈。
+
+## Modeling Principles
+
+- 任务目录、题型模板、题库记录、运行时实例必须分层
+- backend 保存真值与状态推进
+- frontend 只消费 runtime projection
+- 离线 authoring 结果不是页面类型
+
+## Core Objects
+
+- `TaskDefinition`
+- `ContentDefinition`
+- `ScenarioRecord`
+- `ScenarioValidationReport`
+- `AuthoringRun`
+- `ExerciseInstance`
+- `ExerciseRuntimeSpec`
+- `ServerRuntimeState`
+- `ClientDraftState`
+- `PracticeSessionSnapshot`
+- `ResultSnapshot`
+
+## TaskDefinition
+
+`TaskDefinition` 是目录节点。
+
+职责：
+
+- 任务入口
+- 标题、摘要、难度
+- `engineKind`
+- `contentId`
+- 首页样题摘要
+
+它不代表 session 中的某一道题。
+
+## ContentDefinition
+
+`ContentDefinition` 是题型级模板。
+
+职责：
+
+- prompt 模板
+- scene 模板
+- flow 模板
+- guide 模板
+- feedback 模板
+
+它表达“这一类题怎样投影成 runtime”，而不是“这道题具体是什么”。
+
+## ScenarioRecord
+
+`ScenarioRecord` 是题库中的单道已批准题目。
+
+建议字段：
+
+```ts
+type ScenarioRecord = {
+  id: string
+  taskId: TaskId
+  engineKind: ExerciseEngineKind
+  contentId: string
+  version: string
+  status: "draft" | "validated" | "approved" | "rejected"
+  promptData: Record<string, unknown>
+  answerKey: Record<string, unknown>
+  metadata: {
+    source: "manual" | "python-generator" | "ai-assisted"
+    difficulty?: string
+    tags?: string[]
+  }
+}
+```
+
+职责：
+
+- 保存单题变量
+- 保存中间步骤答案键与最终答案键
+- 保存来源与审核状态
+
+## ScenarioValidationReport
+
+`ScenarioValidationReport` 记录离线校验结果。
+
+建议字段：
+
+```ts
+type ScenarioValidationReport = {
+  scenarioId: string
+  passed: boolean
+  checks: Array<{
+    name: string
+    passed: boolean
+    message?: string
+  }>
+  wolframSummary?: string
+  createdAt: string
+}
+```
+
+职责：
+
+- 记录 schema 校验
+- 记录规则过滤结果
+- 记录 Wolfram 数学校验结果
+
+## AuthoringRun
+
+`AuthoringRun` 表示一次离线批处理。
+
+建议字段：
+
+```ts
+type AuthoringRun = {
+  id: string
+  taskId: TaskId
+  startedAt: string
+  finishedAt?: string
+  toolchainVersion: string
+  inputSpecVersion: string
+  outputCount: number
+}
+```
+
+职责：
+
+- 追踪一批题从生成到入库的过程
+- 让题库内容可回溯
+
+## ExerciseInstance
+
+`ExerciseInstance` 是 session 中当前活动题目的 runtime 投影。
+
+```ts
+type ExerciseInstance = {
+  instanceId: string
+  taskId: string
+  engineKind: string
+  contentId: string
+  prompt: string
+  scene: SceneSpec
+  flow: FlowSpec
+  guide: GuideSpec
+  feedback: FeedbackSpec
+}
+```
+
+它来自：
+
+- `TaskDefinition`
+- `ContentDefinition`
+- `ScenarioRecord`
+- 当前 engine state
+
+## ExerciseRuntimeSpec
+
+```ts
+type ExerciseRuntimeSpec = {
+  instance: ExerciseInstance
+  runtimeState: ServerRuntimeState
+}
+```
+
+这是 frontend 真正消费的服务端对象。
+
+## ServerRuntimeState
+
+服务端权威状态，至少包含：
+
+- 当前 phase
+- 当前 step
+- 已完成步骤
+- problem status
+- attempts
+
+## ClientDraftState
+
+前端本地草稿状态，至少包含：
+
+- selections
+- inputs
+- focus target
+- transient feedback
+
+它不表达真值。
+
+## PracticeSessionSnapshot
+
+session 级快照，面向练习页与恢复接口。
+
+## ResultSnapshot
+
+结果页使用的完成后快照。
+
+## Current Reality
+
+当前代码已经完整实现：
+
+- `TaskDefinition`
+- `ContentDefinition`
+- `ExerciseRuntimeSpec`
+- `PracticeSessionSnapshot`
+- `ResultSnapshot`
+
+当前代码尚未完整落地但文档已预留：
+
+- `ScenarioRecord`
+- `ScenarioValidationReport`
+- `AuthoringRun`
+
+这三者用于承接后续 Python / Wolfram authoring pipeline。

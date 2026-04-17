@@ -6,7 +6,7 @@ This file defines how Codex/Claude should implement UI changes inside `web/front
 
 - Applies to all React and Vite frontend work under `web/frontend`.
 - Applies when creating new UI, editing existing UI, or refactoring markup.
-- This file is a local implementation contract for agents. Product and architecture truth still lives in `web/docs/`.
+- This file is a local implementation contract for agents. Product and architecture truth still lives in the repo-root `docs/`.
 
 ## Source Of Truth
 

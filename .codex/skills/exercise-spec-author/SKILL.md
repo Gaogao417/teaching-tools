@@ -30,7 +30,9 @@ Read only the references you need:
 5. Ask only the smallest set of follow-up questions needed to make the spec decision-complete. Stop at 5 follow-ups.
 6. Judge fit as `supported`, `stretch`, `new-tool-needed`, or `not-applicable`.
 7. Produce the spec using the template in `assets/exercise-spec-template.md`.
-8. If fit is `stretch` or `new-tool-needed`, include `Appendix B. Tooling Gap` and explicitly name the missing capability.
+8. Save the final spec under the repo-level `exercises/` directory unless the user explicitly asks for a different location.
+9. Name the file with a stable slug such as `exercise-spec-<topic-or-task>.md`.
+10. If fit is `stretch` or `new-tool-needed`, include `Appendix B. Tooling Gap` and explicitly name the missing capability.
 
 ## Minimum Authoring Form
 
@@ -107,6 +109,8 @@ Every `example` and `exercise-pack` must name one primary `skill-unit`.
 If a spec touches multiple `skill-unit`s, name one primary unit and treat the rest as supporting units.
 `exercise-pack` specs should describe a short purposeful pack, not an endless drill stream.
 Keep `likely_misconception` and the feedback plan tightly coupled.
+Write the final artifact to `exercises/`.
+When saving a new spec, prefer `exercises/exercise-spec-<slug>.md`.
 
 ## Review Standard
 

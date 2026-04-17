@@ -1,19 +1,20 @@
-# Web 重构工程
+# Web App
 
-## 目录
+`web/` 目录承载当前学生可用的在线做题系统。
+
+## Directory
 
 - `frontend/`: React + Vite 前端
 - `backend/`: Express + SQLite 后端
-- `shared/`: 前后端共享契约
-- `docs/`: 项目级设计文档与架构文档
-- `trigonometry-practice.html`: 旧原型，保留为视觉与逻辑参考
+- `shared/`: 共享契约、任务定义与题型共享类型
+- `trigonometry-practice.html`: 旧原型，仅作参考
 
-设计文档入口：
+## Canonical Docs
 
-- 项目级文档见 `docs/`
-- `docs/` 是当前唯一有效的设计规范来源
+- 项目级文档入口：[`../docs/README.md`](../docs/README.md)
+- `../docs/` 是当前唯一有效的产品与架构文档来源
 
-## 本地开发
+## Local Development
 
 一键启动：
 
@@ -26,9 +27,10 @@ chmod +x dev.sh
 脚本会：
 
 - 自动从 `.env.example` 复制 `.env`
-- 检查前后端依赖是否已安装
-- 同时启动 backend 和 frontend
-- 按 `Ctrl+C` 时一起关闭
+- 检查前后端依赖
+- 同时启动 backend 与 frontend
+
+分别启动：
 
 后端：
 
@@ -46,7 +48,7 @@ npm install
 VITE_API_BASE_URL=http://localhost:3001 npm run dev
 ```
 
-## 环境变量
+## Environment Variables
 
 后端常用：
 
@@ -59,9 +61,9 @@ VITE_API_BASE_URL=http://localhost:3001 npm run dev
 
 - `VITE_API_BASE_URL`
 
-## 部署说明
+## Deployment
 
-- 前端构建产物部署到腾讯云 CloudBase 静态网站托管
-- 后端部署到腾讯云 Lighthouse，建议使用 `Nginx + Node.js`
-- API 域名通过 HTTPS 暴露，并将前端域名配置到 `FRONTEND_ORIGIN`
-- CloudBase 需开启 SPA 路由回退，保证 `/practice/:taskId`、`/result/:sessionId` 可直接访问
+- 前端可部署到静态站点托管
+- 后端可部署到 Node.js 运行环境
+- API 通过 HTTPS 暴露，并将前端域名配置到 `FRONTEND_ORIGIN`
+- 前端部署需开启 SPA 路由回退，保证 `/practice/:taskId` 与 `/result/:sessionId` 可直达
