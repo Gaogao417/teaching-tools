@@ -1,5 +1,5 @@
 ---
-spec_version: v2
+spec_version: v3
 spec_kind: example
 working_title:
 grade_band:
@@ -10,6 +10,8 @@ related_skill_units:
 learning_mode: example
 prototype_candidate: triangle-guided-derivation
 fit_level: supported
+architecture_fit: supported
+interaction_ownership: guide-step
 difficulty:
 estimated_minutes:
 step_mode: multi-step
@@ -52,11 +54,15 @@ repo_mapping_ready: partial
 ## 5. Workspace and UI Requirements
 
 - Selected current prototype:
+- Architecture fit:
+- Interaction ownership:
 - Primary workspace object:
 - Core mathematical object that must remain visible:
-- Workspace action area:
-- Guide responsibilities:
+- Workspace responsibility:
+- Guide responsibility:
+- Guide-step input policy:
 - Visibility or layout constraints:
+- Forbidden shortcuts:
 
 ## 6. Evaluation and Feedback
 
@@ -81,12 +87,16 @@ repo_mapping_ready: partial
 - [ ] One dominant learner action per step
 - [ ] Current prototype choice is justified or marked `not-applicable`
 - [ ] Core diagram or math object stays visible when applicable
+- [ ] Guide/workspace ownership is explicit
+- [ ] Step-local inputs are assigned to the right surface
 - [ ] Feedback matches the likely misconception
 - [ ] Success condition is directly testable
 
 ## Appendix A. Repo Mapping
 
 - Suggested learning-runtime mapping:
+- Runtime primitive mapping:
+- Architecture fit rationale:
 - Suggested `TaskDefinition` direction:
 - Suggested `ContentDefinition` direction:
 - Suggested scene / flow / guide / feedback mapping:
@@ -94,11 +104,10 @@ repo_mapping_ready: partial
 
 ## Appendix B. Tooling Gap
 
-Delete this appendix if `fit_level` is `supported` or `not-applicable`.
+Delete this appendix if `fit_level` is `supported` or `not-applicable` and `architecture_fit` is `supported` or `not-applicable`.
 
 - Why current prototypes fail:
 - Minimum new capability needed:
 - What can still be reused:
 
 <!-- Save this spec under exercises/exercise-spec-<slug>.md -->
-

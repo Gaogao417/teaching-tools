@@ -43,6 +43,9 @@ Capture:
 - whether the delivery object looks like one step, multi-step, or a short pack
 - what correctness must inspect
 - what learner-visible variables are randomized or fixed
+- which surface owns each step action: guide-step, workspace-object, or mixed
+- which current primitives cover each learner step
+- whether a missing capability is a guide extension, workspace primitive, or fully new tool
 
 ## Current Repo Anchors
 
@@ -61,6 +64,8 @@ Current terminology note:
 
 - Keep mapping concrete but lightweight.
 - Suggest, do not over-prescribe, exact code changes.
-- Do not invent new shared contract fields unless the spec already concluded `new-tool-needed`.
+- Do not invent new shared contract fields unless the spec already concluded `new-tool-needed` or an explicit shared extension is required.
 - If the spec kind is `skill-unit` and there is no direct runtime mapping yet, say that explicitly instead of forcing a fake `TaskDefinition`.
 - If fit is `stretch` or `new-tool-needed`, say which existing parts remain reusable.
+- If the spec depends on guide-step-owned inputs, say so explicitly instead of describing them as generic workspace controls.
+- If the spec cannot map to current primitives without architectural drift, record that gap instead of normalizing a workaround.

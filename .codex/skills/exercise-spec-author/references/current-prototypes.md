@@ -4,11 +4,15 @@ Use this file to decide whether a new `example` or `exercise-pack` fits the curr
 
 For a pure `skill-unit` spec, `prototype_candidate` and `fit_level` may stay `not-applicable` until you also author the delivery object.
 
+Always decide two things separately:
+- pedagogical fit: does a current prototype teach the right thing cleanly?
+- architecture fit: can the learner action stay within the current guide/workspace ownership split?
+
 ## `triangle-role-selection`
 
 Best fit:
 - Ordered selection of two edges or roles on one right triangle
-- Meaning tasks such as "pick numerator first, denominator second"
+- Meaning tasks such as “pick numerator first, denominator second”
 
 Current strengths:
 - Strong for edge recognition and ordered choice
@@ -50,7 +54,7 @@ Best fit:
 Current strengths:
 - Supports progressive unlocking
 - Good when all steps stay on the same underlying diagram
-- Can separate intermediate computation from final formula
+- Good when the workspace object stays stable while the guide advances the explanation
 
 Current limits:
 - Weak for multiple valid strategies
@@ -82,15 +86,19 @@ Choose `supported` only when:
 - one current prototype matches the dominant learner action
 - the mathematical object remains visible
 - correctness can be judged without inventing a new runtime capability
+- the interaction ownership can remain honest within the current guide/workspace split
 
 Choose `stretch` when:
 - a prototype almost fits but introduces notable pedagogy or UX compromise
+- the spec can be approximated only with a visible ownership compromise that you are willing to name explicitly
 
 Choose `new-tool-needed` when:
 - the learner needs a new visible object type
 - the task needs a new interaction primitive
 - the task needs a different workspace flow, not just different content
+- the only plausible implementation path is an exercise-local workspace form panel for step-local inputs
 
 Current repo note:
 - The existing repo examples are closer to product-facing `example` delivery than `exercise-pack` delivery.
 - `exercise-pack` should usually reuse the same core workspace object, but with less guide burden and a shorter, more diagnostic prompt style.
+- Do not treat “put everything in the left workspace” as a neutral default. It is an architectural choice and often the wrong one.

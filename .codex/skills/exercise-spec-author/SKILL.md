@@ -1,6 +1,6 @@
 ---
 name: exercise-spec-author
-description: Design or revise stable learning specs for the teaching-tools repo. Use when turning a rough teaching idea into a reusable skill unit, a guided example, or a lower-hint exercise pack, checking fit against current tools, and producing a reviewable Markdown spec with repo-mapping notes and tooling-gap flags.
+description: Design or revise stable learning specs for the teaching-tools repo with explicit runtime ownership guardrails. Use when turning a rough teaching idea into a reusable skill unit, guided example, or lower-hint exercise pack; checking fit against current tools; deciding whether guide-step or workspace owns the learner action; and producing a reviewable Markdown spec with repo-mapping notes and tooling-gap flags.
 ---
 
 # Exercise Spec Author
@@ -13,11 +13,13 @@ Despite the name, this skill now authors three related spec kinds for the repo:
 - `example`: a high-hint, guided example that teaches one primary `skill-unit`
 - `exercise-pack`: a lower-hint short practice set assembled around weak `skill-unit`s, wrong work, and student choice
 
-Work in two phases: identify the right spec kind and minimum authoring form, then produce a Markdown spec that teaching, product, and engineering can all review.
+Author the spec in two passes:
+- first decide the pedagogical shape
+- then decide whether the interaction fits the current runtime architecture without breaking guide/workspace ownership
 
 Read only the references you need:
 - Read [references/current-prototypes.md](references/current-prototypes.md) before choosing an interaction shape for an `example` or `exercise-pack`.
-- Read [references/pedagogy-and-ux.md](references/pedagogy-and-ux.md) before finalizing hint level, feedback, and visibility rules.
+- Read [references/pedagogy-and-ux.md](references/pedagogy-and-ux.md) before finalizing hint level, feedback, visibility rules, and ownership defaults.
 - Read [references/repo-mapping.md](references/repo-mapping.md) when writing `Appendix A. Repo Mapping`.
 - Copy the output structure from [assets/exercise-spec-template.md](assets/exercise-spec-template.md). The filename is historical; the template now supports all three spec kinds.
 
@@ -26,9 +28,15 @@ Read only the references you need:
 1. Determine whether the user needs a `skill-unit`, an `example`, an `exercise-pack`, or a recommended sequence of them.
 2. If the user asks for an `example` or `exercise-pack`, identify the primary `skill-unit` before choosing interaction details.
 3. Identify the best current prototype before inventing a new interaction. Do this only for `example` and `exercise-pack` specs.
-4. Collect the minimum authoring form. Reuse any details the user already supplied.
-5. Ask only the smallest set of follow-up questions needed to make the spec decision-complete. Stop at 5 follow-ups.
-6. Judge fit as `supported`, `stretch`, `new-tool-needed`, or `not-applicable`.
+4. Decide interaction ownership before writing UI language:
+- `guide-step` when the learner action is primarily step-local answer entry or explanation
+- `workspace-object` when the learner is directly manipulating the visible mathematical object
+- `mixed` only when both are genuinely needed in the same step
+- `new-tool-needed` when the current runtime cannot express the split cleanly
+5. Collect the minimum authoring form. Reuse any details the user already supplied.
+6. Judge both kinds of fit:
+- `fit_level` for pedagogical/prototype fit
+- `architecture_fit` for runtime ownership fit
 7. Produce the spec using the template in `assets/exercise-spec-template.md`.
 8. Save the final spec under the repo-level `exercises/` directory unless the user explicitly asks for a different location.
 9. Name the file with a stable slug such as `exercise-spec-<topic-or-task>.md`.
@@ -55,6 +63,12 @@ Collect these additional required fields when `spec_kind` is `example` or `exerc
 - `preferred_prototype`: `triangle-role-selection` | `triangle-value-placement` | `triangle-guided-derivation` | `single-input-custom` | `unsure`
 - `hint_level`: `high` | `medium` | `low` | `unsure`
 - `primary_workspace_object`
+- `interaction_ownership`: `guide-step` | `workspace-object` | `mixed` | `new-tool-needed`
+- `workspace_responsibility`
+- `guide_responsibility`
+- `guide_step_input_policy`
+- `runtime_primitive_mapping`
+- `architecture_fit`: `supported` | `needs-guide-extension` | `needs-workspace-primitive` | `new-tool-needed`
 
 Collect these additional required fields when `spec_kind` is `exercise-pack`:
 - `exercise_pack_source_priority`
@@ -73,6 +87,7 @@ Collect these optional fields only when they matter:
 - `pack_size`
 - `student_choice_policy`
 - `teacher_notes`
+- `forbidden_shortcuts`
 
 ## Follow-Up Rules
 
@@ -83,7 +98,8 @@ Ask follow-ups only when one of these is still unclear:
 - The chosen action does not match the preferred prototype.
 - The correctness condition is incomplete or ambiguous.
 - The misconception does not explain what feedback should correct.
-- A UI visibility rule conflicts with the current workspace constraints.
+- The ownership split between guide-step and workspace is unclear or internally contradictory.
+- The spec seems implementable only by pushing step-local form UI into the workspace.
 
 When asking, prefer short targeted questions over brainstorming prompts.
 If the user gives a broad teaching idea, convert it into the form fields instead of asking them to restate the whole idea.
@@ -91,11 +107,19 @@ If the user gives a broad teaching idea, convert it into the form fields instead
 ## Fit Decision Rules
 
 - `supported`: The current prototype can deliver the core learner action, evaluation, and visibility constraints of the `example` or `exercise-pack` without new runtime capability.
-- `stretch`: A prototype can approximate the delivery object, but only with notable pedagogy or UX compromises. Name those compromises.
+- `stretch`: A prototype can approximate the delivery object, but only with notable pedagogy or UX compromise. Name those compromises.
 - `new-tool-needed`: The delivery object requires a new interaction primitive, new visible object type, or a workspace flow the current tools cannot express cleanly.
 - `not-applicable`: Use this for pure `skill-unit` specs that are not yet being mapped to a specific runtime delivery shape.
 
+For `architecture_fit`, use:
+- `supported` when the spec maps cleanly onto the current guide/workspace split and current runtime primitives.
+- `needs-guide-extension` when the math object fits today but step-local guide-side interaction needs a shared extension.
+- `needs-workspace-primitive` when the core visible object itself needs a new workspace primitive.
+- `new-tool-needed` when both ownership and primitive support are missing or contradictory.
+- `not-applicable` for pure `skill-unit` specs.
+
 Never mark an `example` or `exercise-pack` as `supported` if the core mathematical object would be hidden, overloaded, or approximated in a misleading way.
+Never mark `architecture_fit` as `supported` if the only plausible implementation path is an exercise-local workspace form panel.
 
 ## Output Rules
 
@@ -109,6 +133,8 @@ Every `example` and `exercise-pack` must name one primary `skill-unit`.
 If a spec touches multiple `skill-unit`s, name one primary unit and treat the rest as supporting units.
 `exercise-pack` specs should describe a short purposeful pack, not an endless drill stream.
 Keep `likely_misconception` and the feedback plan tightly coupled.
+Make ownership explicit: say what the workspace keeps visible and what the guide-step owns.
+If the spec would require a workaround that breaks the current architecture, name the gap instead of normalizing the workaround.
 Write the final artifact to `exercises/`.
 When saving a new spec, prefer `exercises/exercise-spec-<slug>.md`.
 
@@ -120,15 +146,18 @@ Before finalizing, check all of the following:
 - The spec teaches one clear observable outcome.
 - The selected prototype matches the dominant learner action when a prototype is applicable.
 - The workspace protects the core mathematical object from being obscured when a workspace is applicable.
+- The guide/workspace ownership split is explicit and internally consistent.
+- Step-local inputs are not being pushed into the workspace by default.
 - Feedback names the student error, not just the final answer state.
 - The appendix can map the idea to current repo concepts without inventing new hidden fields.
 
 ## Validator
 
-Use `scripts/validate_exercise_spec.py <path-to-spec.md>` when the user asks for a quality check or when you generated a spec file on disk. The script name is historical; it now validates all spec kinds produced by this skill.
+Use `scripts/validate_exercise_spec.py <path-to-spec.md>` when the user asks for a quality check or when you generated a spec file on disk. The script name is historical; it now validates all spec kinds produced by this skill. It accepts both legacy `v2` specs and the current `v3` template.
 
 ## Example Requests
 
-- "Turn this rough method step into a reusable skill-unit spec."
-- "Help me choose the best current prototype before we write the example spec."
-- "Rewrite this draft into a low-hint exercise-pack spec and tell me whether it is supported or new-tool-needed."
+- “Turn this rough method step into a reusable skill-unit spec.”
+- “Help me choose the best current prototype before we write the example spec.”
+- “Rewrite this draft into a low-hint exercise-pack spec and tell me whether it is supported or new-tool-needed.”
+- “Rewrite this spec so it respects the current guide/workspace architecture.”

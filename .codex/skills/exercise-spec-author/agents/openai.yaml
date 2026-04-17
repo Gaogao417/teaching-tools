@@ -1,4 +1,4 @@
 interface:
   display_name: "Exercise Spec Author"
-  short_description: "Create stable exercise specs for this teaching repo."
-  default_prompt: "Use $exercise-spec-author to turn my rough practice idea into a structured exercise spec for this repo."
+  short_description: "Create architecture-aware exercise specs for this repo."
+  default_prompt: "Use $exercise-spec-author to turn my rough practice idea into an architecture-aware exercise spec for this repo."

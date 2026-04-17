@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 
-REQUIRED_FRONTMATTER = {
+COMMON_FRONTMATTER = {
     "spec_version",
     "spec_kind",
     "working_title",
@@ -26,6 +26,11 @@ REQUIRED_FRONTMATTER = {
     "repo_mapping_ready",
 }
 
+V3_ONLY_FRONTMATTER = {
+    "architecture_fit",
+    "interaction_ownership",
+}
+
 REQUIRED_SECTIONS = [
     "## 1. Spec Summary",
     "## 2. Skill Unit Definition",
@@ -38,9 +43,35 @@ REQUIRED_SECTIONS = [
     "## Appendix A. Repo Mapping",
 ]
 
+V3_REQUIRED_LABELS = [
+    "- Architecture fit:",
+    "- Interaction ownership:",
+    "- Workspace responsibility:",
+    "- Guide responsibility:",
+    "- Guide-step input policy:",
+    "- Forbidden shortcuts:",
+    "- Runtime primitive mapping:",
+    "- Architecture fit rationale:",
+]
+
+SPEC_VERSIONS = {"v2", "v3"}
 SPEC_KINDS = {"skill-unit", "example", "exercise-pack"}
 LEARNING_MODES = {"example", "exercise", "not-applicable"}
 FIT_LEVELS = {"supported", "stretch", "new-tool-needed", "not-applicable"}
+ARCHITECTURE_FIT_LEVELS = {
+    "supported",
+    "needs-guide-extension",
+    "needs-workspace-primitive",
+    "new-tool-needed",
+    "not-applicable",
+}
+INTERACTION_OWNERSHIP = {
+    "guide-step",
+    "workspace-object",
+    "mixed",
+    "new-tool-needed",
+    "not-applicable",
+}
 STEP_MODES = {"single-step", "multi-step", "not-applicable"}
 REPO_MAPPING_READY = {"yes", "partial", "no"}
 
@@ -65,6 +96,12 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return fields, body
 
 
+def required_frontmatter_for(version: str) -> set[str]:
+    if version == "v3":
+        return COMMON_FRONTMATTER | V3_ONLY_FRONTMATTER
+    return set(COMMON_FRONTMATTER)
+
+
 def validate(path: Path) -> list[str]:
     errors: list[str] = []
     text = path.read_text(encoding="utf-8")
@@ -74,7 +111,12 @@ def validate(path: Path) -> list[str]:
     except ValueError as exc:
         return [str(exc)]
 
-    missing = sorted(REQUIRED_FRONTMATTER - frontmatter.keys())
+    spec_version = frontmatter.get("spec_version", "")
+    if spec_version and spec_version not in SPEC_VERSIONS:
+        errors.append(f"spec_version must be one of: {', '.join(sorted(SPEC_VERSIONS))}")
+
+    required_frontmatter = required_frontmatter_for(spec_version or "v2")
+    missing = sorted(required_frontmatter - frontmatter.keys())
     if missing:
         errors.append(f"missing frontmatter keys: {', '.join(missing)}")
 
@@ -92,6 +134,20 @@ def validate(path: Path) -> list[str]:
     if fit_level and fit_level not in FIT_LEVELS:
         errors.append(f"fit_level must be one of: {', '.join(sorted(FIT_LEVELS))}")
 
+    architecture_fit = frontmatter.get("architecture_fit", "")
+    if architecture_fit and architecture_fit not in ARCHITECTURE_FIT_LEVELS:
+        errors.append(
+            "architecture_fit must be one of: "
+            f"{', '.join(sorted(ARCHITECTURE_FIT_LEVELS))}"
+        )
+
+    interaction_ownership = frontmatter.get("interaction_ownership", "")
+    if interaction_ownership and interaction_ownership not in INTERACTION_OWNERSHIP:
+        errors.append(
+            "interaction_ownership must be one of: "
+            f"{', '.join(sorted(INTERACTION_OWNERSHIP))}"
+        )
+
     step_mode = frontmatter.get("step_mode", "")
     if step_mode and step_mode not in STEP_MODES:
         errors.append(f"step_mode must be one of: {', '.join(sorted(STEP_MODES))}")
@@ -106,9 +162,23 @@ def validate(path: Path) -> list[str]:
         if section not in body:
             errors.append(f"missing section heading: {section}")
 
+    if spec_version == "v3":
+        for label in V3_REQUIRED_LABELS:
+            if label not in body:
+                errors.append(f"missing v3 field label: {label}")
+
     appendix_b_present = "## Appendix B. Tooling Gap" in body
     if fit_level in {"stretch", "new-tool-needed"} and not appendix_b_present:
         errors.append("Appendix B. Tooling Gap is required when fit_level is not supported")
+
+    if spec_version == "v3" and architecture_fit in {
+        "needs-guide-extension",
+        "needs-workspace-primitive",
+        "new-tool-needed",
+    } and not appendix_b_present:
+        errors.append(
+            "Appendix B. Tooling Gap is required when architecture_fit is not supported"
+        )
 
     return errors
 
