@@ -1,8 +1,9 @@
+import type { AngleEquationTaskId } from "./angleEquation";
 import type { TriangleTrigTaskId } from "./triangleTrig";
 
 export type DemoCounterTaskId = "demoCounter";
-export type TaskId = TriangleTrigTaskId | DemoCounterTaskId;
-export type ExerciseEngineKind = "triangle-trig" | "demo-counter";
+export type TaskId = TriangleTrigTaskId | DemoCounterTaskId | AngleEquationTaskId;
+export type ExerciseEngineKind = "triangle-trig" | "demo-counter" | "angle-equation";
 
 export type SessionPhase =
   | "answering"
@@ -108,7 +109,8 @@ export interface DemoCounterContentDefinition {
 
 export type ContentDefinition =
   | TriangleTrigContentDefinition
-  | DemoCounterContentDefinition;
+  | DemoCounterContentDefinition
+  | import("./angleEquation").AngleEquationContentDefinition;
 
 export interface SceneEntityBase {
   id: string;

@@ -98,6 +98,30 @@ export const TASK_DEFINITIONS: Record<TaskId, TaskDefinition> = {
       color: "#4c6ef5",
     },
   },
+  trigEquationRange: {
+    id: "trigEquationRange",
+    title: "范围约束下解三角函数方程",
+    summary: "已知 sin/cos/tan(omega x + phi) = value，在给定范围内求待求量。",
+    difficulty: "medium",
+    engineKind: "angle-equation",
+    contentId: "angle-equation.trig-equation-range.v1",
+    sample: {
+      prompt: "已知 sin(2x + pi/6) = 1/2，x in [0, 2pi]，求 x 的所有值。",
+    },
+    steps: [
+      "找出满足该函数值的全部基准角。",
+      "把待求量的范围变换成 omega*x+phi 的范围。",
+      "在新范围内筛选出全部合法角 theta。",
+      "分别解 omega*x+phi = theta，得到待求量的全部解。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-10",
+      gradeName: "高中",
+      chapterId: "chapter-trig-equation",
+      chapterName: "三角函数与三角方程",
+      color: "#7c3aed",
+    },
+  },
 };
 
 export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
@@ -209,11 +233,58 @@ export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
     engineKind: "demo-counter",
     taskId: "demoCounter",
     version: "v1",
-    promptTemplate: "请输入口令“{{expectedAnswer}}”完成演示任务。",
+    promptTemplate: "请输入口令\u201C{{expectedAnswer}}\u201D完成演示任务。",
     expectedAnswer: "ready",
     guideTemplate: {
       banner: "Generic Engine Demo",
       hint: "这是一个最小非 trig 引擎，用来验证平台层是否真正通用。",
+    },
+    feedbackTemplate: {
+      correct: ["correct"],
+      wrong: ["wrong"],
+      finish: ["finish"],
+    },
+  },
+  "angle-equation.trig-equation-range.v1": {
+    id: "angle-equation.trig-equation-range.v1",
+    engineKind: "angle-equation",
+    taskId: "trigEquationRange",
+    version: "v1",
+    promptTemplate:
+      "已知 {{equation}}，{{unknown}} ∈ {{range}}，求 {{unknown}} 的所有值。",
+    sceneTemplate: {
+      sceneKind: "custom",
+      stage: { width: 480, height: 400 },
+    },
+    flowTemplate: {
+      completionPolicy: "multi-step",
+      stepOrder: ["find-angles", "transform-range", "filter-angles", "solve-target"],
+      guideSteps: [
+        {
+          stepId: "find-angles",
+          title: "找出基准角",
+          summary: "找出单位圆上满足该函数值的全部角。",
+        },
+        {
+          stepId: "transform-range",
+          title: "变换范围",
+          summary: "把待求量的范围变换成 omega*x+phi 的范围。",
+        },
+        {
+          stepId: "filter-angles",
+          title: "筛选合法角",
+          summary: "在变换后的范围内选出全部合法角。",
+        },
+        {
+          stepId: "solve-target",
+          title: "回代求解",
+          summary: "对每个合法角求解待求量。",
+        },
+      ],
+    },
+    guideTemplate: {
+      banner: "范围约束下解三角函数方程",
+      hint: "先找角、再换范围、再筛角、最后回代。",
     },
     feedbackTemplate: {
       correct: ["correct"],
@@ -262,6 +333,17 @@ export const TASK_TREE: TaskTreeResponse = {
             TASK_NODES.ratioToSide,
             TASK_NODES.guidedSolve,
           ],
+        },
+      ],
+    },
+    {
+      id: "grade-10",
+      name: "高中",
+      chapters: [
+        {
+          id: "chapter-trig-equation",
+          name: "三角函数与三角方程",
+          tasks: [TASK_NODES.trigEquationRange],
         },
       ],
     },

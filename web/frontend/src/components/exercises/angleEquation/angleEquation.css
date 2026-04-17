@@ -1,0 +1,266 @@
+/* Angle-equation workspace styles */
+
+.ae-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  height: 100%;
+  overflow-y: auto;
+}
+
+.ae-equation-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+  line-height: var(--leading-tight);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ae-equation-card .ae-eq-line {
+  font-weight: var(--weight-medium);
+  color: var(--text-main);
+}
+
+.ae-equation-card .ae-range-line {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.ae-canvas {
+  display: flex;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 280px;
+}
+
+.ae-unit-circle {
+  position: relative;
+  flex: 1;
+  max-width: 280px;
+}
+
+.ae-unit-circle svg {
+  width: 100%;
+  height: 100%;
+}
+
+.ae-unit-circle .ae-circle-bg {
+  fill: none;
+  stroke: var(--border-muted);
+  stroke-width: 1.5;
+}
+
+.ae-unit-circle .ae-axis-line {
+  stroke: var(--border-muted);
+  stroke-width: 0.5;
+}
+
+.ae-unit-circle .ae-angle-dot {
+  fill: var(--surface-input);
+  stroke: var(--border-muted);
+  stroke-width: 1;
+  cursor: default;
+  transition: fill 0.15s, stroke 0.15s;
+}
+
+.ae-unit-circle .ae-angle-dot.ae-selectable {
+  cursor: pointer;
+}
+
+.ae-unit-circle .ae-angle-dot.ae-selectable:hover {
+  fill: var(--fill-accent-soft-hover);
+  stroke: var(--color-primary);
+}
+
+.ae-unit-circle .ae-angle-dot.ae-selected {
+  fill: var(--fill-accent-soft);
+  stroke: var(--color-primary);
+  stroke-width: 1.5;
+}
+
+.ae-unit-circle .ae-angle-label {
+  font-size: 9px;
+  fill: var(--text-muted);
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ae-unit-circle .ae-angle-label.ae-selected {
+  fill: var(--text-accent);
+  font-weight: var(--weight-medium);
+}
+
+.ae-step-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 200px;
+}
+
+.ae-step-area .ae-step-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+}
+
+/* Chip selection (used by find-angles and filter-angles) */
+
+.ae-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ae-angle-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-pill);
+  background: var(--surface-input);
+  font-size: var(--text-sm);
+  color: var(--text-main);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ae-angle-chip:hover {
+  background: var(--fill-accent-soft-hover);
+  border-color: var(--color-primary);
+}
+
+.ae-angle-chip.is-selected {
+  background: var(--fill-accent-soft);
+  border-color: var(--color-primary);
+  color: var(--text-accent);
+  font-weight: var(--weight-medium);
+}
+
+.ae-angle-chip.is-locked {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Range input row (used by transform-range) */
+
+.ae-range-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ae-range-input-row input {
+  flex: 1;
+  height: 36px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  font-size: var(--text-sm);
+  color: var(--text-main);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.ae-range-input-row input:focus {
+  border-color: var(--color-primary);
+}
+
+.ae-range-input-row .ae-range-separator {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* Solution input list (used by solve-target) */
+
+.ae-solution-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ae-solution-inputs input {
+  height: 36px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  font-size: var(--text-sm);
+  color: var(--text-main);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.ae-solution-inputs input:focus {
+  border-color: var(--color-primary);
+}
+
+/* Range band visualization */
+
+.ae-range-band {
+  position: relative;
+  height: 40px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.ae-range-band .ae-band-track {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  right: 8px;
+  height: 4px;
+  background: var(--fill-track);
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+
+.ae-range-band .ae-band-fill {
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  background: var(--fill-accent-soft);
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+
+.ae-range-band .ae-band-tick {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 10px;
+  background: var(--color-primary);
+  border-radius: 1px;
+  transform: translate(-1px, -50%);
+}
+
+.ae-range-band .ae-band-label {
+  position: absolute;
+  bottom: 2px;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Completed step summary */
+
+.ae-step-done {
+  padding: var(--space-2) var(--space-3);
+  background: var(--fill-success-muted);
+  border: 1px solid var(--border-success);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-success);
+}
