@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Outlet, matchPath, useLocation } from "react-router-dom";
+import { Outlet, matchPath, useLocation, useNavigate } from "react-router-dom";
 import type { TaskId } from "../../../../shared/contracts";
 import { TASK_DEFINITIONS } from "../../../../shared/tasks";
 import { api } from "../../api/client";
@@ -23,6 +23,7 @@ function avatarLabel(studentName: string) {
 
 export function WorkspaceShell() {
   const location = useLocation();
+  const navigate = useNavigate();
   const contentRef = useRef<HTMLDivElement | null>(null);
   const previewCloseTimer = useRef<number | null>(null);
   const [tree, setTree] = useState<Awaited<ReturnType<typeof api.getTaskTree>> | null>(null);
@@ -107,6 +108,7 @@ export function WorkspaceShell() {
     setExpandedGradeIds((current) => (current.includes(gradeId) ? current : [...current, gradeId]));
     setExpandedChapterIds((current) => (current.includes(chapterId) ? current : [...current, chapterId]));
     setIsNavDrawerOpen(false);
+    navigate("/");
   };
 
   const cancelPreviewClose = () => {
