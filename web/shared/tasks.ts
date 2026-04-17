@@ -122,6 +122,30 @@ export const TASK_DEFINITIONS: Record<TaskId, TaskDefinition> = {
       color: "#7c3aed",
     },
   },
+  isoscelesRightCoord: {
+    id: "isoscelesRightCoord",
+    title: "等腰直角三角形一线三垂直求坐标",
+    summary: "利用一线三垂直模型，通过全等三角形列方程组求第三点坐标。",
+    difficulty: "medium",
+    engineKind: "coordinate-isosceles-right",
+    contentId: "coord-isosceles-right.basic.v1",
+    sample: {
+      prompt: "已知等腰 Rt△ABC，∠A=90°，B(0,0)，C(4,0)，求 A 的坐标。",
+    },
+    steps: [
+      "选择正确的辅助线构造方式。",
+      "识别全等三角形及对应边关系。",
+      "列出关于 a、b 的二元一次方程组。",
+      "解方程组，求出 A 点坐标。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-8",
+      gradeName: "八年级",
+      chapterId: "chapter-coordinate-congruent",
+      chapterName: "平面直角坐标系与全等三角形",
+      color: "#0891b2",
+    },
+  },
 };
 
 export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
@@ -292,6 +316,53 @@ export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
       finish: ["finish"],
     },
   },
+  "coord-isosceles-right.basic.v1": {
+    id: "coord-isosceles-right.basic.v1",
+    engineKind: "coordinate-isosceles-right",
+    taskId: "isoscelesRightCoord",
+    version: "v1",
+    promptTemplate:
+      "已知等腰 Rt△ABC，∠A=90°，B({{bx}},{{by}})，C({{cx}},{{cy}})，AB=AC。求 A 的坐标。",
+    sceneTemplate: {
+      sceneKind: "custom",
+      stage: { width: 480, height: 400 },
+    },
+    flowTemplate: {
+      completionPolicy: "multi-step",
+      stepOrder: ["construct-lines", "identify-congruent", "setup-equations", "solve-coordinates"],
+      guideSteps: [
+        {
+          stepId: "construct-lines",
+          title: "构造辅助线",
+          summary: "选择正确的辅助线构造方式。",
+        },
+        {
+          stepId: "identify-congruent",
+          title: "识别全等与对应边",
+          summary: "指出两个全等三角形及对应边关系。",
+        },
+        {
+          stepId: "setup-equations",
+          title: "列方程组",
+          summary: "利用对应边相等列关于 a、b 的二元一次方程组。",
+        },
+        {
+          stepId: "solve-coordinates",
+          title: "求解坐标",
+          summary: "解方程组，求出 A 的坐标。",
+        },
+      ],
+    },
+    guideTemplate: {
+      banner: "等腰直角三角形一线三垂直求坐标",
+      hint: "过 A 作横线和竖线，构造两个全等直角三角形。",
+    },
+    feedbackTemplate: {
+      correct: ["correct"],
+      wrong: ["wrong"],
+      finish: ["finish"],
+    },
+  },
 };
 
 export const TASK_COLORS: Record<TaskId, string> = Object.fromEntries(
@@ -321,6 +392,17 @@ export const TASK_NODES: Record<TaskId, TaskNode> = Object.fromEntries(
 
 export const TASK_TREE: TaskTreeResponse = {
   grades: [
+    {
+      id: "grade-8",
+      name: "八年级",
+      chapters: [
+        {
+          id: "chapter-coordinate-congruent",
+          name: "平面直角坐标系与全等三角形",
+          tasks: [TASK_NODES.isoscelesRightCoord],
+        },
+      ],
+    },
     {
       id: "grade-9",
       name: "九年级",

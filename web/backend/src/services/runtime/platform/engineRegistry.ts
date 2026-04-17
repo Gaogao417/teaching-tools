@@ -1,5 +1,6 @@
 import { ExerciseEngineKind } from "../../../../../shared/contracts";
 import { angleEquationEnginePlugin } from "../engines/angleEquation";
+import { coordIsoscelesEnginePlugin } from "../engines/coordinateIsoscelesRight";
 import { demoCounterEnginePlugin } from "../engines/demoCounter";
 import { triangleTrigEnginePlugin } from "../engines/triangleTrig";
 import { appError } from "./errors";
@@ -9,6 +10,7 @@ const ENGINE_REGISTRY = {
   "triangle-trig": triangleTrigEnginePlugin,
   "demo-counter": demoCounterEnginePlugin,
   "angle-equation": angleEquationEnginePlugin,
+  "coordinate-isosceles-right": coordIsoscelesEnginePlugin,
 } satisfies Record<ExerciseEngineKind, RegisteredEnginePlugin>;
 
 export function getEnginePlugin(engineKind: ExerciseEngineKind): RegisteredEnginePlugin {

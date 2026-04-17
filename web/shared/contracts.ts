@@ -1,9 +1,10 @@
 import type { AngleEquationTaskId } from "./angleEquation";
+import type { CoordIsoscelesTaskId } from "./coordinateIsoscelesRight";
 import type { TriangleTrigTaskId } from "./triangleTrig";
 
 export type DemoCounterTaskId = "demoCounter";
-export type TaskId = TriangleTrigTaskId | DemoCounterTaskId | AngleEquationTaskId;
-export type ExerciseEngineKind = "triangle-trig" | "demo-counter" | "angle-equation";
+export type TaskId = TriangleTrigTaskId | DemoCounterTaskId | AngleEquationTaskId | CoordIsoscelesTaskId;
+export type ExerciseEngineKind = "triangle-trig" | "demo-counter" | "angle-equation" | "coordinate-isosceles-right";
 
 export type SessionPhase =
   | "answering"
@@ -110,7 +111,8 @@ export interface DemoCounterContentDefinition {
 export type ContentDefinition =
   | TriangleTrigContentDefinition
   | DemoCounterContentDefinition
-  | import("./angleEquation").AngleEquationContentDefinition;
+  | import("./angleEquation").AngleEquationContentDefinition
+  | import("./coordinateIsoscelesRight").CoordIsoscelesContentDefinition;
 
 export interface SceneEntityBase {
   id: string;
