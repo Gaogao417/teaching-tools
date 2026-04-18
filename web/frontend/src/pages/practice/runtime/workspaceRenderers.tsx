@@ -1,6 +1,7 @@
 import type { Dispatch, MutableRefObject, ReactElement, SetStateAction } from "react";
 import type { ClientDraftState, ExerciseEngineKind, ExerciseRuntimeSpec } from "../../../../../shared/contracts";
 import { AngleEquationWorkspaceRenderer } from "../../../components/exercises/angleEquation/AngleEquationWorkspace";
+import { BuoyancyForceAnalysisWorkspaceRenderer } from "../../../components/exercises/buoyancyForceAnalysis/BuoyancyForceAnalysisWorkspace";
 import { CoordIsoscelesRightWorkspaceRenderer } from "../../../components/exercises/coordinateIsoscelesRight/CoordIsoscelesRightWorkspace";
 import { DemoCounterWorkspaceRenderer } from "./DemoCounterWorkspace";
 import { TriangleTrigWorkspaceRenderer } from "./WorkspaceScene";
@@ -19,4 +20,5 @@ export const WORKSPACE_RENDERERS = {
   "demo-counter": DemoCounterWorkspaceRenderer,
   "angle-equation": AngleEquationWorkspaceRenderer,
   "coordinate-isosceles-right": CoordIsoscelesRightWorkspaceRenderer,
+  "buoyancy-force-analysis": BuoyancyForceAnalysisWorkspaceRenderer,
 } satisfies Record<ExerciseEngineKind, (props: WorkspaceRendererProps) => ReactElement>;

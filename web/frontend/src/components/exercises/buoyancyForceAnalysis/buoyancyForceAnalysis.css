@@ -1,0 +1,232 @@
+/* Buoyancy force analysis workspace styles */
+/* Uses shared design tokens from styles.css */
+
+.bfa-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* ─── Equation reference card ──────────────────────────────────────── */
+
+.bfa-equation-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+  display: flex;
+  gap: var(--space-6);
+}
+
+.bfa-eq-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-main);
+}
+
+.bfa-eq-label {
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+}
+
+/* ─── Canvas layout ────────────────────────────────────────────────── */
+
+.bfa-canvas {
+  display: flex;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 320px;
+}
+
+.bfa-diagram-area {
+  flex: 1;
+  max-width: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── SVG diagram styles ───────────────────────────────────────────── */
+
+.bfa-diagram {
+  width: 100%;
+  height: auto;
+}
+
+.bfa-table {
+  fill: var(--surface-card);
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+}
+
+.bfa-cup {
+  fill: var(--surface-card);
+  stroke: var(--border-muted);
+  stroke-width: 1.5;
+}
+
+.bfa-water {
+  fill: var(--fill-accent-soft);
+  stroke: none;
+  opacity: 0.5;
+}
+
+.bfa-water-line {
+  stroke: var(--color-primary);
+  stroke-width: 1;
+  stroke-dasharray: 4 2;
+}
+
+.bfa-object {
+  fill: var(--surface-input);
+  stroke: var(--border-muted);
+  stroke-width: 1.5;
+}
+
+.bfa-scale {
+  fill: var(--surface-card);
+  stroke: var(--border-muted);
+  stroke-width: 1;
+}
+
+.bfa-spring {
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bfa-string {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+
+/* Force arrows */
+.bfa-arrow-up {
+  stroke: var(--color-primary);
+  stroke-width: 1.5;
+  fill: var(--color-primary);
+}
+
+.bfa-arrow-down {
+  stroke: var(--fill-error);
+  stroke-width: 1.5;
+  fill: var(--fill-error);
+}
+
+/* Force labels */
+.bfa-force-label {
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  text-anchor: start;
+}
+
+.bfa-force-value {
+  font-size: 10px;
+  text-anchor: start;
+}
+
+.bfa-force-label.bfa-known,
+.bfa-force-value.bfa-known {
+  fill: var(--text-main);
+}
+
+.bfa-force-label.bfa-unknown {
+  fill: var(--color-primary);
+}
+
+.bfa-force-value.bfa-unknown {
+  fill: var(--color-primary);
+  font-weight: var(--weight-medium);
+}
+
+/* Diagram labels */
+.bfa-label-muted {
+  font-size: 9px;
+  fill: var(--text-muted);
+  text-anchor: middle;
+}
+
+.bfa-label-object {
+  font-size: 9px;
+  fill: var(--text-muted);
+  text-anchor: middle;
+}
+
+.bfa-label-scale {
+  font-size: 8px;
+  fill: var(--text-main);
+  text-anchor: middle;
+}
+
+/* ─── Input area (right side) ──────────────────────────────────────── */
+
+.bfa-input-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 180px;
+}
+
+.bfa-prompt {
+  font-size: var(--text-sm);
+  color: var(--text-main);
+  line-height: var(--leading-normal);
+}
+
+.bfa-step-input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bfa-input-label {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--text-main);
+}
+
+.bfa-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.bfa-input-field {
+  flex: 1;
+  height: 36px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  font-size: var(--text-sm);
+  color: var(--text-main);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.bfa-input-field:focus {
+  border-color: var(--color-primary);
+}
+
+.bfa-input-unit {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  min-width: 24px;
+}
+
+.bfa-wrong-hint {
+  font-size: var(--text-sm);
+  color: var(--text-accent);
+  padding: var(--space-2) var(--space-3);
+  background: var(--fill-accent-soft);
+  border-radius: var(--radius-sm);
+}

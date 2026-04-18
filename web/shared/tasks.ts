@@ -146,6 +146,29 @@ export const TASK_DEFINITIONS: Record<TaskId, TaskDefinition> = {
       color: "#0891b2",
     },
   },
+  buoyancyForceAnalysis: {
+    id: "buoyancyForceAnalysis",
+    title: "浮力受力分析——知三求二",
+    summary: "弹簧测力计吊物块部分浸入水中，已知三个物理量求两个未知量。",
+    difficulty: "medium",
+    engineKind: "buoyancy-force-analysis",
+    contentId: "buoyancy-force-analysis.basic.v1",
+    sample: {
+      prompt: "已知 F = 3 N，F浮 = 2 N，G水 = 4 N，求 G物 和 F桌。",
+    },
+    steps: [
+      "根据已知条件选择受力分析对象（物块或整体）。",
+      "代入对应方程求出第一个未知量。",
+      "再用另一个方程求出第二个未知量。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-8",
+      gradeName: "八年级",
+      chapterId: "chapter-buoyancy",
+      chapterName: "液体压强与浮力",
+      color: "#0e7490",
+    },
+  },
 };
 
 export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
@@ -363,6 +386,42 @@ export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
       finish: ["finish"],
     },
   },
+  "buoyancy-force-analysis.basic.v1": {
+    id: "buoyancy-force-analysis.basic.v1",
+    engineKind: "buoyancy-force-analysis",
+    taskId: "buoyancyForceAnalysis",
+    version: "v1",
+    promptTemplate: "{{prompt}}",
+    sceneTemplate: {
+      sceneKind: "custom",
+      stage: { width: 480, height: 420 },
+    },
+    flowTemplate: {
+      completionPolicy: "multi-step",
+      stepOrder: ["solve-unknown-1", "solve-unknown-2"],
+      guideSteps: [
+        {
+          stepId: "solve-unknown-1",
+          title: "求第一个未知量",
+          summary: "选择正确的受力分析对象，代入方程求解。",
+        },
+        {
+          stepId: "solve-unknown-2",
+          title: "求第二个未知量",
+          summary: "用另一个方程求出剩余未知量。",
+        },
+      ],
+    },
+    guideTemplate: {
+      banner: "浮力受力分析——知三求二",
+      hint: "物块：F + F浮 = G物；整体：F + F桌 = G水 + G物",
+    },
+    feedbackTemplate: {
+      correct: ["correct"],
+      wrong: ["wrong"],
+      finish: ["finish"],
+    },
+  },
 };
 
 export const TASK_COLORS: Record<TaskId, string> = Object.fromEntries(
@@ -400,6 +459,11 @@ export const TASK_TREE: TaskTreeResponse = {
           id: "chapter-coordinate-congruent",
           name: "平面直角坐标系与全等三角形",
           tasks: [TASK_NODES.isoscelesRightCoord],
+        },
+        {
+          id: "chapter-buoyancy",
+          name: "液体压强与浮力",
+          tasks: [TASK_NODES.buoyancyForceAnalysis],
         },
       ],
     },

@@ -1,10 +1,9 @@
-import type { ReactElement } from "react";
+import type { ChangeEvent, ReactElement } from "react";
 import type { AngleEquationWorkspaceModel } from "../../../../../shared/angleEquation";
-import type { ExerciseRuntimeSpec } from "../../../../../shared/contracts";
+import type { ExerciseRuntimeSpec, SceneAnchor } from "../../../../../shared/contracts";
 import type { WorkspaceRendererProps } from "../../../pages/practice/runtime/workspaceRenderers";
 import { EquationCard } from "./EquationCard";
 import { RangeBandSVG } from "./RangeBandSVG";
-import { StepInputArea } from "./StepInputArea";
 import { UnitCircleSVG } from "./UnitCircleSVG";
 import "./angleEquation.css";
 
@@ -24,7 +23,21 @@ function parseWorkspaceModel(
   }
 }
 
-// ─── Format equation display ─────────────────────────────────────────
+// ─── Read anchors from scene spec ────────────────────────────────────
+
+function inputAnchors(runtime: ExerciseRuntimeSpec): SceneAnchor[] {
+  return runtime.instance.scene.anchors.filter(
+    (a) => a.anchorKind === "value-input",
+  );
+}
+
+function labelAnchors(runtime: ExerciseRuntimeSpec): SceneAnchor[] {
+  return runtime.instance.scene.anchors.filter(
+    (a) => a.anchorKind === "label",
+  );
+}
+
+// ─── Format display ──────────────────────────────────────────────────
 
 function formatEquationDisplay(model: AngleEquationWorkspaceModel): string {
   const { trigFn, omega, phi, value } = model.equation;
@@ -58,6 +71,99 @@ function formatRangeDisplay(model: AngleEquationWorkspaceModel): string {
   return `${label} in [${model.unknownRange[0]}, ${model.unknownRange[1]}]`;
 }
 
+// ─── Step-specific input rendering ───────────────────────────────────
+
+function TransformRangeInputs({
+  anchors,
+  inputs,
+  onInputChange,
+}: {
+  anchors: SceneAnchor[];
+  inputs: Record<string, string>;
+  onInputChange: (key: string, value: string) => void;
+}) {
+  return (
+    <div className="ae-input-area">
+      <div className="ae-input-title">输入变换后的范围端点</div>
+      <div className="ae-range-input-row">
+        <span className="ae-range-separator">[</span>
+        {anchors.map((anchor) => (
+          <input
+            key={anchor.id}
+            className="ae-input-field"
+            placeholder={anchor.placeholder}
+            value={inputs[anchor.id] || ""}
+            onChange={(e: ChangeEvent<HTMLInputElement>) =>
+              onInputChange(anchor.id, e.target.value)
+            }
+          />
+        ))}
+        <span className="ae-range-separator">]</span>
+      </div>
+    </div>
+  );
+}
+
+function FilterAnglesInput({
+  labels,
+  selected,
+  onToggleAngle,
+}: {
+  labels: SceneAnchor[];
+  selected: string[];
+  onToggleAngle: (angle: string) => void;
+}) {
+  const selectedSet = new Set(selected);
+
+  return (
+    <div className="ae-input-area">
+      <div className="ae-input-title">从候选角中选出范围内的角</div>
+      <div className="ae-chip-list">
+        {labels.map((anchor) => (
+          <span
+            key={anchor.id}
+            className={`ae-angle-chip ${selectedSet.has(anchor.label || "") ? "is-selected" : ""}`}
+            onClick={() => onToggleAngle(anchor.label || "")}
+          >
+            {anchor.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SolveTargetInputs({
+  anchors,
+  inputs,
+  onInputChange,
+}: {
+  anchors: SceneAnchor[];
+  inputs: Record<string, string>;
+  onInputChange: (key: string, value: string) => void;
+}) {
+  return (
+    <div className="ae-input-area">
+      <div className="ae-input-title">对每个合法角输入解</div>
+      <div className="ae-solution-inputs">
+        {anchors.map((anchor) => (
+          <div key={anchor.id} className="ae-solution-row">
+            <span className="ae-solution-label">{anchor.label} →</span>
+            <input
+              className="ae-input-field"
+              placeholder={anchor.placeholder}
+              value={inputs[anchor.id] || ""}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                onInputChange(anchor.id, e.target.value)
+              }
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main renderer ───────────────────────────────────────────────────
 
 export function AngleEquationWorkspaceRenderer({
@@ -75,6 +181,10 @@ export function AngleEquationWorkspaceRenderer({
   const stepId = model.currentStepId;
   const equationDisplay = formatEquationDisplay(model);
   const rangeDisplay = formatRangeDisplay(model);
+
+  // Read input anchors from scene spec
+  const inputs = inputAnchors(runtime);
+  const labels = labelAnchors(runtime);
 
   // Selection toggle handler
   const handleToggleAngle = (key: string, angle: string) => {
@@ -112,7 +222,7 @@ export function AngleEquationWorkspaceRenderer({
     onClear(stepId);
   };
 
-  // Determine which angles are selected on the unit circle
+  // Determine unit circle selected state
   const unitCircleSelected =
     stepId === "find-angles"
       ? draft.selections["find-angles"] || []
@@ -137,21 +247,51 @@ export function AngleEquationWorkspaceRenderer({
 
       <div className="ae-canvas">
         <UnitCircleSVG
-          trigFn={model.equation.trigFn}
           selectedAngles={unitCircleSelected}
           selectable={stepId === "find-angles"}
           onToggleAngle={(angleId) => handleToggleAngle("find-angles", angleId)}
         />
 
-        <StepInputArea
-          stepId={stepId}
-          selections={draft.selections}
-          inputs={draft.inputs}
-          onToggleSelection={handleToggleAngle}
-          onInputChange={handleInputChange}
-          candidateAngles={model.candidateAngles}
-          filteredAngles={model.filteredAngles}
-        />
+        {/* Step-specific inputs rendered from scene anchors */}
+        {stepId === "find-angles" && (
+          <div className="ae-input-area">
+            <div className="ae-input-title">已选角</div>
+            <div className="ae-chip-list">
+              {(draft.selections["find-angles"] || []).map((angle) => (
+                <span key={angle} className="ae-angle-chip is-selected">
+                  {angle}
+                </span>
+              ))}
+              {(draft.selections["find-angles"] || []).length === 0 && (
+                <span className="ae-empty-hint">在单位圆上点击选择满足条件的角</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {stepId === "transform-range" && (
+          <TransformRangeInputs
+            anchors={inputs}
+            inputs={draft.inputs}
+            onInputChange={handleInputChange}
+          />
+        )}
+
+        {stepId === "filter-angles" && (
+          <FilterAnglesInput
+            labels={labels}
+            selected={draft.selections["filter-angles"] || []}
+            onToggleAngle={(angle) => handleToggleAngle("filter-angles", angle)}
+          />
+        )}
+
+        {stepId === "solve-target" && (
+          <SolveTargetInputs
+            anchors={inputs}
+            inputs={draft.inputs}
+            onInputChange={handleInputChange}
+          />
+        )}
       </div>
 
       <div className="practice-workspace-actions">

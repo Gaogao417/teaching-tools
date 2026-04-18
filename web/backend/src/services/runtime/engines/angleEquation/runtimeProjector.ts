@@ -3,6 +3,7 @@ import type {
   AngleEquationStepKey,
   AngleEquationWorkspaceModel,
 } from "../../../../../../shared/angleEquation";
+import { UNIT_CIRCLE_POINTS } from "../../../../../../shared/angleEquation";
 import type {
   ExerciseInstance,
   ExerciseRuntimeSpec,
@@ -11,12 +12,13 @@ import type {
   FlowSpec,
   FlowStep,
   GuideSpec,
+  InteractionZone,
+  SceneAnchor,
   SceneSpec,
   SessionPhase,
   TaskDefinition,
 } from "../../../../../../shared/contracts";
 import type { AngleEquationEngineState } from "./types";
-import { UNIT_CIRCLE_ANGLES } from "./shared";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -39,7 +41,7 @@ function currentStep(state: AngleEquationEngineState): AngleEquationStepKey {
   return STEP_ORDER.find((key) => !state.stepState[key].done) || "solve-target";
 }
 
-// ─── Build workspace model ───────────────────────────────────────────
+// ─── Build workspace model (supplementary metadata) ──────────────────
 
 function buildWorkspaceModel(
   state: AngleEquationEngineState,
@@ -55,11 +57,10 @@ function buildWorkspaceModel(
     },
     unknownType: state.unknownType,
     unknownRange: state.scenarioParams.unknownRange,
-    unitCircleAngles: UNIT_CIRCLE_ANGLES,
+    unitCircleAngles: [], // renderer reads points from scene zones instead
     currentStepId: step,
   };
 
-  // Populate completed step data for the renderer
   if (state.stepState["find-angles"].done) {
     model.candidateAngles = state.answerKey.referenceAngles;
   }
@@ -74,22 +75,23 @@ function buildWorkspaceModel(
 }
 
 // ─── Build scene ─────────────────────────────────────────────────────
+// Uses proper zones for clickable unit circle points and anchors for inputs.
 
 function buildScene(
   state: AngleEquationEngineState,
   phase: SessionPhase,
 ): SceneSpec {
+  const step = currentStep(state);
   const model = buildWorkspaceModel(state);
 
   const entities: SceneSpec["entities"] = [
-    // Embed the workspace model as a text entity for the frontend
+    // Supplementary workspace metadata (NOT a substitute for anchors/zones)
     {
       id: "angle-equation-model",
       kind: "text",
       text: JSON.stringify(model),
       variant: "note",
     },
-    // Equation display
     {
       id: "equation-display",
       kind: "text",
@@ -98,7 +100,6 @@ function buildScene(
       y: 20,
       variant: "inline-formula",
     },
-    // Range display
     {
       id: "range-display",
       kind: "text",
@@ -109,18 +110,93 @@ function buildScene(
     },
   ];
 
+  const zones: InteractionZone[] = [];
+  const anchors: SceneAnchor[] = [];
+
+  // Step 1: unit circle zones for angle selection
+  if (step === "find-angles") {
+    for (const pt of UNIT_CIRCLE_POINTS) {
+      zones.push({
+        id: `zone-${pt.id}`,
+        zoneKind: "region",
+        targetRef: "find-angles",
+        shape: { type: "anchor", x: pt.x, y: pt.y, radius: 12 },
+        accepts: ["select"],
+      });
+    }
+  }
+
+  // Step 2: anchors for range endpoint inputs
+  if (step === "transform-range") {
+    anchors.push(
+      {
+        id: "range-low",
+        anchorKind: "value-input",
+        x: 320,
+        y: 140,
+        placeholder: "下界 (如 0, pi/6)",
+        label: "范围下界",
+      },
+      {
+        id: "range-high",
+        anchorKind: "value-input",
+        x: 320,
+        y: 180,
+        placeholder: "上界 (如 4*pi, 13*pi/6)",
+        label: "范围上界",
+      },
+    );
+  }
+
+  // Step 3: zones for candidate angle chips
+  if (step === "filter-angles" && model.candidateAngles) {
+    const candidates = model.candidateAngles;
+    for (let i = 0; i < candidates.length; i++) {
+      anchors.push({
+        id: `filter-${candidates[i]}`,
+        anchorKind: "label",
+        x: 320,
+        y: 100 + i * 36,
+        label: candidates[i],
+      });
+    }
+    // One zone per candidate for click selection
+    for (let i = 0; i < candidates.length; i++) {
+      zones.push({
+        id: `zone-filter-${candidates[i]}`,
+        zoneKind: "region",
+        targetRef: "filter-angles",
+        shape: { type: "anchor", x: 320, y: 100 + i * 36, radius: 16 },
+        accepts: ["select"],
+      });
+    }
+  }
+
+  // Step 4: anchors for solution inputs (concrete targets, no wildcards)
+  if (step === "solve-target" && model.filteredAngles) {
+    for (let i = 0; i < model.filteredAngles.length; i++) {
+      anchors.push({
+        id: `solution-${i}`,
+        anchorKind: "value-input",
+        x: 320,
+        y: 100 + i * 44,
+        placeholder: `解 ${i + 1}`,
+        label: `theta = ${model.filteredAngles[i]}`,
+      });
+    }
+  }
+
   return {
     sceneKind: "custom",
     entities,
-    zones: [],
-    anchors: [],
+    zones,
+    anchors,
     overlays: [],
   };
 }
 
 function formatEquation(state: AngleEquationEngineState): string {
   const { trigFn, omega, phi, value } = state.scenarioParams;
-  const fn = trigFn;
   let inner = "";
   if (state.unknownType === "x") {
     const omegaStr = omega === 1 ? "" : omega === -1 ? "-" : `${omega}`;
@@ -131,7 +207,7 @@ function formatEquation(state: AngleEquationEngineState): string {
   } else {
     inner = `omega * x`;
   }
-  return `${fn}(${inner}) = ${value}`;
+  return `${trigFn}(${inner}) = ${value}`;
 }
 
 function formatRange(state: AngleEquationEngineState): string {
@@ -202,15 +278,16 @@ function buildFlow(
 
 function buildAllowedActions(
   stepId: AngleEquationStepKey,
-  _state: AngleEquationEngineState,
+  state: AngleEquationEngineState,
   isActive: boolean,
 ): FlowStep["allowedActions"] {
   if (!isActive) return [];
 
   switch (stepId) {
     case "find-angles":
+      // ordered allows multi-select (order tracked but evaluator compares as set)
       return [
-        { type: "select", target: "find-angles", selectionKind: "single" },
+        { type: "select", target: "find-angles", selectionKind: "ordered" },
         { type: "clear", target: "find-angles" },
         { type: "submit", stepId: "find-angles" },
       ];
@@ -223,16 +300,21 @@ function buildAllowedActions(
       ];
     case "filter-angles":
       return [
-        { type: "select", target: "filter-angles", selectionKind: "single" },
+        { type: "select", target: "filter-angles", selectionKind: "ordered" },
         { type: "clear", target: "filter-angles" },
         { type: "submit", stepId: "filter-angles" },
       ];
-    case "solve-target":
-      return [
-        { type: "input", target: "solution-*", valueKind: "text" },
-        { type: "clear", target: "solve-target" },
-        { type: "submit", stepId: "solve-target" },
-      ];
+    case "solve-target": {
+      // Concrete targets for each solution input (no wildcards)
+      const filteredCount = state.answerKey.filteredAngles.length;
+      const actions: FlowStep["allowedActions"] = [];
+      for (let i = 0; i < filteredCount; i++) {
+        actions.push({ type: "input", target: `solution-${i}`, valueKind: "text" });
+      }
+      actions.push({ type: "clear", target: "solve-target" });
+      actions.push({ type: "submit", stepId: "solve-target" });
+      return actions;
+    }
   }
 }
 

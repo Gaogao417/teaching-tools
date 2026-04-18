@@ -21,24 +21,3 @@ export function cloneAngleEquationState(
 ): AngleEquationEngineState {
   return JSON.parse(JSON.stringify(state));
 }
-
-// ─── Standard unit circle angle labels ───────────────────────────────
-
-export const UNIT_CIRCLE_ANGLES = [
-  "0",
-  "pi/6",
-  "pi/4",
-  "pi/3",
-  "pi/2",
-  "2*pi/3",
-  "3*pi/4",
-  "5*pi/6",
-  "pi",
-  "7*pi/6",
-  "5*pi/4",
-  "4*pi/3",
-  "3*pi/2",
-  "5*pi/3",
-  "7*pi/4",
-  "11*pi/6",
-];

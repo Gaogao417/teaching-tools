@@ -1,4 +1,5 @@
 /* Angle-equation workspace styles */
+/* Uses shared design tokens from styles.css */
 
 .ae-workspace {
   display: flex;
@@ -8,6 +9,8 @@
   height: 100%;
   overflow-y: auto;
 }
+
+/* ─── Equation card ────────────────────────────────────────────────── */
 
 .ae-equation-card {
   background: var(--surface-card);
@@ -31,12 +34,16 @@
   color: var(--text-muted);
 }
 
+/* ─── Canvas layout ────────────────────────────────────────────────── */
+
 .ae-canvas {
   display: flex;
   gap: var(--space-4);
   flex: 1;
   min-height: 280px;
 }
+
+/* ─── Unit circle ──────────────────────────────────────────────────── */
 
 .ae-unit-circle {
   position: relative;
@@ -96,7 +103,9 @@
   font-weight: var(--weight-medium);
 }
 
-.ae-step-area {
+/* ─── Input area (right side of canvas, reads from scene anchors) ──── */
+
+.ae-input-area {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -104,14 +113,38 @@
   min-width: 200px;
 }
 
-.ae-step-area .ae-step-title {
+.ae-input-title {
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   color: var(--text-muted);
   margin-bottom: var(--space-1);
 }
 
-/* Chip selection (used by find-angles and filter-angles) */
+.ae-empty-hint {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* ─── Shared input field ───────────────────────────────────────────── */
+
+.ae-input-field {
+  flex: 1;
+  height: 36px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  font-size: var(--text-sm);
+  color: var(--text-main);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.ae-input-field:focus {
+  border-color: var(--color-primary);
+}
+
+/* ─── Chip selection (find-angles and filter-angles) ────────────────── */
 
 .ae-chip-list {
   display: flex;
@@ -150,7 +183,7 @@
   cursor: default;
 }
 
-/* Range input row (used by transform-range) */
+/* ─── Range input row (transform-range) ─────────────────────────────── */
 
 .ae-range-input-row {
   display: flex;
@@ -158,29 +191,12 @@
   gap: var(--space-2);
 }
 
-.ae-range-input-row input {
-  flex: 1;
-  height: 36px;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--border-muted);
-  border-radius: var(--radius-sm);
-  background: var(--surface-input);
-  font-size: var(--text-sm);
-  color: var(--text-main);
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.ae-range-input-row input:focus {
-  border-color: var(--color-primary);
-}
-
-.ae-range-input-row .ae-range-separator {
+.ae-range-separator {
   font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
-/* Solution input list (used by solve-target) */
+/* ─── Solution inputs (solve-target) ────────────────────────────────── */
 
 .ae-solution-inputs {
   display: flex;
@@ -188,23 +204,19 @@
   gap: var(--space-2);
 }
 
-.ae-solution-inputs input {
-  height: 36px;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--border-muted);
-  border-radius: var(--radius-sm);
-  background: var(--surface-input);
+.ae-solution-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ae-solution-label {
   font-size: var(--text-sm);
-  color: var(--text-main);
-  outline: none;
-  transition: border-color 0.15s;
+  color: var(--text-muted);
+  min-width: 80px;
 }
 
-.ae-solution-inputs input:focus {
-  border-color: var(--color-primary);
-}
-
-/* Range band visualization */
+/* ─── Range band visualization ──────────────────────────────────────── */
 
 .ae-range-band {
   position: relative;
@@ -226,25 +238,6 @@
   transform: translateY(-50%);
 }
 
-.ae-range-band .ae-band-fill {
-  position: absolute;
-  top: 50%;
-  height: 4px;
-  background: var(--fill-accent-soft);
-  border-radius: 2px;
-  transform: translateY(-50%);
-}
-
-.ae-range-band .ae-band-tick {
-  position: absolute;
-  top: 50%;
-  width: 2px;
-  height: 10px;
-  background: var(--color-primary);
-  border-radius: 1px;
-  transform: translate(-1px, -50%);
-}
-
 .ae-range-band .ae-band-label {
   position: absolute;
   bottom: 2px;
@@ -254,7 +247,7 @@
   white-space: nowrap;
 }
 
-/* Completed step summary */
+/* ─── Completed step summary ────────────────────────────────────────── */
 
 .ae-step-done {
   padding: var(--space-2) var(--space-3);

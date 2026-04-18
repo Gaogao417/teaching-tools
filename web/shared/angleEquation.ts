@@ -67,7 +67,7 @@ export interface AngleEquationContentDefinition {
   };
 }
 
-// ─── Workspace model (embedded in SceneSpec for frontend transport) ──
+// ─── Workspace model (supplementary metadata, not a substitute for anchors/zones) ──
 
 export interface AngleEquationWorkspaceModel {
   equation: {
@@ -84,3 +84,94 @@ export interface AngleEquationWorkspaceModel {
   unitCircleAngles: string[]; // standard angle labels on unit circle
   currentStepId: AngleEquationStepKey;
 }
+
+// ─── Unit circle geometry (shared between backend zones and frontend SVG) ──
+
+export const UNIT_CIRCLE_CX = 140;
+export const UNIT_CIRCLE_CY = 140;
+export const UNIT_CIRCLE_R = 110;
+
+export interface UnitCirclePoint {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  labelX: number;
+  labelY: number;
+}
+
+const STANDARD_ANGLE_RAD = [
+  0,
+  Math.PI / 6,
+  Math.PI / 4,
+  Math.PI / 3,
+  Math.PI / 2,
+  (2 * Math.PI) / 3,
+  (3 * Math.PI) / 4,
+  (5 * Math.PI) / 6,
+  Math.PI,
+  (7 * Math.PI) / 6,
+  (5 * Math.PI) / 4,
+  (4 * Math.PI) / 3,
+  (3 * Math.PI) / 2,
+  (5 * Math.PI) / 3,
+  (7 * Math.PI) / 4,
+  (11 * Math.PI) / 6,
+];
+
+const STANDARD_ANGLE_IDS = [
+  "0",
+  "pi/6",
+  "pi/4",
+  "pi/3",
+  "pi/2",
+  "2*pi/3",
+  "3*pi/4",
+  "5*pi/6",
+  "pi",
+  "7*pi/6",
+  "5*pi/4",
+  "4*pi/3",
+  "3*pi/2",
+  "5*pi/3",
+  "7*pi/4",
+  "11*pi/6",
+];
+
+const STANDARD_ANGLE_LABELS = [
+  "0",
+  "pi/6",
+  "pi/4",
+  "pi/3",
+  "pi/2",
+  "2pi/3",
+  "3pi/4",
+  "5pi/6",
+  "pi",
+  "7pi/6",
+  "5pi/4",
+  "4pi/3",
+  "3pi/2",
+  "5pi/3",
+  "7pi/4",
+  "11pi/6",
+];
+
+export const UNIT_CIRCLE_POINTS: UnitCirclePoint[] = STANDARD_ANGLE_RAD.map(
+  (rad, i) => {
+    const x = UNIT_CIRCLE_CX + UNIT_CIRCLE_R * Math.cos(rad);
+    const y = UNIT_CIRCLE_CY - UNIT_CIRCLE_R * Math.sin(rad);
+    // Push labels outward from center
+    const lx = UNIT_CIRCLE_CX + (UNIT_CIRCLE_R + 18) * Math.cos(rad);
+    const ly = UNIT_CIRCLE_CY - (UNIT_CIRCLE_R + 18) * Math.sin(rad);
+    return {
+      id: STANDARD_ANGLE_IDS[i],
+      label: STANDARD_ANGLE_LABELS[i],
+      x,
+      y,
+      labelX: lx,
+      labelY: ly,
+    };
+  },
+);
+

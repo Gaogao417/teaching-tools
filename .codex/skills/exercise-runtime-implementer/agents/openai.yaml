@@ -1,4 +1,4 @@
 interface:
   display_name: "Exercise Runtime Implementer"
   short_description: "Implement exercise runtimes with architecture guardrails."
-  default_prompt: "Use $exercise-runtime-implementer to implement an exercise spec without breaking the runtime architecture."
+  default_prompt: "Use $exercise-runtime-implementer to implement an exercise spec, running the repo's design guard pass first when learner-facing UI is involved."

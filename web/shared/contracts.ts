@@ -1,10 +1,11 @@
 import type { AngleEquationTaskId } from "./angleEquation";
+import type { BuoyancyTaskId } from "./buoyancyForceAnalysis";
 import type { CoordIsoscelesTaskId } from "./coordinateIsoscelesRight";
 import type { TriangleTrigTaskId } from "./triangleTrig";
 
 export type DemoCounterTaskId = "demoCounter";
-export type TaskId = TriangleTrigTaskId | DemoCounterTaskId | AngleEquationTaskId | CoordIsoscelesTaskId;
-export type ExerciseEngineKind = "triangle-trig" | "demo-counter" | "angle-equation" | "coordinate-isosceles-right";
+export type TaskId = TriangleTrigTaskId | DemoCounterTaskId | AngleEquationTaskId | CoordIsoscelesTaskId | BuoyancyTaskId;
+export type ExerciseEngineKind = "triangle-trig" | "demo-counter" | "angle-equation" | "coordinate-isosceles-right" | "buoyancy-force-analysis";
 
 export type SessionPhase =
   | "answering"
@@ -112,7 +113,8 @@ export type ContentDefinition =
   | TriangleTrigContentDefinition
   | DemoCounterContentDefinition
   | import("./angleEquation").AngleEquationContentDefinition
-  | import("./coordinateIsoscelesRight").CoordIsoscelesContentDefinition;
+  | import("./coordinateIsoscelesRight").CoordIsoscelesContentDefinition
+  | import("./buoyancyForceAnalysis").BuoyancyContentDefinition;
 
 export interface SceneEntityBase {
   id: string;
