@@ -97,6 +97,7 @@ repo_mapping_ready: partial
 - Suggested learning-runtime mapping:
 - Runtime primitive mapping:
 - Architecture fit rationale:
+- Design handoff note:
 - Suggested `TaskDefinition` direction:
 - Suggested `ContentDefinition` direction:
 - Suggested scene / flow / guide / feedback mapping:

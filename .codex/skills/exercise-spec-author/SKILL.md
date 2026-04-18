@@ -1,6 +1,6 @@
 ---
 name: exercise-spec-author
-description: Design or revise stable learning specs for the teaching-tools repo with explicit runtime ownership guardrails. Use when turning a rough teaching idea into a reusable skill unit, guided example, or lower-hint exercise pack; checking fit against current tools; deciding whether guide-step or workspace owns the learner action; and producing a reviewable Markdown spec with repo-mapping notes and tooling-gap flags.
+description: Design or revise stable learning specs for the teaching-tools repo with explicit runtime ownership and learner-facing design guardrails. Use when turning a rough teaching idea into a reusable skill unit, guided example, or lower-hint exercise pack; checking fit against current tools; deciding whether guide-step or workspace owns the learner action; routing learner-facing specs through the repo's design skills; and producing a reviewable Markdown spec with repo-mapping notes and tooling-gap flags.
 ---
 
 # Exercise Spec Author
@@ -13,14 +13,21 @@ Despite the name, this skill now authors three related spec kinds for the repo:
 - `example`: a high-hint, guided example that teaches one primary `skill-unit`
 - `exercise-pack`: a lower-hint short practice set assembled around weak `skill-unit`s, wrong work, and student choice
 
-Author the spec in two passes:
+Author the spec in three passes:
 - first decide the pedagogical shape
 - then decide whether the interaction fits the current runtime architecture without breaking guide/workspace ownership
+- then capture the learner-facing design constraints that implementation must respect
+
+When the spec includes learner-facing screens, flow changes, or interaction shape decisions, add a design pass before finalizing the implementation handoff:
+- run `design-runtime-guard` for every `example` and `exercise-pack`
+- also run `design-exploration-review` when the user explicitly wants a bolder or less conventional learner-facing direction
 
 Read only the references you need:
 - Read [references/current-prototypes.md](references/current-prototypes.md) before choosing an interaction shape for an `example` or `exercise-pack`.
 - Read [references/pedagogy-and-ux.md](references/pedagogy-and-ux.md) before finalizing hint level, feedback, visibility rules, and ownership defaults.
 - Read [references/repo-mapping.md](references/repo-mapping.md) when writing `Appendix A. Repo Mapping`.
+- Read `../design-runtime-guard/SKILL.md` before finalizing any `example` or `exercise-pack` that will drive learner-facing implementation.
+- Read `../design-exploration-review/SKILL.md` when the request includes redesign, stronger visual direction, or interaction exploration.
 - Copy the output structure from [assets/exercise-spec-template.md](assets/exercise-spec-template.md). The filename is historical; the template now supports all three spec kinds.
 
 ## Workflow
@@ -33,14 +40,18 @@ Read only the references you need:
 - `workspace-object` when the learner is directly manipulating the visible mathematical object
 - `mixed` only when both are genuinely needed in the same step
 - `new-tool-needed` when the current runtime cannot express the split cleanly
-5. Collect the minimum authoring form. Reuse any details the user already supplied.
-6. Judge both kinds of fit:
+5. Run the learner-facing design pass for `example` and `exercise-pack` specs.
+- Use `design-runtime-guard` to confirm the visible object, ownership split, and shared-style expectations stay intact.
+- If the request is intentionally exploratory, also use `design-exploration-review` to decide what is safe to redesign versus what must stay stable.
+6. Collect the minimum authoring form. Reuse any details the user already supplied.
+7. Judge all relevant kinds of fit:
 - `fit_level` for pedagogical/prototype fit
 - `architecture_fit` for runtime ownership fit
-7. Produce the spec using the template in `assets/exercise-spec-template.md`.
-8. Save the final spec under the repo-level `exercises/` directory unless the user explicitly asks for a different location.
-9. Name the file with a stable slug such as `exercise-spec-<topic-or-task>.md`.
-10. If fit is `stretch` or `new-tool-needed`, include `Appendix B. Tooling Gap` and explicitly name the missing capability.
+- `design_fit` in your reasoning for learner-facing safety versus redesign ambition
+8. Produce the spec using the template in `assets/exercise-spec-template.md`.
+9. Save the final spec under the repo-level `exercises/` directory unless the user explicitly asks for a different location.
+10. Name the file with a stable slug such as `exercise-spec-<topic-or-task>.md`.
+11. If fit is `stretch` or `new-tool-needed`, include `Appendix B. Tooling Gap` and explicitly name the missing capability.
 
 ## Minimum Authoring Form
 
@@ -100,6 +111,7 @@ Ask follow-ups only when one of these is still unclear:
 - The misconception does not explain what feedback should correct.
 - The ownership split between guide-step and workspace is unclear or internally contradictory.
 - The spec seems implementable only by pushing step-local form UI into the workspace.
+- The learner-facing direction depends on a redesign choice that could change what implementation should preserve versus rethink.
 
 When asking, prefer short targeted questions over brainstorming prompts.
 If the user gives a broad teaching idea, convert it into the form fields instead of asking them to restate the whole idea.
@@ -134,6 +146,10 @@ If a spec touches multiple `skill-unit`s, name one primary unit and treat the re
 `exercise-pack` specs should describe a short purposeful pack, not an endless drill stream.
 Keep `likely_misconception` and the feedback plan tightly coupled.
 Make ownership explicit: say what the workspace keeps visible and what the guide-step owns.
+For `example` and `exercise-pack`, include a short design handoff note in `Appendix A. Repo Mapping` that states:
+- what must remain visually or interactionally stable for implementation
+- what may be redesigned without breaking the spec
+- whether the spec assumed only `design-runtime-guard` or also `design-exploration-review`
 If the spec would require a workaround that breaks the current architecture, name the gap instead of normalizing the workaround.
 Write the final artifact to `exercises/`.
 When saving a new spec, prefer `exercises/exercise-spec-<slug>.md`.
@@ -147,6 +163,7 @@ Before finalizing, check all of the following:
 - The selected prototype matches the dominant learner action when a prototype is applicable.
 - The workspace protects the core mathematical object from being obscured when a workspace is applicable.
 - The guide/workspace ownership split is explicit and internally consistent.
+- Learner-facing specs went through the design pass before being handed to implementers.
 - Step-local inputs are not being pushed into the workspace by default.
 - Feedback names the student error, not just the final answer state.
 - The appendix can map the idea to current repo concepts without inventing new hidden fields.
@@ -157,7 +174,8 @@ Use `scripts/validate_exercise_spec.py <path-to-spec.md>` when the user asks for
 
 ## Example Requests
 
-- “Turn this rough method step into a reusable skill-unit spec.”
-- “Help me choose the best current prototype before we write the example spec.”
-- “Rewrite this draft into a low-hint exercise-pack spec and tell me whether it is supported or new-tool-needed.”
-- “Rewrite this spec so it respects the current guide/workspace architecture.”
+- "Turn this rough method step into a reusable skill-unit spec."
+- "Help me choose the best current prototype before we write the example spec."
+- "Rewrite this draft into a low-hint exercise-pack spec and tell me whether it is supported or new-tool-needed."
+- "Rewrite this spec so it respects the current guide/workspace architecture."
+- "Draft this example spec and tell implementation what must stay stable versus what can be redesigned."

@@ -47,6 +47,14 @@ Capture:
 - which current primitives cover each learner step
 - whether a missing capability is a guide extension, workspace primitive, or fully new tool
 
+### Design Handoff Note
+
+For `example` and `exercise-pack`, also capture:
+- what must remain visually or interactionally stable when implementation begins
+- what may be redesigned without breaking the learning goal or ownership split
+- whether the spec assumed only `design-runtime-guard` or also `design-exploration-review`
+- whether any remaining risk is architectural, prototype-fit, or purely presentation-level
+
 ## Current Repo Anchors
 
 Useful real anchors in this repo:
@@ -69,3 +77,4 @@ Current terminology note:
 - If fit is `stretch` or `new-tool-needed`, say which existing parts remain reusable.
 - If the spec depends on guide-step-owned inputs, say so explicitly instead of describing them as generic workspace controls.
 - If the spec cannot map to current primitives without architectural drift, record that gap instead of normalizing a workaround.
+- Keep the design handoff note at the level of stability, redesign latitude, and risk; do not turn it into DOM, CSS, or pixel instructions.
