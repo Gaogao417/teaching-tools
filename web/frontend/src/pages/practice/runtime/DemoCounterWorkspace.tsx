@@ -14,13 +14,9 @@ export function DemoCounterWorkspaceRenderer({
   draft,
   setDraft,
   inputRefs,
-  onSubmit,
-  onClear,
 }: WorkspaceRendererProps) {
   const step = currentStep(runtime);
   const inputAction = step.allowedActions.find((action) => action.type === "input");
-  const submitAction = step.allowedActions.find((action) => action.type === "submit");
-  const clearAction = step.allowedActions.find((action) => action.type === "clear");
   const anchor =
     inputAction?.type === "input"
       ? runtime.instance.scene.anchors.find((item) => item.id === inputAction.target)
@@ -52,25 +48,6 @@ export function DemoCounterWorkspaceRenderer({
               onChange={handleChange}
             />
           </label>
-          <div className="practice-workspace-actions">
-            <button className="tiny-btn" type="button" onClick={() => onClear(clearAction?.target || step.id)}>
-              清空左侧步骤
-            </button>
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={submitAction?.type !== "submit"}
-              onClick={() =>
-                submitAction?.type === "submit" &&
-                onSubmit({
-                  stepId: submitAction.stepId,
-                  value: JSON.stringify({ inputs: { [inputAction?.type === "input" ? inputAction.target : "demo-answer"]: value } }),
-                })
-              }
-            >
-              提交左侧步骤
-            </button>
-          </div>
         </div>
       </div>
     </div>

@@ -287,20 +287,40 @@ function buildAllowedActions(
     case "find-angles":
       // ordered allows multi-select (order tracked but evaluator compares as set)
       return [
-        { type: "select", target: "find-angles", selectionKind: "ordered" },
+        {
+          type: "select",
+          target: "find-angles",
+          selectionKind: "ordered",
+          presentation: { label: "已选基准角" },
+        },
         { type: "clear", target: "find-angles" },
         { type: "submit", stepId: "find-angles" },
       ];
     case "transform-range":
       return [
-        { type: "input", target: "range-low", valueKind: "text" },
-        { type: "input", target: "range-high", valueKind: "text" },
+        {
+          type: "input",
+          target: "range-low",
+          valueKind: "text",
+          presentation: { slots: [{ id: "range-low", label: "范围下界", placeholder: "输入下界" }] },
+        },
+        {
+          type: "input",
+          target: "range-high",
+          valueKind: "text",
+          presentation: { slots: [{ id: "range-high", label: "范围上界", placeholder: "输入上界" }] },
+        },
         { type: "clear", target: "transform-range" },
         { type: "submit", stepId: "transform-range" },
       ];
     case "filter-angles":
       return [
-        { type: "select", target: "filter-angles", selectionKind: "ordered" },
+        {
+          type: "select",
+          target: "filter-angles",
+          selectionKind: "ordered",
+          presentation: { label: "合法角" },
+        },
         { type: "clear", target: "filter-angles" },
         { type: "submit", stepId: "filter-angles" },
       ];
@@ -309,7 +329,14 @@ function buildAllowedActions(
       const filteredCount = state.answerKey.filteredAngles.length;
       const actions: FlowStep["allowedActions"] = [];
       for (let i = 0; i < filteredCount; i++) {
-        actions.push({ type: "input", target: `solution-${i}`, valueKind: "text" });
+        actions.push({
+          type: "input",
+          target: `solution-${i}`,
+          valueKind: "text",
+          presentation: {
+            slots: [{ id: `solution-${i}`, label: `解 ${i + 1}`, placeholder: "输入解" }],
+          },
+        });
       }
       actions.push({ type: "clear", target: "solve-target" });
       actions.push({ type: "submit", stepId: "solve-target" });

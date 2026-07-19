@@ -170,8 +170,6 @@ export function AngleEquationWorkspaceRenderer({
   runtime,
   draft,
   setDraft,
-  onSubmit,
-  onClear,
 }: WorkspaceRendererProps): ReactElement {
   const model = parseWorkspaceModel(runtime);
   if (!model) {
@@ -204,22 +202,6 @@ export function AngleEquationWorkspaceRenderer({
       ...prev,
       inputs: { ...prev.inputs, [key]: value },
     }));
-  };
-
-  // Submit handler
-  const handleSubmit = () => {
-    onSubmit({
-      stepId,
-      value: JSON.stringify({
-        selections: draft.selections,
-        inputs: draft.inputs,
-      }),
-    });
-  };
-
-  // Clear handler
-  const handleClear = () => {
-    onClear(stepId);
   };
 
   // Determine unit circle selected state
@@ -294,14 +276,6 @@ export function AngleEquationWorkspaceRenderer({
         )}
       </div>
 
-      <div className="practice-workspace-actions">
-        <button className="tiny-btn" type="button" onClick={handleClear}>
-          清空当前步骤
-        </button>
-        <button className="btn btn-primary" type="button" onClick={handleSubmit}>
-          提交当前步骤
-        </button>
-      </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import {
   FinishPracticeResponse,
+  LearningProjectionSpec,
   RuntimeActionEvent,
   RuntimeActionResponse,
   RestorePracticeResponse,
@@ -31,6 +32,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getTaskTree: () => request<TaskTreeResponse>("/api/task-tree"),
+  getLearningProjection: (taskId: TaskId) =>
+    request<LearningProjectionSpec>(`/api/learn/${taskId}`),
   getTaskHistory: (taskId: TaskId, studentName: string, limit = 5) =>
     request<TaskHistoryResponse>(
       `/api/task-history/${taskId}?studentName=${encodeURIComponent(studentName)}&limit=${limit}`,

@@ -1,7 +1,20 @@
 import type { BuoyancyContentDefinition, BuoyancyStepKey } from "../../../../../../shared/buoyancyForceAnalysis";
-import type { RuntimeActionEvent, SessionPhase, TaskDefinition } from "../../../../../../shared/contracts";
+import type {
+  ExerciseInstance,
+  LearningProjectionSpec,
+  ProblemReviewProjection,
+  ResultAttemptReview,
+  RuntimeActionEvent,
+  SessionPhase,
+  TaskDefinition,
+} from "../../../../../../shared/contracts";
 import { appError } from "../../platform/errors";
-import { defineEnginePlugin, type EngineActionResult } from "../../platform/engineTypes";
+import {
+  defaultProblemReviewProjection,
+  defineEnginePlugin,
+  learningProjectionFromRuntime,
+  type EngineActionResult,
+} from "../../platform/engineTypes";
 import { buildBuoyancyFeedbackPacket, buildBuoyancyRuntime } from "./runtimeProjector";
 import { cloneBuoyancyState, parseDraftPayload } from "./shared";
 import { generateScenario } from "./scenarioBank";
@@ -146,11 +159,56 @@ export function reduceBuoyancyAction(
   };
 }
 
+function buildBuoyancyLearningProjection(
+  task: TaskDefinition,
+  content: BuoyancyContentDefinition,
+  state: BuoyancyEngineState,
+): LearningProjectionSpec {
+  const learningState = { ...state, instanceId: `learn-${task.id}` };
+  return learningProjectionFromRuntime(task, buildBuoyancyRuntime(task, content, learningState, "answering"));
+}
+
+const BUOYANCY_COACHING: Record<string, { title: string; copy: string }> = {
+  "solve-unknown-1": { title: "第一个受力方程选择不稳", copy: "先隔离单个物体，明确每个力的方向，再决定用物块方程还是整体方程。" },
+  "solve-unknown-2": { title: "第二个未知量代入偏差", copy: "复用第一步已求出的量，检查等号两边的正负号和单位。" },
+};
+
+function displayBuoyancyValue(
+  state: BuoyancyEngineState,
+  key: BuoyancyEngineState["answerKey"]["unknown1"]["key"],
+  value: number,
+) {
+  if (key === "Gobj" && state.useMassObj) return String(value / 10);
+  if (key === "Gwater" && state.useMassWater) return String(value / 10);
+  return String(value);
+}
+
+function buildBuoyancyProblemReviewProjection(
+  _task: TaskDefinition,
+  _content: BuoyancyContentDefinition,
+  state: BuoyancyEngineState,
+  instance: ExerciseInstance,
+  attempts: ResultAttemptReview[],
+): ProblemReviewProjection {
+  const projection = defaultProblemReviewProjection(instance, attempts, {
+    inputs: {
+      "solve-unknown-1": displayBuoyancyValue(state, state.answerKey.unknown1.key, state.answerKey.unknown1.value),
+      "solve-unknown-2": displayBuoyancyValue(state, state.answerKey.unknown2.key, state.answerKey.unknown2.value),
+    },
+  });
+  const coaching = projection.focusStepId ? BUOYANCY_COACHING[projection.focusStepId] : undefined;
+  return coaching
+    ? { ...projection, diagnosisCode: `buoyancy-${projection.focusStepId}`, diagnosisTitle: coaching.title, coachingCopy: coaching.copy }
+    : projection;
+}
+
 // ─── Plugin export ─────────────────────────────────────────────────
 
 export const buoyancyForceAnalysisEnginePlugin = defineEnginePlugin({
   createState: createBuoyancyState,
   restoreState: restoreBuoyancyState,
   buildRuntime: buildBuoyancyRuntime,
+  buildLearningProjection: buildBuoyancyLearningProjection,
+  buildProblemReviewProjection: buildBuoyancyProblemReviewProjection,
   reduceAction: reduceBuoyancyAction,
 });

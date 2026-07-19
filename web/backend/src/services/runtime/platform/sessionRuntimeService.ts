@@ -10,6 +10,7 @@ import {
 import { listRuntimeInstancesBySessionId, insertRuntimeInstances, type RuntimeInstanceRow, updateRuntimeInstanceState } from "../../../repositories/instanceRepository";
 import { createSession, getSessionById, type SessionRow, updateSessionProgress } from "../../../repositories/sessionRepository";
 import { db } from "../../../db/database";
+import { insertActionEvent } from "../../../repositories/actionEventRepository";
 import { finishAndPersistResult } from "../../resultsService";
 import { getTaskDefinition } from "../../tasks/catalogService";
 import { resolveContentDefinition } from "./contentRegistry";
@@ -58,6 +59,8 @@ const persistProgress = db.transaction(
     record: RuntimeInstanceRecord,
     engineState: RuntimeEngineState,
     runtime: ReturnType<ReturnType<typeof getEnginePlugin>["buildRuntime"]>,
+    action: RuntimeActionEvent,
+    evaluation: RuntimeActionResponse["evaluation"],
   ) => {
     updateRuntimeInstanceState(
       record.row.id,
@@ -66,6 +69,7 @@ const persistProgress = db.transaction(
       JSON.stringify(runtime.runtimeState),
     );
     updateSessionProgress(sessionId, nextIndex, nextPhase);
+    insertActionEvent(sessionId, record.row.id, action, evaluation);
   },
 );
 
@@ -154,7 +158,7 @@ export function submitRuntimeAction(
   }
 
   const runtime = plugin.buildRuntime(task, activeRecord.content, reduced.engineState, nextPhase);
-  persistProgress(sessionId, nextIndex, nextPhase, activeRecord, reduced.engineState, runtime);
+  persistProgress(sessionId, nextIndex, nextPhase, activeRecord, reduced.engineState, runtime, action, reduced.evaluation);
 
   return {
     accepted: reduced.accepted,

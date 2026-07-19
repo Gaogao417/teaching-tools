@@ -5,17 +5,17 @@ import type {
   ExerciseRuntimeSpec,
   FeedbackEffectKey,
   PracticeSessionSnapshot,
-  ResultSnapshot,
   TaskHistoryItem,
   TaskId,
 } from "../../../shared/contracts";
 import { api } from "../api/client";
 import { Chart } from "../components/Chart";
 import type { WorkspaceOutletContext } from "../components/layout/workspaceContext";
-import { findTaskPath, formatSeconds } from "../components/layout/workspaceUtils";
+import { formatSeconds } from "../components/layout/workspaceUtils";
 import { currentStep } from "./practice/runtime/sceneUtils";
 import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from "../utils/storage";
-import { ExerciseRuntimeHost, GuidePanel, FeedbackController } from "./practice/ExerciseRuntimeHost";
+import { ExerciseRuntimeHost, GuideHUD, FeedbackController } from "./practice/ExerciseRuntimeHost";
+import { RuntimeActionDock } from "./practice/runtime/RuntimeActionDock";
 import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
 
 const AUTO_ADVANCE_DELAY = 700;
@@ -52,7 +52,7 @@ function feedbackKind(runtime?: ExerciseRuntimeSpec, fallback: FeedbackEffectKey
 export function PracticePage() {
   const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: TaskId }>();
-  const { studentName, requestAuth, focusedTask, tree, setTopNavContent } = useOutletContext<WorkspaceOutletContext>();
+  const { studentName, requestAuth, focusedTask, setTopNavContent, setNavigationGuard } = useOutletContext<WorkspaceOutletContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [loading, setLoading] = useState(true);
@@ -60,19 +60,21 @@ export function PracticePage() {
   const [history, setHistory] = useState<TaskHistoryItem[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [draft, setDraft] = useState<ClientDraftState>(emptyDraft());
-  const [modalSnapshot, setModalSnapshot] = useState<ResultSnapshot | null>(null);
   const advanceTimer = useRef<number | null>(null);
   const sessionRef = useRef<PracticeSession | null>(null);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const { effectKind, triggerFeedback, prefersReducedMotion } = usePracticeFeedback();
 
   const runtime = session?.runtime;
-  const taskPath = useMemo(() => findTaskPath(taskId, tree), [taskId, tree]);
   const step = runtime ? currentStep(runtime) : null;
   const activeStepIndex = runtime
     ? runtime.instance.guide.stepItems.findIndex((item) => item.stepId === runtime.runtimeState.currentStepId)
     : -1;
   const currentStepNumber = activeStepIndex >= 0 ? activeStepIndex + 1 : null;
+  const hasDraft = useMemo(
+    () => Object.values(draft.inputs).some((value) => value.trim()) || Object.values(draft.selections).some((value) => value.length),
+    [draft],
+  );
 
   useEffect(() => {
     sessionRef.current = session;
@@ -83,6 +85,21 @@ export function PracticePage() {
       if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasDraft) {
+      setNavigationGuard(null);
+      return;
+    }
+    const guard = () => window.confirm("当前答案尚未提交，离开后将丢失这部分草稿。确定离开吗？");
+    setNavigationGuard(guard);
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      setNavigationGuard(null);
+    };
+  }, [hasDraft, setNavigationGuard]);
 
   useEffect(() => {
     if (!taskId || !studentName) {
@@ -167,7 +184,6 @@ export function PracticePage() {
     try {
       clearStoredSessionId(taskId);
       setIsHistoryOpen(false);
-      setModalSnapshot(null);
       const started = await api.startPractice(taskId, studentName);
       setSession(started);
       setDraft(emptyDraft());
@@ -189,10 +205,11 @@ export function PracticePage() {
 
   const finishPractice = async (currentSession: PracticeSession) => {
     const finished = await api.finishPractice(currentSession.sessionId);
-    setModalSnapshot(finished.resultSnapshot);
     clearStoredSessionId(currentSession.taskId);
     await refreshHistory(currentSession.taskId, currentSession.studentName);
-    triggerFeedback("finish");
+    window.setTimeout(() => {
+      navigate(`/review/${currentSession.taskId}?sessionId=${finished.resultSnapshot.sessionId}`, { replace: true });
+    }, AUTO_ADVANCE_DELAY);
   };
 
   const submitRuntimeAction = async (action: { type: "submit" | "clear"; stepId?: string; value?: string; targetId?: string }) => {
@@ -252,47 +269,20 @@ export function PracticePage() {
     if (!taskId || !studentName) return null;
 
     return (
-      <div className="ks-session-header">
-        <div className="ks-session-header-copy">
-          <span className="ks-session-kicker">Task</span>
-          <h1>{focusedTask?.title || "Preparing practice"}</h1>
-        </div>
-
-        <div className="ks-session-header-right">
-          <div className="ks-session-timer-pill" aria-label="Session elapsed time">
-            <span className="material-symbols-outlined">timer</span>
-            <strong className="font-mono-timer">
-              {loading || !session || !runtime || !step || !currentStepNumber ? "--:--" : formatSeconds(session.elapsedMs)}
-            </strong>
-          </div>
-
-          <div className="ks-session-header-actions">
-            <button
-              className="ks-nav-action"
-              type="button"
-              title="View History"
-              aria-pressed={isHistoryOpen}
-              onClick={() => setIsHistoryOpen((current) => !current)}
-            >
-              <span className="material-symbols-outlined">history</span>
-            </button>
-            <button className="ks-nav-action" type="button" title="Back to Home" onClick={() => navigate("/")}>
-              <span className="material-symbols-outlined">home</span>
-            </button>
-            <button className="ks-nav-action" type="button" title="Retry Session" onClick={() => void startNewSession()}>
-              <span className="material-symbols-outlined">refresh</span>
-            </button>
-            <button className="ks-nav-action" type="button" title="Stop Session" disabled>
-              <span className="material-symbols-outlined">stop_circle</span>
-            </button>
-          </div>
-        </div>
+      <div className="ks-practice-session-tools">
+        <button
+          className="ks-nav-action"
+          type="button"
+          title="查看训练历史"
+          aria-pressed={isHistoryOpen}
+          onClick={() => setIsHistoryOpen((current) => !current)}
+        >
+          <span className="material-symbols-outlined">history</span>
+        </button>
       </div>
     );
   }, [
-    focusedTask?.title,
     loading,
-    navigate,
     runtime,
     session,
     startNewSession,
@@ -328,10 +318,10 @@ export function PracticePage() {
 
   if (!taskId) {
     return (
-      <section className="panel workspace-panel scholar-panel">
+      <section className="panel workspace-panel">
         <div className="detail-head">
-          <h2>Task not found</h2>
-          <p className="text-muted">Return to the learning path and choose an available challenge.</p>
+          <h2>没有找到这项学习内容</h2>
+          <p className="text-muted">请返回学习模式并重新选择内容。</p>
         </div>
       </section>
     );
@@ -339,18 +329,18 @@ export function PracticePage() {
 
   if (!studentName) {
     return (
-      <section className="panel workspace-panel workspace-lock-panel scholar-panel">
+      <section className="panel workspace-panel workspace-lock-panel">
         <div className="detail-head">
-          <div className="eyebrow">Training Locked</div>
-          <h2>Add a student name before starting practice</h2>
-          <p>The route is ready, but the app needs a student identity before it can create, restore, and save runtime sessions.</p>
+          <div className="eyebrow">训练尚未开始</div>
+          <h2>设置学生姓名后再开始训练</h2>
+          <p>学生身份用于保存未完成的训练和之后的复盘记录。</p>
         </div>
         <div className="action-row">
           <button className="btn btn-primary" type="button" onClick={requestAuth}>
-            Set Student Name
+            设置学生姓名
           </button>
-          <button className="btn btn-ghost" type="button" onClick={() => navigate("/")}>
-            Back to Overview
+          <button className="btn btn-ghost" type="button" onClick={() => navigate(`/learn/${taskId}`)}>
+            返回学习
           </button>
         </div>
       </section>
@@ -359,11 +349,11 @@ export function PracticePage() {
 
   if (loading || !session || !runtime) {
     return (
-      <section className="panel workspace-panel scholar-panel">
+      <section className="panel workspace-panel">
         <div className="detail-head">
-          <div className="eyebrow">Preparing Runtime</div>
-          <h2>Loading the current practice environment</h2>
-          <p className="text-muted">The app first tries to restore an active session, then creates a fresh group if nothing is in progress.</p>
+          <div className="eyebrow">正在准备训练</div>
+          <h2>正在恢复当前进度</h2>
+          <p className="text-muted">如果没有未完成记录，系统会创建一组新题。</p>
         </div>
       </section>
     );
@@ -373,67 +363,40 @@ export function PracticePage() {
     return null;
   }
 
-  const selectAction = step.allowedActions.find((action) => action.type === "select");
-  const clearAction = step.allowedActions.find((action) => action.type === "clear");
-  const submitAction = step.allowedActions.find((action) => action.type === "submit");
-  const selected = selectAction?.type === "select" ? draft.selections[selectAction.target] || [] : [];
-  const canSubmitOrderedSelection =
-    selectAction?.type === "select" && selectAction.selectionKind === "ordered" ? selected.length >= 2 : true;
+  const solvedCount = Math.min(
+    session.instanceCount,
+    session.currentIndex + (session.phase === "correct_pause" || session.phase === "group_finished" ? 1 : 0),
+  );
 
   return (
     <div className={`ks-practice-page practice-route effect-${effectKind || "idle"}`}>
       <PracticeEffectsLayer effectKind={effectKind} reducedMotion={prefersReducedMotion} />
 
       <main className="ks-practice-main">
-        <div className="ks-practice-body">
-          <div className="ks-practice-left">
-            <section className="ks-problem-prompt-card">
-              <div className="ks-problem-glow" aria-hidden="true" />
-              <div className="ks-problem-content">
-                <div className="ks-problem-kicker-row">
-                  <span className="ks-problem-kicker">Current Prompt</span>
-                  <span className="ks-problem-step-pill">Step {currentStepNumber}</span>
-                </div>
-                <h2>{runtime.instance.prompt}</h2>
-                <p>{step.goal || runtime.instance.guide.hint || focusedTask?.summary}</p>
-              </div>
+        <header className="ks-practice-hud">
+          <div className="ks-practice-progress-copy">
+            <strong>{String(session.currentIndex + 1).padStart(2, "0")} / {String(session.instanceCount).padStart(2, "0")}</strong>
+            <span>当前题目</span>
+          </div>
+          <div className="ks-practice-hud-stats">
+            <span><strong>{solvedCount}</strong> 正确</span>
+            <span><strong>{session.instanceCount - solvedCount}</strong> 剩余</span>
+            <span className="font-mono-timer"><strong>{formatSeconds(session.elapsedMs)}</strong></span>
+          </div>
+          <div className="ks-practice-hud-actions">
+            <button type="button" onClick={() => (!hasDraft || window.confirm("重置会清空当前草稿并开始一组新题，确定继续吗？")) && void startNewSession()}><span className="material-symbols-outlined">restart_alt</span>重置</button>
+            <button type="button" onClick={() => (!hasDraft || window.confirm("当前答案尚未提交，确定退出训练吗？")) && navigate(`/learn/${session.taskId}`)}><span className="material-symbols-outlined">close</span>退出</button>
+          </div>
+        </header>
 
-              <div className="ks-problem-actions">
-                <button
-                  className="ks-clear-action"
-                  type="button"
-                  title="Clear Canvas"
-                  onClick={() => void submitRuntimeAction({ type: "clear", targetId: clearAction?.target || step.id })}
-                >
-                  <span className="material-symbols-outlined">restart_alt</span>
-                </button>
+        <section className="ks-runtime-stage">
+          <div className="ks-prompt-line">
+            <span>题目</span>
+            <div><h1>{runtime.instance.prompt}</h1><p>{step.goal}</p></div>
+            <small>步骤 {currentStepNumber}</small>
+          </div>
 
-                <button className="ks-secondary-action" type="button" title="Skip Action" disabled>
-                  <span className="material-symbols-outlined">skip_next</span>
-                </button>
-
-                <button
-                  className="ks-submit-action"
-                  type="button"
-                  title="Submit Answer"
-                  disabled={!submitAction || !canSubmitOrderedSelection}
-                  onClick={() =>
-                    submitAction &&
-                    submitRuntimeAction({
-                      type: "submit",
-                      stepId: submitAction.stepId,
-                      value: JSON.stringify({
-                        selections: draft.selections,
-                        inputs: draft.inputs,
-                      }),
-                    })
-                  }
-                >
-                  <span className="material-symbols-outlined">check_circle</span>
-                </button>
-              </div>
-            </section>
-
+          <div className="ks-runtime-stage-canvas">
             <ExerciseRuntimeHost
               runtime={runtime}
               sessionPhase={session.phase}
@@ -444,14 +407,16 @@ export function PracticePage() {
               onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
             />
           </div>
+          <GuideHUD runtime={runtime} sessionPhase={session.phase} />
+        </section>
 
-          <GuidePanel
-            runtime={runtime}
-            sessionPhase={session.phase}
-            taskGroup={taskPath?.chapter.name}
-            taskLabel={focusedTask?.title}
-          />
-        </div>
+        <RuntimeActionDock
+          runtime={runtime}
+          draft={draft}
+          disabled={session.phase === "correct_pause" || session.phase === "group_finished"}
+          onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
+          onSubmit={(stepId, value) => void submitRuntimeAction({ type: "submit", stepId, value })}
+        />
       </main>
 
       <FeedbackController runtime={runtime} sessionPhase={session.phase} />
@@ -461,18 +426,11 @@ export function PracticePage() {
           history={history}
           taskTitle={focusedTask?.title || runtime.instance.taskId}
           studentName={studentName}
-          color={focusedTask?.color || "#5148d7"}
+          color={focusedTask?.color || "#1F64FF"}
           onClose={() => setIsHistoryOpen(false)}
         />
       )}
 
-      {modalSnapshot && (
-        <CompletionModal
-          snapshot={modalSnapshot}
-          onRetry={() => void startNewSession()}
-          onResult={() => navigate(`/result/${session.sessionId}`)}
-        />
-      )}
     </div>
   );
 }
@@ -504,9 +462,9 @@ function HistoryModal({
       >
         <div className="ks-history-modal-head">
           <div>
-            <div className="eyebrow">History</div>
+        <div className="eyebrow">训练历史</div>
             <h2>{taskTitle}</h2>
-            <p className="text-muted">{studentName}'s recent results for this task.</p>
+            <p className="text-muted">{studentName} 在当前内容上的最近训练。</p>
           </div>
           <button className="ks-nav-action" type="button" title="Close history" onClick={onClose}>
             <span className="material-symbols-outlined">close</span>
@@ -515,15 +473,15 @@ function HistoryModal({
 
         <div className="metric-grid ks-history-metrics">
           <div>
-            <span>Total runs</span>
+            <span>训练次数</span>
             <strong>{history.length || "--"}</strong>
           </div>
           <div>
-            <span>Best time</span>
+            <span>最佳用时</span>
             <strong>{formatSeconds(best)}</strong>
           </div>
           <div>
-            <span>Average</span>
+            <span>平均用时</span>
             <strong>{formatSeconds(avg)}</strong>
           </div>
         </div>
@@ -539,8 +497,8 @@ function HistoryModal({
                     <span>{new Date(item.clearedAt).toLocaleString("zh-CN")}</span>
                   </div>
                   <div className="ks-history-row-meta">
-                    <span>{Math.round(item.firstTryAccuracy * 100)}% first try</span>
-                    <span>{item.problemCount} problems</span>
+                    <span>首次正确 {Math.round(item.firstTryAccuracy * 100)}%</span>
+                    <span>{item.problemCount} 题</span>
                   </div>
                 </article>
               ))}
@@ -552,53 +510,6 @@ function HistoryModal({
             <p>No history yet for this task.</p>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function CompletionModal({
-  snapshot,
-  onRetry,
-  onResult,
-}: {
-  snapshot: ResultSnapshot;
-  onRetry: () => void;
-  onResult: () => void;
-}) {
-  return (
-    <div className="modal-backdrop">
-      <div className="modern-completion-modal scholar-completion-modal">
-        <div className="eyebrow">Challenge Complete</div>
-        <h2>{snapshot.title}</h2>
-        <p>{snapshot.copy}</p>
-        <div className="metric-grid">
-          <div>
-            <span>Session time</span>
-            <strong>{formatSeconds(snapshot.elapsedMs)}</strong>
-          </div>
-          <div>
-            <span>Best time</span>
-            <strong>{formatSeconds(snapshot.bestMs)}</strong>
-          </div>
-          <div>
-            <span>Average</span>
-            <strong>{formatSeconds(snapshot.avgMs)}</strong>
-          </div>
-          <div>
-            <span>First-try accuracy</span>
-            <strong>{Math.round(snapshot.firstTryAccuracy * 100)}%</strong>
-          </div>
-        </div>
-        <Chart points={snapshot.history} color={snapshot.color} />
-        <div className="action-row">
-          <button className="btn btn-secondary" type="button" onClick={onRetry}>
-            Practice Again
-          </button>
-          <button className="btn btn-primary" type="button" onClick={onResult}>
-            View Result
-          </button>
-        </div>
       </div>
     </div>
   );

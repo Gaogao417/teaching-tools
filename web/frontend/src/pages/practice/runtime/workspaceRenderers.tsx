@@ -13,6 +13,7 @@ export type WorkspaceRendererProps = {
   inputRefs: MutableRefObject<Record<string, HTMLInputElement | null>>;
   onSubmit: (action: { stepId: string; value: string }) => void;
   onClear: (target?: string) => void;
+  readOnly?: boolean;
 };
 
 export const WORKSPACE_RENDERERS = {

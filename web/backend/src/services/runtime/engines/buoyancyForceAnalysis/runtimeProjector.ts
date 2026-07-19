@@ -196,7 +196,12 @@ function buildFlow(
 
 function buildAllowedActions(stepId: BuoyancyStepKey): FlowStep["allowedActions"] {
   return [
-    { type: "input", target: stepId, valueKind: "text" },
+    {
+      type: "input",
+      target: stepId,
+      valueKind: "text",
+      presentation: { slots: [{ id: stepId, label: "计算结果", placeholder: "输入数值" }] },
+    },
     { type: "clear", target: stepId },
     { type: "submit", stepId },
   ];

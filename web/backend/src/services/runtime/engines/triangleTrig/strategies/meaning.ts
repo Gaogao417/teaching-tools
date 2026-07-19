@@ -58,7 +58,18 @@ export const meaningStrategy: TriangleTrigTaskStrategy<MeaningEngineState> = {
             goal: "在左侧依次点击两条边。",
             status: state.status === "correct" ? "done" : "active",
             allowedActions: [
-              { type: "select", target: "meaning-selection", selectionKind: "ordered" },
+              {
+                type: "select",
+                target: "meaning-selection",
+                selectionKind: "ordered",
+                presentation: {
+                  label: "当前答案",
+                  slots: [
+                    { id: "numerator", label: "分子", placeholder: "先选择分子边" },
+                    { id: "denominator", label: "分母", placeholder: "再选择分母边" },
+                  ],
+                },
+              },
               { type: "clear", target: "meaning-selection" },
               { type: "submit", stepId: currentStepId },
             ],

@@ -16,4 +16,5 @@ export type WorkspaceOutletContext = {
   requestAuth: () => void;
   setFocusedTaskId: (taskId: TaskId) => void;
   setTopNavContent: (state: WorkspaceTopNavState | null) => void;
+  setNavigationGuard: (guard: (() => boolean) | null) => void;
 };

@@ -1,9 +1,12 @@
-import type { ResultSnapshot, TaskHistoryItem, TaskId } from "../../../shared/contracts";
+import type { ContentDefinition, ExerciseEngineKind, ExerciseInstance, ResultAttemptReview, ResultSnapshot, TaskHistoryItem, TaskId } from "../../../shared/contracts";
 import { TASK_COLORS } from "../../../shared/tasks";
 import { getPreviousElapsedMs, getResultSnapshot, insertResultSnapshot, listResultHistory, listTaskHistory } from "../repositories/resultRepository";
 import { markSessionFinished } from "../repositories/sessionRepository";
 import { appError } from "./runtime/platform/errors";
 import { getTaskDefinition } from "./tasks/catalogService";
+import { listActionEvents } from "../repositories/actionEventRepository";
+import { getEnginePlugin } from "./runtime/platform/engineRegistry";
+import type { RuntimeEngineState } from "./runtime/platform/engineTypes";
 
 type ResultSessionRecord = {
   id: string;
@@ -13,9 +16,14 @@ type ResultSessionRecord = {
 };
 
 type ResultInstanceRecord = {
-  engineState: {
-    firstTryCorrect: boolean | null;
+  row: {
+    id: string;
+    instance_index: number;
+    instance_json: string;
+    engine_kind: ExerciseEngineKind;
   };
+  content: ContentDefinition;
+  engineState: RuntimeEngineState;
 };
 
 function average(values: number[]): number | null {
@@ -57,6 +65,37 @@ export function finishAndPersistResult(
   const previousElapsedMs = getPreviousElapsedMs(session.task_id, session.student_name);
   const history = listResultHistory(session.task_id, session.student_name);
   const task = getTaskDefinition(session.task_id);
+  const actionEvents = listActionEvents(session.id);
+  const problemReviews = instances.map((record) => {
+    const instance = JSON.parse(record.row.instance_json) as ExerciseInstance;
+    const attemptLog: ResultAttemptReview[] = actionEvents
+      .filter((event) => event.instance_id === record.row.id)
+      .map((event) => ({
+        actionType: event.action_type,
+        stepId: event.step_id ?? undefined,
+        stepTitle: instance.flow.steps.find((step) => step.id === event.step_id)?.title,
+        targetId: event.target_id ?? undefined,
+        submittedValue: event.submitted_value ?? undefined,
+        evaluation: event.evaluation,
+        createdAt: event.created_at,
+      }));
+    const projection = getEnginePlugin(record.row.engine_kind).buildProblemReviewProjection(
+      task,
+      record.content,
+      record.engineState,
+      instance,
+      attemptLog,
+    );
+    return {
+      instanceId: record.row.id,
+      index: record.row.instance_index,
+      prompt: instance.prompt,
+      attempts: record.engineState.attempts,
+      firstTryCorrect: Boolean(record.engineState.firstTryCorrect),
+      attemptLog,
+      ...projection,
+    };
+  });
   const snapshot: ResultSnapshot = {
     sessionId: session.id,
     taskId: session.task_id,
@@ -75,6 +114,7 @@ export function finishAndPersistResult(
     color: TASK_COLORS[session.task_id],
     deltaVsPreviousMs: previousElapsedMs === null ? null : elapsedMs - previousElapsedMs,
     history: [...history, { elapsedMs, clearedAt: finishedAt }],
+    problemReviews,
   };
 
   insertResultSnapshot({

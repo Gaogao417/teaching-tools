@@ -8,7 +8,10 @@ export type TaskTreePath = {
 
 export function formatSeconds(ms: number | null | undefined) {
   if (!Number.isFinite(ms)) return "--";
-  return `${((ms || 0) / 1000).toFixed(1)}s`;
+  const totalSeconds = Math.max(0, Math.floor((ms || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 export function findFirstTask(tree: TaskTreeResponse | null) {

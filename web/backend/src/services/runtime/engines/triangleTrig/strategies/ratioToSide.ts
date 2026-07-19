@@ -83,9 +83,9 @@ export const ratioToSideStrategy: TriangleTrigTaskStrategy<RatioEngineState> = {
             goal: "填写三边长度后提交。",
             status: state.status === "correct" ? "done" : "active",
             allowedActions: [
-              { type: "input", target: "side-AB", valueKind: "length" },
-              { type: "input", target: "side-BC", valueKind: "length" },
-              { type: "input", target: "side-AC", valueKind: "length" },
+              { type: "input", target: "side-AB", valueKind: "length", presentation: { slots: [{ id: "side-AB", label: "边 AB", placeholder: "输入边长" }] } },
+              { type: "input", target: "side-BC", valueKind: "length", presentation: { slots: [{ id: "side-BC", label: "边 BC", placeholder: "输入边长" }] } },
+              { type: "input", target: "side-AC", valueKind: "length", presentation: { slots: [{ id: "side-AC", label: "边 AC", placeholder: "输入边长" }] } },
               { type: "clear", target: currentStepId },
               { type: "submit", stepId: currentStepId },
             ],

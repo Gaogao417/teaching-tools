@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import type { TaskId } from "../../../shared/contracts";
 import type { TaskHistoryResponse } from "../../../shared/contracts";
 import { api } from "../api/client";
 import { Chart } from "../components/Chart";
@@ -9,8 +10,13 @@ import { getStoredSessionId } from "../utils/storage";
 
 export function TaskOverviewPanel() {
   const navigate = useNavigate();
-  const { focusedTask, studentName, isStudentReady, requestAuth } = useOutletContext<WorkspaceOutletContext>();
+  const { taskId } = useParams<{ taskId: TaskId }>();
+  const { focusedTask, studentName, isStudentReady, requestAuth, setFocusedTaskId } = useOutletContext<WorkspaceOutletContext>();
   const [history, setHistory] = useState<TaskHistoryResponse | null>(null);
+
+  useEffect(() => {
+    if (taskId) setFocusedTaskId(taskId);
+  }, [setFocusedTaskId, taskId]);
 
   useEffect(() => {
     if (!focusedTask || !studentName) {
@@ -35,8 +41,8 @@ export function TaskOverviewPanel() {
 
   if (!focusedTask) {
     return (
-      <section className="panel workspace-panel scholar-panel scholar-empty-panel">
-        <div className="surface-canvas scholar-empty-state">
+      <section className="panel workspace-panel">
+        <div className="surface-canvas">
           <div className="eyebrow">The Kinetic Scholar</div>
           <h2 className="canvas-title">Choose a task from the learning map</h2>
           <p className="text-muted">Open the sidebar to preview the prompt, inspect the solution path, and start a live runtime session.</p>
@@ -48,27 +54,27 @@ export function TaskOverviewPanel() {
   const hasStoredSession = isStudentReady ? Boolean(getStoredSessionId(focusedTask.id)) : false;
 
   return (
-    <section className="panel workspace-panel scholar-panel">
-      <div className="workspace-panel-head scholar-hero-grid">
-        <div className="detail-head scholar-hero-copy">
-          <div className="eyebrow">{focusedTask.difficulty}</div>
+    <section className="panel workspace-panel">
+      <div className="workspace-panel-head ks-learn-hero">
+        <div className="detail-head">
+          <div className="eyebrow">Learn · {focusedTask.difficulty}</div>
           <h2>{focusedTask.title}</h2>
           <p>{focusedTask.summary}</p>
-          <div className="scholar-pill-row">
-            <span className="pill">Engine {focusedTask.engineKind}</span>
-            <span className="pill">{focusedTask.steps.length} step path</span>
+          <div className="action-row">
+            <span className="pill">概念讲解</span>
+            <span className="pill">{focusedTask.steps.length} 步方法</span>
           </div>
         </div>
 
-        <div className="workspace-cta-card scholar-cta-card">
-          <div className="scholar-cta-header">
-            <span className="scholar-cta-kicker">Session Control</span>
-            <strong>{hasStoredSession ? "Resume the current run" : "Start a fresh guided session"}</strong>
+        <div className="workspace-cta-card ks-learn-next-card">
+          <div className="detail-head">
+            <span className="eyebrow">学完以后</span>
+            <strong>{hasStoredSession ? "继续未完成的训练" : "用一组题检验是否真正掌握"}</strong>
           </div>
           <p className="text-muted">
             {isStudentReady
-              ? "Launch the current runtime shell with the same routes, restore flow, and result tracking."
-              : "Set a student name first so the app can restore unfinished sessions and attach history."}
+              ? "训练模式会收起完整解法，只保留当前动作、计时和必要反馈。"
+              : "先设置学生姓名，系统才能保存训练和复盘记录。"}
           </p>
           <div className="action-row">
             <button
@@ -83,11 +89,11 @@ export function TaskOverviewPanel() {
                 navigate(`/practice/${focusedTask.id}`);
               }}
             >
-              {hasStoredSession ? "Resume Session" : "Start Session"}
+              {hasStoredSession ? "继续训练" : "开始训练"}
             </button>
             {!isStudentReady && (
               <button className="btn btn-secondary" type="button" onClick={requestAuth}>
-                Set Student Name
+                设置学生姓名
               </button>
             )}
           </div>
@@ -95,48 +101,48 @@ export function TaskOverviewPanel() {
       </div>
 
       <div className="workspace-overview-grid">
-        <article className="info-card scholar-info-card">
-          <div className="scholar-card-head">
-            <span className="scholar-card-kicker">Prompt</span>
-            <h3>Sample challenge</h3>
+        <article className="info-card">
+          <div className="detail-head">
+            <span className="eyebrow">概念入口</span>
+            <h3>先看问题长什么样</h3>
           </div>
           <p>{focusedTask.sample.prompt}</p>
         </article>
 
-        <article className="info-card scholar-info-card">
-          <div className="scholar-card-head">
-            <span className="scholar-card-kicker">Performance</span>
-            <h3>Student snapshot</h3>
+        <article className="info-card">
+          <div className="detail-head">
+            <span className="eyebrow">学习记录</span>
+            <h3>目前掌握情况</h3>
           </div>
           {isStudentReady ? (
             <div className="metric-grid">
               <div>
-                <span>Total runs</span>
+                <span>训练次数</span>
                 <strong>{metrics.count || "--"}</strong>
               </div>
               <div>
-                <span>Best time</span>
+                <span>最佳用时</span>
                 <strong>{formatSeconds(metrics.best)}</strong>
               </div>
               <div>
-                <span>Average</span>
+                <span>平均用时</span>
                 <strong>{formatSeconds(metrics.avg)}</strong>
               </div>
               <div>
-                <span>Latest run</span>
+                <span>最近一次</span>
                 <strong>{formatSeconds(metrics.latest)}</strong>
               </div>
             </div>
           ) : (
-            <p className="text-muted">Set a student name to load history and compare this task against previous runs.</p>
+            <p className="text-muted">设置学生姓名后，可以保存训练并比较前后变化。</p>
           )}
         </article>
       </div>
 
-      <article className="info-card scholar-info-card">
-        <div className="scholar-card-head">
-          <span className="scholar-card-kicker">Roadmap</span>
-          <h3>Solution path</h3>
+      <article className="info-card">
+        <div className="detail-head">
+          <span className="eyebrow">方法</span>
+          <h3>完整解题路径</h3>
         </div>
         <ol className="steps-list">
           {focusedTask.steps.map((step) => (
@@ -145,14 +151,14 @@ export function TaskOverviewPanel() {
         </ol>
       </article>
 
-      <article className="info-card scholar-info-card">
-        <div className="scholar-card-head">
-          <span className="scholar-card-kicker">Trend</span>
-          <h3>Practice history</h3>
+      <article className="info-card">
+        <div className="detail-head">
+          <span className="eyebrow">回顾</span>
+          <h3>最近训练趋势</h3>
         </div>
         {isStudentReady ? (
           <>
-            <Chart points={history?.items || []} color={focusedTask.color || "#5148d7"} />
+            <Chart points={history?.items || []} color={focusedTask.color || "#1F64FF"} />
             <div className="history-list">
               {(history?.items || []).slice().reverse().map((item) => (
                 <div key={item.clearedAt} className="history-row">
@@ -163,7 +169,7 @@ export function TaskOverviewPanel() {
             </div>
           </>
         ) : (
-          <p className="text-muted">The catalog remains visible, but history is only available after identity is confirmed.</p>
+          <p className="text-muted">设置学生姓名后，这里会显示最近训练趋势。</p>
         )}
       </article>
     </section>

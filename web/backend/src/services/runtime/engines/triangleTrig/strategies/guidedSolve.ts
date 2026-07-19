@@ -84,9 +84,9 @@ function buildGuidedFlow(
         goal: "把两条已知边化成 z 比。",
         status: state.stepState.ratio.done ? "done" : currentStep === "ratio" ? "active" : "locked",
         allowedActions: [
-          { type: "input", target: "ratio-opposite", valueKind: "length" },
-          { type: "input", target: "ratio-adjacent", valueKind: "length" },
-          { type: "input", target: "ratio-hypotenuse", valueKind: "length" },
+          { type: "input", target: "ratio-opposite", valueKind: "length", presentation: { slots: [{ id: "ratio-opposite", label: "对边", placeholder: "输入长度比" }] } },
+          { type: "input", target: "ratio-adjacent", valueKind: "length", presentation: { slots: [{ id: "ratio-adjacent", label: "邻边", placeholder: "输入长度比" }] } },
+          { type: "input", target: "ratio-hypotenuse", valueKind: "length", presentation: { slots: [{ id: "ratio-hypotenuse", label: "斜边", placeholder: "输入长度比" }] } },
           { type: "clear", target: "ratio" },
           { type: "submit", stepId: "ratio" },
         ],
@@ -98,7 +98,7 @@ function buildGuidedFlow(
         goal: "在左侧补全第三边的 z 系数。",
         status: state.stepState.third.done ? "done" : currentStep === "third" ? "active" : "locked",
         allowedActions: [
-          { type: "input", target: "third-side", valueKind: "length" },
+          { type: "input", target: "third-side", valueKind: "length", presentation: { slots: [{ id: "third-side", label: "第三边", placeholder: "输入边长" }] } },
           { type: "clear", target: "third" },
           { type: "submit", stepId: "third" },
         ],
@@ -110,8 +110,8 @@ function buildGuidedFlow(
         goal: `求 ${state.target.toUpperCase()} ${state.referenceAngle}。`,
         status: state.stepState.final.done ? "done" : currentStep === "final" ? "active" : "locked",
         allowedActions: [
-          { type: "input", target: "final-numerator", valueKind: "length" },
-          { type: "input", target: "final-denominator", valueKind: "length" },
+          { type: "input", target: "final-numerator", valueKind: "length", presentation: { slots: [{ id: "final-numerator", label: "分子", placeholder: "输入分子" }] } },
+          { type: "input", target: "final-denominator", valueKind: "length", presentation: { slots: [{ id: "final-denominator", label: "分母", placeholder: "输入分母" }] } },
           { type: "clear", target: "final" },
           { type: "submit", stepId: "final" },
         ],

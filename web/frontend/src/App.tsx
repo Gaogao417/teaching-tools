@@ -3,13 +3,17 @@ import { WorkspaceShell } from "./components/layout/WorkspaceShell";
 import { PracticePage } from "./pages/PracticePage";
 import { ResultPage } from "./pages/ResultPage";
 import { TaskOverviewPanel } from "./pages/TaskOverviewPanel";
+import { ReviewPage } from "./pages/ReviewPage";
+import { LearnPage } from "./pages/LearnPage";
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<WorkspaceShell />}>
         <Route index element={<TaskOverviewPanel />} />
+        <Route path="learn/:taskId" element={<LearnPage />} />
         <Route path="practice/:taskId" element={<PracticePage />} />
+        <Route path="review/:taskId" element={<ReviewPage />} />
         <Route path="result/:sessionId" element={<ResultPage />} />
       </Route>
       <Route path="/tasks" element={<Navigate to="/" replace />} />

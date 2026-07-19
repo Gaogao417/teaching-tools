@@ -184,27 +184,27 @@ function buildAllowedActions(
   switch (stepId) {
     case "construct-lines":
       return [
-        { type: "select", target: "construct-lines", selectionKind: "single" },
+        { type: "select", target: "construct-lines", selectionKind: "single", presentation: { label: "辅助线方案" } },
         { type: "clear", target: "construct-lines" },
         { type: "submit", stepId: "construct-lines" },
       ];
     case "identify-congruent":
       return [
-        { type: "select", target: "identify-congruent", selectionKind: "single" },
+        { type: "select", target: "identify-congruent", selectionKind: "single", presentation: { label: "全等关系" } },
         { type: "clear", target: "identify-congruent" },
         { type: "submit", stepId: "identify-congruent" },
       ];
     case "setup-equations":
       return [
-        { type: "input", target: "equation-1", valueKind: "text" },
-        { type: "input", target: "equation-2", valueKind: "text" },
+        { type: "input", target: "equation-1", valueKind: "text", presentation: { slots: [{ id: "equation-1", label: "方程 ①", placeholder: "输入第一条方程" }] } },
+        { type: "input", target: "equation-2", valueKind: "text", presentation: { slots: [{ id: "equation-2", label: "方程 ②", placeholder: "输入第二条方程" }] } },
         { type: "clear", target: "setup-equations" },
         { type: "submit", stepId: "setup-equations" },
       ];
     case "solve-coordinates":
       return [
-        { type: "input", target: "coord-a", valueKind: "text" },
-        { type: "input", target: "coord-b", valueKind: "text" },
+        { type: "input", target: "coord-a", valueKind: "text", presentation: { slots: [{ id: "coord-a", label: "横坐标 a", placeholder: "输入 a" }] } },
+        { type: "input", target: "coord-b", valueKind: "text", presentation: { slots: [{ id: "coord-b", label: "纵坐标 b", placeholder: "输入 b" }] } },
         { type: "clear", target: "solve-coordinates" },
         { type: "submit", stepId: "solve-coordinates" },
       ];

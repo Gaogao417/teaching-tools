@@ -5,6 +5,9 @@ import type {
   FeedbackCue,
   FeedbackSpec,
   GuideSpec,
+  LearningProjectionSpec,
+  ProblemReviewProjection,
+  ResultAttemptReview,
   RuntimeActionEvent,
   RuntimeEvaluation,
   RuntimeFeedbackPacket,
@@ -13,7 +16,13 @@ import type {
   SessionPhase,
   TaskDefinition,
 } from "../../../../../../shared/contracts";
-import { defineEnginePlugin, type EngineActionResult, type RuntimeEngineState } from "../../platform/engineTypes";
+import {
+  defaultProblemReviewProjection,
+  defineEnginePlugin,
+  learningProjectionFromRuntime,
+  type EngineActionResult,
+  type RuntimeEngineState,
+} from "../../platform/engineTypes";
 import { appError } from "../../platform/errors";
 
 export type DemoCounterEngineState = RuntimeEngineState & {
@@ -121,7 +130,12 @@ function buildInstance(task: TaskDefinition, content: DemoCounterContentDefiniti
           goal: "验证非 trig engine 也能走通统一平台链路。",
           status: state.status === "correct" ? "done" : "active",
           allowedActions: [
-            { type: "input", target: "demo-answer", valueKind: "text" },
+            {
+              type: "input",
+              target: "demo-answer",
+              valueKind: "text",
+              presentation: { slots: [{ id: "demo-answer", label: "演示口令", placeholder: "请输入口令" }] },
+            },
             { type: "clear", target: "demo-answer" },
             { type: "submit", stepId: "demo-answer" },
           ],
@@ -230,9 +244,33 @@ export function reduceDemoCounterAction(
   };
 }
 
+function buildDemoLearningProjection(
+  task: TaskDefinition,
+  content: DemoCounterContentDefinition,
+  state: DemoCounterEngineState,
+): LearningProjectionSpec {
+  const learningState = { ...state, instanceId: `learn-${task.id}` };
+  return learningProjectionFromRuntime(task, buildDemoCounterRuntime(task, content, learningState, "answering"));
+}
+
+function buildDemoProblemReviewProjection(
+  _task: TaskDefinition,
+  _content: DemoCounterContentDefinition,
+  state: DemoCounterEngineState,
+  instance: ExerciseInstance,
+  attempts: ResultAttemptReview[],
+): ProblemReviewProjection {
+  return defaultProblemReviewProjection(instance, attempts, {
+    inputs: { "demo-answer": state.expectedAnswer },
+    display: state.expectedAnswer,
+  });
+}
+
 export const demoCounterEnginePlugin = defineEnginePlugin({
   createState: createDemoCounterState,
   restoreState: restoreDemoCounterState,
   buildRuntime: buildDemoCounterRuntime,
+  buildLearningProjection: buildDemoLearningProjection,
+  buildProblemReviewProjection: buildDemoProblemReviewProjection,
   reduceAction: reduceDemoCounterAction,
 });

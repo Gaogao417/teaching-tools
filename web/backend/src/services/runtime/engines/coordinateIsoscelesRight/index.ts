@@ -3,12 +3,20 @@ import type {
   CoordIsoscelesStepKey,
 } from "../../../../../../shared/coordinateIsoscelesRight";
 import type {
+  ExerciseInstance,
+  LearningProjectionSpec,
+  ProblemReviewProjection,
+  ResultAttemptReview,
   RuntimeActionEvent,
   SessionPhase,
   TaskDefinition,
 } from "../../../../../../shared/contracts";
 import { appError } from "../../platform/errors";
-import { defineEnginePlugin } from "../../platform/engineTypes";
+import {
+  defaultProblemReviewProjection,
+  defineEnginePlugin,
+  learningProjectionFromRuntime,
+} from "../../platform/engineTypes";
 import type { EngineActionResult } from "../../platform/engineTypes";
 import {
   buildCoordIsoscelesFeedbackPacket,
@@ -184,11 +192,50 @@ export function reduceCoordIsoscelesAction(
   };
 }
 
+function buildCoordLearningProjection(
+  task: TaskDefinition,
+  content: CoordIsoscelesContentDefinition,
+  state: CoordIsoscelesEngineState,
+): LearningProjectionSpec {
+  const learningState = { ...state, instanceId: `learn-${task.id}` };
+  return learningProjectionFromRuntime(task, buildCoordIsoscelesRuntime(task, content, learningState, "answering"));
+}
+
+const COORD_COACHING: Record<string, { title: string; copy: string }> = {
+  "construct-lines": { title: "辅助线构造方向不对", copy: "从直角顶点出发作横、竖辅助线，让两侧形成可比较的直角三角形。" },
+  "identify-congruent": { title: "全等对应关系混淆", copy: "先标直角和斜边，再按旋转后的对应位置逐边配对。" },
+  "setup-equations": { title: "对应边方程没有对齐", copy: "每条方程都应来自一组对应边相等，先写几何关系再代坐标差。" },
+  "solve-coordinates": { title: "坐标方程求解偏差", copy: "保留已经验证的方程，只检查移项、符号与最终代回。" },
+};
+
+function buildCoordProblemReviewProjection(
+  _task: TaskDefinition,
+  _content: CoordIsoscelesContentDefinition,
+  state: CoordIsoscelesEngineState,
+  instance: ExerciseInstance,
+  attempts: ResultAttemptReview[],
+): ProblemReviewProjection {
+  const solution = state.answerKey.solutions[0];
+  const projection = defaultProblemReviewProjection(instance, attempts, {
+    selections: {
+      "construct-lines": [state.answerKey.correctConstruction],
+      "identify-congruent": [state.answerKey.correctCongruence],
+    },
+    inputs: solution ? { "coord-a": String(solution.x), "coord-b": String(solution.y) } : undefined,
+  });
+  const coaching = projection.focusStepId ? COORD_COACHING[projection.focusStepId] : undefined;
+  return coaching
+    ? { ...projection, diagnosisCode: `coord-${projection.focusStepId}`, diagnosisTitle: coaching.title, coachingCopy: coaching.copy }
+    : projection;
+}
+
 // ─── Plugin export ───────────────────────────────────────────────────
 
 export const coordIsoscelesEnginePlugin = defineEnginePlugin({
   createState: createCoordIsoscelesState,
   restoreState: restoreCoordIsoscelesState,
   buildRuntime: buildCoordIsoscelesRuntime,
+  buildLearningProjection: buildCoordLearningProjection,
+  buildProblemReviewProjection: buildCoordProblemReviewProjection,
   reduceAction: reduceCoordIsoscelesAction,
 });

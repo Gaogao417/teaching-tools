@@ -28,8 +28,6 @@ export function BuoyancyWorkspaceRenderer({
   runtime,
   draft,
   setDraft,
-  onSubmit,
-  onClear,
 }: WorkspaceRendererProps): ReactElement {
   const model = parseWorkspaceModel(runtime);
   if (!model) {
@@ -58,17 +56,6 @@ export function BuoyancyWorkspaceRenderer({
       ...prev,
       inputs: { ...prev.inputs, [inputTarget]: e.target.value },
     }));
-  };
-
-  const handleSubmit = () => {
-    onSubmit({
-      stepId,
-      value: JSON.stringify({ inputs: { [inputTarget]: value } }),
-    });
-  };
-
-  const handleClear = () => {
-    onClear(inputTarget);
   };
 
   return (
@@ -104,9 +91,6 @@ export function BuoyancyWorkspaceRenderer({
                 placeholder="输入数值"
                 value={value}
                 onChange={handleInputChange}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSubmit();
-                }}
               />
               <span className="bfa-input-unit">{currentUnknown?.unit || "N"}</span>
             </div>
@@ -116,14 +100,6 @@ export function BuoyancyWorkspaceRenderer({
             <div className="bfa-wrong-hint">{model.wrongHint}</div>
           )}
 
-          <div className="practice-workspace-actions">
-            <button className="tiny-btn" type="button" onClick={handleClear}>
-              清空当前步骤
-            </button>
-            <button className="btn btn-primary" type="button" onClick={handleSubmit}>
-              提交当前步骤
-            </button>
-          </div>
         </div>
       </div>
     </div>

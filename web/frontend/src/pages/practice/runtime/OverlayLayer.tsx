@@ -1,6 +1,6 @@
 import type { ClientDraftState, ExerciseRuntimeSpec } from "../../../../../shared/contracts";
 import type { InputRefs } from "./sceneUtils";
-import { findEntities, orderedSelectionPreview } from "./sceneUtils";
+import { findEntities } from "./sceneUtils";
 import { FormulaEntity } from "./FormulaEntity";
 
 export function OverlayLayer({
@@ -17,7 +17,6 @@ export function OverlayLayer({
   const texts = findEntities(runtime.instance.scene.entities, "text");
   const formulas = findEntities(runtime.instance.scene.entities, "formula");
   const inlineTexts = texts.filter((entity) => entity.variant === "inline-formula");
-  const selectionPreview = orderedSelectionPreview(runtime, draft);
 
   return (
     <>
@@ -32,25 +31,15 @@ export function OverlayLayer({
         />
       ))}
 
-      <div className="practice-workspace-footer ks-workspace-footer">
-        {selectionPreview ? (
-          <div className="practice-fraction-preview">
-            <div className={`practice-fraction-slot ${selectionPreview.numerator ? "filled" : "active"}`}>
-              {selectionPreview.numerator || "First choice"}
+      {inlineTexts.length ? (
+        <div className="practice-workspace-footer ks-workspace-footer">
+          {inlineTexts.map((entity) => (
+            <div key={entity.id} className="practice-inline-formula">
+              {entity.text}
             </div>
-            <div className="practice-fraction-bar" />
-            <div className={`practice-fraction-slot ${selectionPreview.denominator ? "filled" : ""}`}>
-              {selectionPreview.denominator || "Second choice"}
-            </div>
-          </div>
-        ) : null}
-
-        {inlineTexts.map((entity) => (
-          <div key={entity.id} className="practice-inline-formula">
-            {entity.text}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : null}
     </>
   );
 }

@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { ClientDraftState, ExerciseRuntimeSpec } from "../../../../shared/contracts";
-import { GuidePanel } from "./runtime/GuidePanel";
+import { GuideHUD } from "./runtime/GuideHUD";
 import { FeedbackController } from "./runtime/FeedbackController";
 import { WORKSPACE_RENDERERS } from "./runtime/workspaceRenderers";
 
@@ -13,10 +13,11 @@ type Props = {
   onSubmit: (action: { stepId: string; value: string }) => void;
   onClear: (target?: string) => void;
   taskGroup?: string;
+  readOnly?: boolean;
 };
 
 // Renders only the interactive canvas area.
-// GuidePanel and FeedbackController are exported separately so the parent
+// GuideHUD and FeedbackController are exported separately so the parent
 // layout can place them freely in the grid.
 export function ExerciseRuntimeHost(props: Props) {
   const Renderer = WORKSPACE_RENDERERS[props.runtime.instance.engineKind];
@@ -31,6 +32,7 @@ export function ExerciseRuntimeHost(props: Props) {
           inputRefs={props.inputRefs}
           onSubmit={props.onSubmit}
           onClear={props.onClear}
+          readOnly={props.readOnly}
         />
       ) : (
         <section className="panel workspace-panel">
@@ -44,4 +46,4 @@ export function ExerciseRuntimeHost(props: Props) {
   );
 }
 
-export { GuidePanel, FeedbackController };
+export { GuideHUD, FeedbackController };

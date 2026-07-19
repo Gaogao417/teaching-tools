@@ -6,6 +6,7 @@ import { TASK_TREE } from "../../shared/tasks";
 import { getResult, getTaskHistory } from "./services/resultsService";
 import { finishPractice, restorePractice, startPractice, submitRuntimeAction } from "./services/runtime/platform/sessionRuntimeService";
 import { hasTaskDefinition } from "./services/tasks/catalogService";
+import { getLearningProjection } from "./services/learningService";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
   message: "Invalid taskId",
@@ -27,6 +28,14 @@ export function createApp() {
 
   app.get("/api/task-tree", (_req, res) => {
     res.json(TASK_TREE);
+  });
+
+  app.get("/api/learn/:taskId", (req, res, next) => {
+    try {
+      res.json(getLearningProjection(taskIdSchema.parse(req.params.taskId)));
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/task-history/:taskId", (req, res, next) => {

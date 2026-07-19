@@ -60,6 +60,24 @@ db.exec(`
     snapshot_json TEXT NOT NULL,
     FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS practice_action_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    target_id TEXT,
+    submitted_value TEXT,
+    source_id TEXT,
+    step_id TEXT,
+    evaluation TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(instance_id) REFERENCES practice_instances(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_practice_action_events_session
+    ON practice_action_events(session_id, id);
 `);
 
 const sessionColumns = db.prepare("PRAGMA table_info(practice_sessions)").all() as Array<{ name: string }>;

@@ -226,34 +226,51 @@ export interface SelectActionSpec {
   type: "select";
   target: string;
   selectionKind: "single" | "ordered";
+  presentation?: ActionPresentationSpec;
 }
 
 export interface InputActionSpec {
   type: "input";
   target: string;
   valueKind: "text" | "integer" | "length" | "ratio-part";
+  presentation?: ActionPresentationSpec;
 }
 
 export interface AssignActionSpec {
   type: "assign";
   source: string;
   target: string;
+  presentation?: ActionPresentationSpec;
 }
 
 export interface ComposeActionSpec {
   type: "compose";
   target: string;
   slots: string[];
+  presentation?: ActionPresentationSpec;
 }
 
 export interface ClearActionSpec {
   type: "clear";
   target?: string;
+  presentation?: ActionPresentationSpec;
 }
 
 export interface SubmitActionSpec {
   type: "submit";
   stepId: string;
+  presentation?: ActionPresentationSpec;
+}
+
+export interface ActionPresentationSlot {
+  id: string;
+  label: string;
+  placeholder: string;
+}
+
+export interface ActionPresentationSpec {
+  label?: string;
+  slots?: ActionPresentationSlot[];
 }
 
 export type ActionSpec =
@@ -398,11 +415,63 @@ export interface TaskNode {
 }
 
 export interface TaskHistoryItem {
+  sessionId: string;
   studentName: string;
   elapsedMs: number;
   clearedAt: string;
   problemCount: number;
   firstTryAccuracy: number;
+}
+
+export interface ResultAttemptReview {
+  actionType: RuntimeActionType;
+  stepId?: string;
+  stepTitle?: string;
+  targetId?: string;
+  submittedValue?: string;
+  evaluation: RuntimeEvaluation;
+  createdAt: string;
+}
+
+export interface StructuredAnswer {
+  selections?: Record<string, string[]>;
+  inputs?: Record<string, string>;
+  display?: string;
+}
+
+export interface ProblemReviewProjection {
+  diagnosisCode?: string;
+  diagnosisTitle?: string;
+  coachingCopy?: string;
+  actualAnswer?: StructuredAnswer;
+  expectedAnswer?: StructuredAnswer;
+  focusStepId?: string;
+  scene?: SceneSpec;
+}
+
+export interface ResultProblemReview extends ProblemReviewProjection {
+  instanceId: string;
+  index: number;
+  prompt: string;
+  attempts: number;
+  firstTryCorrect: boolean;
+  attemptLog: ResultAttemptReview[];
+}
+
+export interface LearningProjectionStep {
+  stepId: string;
+  title: string;
+  narration: string;
+  focusTargetRef?: string;
+  actionLabel?: string;
+  nextLabel?: string;
+}
+
+export interface LearningProjectionSpec {
+  taskId: TaskId;
+  objective: string;
+  sampleRuntime: ExerciseRuntimeSpec;
+  steps: LearningProjectionStep[];
 }
 
 export interface TaskHistoryResponse {
@@ -457,6 +526,7 @@ export interface ResultSnapshot {
     elapsedMs: number;
     clearedAt: string;
   }>;
+  problemReviews: ResultProblemReview[];
 }
 
 export interface FinishPracticeRequest {

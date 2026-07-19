@@ -21,9 +21,10 @@
 
 ## Resources
 
-在线链路主要暴露 4 类资源：
+在线链路主要暴露 5 类资源：
 
 - `task`
+- `learning-projection`
 - `session`
 - `exercise-runtime`
 - `result`
@@ -36,6 +37,16 @@
 
 - 获取任务树
 - 返回由 `TaskDefinition` 投影出的任务摘要
+
+## Learning Projection
+
+`GET /api/learn/:taskId`
+
+作用：
+
+- 由对应 engine 生成确定性的只读示范实例
+- 返回 `LearningProjectionSpec`，其中 `sampleRuntime` 继续使用共享 `ExerciseRuntimeSpec`
+- 返回当前教学步骤的叙述、聚焦目标与下一动作，不在 frontend 重新实现题型场景
 
 ## Start Session
 
@@ -84,6 +95,7 @@ interface StartPracticeResponse extends PracticeSessionSnapshot {}
 
 - 接收学生动作
 - 判题并推进 runtime
+- 将动作与 backend evaluation 一并保存，供完成后的 Review 使用
 
 请求：
 
@@ -106,6 +118,8 @@ interface RuntimeActionEvent {
   stepId?: string
 }
 ```
+
+`allowedActions` 可携带可选 `presentation` 元数据，为共享 `RuntimeActionDock` 提供标签与槽位名称。frontend 不根据 action target 或 engine kind 猜测“分子 / 分母”等语义。
 
 响应：
 
@@ -137,6 +151,15 @@ interface RuntimeActionResponse {
 作用：
 
 - 获取完成后的结果页快照
+- 返回逐题 `problemReviews`，其中 `attemptLog` 是已经判定过的动作记录
+- 每个 engine 同时投影 `diagnosisCode`、`diagnosisTitle`、`coachingCopy`、结构化实际/期望答案、聚焦步骤与可选场景回放
+- frontend 只呈现复盘投影，不从原始提交日志推断错误类型
+
+## Task History
+
+`GET /api/task-history/:taskId`
+
+每条历史记录包含 `sessionId`。Review 使用它切换已完成快照；切换历史记录不会创建或恢复 Practice session。
 
 ## Error Semantics
 

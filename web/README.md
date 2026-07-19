@@ -66,4 +66,4 @@ VITE_API_BASE_URL=http://localhost:3001 npm run dev
 - 前端可部署到静态站点托管
 - 后端可部署到 Node.js 运行环境
 - API 通过 HTTPS 暴露，并将前端域名配置到 `FRONTEND_ORIGIN`
-- 前端部署需开启 SPA 路由回退，保证 `/practice/:taskId` 与 `/result/:sessionId` 可直达
+- 前端部署需开启 SPA 路由回退，保证 `/learn/:taskId`、`/practice/:taskId` 与 `/review/:taskId` 可直达

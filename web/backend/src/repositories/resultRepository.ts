@@ -10,6 +10,7 @@ type PreviousElapsedRow = {
 };
 
 type TaskHistoryRow = {
+  session_id: string;
   student_name: string;
   elapsed_ms: number;
   cleared_at: string;
@@ -37,7 +38,7 @@ type InsertResultSnapshotArgs = {
 
 const getResultRowBySessionIdStatement = db.prepare(`SELECT snapshot_json FROM practice_results WHERE session_id = ?`);
 const listTaskHistoryStatement = db.prepare(
-  `SELECT student_name, elapsed_ms, cleared_at, problem_count, first_try_accuracy
+  `SELECT session_id, student_name, elapsed_ms, cleared_at, problem_count, first_try_accuracy
    FROM practice_results
    WHERE task_id = ? AND student_name = ?
    ORDER BY cleared_at DESC
@@ -70,6 +71,7 @@ export function getResultSnapshot(sessionId: string): ResultSnapshot | undefined
 export function listTaskHistory(taskId: TaskId, studentName: string, limit = 5): TaskHistoryItem[] {
   return (listTaskHistoryStatement.all(taskId, studentName, limit) as TaskHistoryRow[])
     .map((row) => ({
+      sessionId: row.session_id,
       studentName: row.student_name,
       elapsedMs: row.elapsed_ms,
       clearedAt: row.cleared_at,

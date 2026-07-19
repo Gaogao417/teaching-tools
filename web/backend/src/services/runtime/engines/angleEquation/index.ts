@@ -3,12 +3,20 @@ import type {
   AngleEquationStepKey,
 } from "../../../../../../shared/angleEquation";
 import type {
+  ExerciseInstance,
+  LearningProjectionSpec,
+  ProblemReviewProjection,
+  ResultAttemptReview,
   RuntimeActionEvent,
   SessionPhase,
   TaskDefinition,
 } from "../../../../../../shared/contracts";
 import { appError } from "../../platform/errors";
-import { defineEnginePlugin } from "../../platform/engineTypes";
+import {
+  defaultProblemReviewProjection,
+  defineEnginePlugin,
+  learningProjectionFromRuntime,
+} from "../../platform/engineTypes";
 import type { EngineActionResult } from "../../platform/engineTypes";
 import {
   buildAngleEquationFeedbackPacket,
@@ -187,11 +195,53 @@ export function reduceAngleEquationAction(
   };
 }
 
+function buildAngleLearningProjection(
+  task: TaskDefinition,
+  content: AngleEquationContentDefinition,
+  state: AngleEquationEngineState,
+): LearningProjectionSpec {
+  const learningState = { ...state, instanceId: `learn-${task.id}` };
+  return learningProjectionFromRuntime(task, buildAngleEquationRuntime(task, content, learningState, "answering"));
+}
+
+const ANGLE_COACHING: Record<string, { title: string; copy: string }> = {
+  "find-angles": { title: "基准角没有找全", copy: "先在一个周期内找齐所有同函数值的角，再进入范围变换。" },
+  "transform-range": { title: "范围变换出现偏差", copy: "把区间两端同时代入 omega·x+phi，注意负号会改变端点顺序。" },
+  "filter-angles": { title: "合法角筛选不完整", copy: "按周期平移基准角，再逐个检查是否落在变换后的区间内。" },
+  "solve-target": { title: "回代求解出现偏差", copy: "每个合法角都要独立回代，并检查解是否仍在原范围内。" },
+};
+
+function buildAngleProblemReviewProjection(
+  _task: TaskDefinition,
+  _content: AngleEquationContentDefinition,
+  state: AngleEquationEngineState,
+  instance: ExerciseInstance,
+  attempts: ResultAttemptReview[],
+): ProblemReviewProjection {
+  const projection = defaultProblemReviewProjection(instance, attempts, {
+    selections: {
+      "find-angles": state.answerKey.referenceAngles,
+      "filter-angles": state.answerKey.filteredAngles,
+    },
+    inputs: {
+      "range-low": state.answerKey.transformedRange[0],
+      "range-high": state.answerKey.transformedRange[1],
+      ...Object.fromEntries(state.answerKey.solutions.map((value, index) => [`solution-${index}`, value])),
+    },
+  });
+  const coaching = projection.focusStepId ? ANGLE_COACHING[projection.focusStepId] : undefined;
+  return coaching
+    ? { ...projection, diagnosisCode: `angle-${projection.focusStepId}`, diagnosisTitle: coaching.title, coachingCopy: coaching.copy }
+    : projection;
+}
+
 // ─── Plugin export ───────────────────────────────────────────────────
 
 export const angleEquationEnginePlugin = defineEnginePlugin({
   createState: createAngleEquationState,
   restoreState: restoreAngleEquationState,
   buildRuntime: buildAngleEquationRuntime,
+  buildLearningProjection: buildAngleLearningProjection,
+  buildProblemReviewProjection: buildAngleProblemReviewProjection,
   reduceAction: reduceAngleEquationAction,
 });

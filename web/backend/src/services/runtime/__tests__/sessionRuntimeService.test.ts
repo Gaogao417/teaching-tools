@@ -16,6 +16,7 @@ const {
   submitRuntimeAction,
 } = require("../platform/sessionRuntimeService") as typeof import("../platform/sessionRuntimeService");
 const { getResult, getTaskHistory } = require("../../resultsService") as typeof import("../../resultsService");
+const { getLearningProjection } = require("../../learningService") as typeof import("../../learningService");
 
 type TaskId = import("../../../../../shared/contracts").TaskId;
 type RuntimeActionEvent = import("../../../../../shared/contracts").RuntimeActionEvent;
@@ -327,6 +328,19 @@ async function main() {
     assert.equal(runtimeInstanceCount(started.sessionId), 5);
   });
 
+  await runTest("learning projection is deterministic and carries shared action presentation", () => {
+    const first = getLearningProjection("meaning");
+    const second = getLearningProjection("meaning");
+
+    assert.equal(first.sampleRuntime.instance.instanceId, "learn-meaning");
+    assert.equal(second.sampleRuntime.instance.prompt, first.sampleRuntime.instance.prompt);
+    assert.equal(first.steps.length, 3);
+    assert.equal(first.steps[0].narration, "先找清题目给出的参考角。");
+
+    const selectAction = first.sampleRuntime.instance.flow.steps[0].allowedActions.find((action) => action.type === "select");
+    assert.deepEqual(selectAction?.presentation?.slots?.map((slot) => slot.label), ["分子", "分母"]);
+  });
+
   await runTest("submitRuntimeAction keeps session progress and instance state in sync", () => {
     const started = startPractice("meaning", "Grace");
     const state = currentEngineState(started.sessionId);
@@ -350,6 +364,9 @@ async function main() {
     const finishResponse = finishPractice(restored.sessionId);
     assert.equal(finishResponse.resultSnapshot.taskId, "meaning");
     assert.equal(finishResponse.resultSnapshot.problemCount, 5);
+    assert.equal(finishResponse.resultSnapshot.problemReviews.length, 5);
+    assert.equal(finishResponse.resultSnapshot.problemReviews[0].attemptLog[0].evaluation, "correct");
+    assert.equal(finishResponse.resultSnapshot.problemReviews[0].attemptLog[0].stepTitle, "先选分子，再选分母");
     assert.equal(finishResponse.alreadyFinished, undefined);
 
     const secondFinishResponse = finishPractice(restored.sessionId);
@@ -360,7 +377,31 @@ async function main() {
 
     const history = getTaskHistory("meaning", "Ada", 5);
     assert.equal(history.length, 1);
+    assert.equal(history[0].sessionId, restored.sessionId);
     assert.equal(history[0].problemCount, 5);
+  });
+
+  await runTest("meaning review projection diagnoses reversed numerator and denominator", () => {
+    const started = startPractice("meaning", "Review Student");
+    const firstState = currentEngineState(started.sessionId);
+    const wrong = submitRuntimeAction(started.sessionId, firstState.instanceId, wrongRuntimeActionFor(firstState));
+    assert.equal(wrong.evaluation, "wrong");
+
+    let snapshot = restorePractice(started.sessionId);
+    while (snapshot.phase !== "group_finished") {
+      const state = currentEngineState(started.sessionId);
+      submitRuntimeAction(started.sessionId, state.instanceId, correctRuntimeActionFor(state));
+      snapshot = restorePractice(started.sessionId);
+    }
+
+    const result = finishPractice(started.sessionId).resultSnapshot;
+    const review = result.problemReviews[0];
+    assert.equal(review.diagnosisCode, "ratio-order-reversed");
+    assert.match(review.diagnosisTitle || "", /分子与分母顺序混淆/);
+    assert.equal(review.focusStepId, "pick-roles");
+    assert.equal(review.scene?.sceneKind, "triangle");
+    assert.ok(review.actualAnswer?.selections?.["meaning-selection"]?.length);
+    assert.ok(review.expectedAnswer?.selections?.["meaning-selection"]?.length);
   });
 
   await runTest("runtime-action clear keeps the session on the same instance and wrong answers stay in place", () => {

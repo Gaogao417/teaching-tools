@@ -201,7 +201,12 @@ session 级快照，面向练习页与恢复接口。
 
 ## ResultSnapshot
 
-结果页使用的完成后快照。
+Review 模式使用的不可变完成后快照。除用时、首次正确率与历史趋势外，还包含：
+
+- `problemReviews`: 每道题的 prompt、尝试次数和首次正确状态
+- `attemptLog`: 运行时已经判定过的提交动作、步骤标题、提交值和 evaluation
+
+动作复盘来自 backend 持久化的 runtime action event。frontend 只负责展示，不重新判题，也不从汇总指标猜测过程。
 
 ## Current Reality
 

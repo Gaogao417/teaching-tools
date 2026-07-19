@@ -26,8 +26,6 @@ export function CoordIsoscelesRightWorkspaceRenderer({
   draft,
   setDraft,
   inputRefs,
-  onSubmit,
-  onClear,
 }: WorkspaceRendererProps) {
   const step = currentStep(runtime);
   const model = parseModel(runtime);
@@ -39,9 +37,6 @@ export function CoordIsoscelesRightWorkspaceRenderer({
       </div>
     );
   }
-
-  const submitAction = step.allowedActions.find((a) => a.type === "submit");
-  const clearAction = step.allowedActions.find((a) => a.type === "clear");
 
   const completedSteps = runtime.runtimeState.completedStepIds;
   const showAuxiliaryLines = completedSteps.includes("construct-lines");
@@ -68,18 +63,6 @@ export function CoordIsoscelesRightWorkspaceRenderer({
       ...prev,
       inputs: { ...prev.inputs, [key]: value },
     }));
-  };
-
-  // Submit handler
-  const handleSubmit = () => {
-    if (submitAction?.type !== "submit") return;
-    onSubmit({
-      stepId: submitAction.stepId,
-      value: JSON.stringify({
-        selections: draft.selections,
-        inputs: draft.inputs,
-      }),
-    });
   };
 
   return (
@@ -111,24 +94,6 @@ export function CoordIsoscelesRightWorkspaceRenderer({
           </div>
         </div>
 
-        {/* Action buttons */}
-        <div className="practice-workspace-actions">
-          <button
-            className="tiny-btn"
-            type="button"
-            onClick={() => onClear(clearAction?.target || step.id)}
-          >
-            清空左侧步骤
-          </button>
-          <button
-            className="btn btn-primary"
-            type="button"
-            disabled={submitAction?.type !== "submit"}
-            onClick={handleSubmit}
-          >
-            提交左侧步骤
-          </button>
-        </div>
       </div>
     </div>
   );

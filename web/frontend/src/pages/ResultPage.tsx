@@ -18,13 +18,14 @@ export function ResultPage() {
       .then((result) => {
         setSnapshot(result);
         setFocusedTaskId(result.taskId as TaskId);
+        navigate(`/review/${result.taskId}?sessionId=${result.sessionId}`, { replace: true });
       })
       .catch(console.error);
-  }, [sessionId, setFocusedTaskId]);
+  }, [navigate, sessionId, setFocusedTaskId]);
 
   if (!snapshot) {
     return (
-      <section className="panel workspace-panel scholar-panel">
+      <section className="panel workspace-panel">
         <div className="detail-head">
           <div className="eyebrow">Session Result</div>
           <h2>Loading the latest result snapshot</h2>
@@ -35,12 +36,12 @@ export function ResultPage() {
   }
 
   return (
-    <section className="panel workspace-panel workspace-result-panel scholar-panel scholar-result-panel">
-      <div className="detail-head scholar-result-hero">
+    <section className="panel workspace-panel workspace-result-panel">
+      <div className="detail-head">
         <div className="eyebrow">{snapshot.studentName}</div>
         <h2>{snapshot.title}</h2>
         <p>{snapshot.copy}</p>
-        <div className="scholar-pill-row">
+        <div className="action-row">
           <span className="pill">{snapshot.groupLabel}</span>
           <span className="pill">{snapshot.problemCount} problems cleared</span>
         </div>
@@ -65,21 +66,21 @@ export function ResultPage() {
         </div>
       </div>
 
-      <div className="workspace-overview-grid scholar-result-grid">
-        <article className="info-card scholar-info-card">
-          <div className="scholar-card-head">
-            <span className="scholar-card-kicker">Trend</span>
+      <div className="workspace-overview-grid">
+        <article className="info-card">
+          <div className="detail-head">
+            <span className="eyebrow">Trend</span>
             <h3>Training curve</h3>
           </div>
           <Chart points={snapshot.history} color={snapshot.color} />
         </article>
 
-        <article className="info-card scholar-info-card">
-          <div className="scholar-card-head">
-            <span className="scholar-card-kicker">Summary</span>
+        <article className="info-card">
+          <div className="detail-head">
+            <span className="eyebrow">Summary</span>
             <h3>What changed</h3>
           </div>
-          <div className="metric-grid scholar-metric-grid">
+          <div className="metric-grid">
             <div>
               <span>Correct on first try</span>
               <strong>

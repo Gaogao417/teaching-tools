@@ -6,6 +6,7 @@ import { api } from "../../api/client";
 import { AuthModal } from "../common/AuthModal";
 import { SidebarNav } from "./SidebarNav";
 import { TaskPreviewPopover } from "./TaskPreviewPopover";
+import { LearningModeNav } from "./LearningModeNav";
 import type { WorkspaceOutletContext, WorkspaceTopNavState } from "./workspaceContext";
 import { findFirstTask, findTaskPath, getTaskNode } from "./workspaceUtils";
 import { clearStoredSessionId, getStudentName, setStudentName as persistStudentName } from "../../utils/storage";
@@ -36,9 +37,13 @@ export function WorkspaceShell() {
   const [studentNameDraft, setStudentNameDraft] = useState(() => getStudentName());
   const [isAuthOpen, setIsAuthOpen] = useState(() => !getStudentName());
   const [topNavContent, setTopNavContent] = useState<WorkspaceTopNavState | null>(null);
+  const [navigationGuard, setNavigationGuardState] = useState<(() => boolean) | null>(null);
 
-  const practiceMatch = matchPath("/practice/:taskId", location.pathname);
-  const activeTaskId = (practiceMatch?.params.taskId as TaskId | undefined) || null;
+  const routeMatch =
+    matchPath("/learn/:taskId", location.pathname) ||
+    matchPath("/practice/:taskId", location.pathname) ||
+    matchPath("/review/:taskId", location.pathname);
+  const activeTaskId = (routeMatch?.params.taskId as TaskId | undefined) || null;
 
   useEffect(() => {
     api.getTaskTree().then(setTree).catch(console.error);
@@ -91,6 +96,16 @@ export function WorkspaceShell() {
     setFocusedTaskIdState(taskId);
   }, []);
 
+  const setNavigationGuard = useCallback((guard: (() => boolean) | null) => {
+    setNavigationGuardState(() => guard);
+  }, []);
+
+  const navigateSafely = useCallback((path: string) => {
+    if (navigationGuard && !navigationGuard()) return false;
+    navigate(path);
+    return true;
+  }, [navigate, navigationGuard]);
+
   const toggleGrade = (gradeId: string) => {
     setExpandedGradeIds((current) =>
       current.includes(gradeId) ? current.filter((item) => item !== gradeId) : [...current, gradeId],
@@ -104,11 +119,11 @@ export function WorkspaceShell() {
   };
 
   const handleSelectTask = (gradeId: string, chapterId: string, taskId: TaskId) => {
+    if (!navigateSafely(`/learn/${taskId}`)) return;
     setFocusedTaskIdState(taskId);
     setExpandedGradeIds((current) => (current.includes(gradeId) ? current : [...current, gradeId]));
     setExpandedChapterIds((current) => (current.includes(chapterId) ? current : [...current, chapterId]));
     setIsNavDrawerOpen(false);
-    navigate("/");
   };
 
   const cancelPreviewClose = () => {
@@ -160,6 +175,7 @@ export function WorkspaceShell() {
     requestAuth,
     setFocusedTaskId,
     setTopNavContent,
+    setNavigationGuard,
   };
 
   const sidebar = (
@@ -187,17 +203,22 @@ export function WorkspaceShell() {
           <button className="ks-icon-button ks-top-nav-menu" type="button" onClick={() => setIsNavDrawerOpen(true)} title="Open navigation">
             <span className="material-symbols-outlined">menu</span>
           </button>
+          <button className="ks-wordmark" type="button" onClick={() => focusedTaskId && navigateSafely(`/learn/${focusedTaskId}`)}>
+            <span>Kinetic Scholar</span>
+          </button>
         </div>
 
-        <div className={`ks-top-nav-center ${isPracticeTopNav ? "is-practice-fill" : ""}`}>{topNavContent?.content || null}</div>
+        <div className="ks-top-nav-center">
+          <LearningModeNav
+            taskId={focusedTaskId}
+            isStudentReady={Boolean(studentName)}
+            onNeedStudent={requestAuth}
+            onNavigate={navigateSafely}
+          />
+        </div>
 
         <div className="ks-top-nav-right">
-          <button className="ks-icon-button" type="button" title="Notifications">
-            <span className="material-symbols-outlined">notifications</span>
-          </button>
-          <button className="ks-icon-button" type="button" onClick={requestAuth} title="Settings">
-            <span className="material-symbols-outlined">settings</span>
-          </button>
+          {topNavContent?.content || null}
           <button className="ks-avatar-button" type="button" onClick={requestAuth} title={studentName || "Set student name"}>
             <span>{avatarLabel(studentName)}</span>
           </button>

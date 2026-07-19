@@ -22,6 +22,7 @@ WorkspaceShell
 - 挂载当前 runtime
 - 维护页面级计时、草稿与完成流转
 - 调度页面级 feedback effect
+- 将后端判定后的提交动作持久化为可复盘事件
 
 `PracticePage` 不负责：
 
@@ -29,6 +30,9 @@ WorkspaceShell
 - 调用 Python 出题
 - 调用 Wolfram 校验
 - 维护题库审核状态
+- 展示完整解法或承担历史结果分析
+
+Learn、Practice、Review 的路由与状态边界见 [learning-modes.md](./learning-modes.md)。
 
 `ExerciseRuntimeHost` 负责：
 
