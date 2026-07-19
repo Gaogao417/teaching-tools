@@ -1,4 +1,0 @@
-interface:
-  display_name: "Design Exploration Review"
-  short_description: "Explore stronger UI directions while keeping runtime boundaries intact."
-  default_prompt: "Use $design-exploration-review to rethink learner-facing UI direction without breaking runtime architecture."
