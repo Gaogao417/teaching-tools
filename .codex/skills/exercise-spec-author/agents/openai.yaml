@@ -1,4 +1,0 @@
-interface:
-  display_name: "Exercise Spec Author"
-  short_description: "Create architecture-aware, design-aware exercise specs for this repo."
-  default_prompt: "Use $exercise-spec-author to turn my rough practice idea into an architecture-aware spec and run the repo's design pass when learner-facing UI is involved."

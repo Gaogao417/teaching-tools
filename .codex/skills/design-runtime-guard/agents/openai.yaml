@@ -1,4 +1,0 @@
-interface:
-  display_name: "Design Runtime Guard"
-  short_description: "Protect runtime boundaries and shared frontend design rules."
-  default_prompt: "Use $design-runtime-guard before learner-facing runtime UI changes to preserve architecture and shared styling."
