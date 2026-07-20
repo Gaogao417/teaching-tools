@@ -24,6 +24,8 @@
 
 ## 推荐实施顺序
 
+完整并行/串行开发规划见 [IMPLEMENTATION-PLAN.md](./IMPLEMENTATION-PLAN.md)。
+
 ```text
 PRD-02 能力进度与解锁
         ↓
