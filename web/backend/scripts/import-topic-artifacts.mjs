@@ -1,0 +1,715 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import YAML from "yaml";
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, "../../..");
+const SOURCE_ROOT = process.env.TEACHING_SKILLS_ROOT || "/Users/gaochong/develop/teaching_skills";
+const OUTPUT_JSON = path.join(REPO_ROOT, "web/backend/src/content/topicScenarioBundle.json");
+const ASSET_ROOT = path.join(REPO_ROOT, "web/frontend/public/topic-assets");
+
+const CONFIG = {
+  quadraticCompletion: {
+    title: "二次函数配方",
+    objective: "把一般式稳定地化成顶点式，并让每一步等式都有依据。",
+    explanations: ["artifacts/专题/2026-07-17-二次函数配方/02-student-explanation.tex"],
+    banks: ["artifacts/题库/2026-07-18-二次函数配方"],
+  },
+  parallelLineRatios: {
+    title: "三角形一边平行线：知三推一",
+    objective: "已知三条边求第四条边：先标已知边长，再标约分后的对应份数，最后按份数乘法列式。",
+    explanations: ["artifacts/专题/2026-07-12-平行线对应边比例-待审核/02-student-explanation.resolved.tex"],
+    banks: ["artifacts/题库/2026-07-17-三边求第四边-A字型8字型"],
+  },
+  auxiliaryTwoRatios: {
+    title: "比例辅助线两组整数比",
+    objective: "用一条平行辅助线串起两组相似，并持续保留共同边份数。",
+    explanations: ["artifacts/专题/2026-07-12-比例辅助线两组比例-待审核/02-student-explanation.resolved.tex"],
+    banks: ["artifacts/题库/2026-07-17-比例辅助线两组比例-50题"],
+  },
+  reverseASimilarity: {
+    title: "反 A 形相似",
+    objective: "在反 A 构型中按标边长、标比例、列式三步求边。",
+    explanations: ["artifacts/专题/2026-07-14-反A形相似求第四边/02-student-explanation.resolved.tex"],
+    banks: ["artifacts/题库/2026-07-16-反A形相似"],
+  },
+  nestedSimilarity: {
+    title: "子母型相似",
+    objective: "在子母型中处理共线边，并按标边长、标比例、列式三步求边。",
+    explanations: ["artifacts/专题/2026-07-14-子母型相似比与对应边/02-student-explanation.resolved.tex"],
+    banks: ["artifacts/题库/2026-07-16-子母型相似"],
+  },
+  butterflySimilarity: {
+    title: "蝶形相似",
+    objective: "在蝶形构型中按标边长、标比例、列式三步求边。",
+    explanations: ["artifacts/专题/2026-07-14-蝶形相似求第四边/02-student-explanation.resolved.tex"],
+    banks: ["artifacts/题库/2026-07-16-蝶形相似"],
+  },
+};
+
+function readYaml(file) {
+  return YAML.parse(fs.readFileSync(file, "utf8"));
+}
+
+function slug(value) {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "").toLowerCase();
+}
+
+function isEscaped(text, index) {
+  let slashes = 0;
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) slashes += 1;
+  return slashes % 2 === 1;
+}
+
+function readBrace(text, index) {
+  let cursor = index;
+  while (/\s/.test(text[cursor] || "")) cursor += 1;
+  if (text[cursor] !== "{") throw new Error(`Expected { near ${text.slice(cursor, cursor + 30)}`);
+  let depth = 0;
+  for (let i = cursor; i < text.length; i += 1) {
+    if (text[i] === "{" && !isEscaped(text, i)) depth += 1;
+    if (text[i] === "}" && !isEscaped(text, i)) depth -= 1;
+    if (depth === 0) return { value: text.slice(cursor + 1, i), end: i + 1 };
+  }
+  throw new Error("Unclosed TeX argument");
+}
+
+function macroCalls(text, macro, argCount) {
+  const needle = `\\${macro}`;
+  const calls = [];
+  let from = 0;
+  while (true) {
+    const start = text.indexOf(needle, from);
+    if (start < 0) break;
+    let cursor = start + needle.length;
+    const args = [];
+    try {
+      for (let i = 0; i < argCount; i += 1) {
+        const arg = readBrace(text, cursor);
+        args.push(arg.value.trim());
+        cursor = arg.end;
+      }
+      calls.push({ start, end: cursor, args });
+      from = cursor;
+    } catch {
+      from = start + needle.length;
+    }
+  }
+  return calls;
+}
+
+function environmentBlocks(text, name) {
+  const beginNeedle = `\\begin{${name}}`;
+  const endNeedle = `\\end{${name}}`;
+  const blocks = [];
+  let from = 0;
+  while (true) {
+    const start = text.indexOf(beginNeedle, from);
+    if (start < 0) break;
+    let bodyStart = start + beginNeedle.length;
+    let label = "";
+    while (/\s/.test(text[bodyStart] || "")) bodyStart += 1;
+    if (text[bodyStart] === "[") {
+      const endLabel = text.indexOf("]", bodyStart);
+      label = text.slice(bodyStart + 1, endLabel).trim();
+      bodyStart = endLabel + 1;
+    }
+    const endStart = text.indexOf(endNeedle, bodyStart);
+    if (endStart < 0) throw new Error(`Unclosed ${name}`);
+    blocks.push({ start, end: endStart + endNeedle.length, label, body: text.slice(bodyStart, endStart).trim() });
+    from = endStart + endNeedle.length;
+  }
+  return blocks;
+}
+
+function cleanTexBody(value) {
+  return value
+    .replace(/\\begin\{diagramcoltikz\}[\s\S]*?\\end\{diagramcoltikz\}/g, "")
+    .replace(/\\begin\{minipage\}(?:\[[^\]]*\])?\{[^\n]*\}/g, "")
+    .replace(/\\end\{minipage\}|\\noindent|\\hfill|\\vspace\{[^}]*\}/g, "")
+    .replace(/\\begin\{enumerate\}(?:\[[^\]]*\])?|\\end\{enumerate\}/g, "")
+    .replace(/\\item\s*/g, "\n")
+    .replace(/\\\s+\\\s+/g, "\n")
+    .replace(/\\needspace\{[^}]*\}/g, "")
+    .replace(/\\par\b/g, "\n")
+    .replace(/\\begingroup|\\endgroup|\\setlength\{[^}]*\}\{[^}]*\}/g, "")
+    .replace(/\\textbf\{([^}]*)\}/g, "$1")
+    .replace(/\n\s*\n\s*\n/g, "\n\n")
+    .trim();
+}
+
+function diagramInput(text) {
+  const match = text.match(/\\input\{\\detokenize\{([^}]+)\}\}/);
+  return match?.[1];
+}
+
+function resolvePreview(sourceFile, tikzPath) {
+  if (!tikzPath) return undefined;
+  const assignmentDir = path.dirname(sourceFile);
+  const candidates = [path.resolve(assignmentDir, tikzPath)];
+  const itemMatch = sourceFile.match(/(.+\/items\/[^/]+)\/[^/]+$/);
+  if (itemMatch) candidates.push(path.resolve(itemMatch[1], tikzPath));
+  for (const texPath of candidates) {
+    const dir = path.dirname(texPath);
+    const base = path.basename(texPath).replace(/\.fragment\.tex$/, "");
+    const svg = path.join(dir, `${base}.preview.svg`);
+    if (fs.existsSync(svg)) return svg;
+  }
+  return undefined;
+}
+
+function resolveRenderedArtifact(sourceFile, tikzPath) {
+  const svg = resolvePreview(sourceFile, tikzPath);
+  if (!svg) return undefined;
+  const renderedDir = path.dirname(svg);
+  const base = path.basename(svg, ".preview.svg");
+  const tikzSpec = path.join(renderedDir, `${base}.tikz_spec.json`);
+  const request = path.join(path.dirname(renderedDir), "request.json");
+  if (!fs.existsSync(tikzSpec) || !fs.existsSync(request)) return undefined;
+  return { svg, renderedDir, base, tikzSpec, request };
+}
+
+function canonicalSegment(value) {
+  return [...value.replace(/[^A-Z]/g, "")].sort().join("");
+}
+
+function sceneSpec(requestFile) {
+  const request = readYaml(requestFile);
+  return request.engine_options?.scene_payload?.diagram_spec
+    || request.scene_payload?.diagram_spec
+    || request.diagram_spec
+    || {};
+}
+
+function geometryFromDiagram(sourceFile, tikzPath, extraSegments = []) {
+  const artifact = resolveRenderedArtifact(sourceFile, tikzPath);
+  if (!artifact) return undefined;
+  const tikz = readYaml(artifact.tikzSpec);
+  const svgText = fs.readFileSync(artifact.svg, "utf8");
+  const viewBox = svgText.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+  const matrix = svgText.match(/transform="matrix\(([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\)"/);
+  if (!viewBox || !matrix) return undefined;
+  const [, a, b, c, d, tx, ty] = matrix.map(Number);
+  const cmToPt = 72 / 2.54;
+  const points = (tikz.coordinates || []).map((point) => {
+    const rawX = Number(point.x) * cmToPt;
+    const rawY = Number(point.y) * cmToPt;
+    return {
+      id: point.name,
+      x: a * rawX + c * rawY + tx,
+      y: b * rawX + d * rawY + ty,
+    };
+  });
+  const pointIds = new Set(points.map((point) => point.id));
+  const spec = sceneSpec(artifact.request);
+  const pairs = [
+    ...(spec.segments || []).map((segment) => Array.isArray(segment) ? segment : [segment.from, segment.to]),
+    ...(spec.annotations || []).map((annotation) => annotation.target),
+    ...extraSegments.map((segment) => [segment[0], segment[1]]),
+  ];
+  const segments = [];
+  const seen = new Set();
+  for (const pair of pairs) {
+    if (!Array.isArray(pair) || pair.length !== 2 || !pointIds.has(pair[0]) || !pointIds.has(pair[1])) continue;
+    const id = canonicalSegment(`${pair[0]}${pair[1]}`);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    segments.push({ id, from: pair[0], to: pair[1] });
+  }
+  return {
+    viewBox: { width: Number(viewBox[1]), height: Number(viewBox[2]) },
+    points,
+    segments,
+  };
+}
+
+function publishDiagram(sourceFile, tikzPath, publicParts) {
+  const svg = resolvePreview(sourceFile, tikzPath);
+  if (!svg) return undefined;
+  const relative = path.join(...publicParts, `${slug(path.basename(path.dirname(path.dirname(svg))))}-${path.basename(svg)}`);
+  const target = path.join(ASSET_ROOT, relative);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(svg, target);
+  return `/topic-assets/${relative.split(path.sep).join("/")}`;
+}
+
+function parseSolutionBox(tex, beforeIndex) {
+  const begins = [...tex.slice(0, beforeIndex).matchAll(/\\begin\{eduSolutionBox\}\{([^}]*)\}/g)];
+  const latest = begins.at(-1);
+  if (!latest) return { title: undefined, rules: [] };
+  const bodyStart = latest.index + latest[0].length;
+  const end = tex.indexOf("\\end{eduSolutionBox}", bodyStart);
+  if (end < 0 || end > beforeIndex) return { title: undefined, rules: [] };
+  const body = cleanTexBody(tex.slice(bodyStart, end));
+  const rules = body ? [body] : [];
+  return { title: latest[1].trim(), rules };
+}
+
+function parseExplanationTex(taskId, relativeFile, exampleOffset) {
+  const sourceFile = path.join(SOURCE_ROOT, relativeFile);
+  const tex = fs.readFileSync(sourceFile, "utf8");
+  const problems = environmentBlocks(tex, "eduProblemBlock");
+  const sections = macroCalls(tex, "eduSectionTitle", 1);
+  return problems.map((problem, problemIndex) => {
+    const nextStart = problems[problemIndex + 1]?.start ?? tex.length;
+    const segment = tex.slice(problem.end, nextStart);
+    const section = sections.filter((item) => item.start < problem.start).at(-1)?.args[0] || "";
+    const core = parseSolutionBox(tex, problem.start);
+    const label = taskId.endsWith("Similarity") && /^例题(?:\s*\d+)?$/.test(problem.label)
+      ? `${section.split(/[：—]/)[0]}例题`
+      : problem.label || `例题 ${exampleOffset + problemIndex + 1}`;
+    const stepCalls = macroCalls(segment, "eduExplainStep", 3);
+    const steps = stepCalls.map((call, index) => {
+      const until = stepCalls[index + 1]?.start ?? segment.length;
+      const after = segment.slice(call.end, until);
+      const input = diagramInput(after);
+      return {
+        id: `${slug(path.basename(path.dirname(relativeFile)))}-${exampleOffset + problemIndex + 1}-step-${index + 1}`,
+        title: call.args[1],
+        contentLatex: call.args[2],
+        diagramAsset: publishDiagram(sourceFile, input, ["lesson", taskId]),
+      };
+    });
+    const sideItems = [
+      ...macroCalls(segment, "eduSideHint", 2).map((call) => ({ kind: "hint", title: call.args[0], contentLatex: call.args[1] })),
+      ...macroCalls(segment, "eduSideMistake", 2).map((call) => ({ kind: "mistake", title: call.args[0], contentLatex: call.args[1] })),
+    ];
+    const mistake = environmentBlocks(segment, "eduMistakeBox")[0];
+    if (mistake) sideItems.push({ kind: "mistake", title: "易错提醒", contentLatex: cleanTexBody(mistake.body.replace(/\\eduSubTitle\{[^}]*\}/, "")) });
+    return {
+      id: `${taskId}-tex-example-${exampleOffset + problemIndex + 1}`,
+      label,
+      sectionTitle: section,
+      stemLatex: cleanTexBody(problem.body),
+      promptDiagramAsset: publishDiagram(sourceFile, diagramInput(problem.body), ["lesson", taskId]),
+      coreTitle: core.title,
+      coreRules: core.rules,
+      steps,
+      sideItems,
+      sourceTex: relativeFile,
+    };
+  });
+}
+
+const DISTRACTORS = {
+  quadraticCompletion: [
+    "直接把原式的一次项系数除以 $2$，不处理二次项系数。",
+    "只在括号里补平方，不把减去的常数乘回括号外系数。",
+  ],
+  parallelLineRatios: [
+    "忽略点序，把分段比直接当作两个相似三角形的对应边比。",
+    "一组边按小三角形比大三角形，另一组边反向书写。",
+  ],
+  auxiliaryTwoRatios: [
+    "进入第二组相似时清空第一组已经标出的共同边份数。",
+    "把分段比直接当整段比，不先补出完整线段。",
+  ],
+  reverseASimilarity: [
+    "只凭一组等角就判定两个三角形相似。",
+    "按边在图上的位置配对，不按等角顶点的顺序配对。",
+  ],
+  nestedSimilarity: [
+    "没有先处理共线整段就直接代入比例。",
+    "按边在图上的位置配对，不按等角顶点的顺序配对。",
+  ],
+  butterflySimilarity: [
+    "只凭一组等角就判定两个三角形相似。",
+    "按边在图上的位置配对，不按等角顶点的顺序配对。",
+  ],
+};
+
+function rotateOptions(options, seed) {
+  const offset = seed % options.length;
+  return [...options.slice(offset), ...options.slice(0, offset)];
+}
+
+function answerAliases(answer) {
+  const plain = answer.replace(/\$/g, "").replace(/[。；;]$/g, "").trim();
+  const primary = plain.split(/，其中|,\s*其中/)[0].trim();
+  const rhs = primary.includes("=") ? primary.slice(primary.indexOf("=") + 1).trim() : primary;
+  return [...new Set([answer, plain, primary, rhs])];
+}
+
+function genericContracts(taskId, itemId, block) {
+  const solutionSteps = block.solution_steps || [];
+  if (!solutionSteps.length) throw new Error(`${taskId}/${itemId} has no solution_steps`);
+  return solutionSteps.map((step, index) => {
+    const id = `${itemId.toLowerCase()}-step-${index + 1}`;
+    const final = index === solutionSteps.length - 1;
+    const content = step.content_latex || step.content || "";
+    const nextStepId = final ? undefined : `${itemId.toLowerCase()}-step-${index + 2}`;
+    const base = {
+      id,
+      title: step.title || `第 ${index + 1} 步`,
+      goal: final ? "独立写出本题的最终结论。" : "选择能正确推进当前数学对象的下一步。",
+      primitive: final ? "input" : "select",
+      target: "topic-answer",
+      promptLatex: final ? "根据已经完成的推理，写出最终答案。" : `下一步应怎样完成“${step.title || `第 ${index + 1} 步`}”？`,
+      acceptedAnswers: final ? answerAliases(block.answer || content) : [`correct-${index + 1}`],
+      expectedLatex: final ? (block.answer || content) : content,
+      successCondition: final ? "提交内容与教师版规范答案数学等价。" : "选出的数学陈述与教师版当前步骤一致。",
+      errorDiagnosis: block.teaching?.expected_blocker || DISTRACTORS[taskId][0],
+      feedbackLatex: content,
+      hintLatex: block.teaching?.fallback_move || block.explanation || "只检查当前一步。",
+      nextStepId,
+    };
+    if (!final) {
+      base.options = rotateOptions([
+        { value: `correct-${index + 1}`, labelLatex: content },
+        { value: `wrong-a-${index + 1}`, labelLatex: DISTRACTORS[taskId][0], diagnosis: block.teaching?.expected_blocker },
+        { value: `wrong-b-${index + 1}`, labelLatex: DISTRACTORS[taskId][1], diagnosis: DISTRACTORS[taskId][1] },
+      ], itemId.charCodeAt(itemId.length - 1) + index);
+    }
+    return base;
+  });
+}
+
+function labelToken(labels) {
+  return labels
+    .map((label) => `${label.segmentId}=${label.valueLatex}`)
+    .sort()
+    .join(";");
+}
+
+function extractSegmentLabels(tex) {
+  const labels = [];
+  for (const match of tex.matchAll(/([A-Z]{2})\s*=\s*([^$，。,；;]+)/g)) {
+    labels.push({
+      segmentId: canonicalSegment(match[1]),
+      displayName: match[1],
+      valueLatex: match[2].trim(),
+    });
+  }
+  for (const match of tex.matchAll(/([A-Z]{2})\s*:\s*([A-Z]{2})\s*=\s*([^:$，。\s]+)\s*:\s*([^$，。\s]+)/g)) {
+    labels.push(
+      { segmentId: canonicalSegment(match[1]), displayName: match[1], valueLatex: match[3] },
+      { segmentId: canonicalSegment(match[2]), displayName: match[2], valueLatex: match[4] },
+    );
+  }
+  return [...new Map(labels.map((label) => [label.segmentId, label])).values()];
+}
+
+function findProportion(tex) {
+  const fraction = tex.match(/\\(?:d?frac)\{([A-Z]{2})\}\{([A-Z]{2})\}\s*=\s*\\(?:d?frac)\{([A-Z]{2})\}\{([A-Z]{2})\}/);
+  if (fraction) return fraction.slice(1, 5);
+  const colon = tex.match(/([A-Z]{2})\s*:\s*([A-Z]{2})\s*=\s*([A-Z]{2})\s*:\s*([A-Z]{2})/);
+  return colon?.slice(1, 5);
+}
+
+function extractShareLabels(tex) {
+  const labels = [];
+  const plain = tex.replace(/\$/g, "");
+  for (const match of plain.matchAll(/([A-Z]{2})\s*对应\s*([^，。]+?)\s*份/g)) {
+    labels.push({
+      segmentId: canonicalSegment(match[1]),
+      displayName: match[1],
+      valueLatex: match[2].trim(),
+    });
+  }
+  return [...new Map(labels.map((label) => [label.segmentId, label])).values()];
+}
+
+function ratioToken(segments) {
+  return segments.map(canonicalSegment).join(",");
+}
+
+function contractBase(itemId, index, title, primitive, content, nextStepId) {
+  return {
+    id: `${itemId.toLowerCase()}-step-${index + 1}`,
+    title,
+    goal: content,
+    primitive,
+    target: "topic-answer",
+    promptLatex: content,
+    acceptedAnswers: [],
+    expectedLatex: content,
+    successCondition: "完成当前图上动作，且对象、顺序和数值都正确。",
+    errorDiagnosis: "当前点击对象、顺序或标注值与题目条件不一致。",
+    feedbackLatex: content,
+    hintLatex: "只检查当前一步：先确认点击的是哪条线段，再核对数值或比例方向。",
+    nextStepId,
+  };
+}
+
+function buildMarkRatioContracts(taskId, itemId, block, assignmentFile) {
+  const labels = extractSegmentLabels(block.stem_latex);
+  const allSolution = (block.solution_steps || []).map((step) => step.content_latex || step.content || "").join("\n");
+  const proportion = findProportion(allSolution);
+  const answer = block.answer || "";
+  const promptTikz = block.diagram_col?.tikz_path;
+  const extra = [
+    ...labels.map((label) => label.displayName),
+    ...(proportion || []),
+  ];
+  const geometry = geometryFromDiagram(assignmentFile, promptTikz, extra);
+  const common = { geometry, availableSegments: geometry?.segments.map((segment) => segment.id) };
+  const first = contractBase(itemId, 0, "标出已知边长", "mark-segments", "点击题干给出的线段，并把边长或份数标到图上。", `${itemId.toLowerCase()}-step-2`);
+  first.acceptedAnswers = [labelToken(labels)];
+  first.expectedLatex = labels.map((label) => `${label.displayName}=${label.valueLatex}`).join("，");
+  first.feedbackLatex = first.expectedLatex;
+  first.interaction = { kind: "mark-segments", ...common, expectedLabels: labels };
+
+  const ratio = proportion || labels.slice(0, 4).map((label) => label.displayName);
+  const second = contractBase(itemId, 1, "标出对应比例", "mark-ratio", "按同一方向依次点击四条对应边，组成两组相等的边比。", `${itemId.toLowerCase()}-step-3`);
+  second.acceptedAnswers = [ratioToken(ratio)];
+  second.expectedLatex = ratio.length === 4 ? `$${ratio[0]}:${ratio[1]}=${ratio[2]}:${ratio[3]}$` : allSolution;
+  second.feedbackLatex = second.expectedLatex;
+  second.interaction = { kind: "mark-ratio", ...common, expectedOrder: ratio.map(canonicalSegment) };
+
+  const target = answer.match(/([A-Z]{2})/)?.[1];
+  const targetIndex = target && proportion ? proportion.findIndex((segment) => canonicalSegment(segment) === canonicalSegment(target)) : -1;
+  const third = contractBase(itemId, 2, "按份数列式", "equation", "把本题写成：未知 = 已知 × 未知份数 / 已知份数，并求值。", undefined);
+  let factorSlots;
+  if (proportion && targetIndex >= 0) {
+    const [a, b, c, d] = proportion;
+    factorSlots = [
+      [b, c, d],
+      [a, d, c],
+      [d, a, b],
+      [c, b, a],
+    ][targetIndex];
+  }
+  if (target && factorSlots) {
+    const token = `${canonicalSegment(target)}=${factorSlots.map(canonicalSegment).join("*")}|${answerAliases(answer).at(-1)}`;
+    third.acceptedAnswers = [token, ...answerAliases(answer)];
+    third.expectedLatex = `$${target}=${factorSlots[0]}\\times\\dfrac{${factorSlots[1]}}{${factorSlots[2]}}$，${answer}`;
+    third.interaction = {
+      kind: "equation",
+      ...common,
+      expectedOrder: factorSlots.map(canonicalSegment),
+      equation: { targetLatex: target, factorSlots, resultLatex: answer },
+    };
+  } else {
+    third.acceptedAnswers = answerAliases(answer);
+    third.expectedLatex = answer;
+    third.interaction = { kind: "equation", ...common, equation: { targetLatex: "结论", factorSlots: ["已知", "未知份数", "已知份数"], resultLatex: answer } };
+  }
+  third.feedbackLatex = third.expectedLatex;
+  third.successCondition = "列式结构和最终结果都正确。";
+  return [first, second, third];
+}
+
+function buildThreeKnownParallelContracts(itemId, block, assignmentFile) {
+  const steps = block.solution_steps || [];
+  const labels = extractSegmentLabels(block.stem_latex);
+  const shareStep = steps.find((step) => /对应.*份/.test(step.content_latex || step.content || ""));
+  const shareContent = shareStep?.content_latex || shareStep?.content || "";
+  const shares = extractShareLabels(shareContent);
+  const answer = block.answer || "";
+  const target = answer.match(/([A-Z]{2})/)?.[1];
+  const known = target && shares.length === 2
+    ? shares.find((label) => canonicalSegment(label.displayName) !== canonicalSegment(target))?.displayName
+    : undefined;
+  const targetShare = target && shares.find((label) => canonicalSegment(label.displayName) === canonicalSegment(target));
+  const knownShare = known && shares.find((label) => canonicalSegment(label.displayName) === canonicalSegment(known));
+  const promptTikz = block.diagram_col?.tikz_path;
+  const geometry = geometryFromDiagram(assignmentFile, promptTikz, [
+    ...labels.map((label) => label.displayName),
+    ...shares.map((label) => label.displayName),
+  ]);
+  const common = { geometry, availableSegments: geometry?.segments.map((segment) => segment.id) };
+
+  const first = contractBase(itemId, 0, "标出三条已知边长", "mark-segments", "点击题干给出的三条线段，把已知边长逐一标到图上。", `${itemId.toLowerCase()}-step-2`);
+  first.acceptedAnswers = [labelToken(labels)];
+  first.expectedLatex = labels.map((label) => `${label.displayName}=${label.valueLatex}`).join("，");
+  first.feedbackLatex = first.expectedLatex;
+  first.interaction = { kind: "mark-segments", ...common, expectedLabels: labels };
+
+  const second = contractBase(itemId, 1, "标出对应份数", "mark-segments", "把已知比例约成最简整数比，再点击对应边，标出未知边和已知边各占几份。", `${itemId.toLowerCase()}-step-3`);
+  second.acceptedAnswers = [labelToken(shares)];
+  second.expectedLatex = shares.map((label) => `${label.displayName}=${label.valueLatex}份`).join("，");
+  second.feedbackLatex = shareContent || second.expectedLatex;
+  second.interaction = { kind: "mark-segments", ...common, expectedLabels: shares };
+
+  const third = contractBase(itemId, 2, "按份数列式", "equation", "依次点击已知边、未知边份数、已知边份数，再求值：未知 = 已知 × 未知份数 / 已知份数。", undefined);
+  if (target && known && targetShare && knownShare) {
+    const factorSlots = [known, target, known];
+    const result = answerAliases(answer).at(-1);
+    third.acceptedAnswers = [
+      `${canonicalSegment(target)}=${factorSlots.map(canonicalSegment).join("*")}|${result}`,
+      ...answerAliases(answer),
+    ];
+    third.expectedLatex = `$${target}=${known}\\times\\dfrac{${targetShare.valueLatex}}{${knownShare.valueLatex}}=${result}$`;
+    third.interaction = {
+      kind: "equation",
+      ...common,
+      expectedOrder: factorSlots.map(canonicalSegment),
+      equation: { targetLatex: target, factorSlots, resultLatex: answer },
+    };
+  } else {
+    third.acceptedAnswers = answerAliases(answer);
+    third.expectedLatex = answer;
+    third.interaction = { kind: "equation", ...common, equation: { targetLatex: target || "未知", factorSlots: ["已知", "未知份数", "已知份数"], resultLatex: answer } };
+  }
+  third.feedbackLatex = steps.at(-1)?.content_latex || steps.at(-1)?.content || third.expectedLatex;
+  third.successCondition = "列式结构和最终结果都正确。";
+  return [first, second, third];
+}
+
+function annotationsFor(assignmentFile, tikzPath) {
+  const artifact = resolveRenderedArtifact(assignmentFile, tikzPath);
+  if (!artifact) return [];
+  return (sceneSpec(artifact.request).annotations || []).filter((annotation) => Array.isArray(annotation.target) && annotation.target.length === 2);
+}
+
+function annotationLabels(annotations) {
+  return annotations.map((annotation) => ({
+    segmentId: canonicalSegment(annotation.target.join("")),
+    displayName: annotation.target.join(""),
+    valueLatex: annotation.text.replace(/份$/, ""),
+  }));
+}
+
+function buildAuxiliaryContracts(itemId, block, assignmentFile) {
+  const steps = block.solution_steps || [];
+  const promptTikz = block.diagram_col?.tikz_path;
+  const stageTikz = steps.slice(0, 3).map((step) => step.diagram_col?.tikz_path);
+  const stageSpecs = stageTikz.map((tikzPath) => {
+    const artifact = resolveRenderedArtifact(assignmentFile, tikzPath);
+    return artifact ? sceneSpec(artifact.request) : {};
+  });
+  const helperSpec = stageSpecs[0] || {};
+  const construction = helperSpec.auxiliary_constructions?.[0];
+  const parallel = helperSpec.markers?.find((marker) => marker.type === "parallel")?.segments;
+  const constructed = construction?.constructed_segment || [];
+  const throughPoint = constructed.find((point) => point !== construction?.point);
+  const parallelSegment = parallel?.find((segment) => canonicalSegment(segment.join("")) !== canonicalSegment(constructed.join("")));
+  const route = {
+    throughPoint,
+    parallelSegment: canonicalSegment((parallelSegment || []).join("")),
+    carrierPoints: construction?.carrier_segment || [],
+    resultPoint: construction?.point,
+  };
+  const promptGeometry = geometryFromDiagram(assignmentFile, promptTikz, [route.parallelSegment, ...(route.carrierPoints || [])]);
+  const first = contractBase(itemId, 0, "作平行辅助线", "construct-parallel", "依次点击：过线外顶点、要平行的线段、平行线外两点。系统连接后两点，并与平行线相交。", `${itemId.toLowerCase()}-step-2`);
+  const routeToken = `point:${route.throughPoint}|parallel:${route.parallelSegment}|carrier:${route.carrierPoints.join(",")}`;
+  first.acceptedAnswers = [routeToken];
+  first.expectedLatex = steps[0]?.content || routeToken;
+  first.feedbackLatex = first.expectedLatex;
+  first.diagramAsset = publishDiagram(assignmentFile, stageTikz[0], ["bank", "auxiliaryTwoRatios", itemId]);
+  first.interaction = {
+    kind: "construct-parallel",
+    geometry: promptGeometry,
+    availableSegments: promptGeometry?.segments.map((segment) => segment.id),
+    construction: route,
+  };
+
+  const annotationSets = stageTikz.map((tikzPath) => annotationsFor(assignmentFile, tikzPath));
+  const contracts = [first];
+  for (let stage = 1; stage <= 2; stage += 1) {
+    const previousIds = new Set(annotationSets[stage - 1].map((annotation) => annotation.id));
+    const added = annotationSets[stage].filter((annotation) => !previousIds.has(annotation.id));
+    const labels = annotationLabels(added);
+    const geometry = geometryFromDiagram(assignmentFile, stageTikz[stage - 1], labels.map((label) => label.displayName));
+    const contract = contractBase(itemId, stage, stage === 1 ? "标第一组相似的份数" : "保留标注，再标第二组份数", "mark-segments", stage === 1 ? "点击第一张讲解图要求的线段，并标上对应数字。" : "保留上一组红色份数，点击第二张讲解图中新要求的线段并标数字。", `${itemId.toLowerCase()}-step-${stage + 2}`);
+    contract.acceptedAnswers = [labelToken(labels)];
+    contract.expectedLatex = labels.map((label) => `${label.displayName}=${label.valueLatex}份`).join("，");
+    contract.feedbackLatex = steps[stage]?.content || contract.expectedLatex;
+    contract.diagramAsset = publishDiagram(assignmentFile, stageTikz[stage], ["bank", "auxiliaryTwoRatios", itemId]);
+    contract.interaction = { kind: "mark-segments", geometry, availableSegments: geometry?.segments.map((segment) => segment.id), expectedLabels: labels };
+    contracts.push(contract);
+  }
+  const final = contractBase(itemId, 3, "比较份数，写出答案", "input", "比较题目所求两条线段的份数，写出最简整数比。", undefined);
+  final.acceptedAnswers = answerAliases(block.answer || "");
+  final.expectedLatex = block.answer;
+  final.feedbackLatex = steps[3]?.content || block.answer;
+  final.diagramAsset = publishDiagram(assignmentFile, stageTikz[2], ["bank", "auxiliaryTwoRatios", itemId]);
+  contracts.push(final);
+  return contracts;
+}
+
+function buildContracts(taskId, itemId, block, assignmentFile) {
+  if (taskId === "auxiliaryTwoRatios") return buildAuxiliaryContracts(itemId, block, assignmentFile);
+  if (taskId === "parallelLineRatios") return buildThreeKnownParallelContracts(itemId, block, assignmentFile);
+  if (taskId.endsWith("Similarity")) {
+    return buildMarkRatioContracts(taskId, itemId, block, assignmentFile);
+  }
+  return genericContracts(taskId, itemId, block);
+}
+
+function findProblemBlock(assignment) {
+  return assignment.sections?.flatMap((section) => section.blocks || []).find((block) => block.stem_latex && block.answer && block.solution_steps);
+}
+
+function importBank(taskId, relativeBankRoot) {
+  const bankRoot = path.join(SOURCE_ROOT, relativeBankRoot);
+  const manifest = readYaml(path.join(bankRoot, "question-bank.yaml"));
+  if (manifest.bank?.status !== "ready") throw new Error(`${relativeBankRoot} is not ready`);
+  return manifest.items.filter((item) => item.enabled !== false).map((item) => {
+    const relativeAssignment = path.join(relativeBankRoot, item.teacher_assignment);
+    const assignmentFile = path.join(SOURCE_ROOT, relativeAssignment);
+    const block = findProblemBlock(readYaml(assignmentFile));
+    if (!block?.stem_latex || !block?.answer) throw new Error(`${relativeAssignment} lacks stem or answer`);
+    const contracts = buildContracts(taskId, item.id, block, assignmentFile);
+    if (taskId === "quadraticCompletion") {
+      for (let i = 0; i < contracts.length; i += 1) {
+        const tikzPath = block.solution_steps?.[i]?.diagram_col?.tikz_path
+          || (i === 0 ? block.answer_space?.diagram_col?.tikz_path : undefined);
+        contracts[i].diagramAsset = publishDiagram(assignmentFile, tikzPath, ["bank", taskId, manifest.bank.id, item.id]);
+      }
+    }
+    const modelLabel = item.skill_tags?.find((tag) => /A字|8字|反A|子母|蝶形|首项|根号|分数/.test(tag)) || item.title;
+    return {
+      id: `${manifest.bank.id}:${item.id}`,
+      taskId,
+      sourceBankId: manifest.bank.id,
+      sourceBankTitle: manifest.bank.topic,
+      sourceQuestionId: item.id,
+      sourceAssignment: relativeAssignment,
+      title: item.title,
+      modelLabel,
+      difficulty: item.difficulty || "unknown",
+      skillTags: item.skill_tags || [],
+      promptLatex: block.stem_latex,
+      promptDiagramAsset: publishDiagram(assignmentFile, block.diagram_col?.tikz_path, ["bank", taskId, manifest.bank.id, item.id]),
+      promptGeometry: geometryFromDiagram(
+        assignmentFile,
+        block.diagram_col?.tikz_path,
+        extractSegmentLabels(block.stem_latex).map((label) => label.displayName),
+      ),
+      answerLatex: block.answer,
+      explanationLatex: block.explanation || "",
+      teaching: {
+        goal: block.teaching?.teaching_goal || "完成本题",
+        expectedBlocker: block.teaching?.expected_blocker || "",
+        fallbackMove: block.teaching?.fallback_move || "",
+      },
+      steps: contracts,
+    };
+  });
+}
+
+fs.rmSync(ASSET_ROOT, { recursive: true, force: true });
+fs.mkdirSync(path.dirname(OUTPUT_JSON), { recursive: true });
+
+const bundle = {
+  schema: "teaching-tools/topic-scenario-bundle/v1",
+  version: "2026-07-20.1",
+  generatedAt: new Date().toISOString(),
+  sourceRoot: SOURCE_ROOT,
+  lessons: {},
+  scenarios: {},
+};
+
+for (const [taskId, config] of Object.entries(CONFIG)) {
+  let offset = 0;
+  const examples = [];
+  for (const relativeFile of config.explanations) {
+    const parsed = parseExplanationTex(taskId, relativeFile, offset);
+    examples.push(...parsed);
+    offset += parsed.length;
+  }
+  bundle.lessons[taskId] = {
+    taskId,
+    title: config.title,
+    objective: config.objective,
+    sourceAssignments: config.explanations,
+    examples,
+  };
+  bundle.scenarios[taskId] = config.banks.flatMap((bank) => importBank(taskId, bank));
+}
+
+fs.writeFileSync(OUTPUT_JSON, `${JSON.stringify(bundle, null, 2)}\n`);
+const counts = Object.fromEntries(Object.entries(bundle.scenarios).map(([key, value]) => [key, value.length]));
+console.log(JSON.stringify({ output: OUTPUT_JSON, counts, lessonExamples: Object.fromEntries(Object.entries(bundle.lessons).map(([key, value]) => [key, value.examples.length])) }, null, 2));

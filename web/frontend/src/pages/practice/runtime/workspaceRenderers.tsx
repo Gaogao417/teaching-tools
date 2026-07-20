@@ -3,6 +3,7 @@ import type { ClientDraftState, ExerciseEngineKind, ExerciseRuntimeSpec } from "
 import { AngleEquationWorkspaceRenderer } from "../../../components/exercises/angleEquation/AngleEquationWorkspace";
 import { BuoyancyForceAnalysisWorkspaceRenderer } from "../../../components/exercises/buoyancyForceAnalysis/BuoyancyForceAnalysisWorkspace";
 import { CoordIsoscelesRightWorkspaceRenderer } from "../../../components/exercises/coordinateIsoscelesRight/CoordIsoscelesRightWorkspace";
+import { TopicPracticeWorkspaceRenderer } from "../../../components/exercises/topicPractice/TopicPracticeWorkspace";
 import { DemoCounterWorkspaceRenderer } from "./DemoCounterWorkspace";
 import { TriangleTrigWorkspaceRenderer } from "./WorkspaceScene";
 
@@ -22,4 +23,5 @@ export const WORKSPACE_RENDERERS = {
   "angle-equation": AngleEquationWorkspaceRenderer,
   "coordinate-isosceles-right": CoordIsoscelesRightWorkspaceRenderer,
   "buoyancy-force-analysis": BuoyancyForceAnalysisWorkspaceRenderer,
+  "topic-practice": TopicPracticeWorkspaceRenderer,
 } satisfies Record<ExerciseEngineKind, (props: WorkspaceRendererProps) => ReactElement>;

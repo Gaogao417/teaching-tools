@@ -17,6 +17,8 @@ import { clearStoredSessionId, getStoredSessionId, setStoredSessionId } from "..
 import { ExerciseRuntimeHost, GuideHUD, FeedbackController } from "./practice/ExerciseRuntimeHost";
 import { RuntimeActionDock } from "./practice/runtime/RuntimeActionDock";
 import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
+import { MathText } from "../components/math/MathText";
+import { TopicRuntimeFrame } from "../components/exercises/topicPractice/TopicRuntimeFrame";
 
 const AUTO_ADVANCE_DELAY = 700;
 const CHART_LIMIT = 10;
@@ -389,10 +391,23 @@ export function PracticePage() {
           </div>
         </header>
 
+        {runtime.instance.engineKind === "topic-practice" ? (
+          <TopicRuntimeFrame
+            runtime={runtime}
+            phase={session.phase}
+            draft={draft}
+            setDraft={setDraft}
+            inputRefs={inputRefs}
+            showGuide={false}
+            disabled={session.phase === "correct_pause" || session.phase === "group_finished"}
+            onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
+            onSubmit={(stepId, value) => void submitRuntimeAction({ type: "submit", stepId, value })}
+          />
+        ) : <>
         <section className="ks-runtime-stage">
           <div className="ks-prompt-line">
             <span>题目</span>
-            <div><h1>{runtime.instance.prompt}</h1><p>{step.goal}</p></div>
+            <div><h1><MathText value={runtime.instance.prompt} /></h1><p><MathText value={step.goal} /></p></div>
             <small>步骤 {currentStepNumber}</small>
           </div>
 
@@ -417,6 +432,7 @@ export function PracticePage() {
           onClear={(target) => void submitRuntimeAction({ type: "clear", targetId: target })}
           onSubmit={(stepId, value) => void submitRuntimeAction({ type: "submit", stepId, value })}
         />
+        </>}
       </main>
 
       <FeedbackController runtime={runtime} sessionPhase={session.phase} />

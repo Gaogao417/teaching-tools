@@ -4,6 +4,7 @@ import { buoyancyForceAnalysisEnginePlugin } from "../engines/buoyancyForceAnaly
 import { coordIsoscelesEnginePlugin } from "../engines/coordinateIsoscelesRight";
 import { demoCounterEnginePlugin } from "../engines/demoCounter";
 import { triangleTrigEnginePlugin } from "../engines/triangleTrig";
+import { topicPracticeEnginePlugin } from "../engines/topicPractice";
 import { appError } from "./errors";
 import type { RegisteredEnginePlugin } from "./engineTypes";
 
@@ -13,6 +14,7 @@ const ENGINE_REGISTRY = {
   "angle-equation": angleEquationEnginePlugin,
   "coordinate-isosceles-right": coordIsoscelesEnginePlugin,
   "buoyancy-force-analysis": buoyancyForceAnalysisEnginePlugin,
+  "topic-practice": topicPracticeEnginePlugin,
 } satisfies Record<ExerciseEngineKind, RegisteredEnginePlugin>;
 
 export function getEnginePlugin(engineKind: ExerciseEngineKind): RegisteredEnginePlugin {

@@ -62,12 +62,14 @@ export function RuntimeActionDock({
   runtime,
   draft,
   disabled,
+  compact = false,
   onClear,
   onSubmit,
 }: {
   runtime: ExerciseRuntimeSpec;
   draft: ClientDraftState;
   disabled?: boolean;
+  compact?: boolean;
   onClear: (target?: string) => void;
   onSubmit: (stepId: string, value: string) => void;
 }) {
@@ -77,8 +79,8 @@ export function RuntimeActionDock({
   const slots = answerSlots(runtime, draft);
 
   return (
-    <section className="ks-action-dock" aria-label="答案操作区">
-      <div className="ks-action-dock-answer">
+    <section className={`ks-action-dock ${compact ? "is-compact" : ""}`} aria-label="答案操作区">
+      {!compact ? <div className="ks-action-dock-answer">
         <span className="ks-action-dock-label">当前答案</span>
         <div className="ks-answer-slots">
           {slots.length ? slots.map((slot) => (
@@ -88,7 +90,7 @@ export function RuntimeActionDock({
             </div>
           )) : <span className="ks-answer-empty">完成画布中的当前动作后提交</span>}
         </div>
-      </div>
+      </div> : null}
 
       <div className="ks-action-dock-buttons">
         <button

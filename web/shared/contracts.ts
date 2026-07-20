@@ -2,10 +2,16 @@ import type { AngleEquationTaskId } from "./angleEquation";
 import type { BuoyancyTaskId } from "./buoyancyForceAnalysis";
 import type { CoordIsoscelesTaskId } from "./coordinateIsoscelesRight";
 import type { TriangleTrigTaskId } from "./triangleTrig";
+import type {
+  TopicPracticeContentDefinition,
+  TopicLessonRecord,
+  TopicPracticeTaskId,
+  TopicPracticeWorkspaceModel,
+} from "./topicPractice";
 
 export type DemoCounterTaskId = "demoCounter";
-export type TaskId = TriangleTrigTaskId | DemoCounterTaskId | AngleEquationTaskId | CoordIsoscelesTaskId | BuoyancyTaskId;
-export type ExerciseEngineKind = "triangle-trig" | "demo-counter" | "angle-equation" | "coordinate-isosceles-right" | "buoyancy-force-analysis";
+export type TaskId = TriangleTrigTaskId | DemoCounterTaskId | AngleEquationTaskId | CoordIsoscelesTaskId | BuoyancyTaskId | TopicPracticeTaskId;
+export type ExerciseEngineKind = "triangle-trig" | "demo-counter" | "angle-equation" | "coordinate-isosceles-right" | "buoyancy-force-analysis" | "topic-practice";
 
 export type SessionPhase =
   | "answering"
@@ -112,6 +118,7 @@ export interface DemoCounterContentDefinition {
 export type ContentDefinition =
   | TriangleTrigContentDefinition
   | DemoCounterContentDefinition
+  | TopicPracticeContentDefinition
   | import("./angleEquation").AngleEquationContentDefinition
   | import("./coordinateIsoscelesRight").CoordIsoscelesContentDefinition
   | import("./buoyancyForceAnalysis").BuoyancyContentDefinition;
@@ -220,6 +227,7 @@ export interface SceneSpec {
   zones: InteractionZone[];
   anchors: SceneAnchor[];
   overlays?: SceneOverlay[];
+  topicWorkspace?: TopicPracticeWorkspaceModel;
 }
 
 export interface SelectActionSpec {
@@ -472,6 +480,7 @@ export interface LearningProjectionSpec {
   objective: string;
   sampleRuntime: ExerciseRuntimeSpec;
   steps: LearningProjectionStep[];
+  topicLesson?: TopicLessonRecord;
 }
 
 export interface TaskHistoryResponse {

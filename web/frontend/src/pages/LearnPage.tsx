@@ -9,6 +9,8 @@ import type {
 import { api } from "../api/client";
 import type { WorkspaceOutletContext } from "../components/layout/workspaceContext";
 import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
+import { TopicRuntimeFrame } from "../components/exercises/topicPractice/TopicRuntimeFrame";
+import { isTopicAnswerAccepted } from "../../../shared/topicPractice";
 
 const EMPTY_DRAFT: ClientDraftState = { selections: {}, inputs: {} };
 
@@ -40,6 +42,15 @@ function runtimeAtStep(projection: LearningProjectionSpec, stepIndex: number): E
           status: completedIds.includes(step.stepId) ? "done" : step.stepId === active.stepId ? "active" : "locked",
         })),
       },
+      scene: runtime.instance.scene.topicWorkspace ? {
+        ...runtime.instance.scene,
+        topicWorkspace: {
+          ...runtime.instance.scene.topicWorkspace,
+          activeStepId: active.stepId,
+          completedStepIds: completedIds,
+          guidedMode: true,
+        },
+      } : runtime.instance.scene,
     },
   };
 }
@@ -50,6 +61,8 @@ export function LearnPage() {
   const { focusedTask, setFocusedTaskId } = useOutletContext<WorkspaceOutletContext>();
   const [projection, setProjection] = useState<LearningProjectionSpec | null>(null);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const [draft, setDraft] = useState<ClientDraftState>(EMPTY_DRAFT);
+  const [topicPhase, setTopicPhase] = useState<"answering" | "correct_pause" | "wrong_feedback">("answering");
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const inertRef = useRef<HTMLDivElement | null>(null);
 
@@ -57,6 +70,8 @@ export function LearnPage() {
     if (!taskId) return;
     setFocusedTaskId(taskId);
     setActiveStepIndex(0);
+    setDraft(EMPTY_DRAFT);
+    setTopicPhase("answering");
     let cancelled = false;
     api.getLearningProjection(taskId)
       .then((result) => !cancelled && setProjection(result))
@@ -85,6 +100,45 @@ export function LearnPage() {
   }
 
   const isLast = activeStepIndex === projection.steps.length - 1;
+
+  if (runtime.instance.engineKind === "topic-practice") {
+    const contract = runtime.instance.scene.topicWorkspace?.contracts[runtime.runtimeState.currentStepId];
+    const submitTopicStep = () => {
+      const value = draft.inputs["topic-answer"] || "";
+      if (!contract || !isTopicAnswerAccepted(value, contract.acceptedAnswers)) {
+        setTopicPhase("wrong_feedback");
+        return;
+      }
+      setTopicPhase("correct_pause");
+      window.setTimeout(() => {
+        if (isLast) {
+          navigate(`/practice/${projection.taskId}`);
+          return;
+        }
+        setActiveStepIndex((index) => index + 1);
+        setDraft(EMPTY_DRAFT);
+        setTopicPhase("answering");
+      }, 500);
+    };
+
+    return (
+      <div className="ks-practice-page ks-topic-learn-page">
+        <main className="ks-practice-main">
+          <TopicRuntimeFrame
+            runtime={runtime}
+            phase={topicPhase}
+            draft={draft}
+            setDraft={setDraft}
+            inputRefs={inputRefs}
+            showGuide
+            disabled={topicPhase === "correct_pause"}
+            onClear={() => { setDraft(EMPTY_DRAFT); setTopicPhase("answering"); }}
+            onSubmit={() => submitTopicStep()}
+          />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="ks-learn-page">
