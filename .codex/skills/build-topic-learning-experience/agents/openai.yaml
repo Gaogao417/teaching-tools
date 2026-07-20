@@ -1,0 +1,4 @@
+interface:
+  display_name: "专题学习体验构建"
+  short_description: "从已审核讲解生成体验规格并实现、验证专题学习训练界面"
+  default_prompt: "使用 $build-topic-learning-experience 将已审核的 explanation 和题库转换为可确认的专题体验规格。"
