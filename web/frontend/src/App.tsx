@@ -5,12 +5,14 @@ import { ResultPage } from "./pages/ResultPage";
 import { TaskOverviewPanel } from "./pages/TaskOverviewPanel";
 import { ReviewPage } from "./pages/ReviewPage";
 import { LearnPage } from "./pages/LearnPage";
+import { SimilarityLearningMapPage } from "./pages/SimilarityLearningMapPage";
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<WorkspaceShell />}>
         <Route index element={<TaskOverviewPanel />} />
+        <Route path="map/similarity" element={<SimilarityLearningMapPage />} />
         <Route path="learn/:taskId" element={<LearnPage />} />
         <Route path="practice/:taskId" element={<PracticePage />} />
         <Route path="review/:taskId" element={<ReviewPage />} />

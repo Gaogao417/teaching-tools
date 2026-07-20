@@ -191,6 +191,9 @@ export function WorkspaceShell() {
       onPreviewOpen={handlePreviewOpen}
       onPreviewClose={handlePreviewClose}
       isStudentReady={Boolean(studentName)}
+      onOpenSimilarityMap={() => {
+        if (navigateSafely("/map/similarity")) setIsNavDrawerOpen(false);
+      }}
     />
   );
 

@@ -8,6 +8,7 @@ import type {
   TaskHistoryItem,
   TaskId,
 } from "../../../shared/contracts";
+import type { RemediationDiagnosis } from "../../../shared/similarityLearningMap";
 import { api } from "../api/client";
 import { Chart } from "../components/Chart";
 import type { WorkspaceOutletContext } from "../components/layout/workspaceContext";
@@ -54,13 +55,14 @@ function feedbackKind(runtime?: ExerciseRuntimeSpec, fallback: FeedbackEffectKey
 export function PracticePage() {
   const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: TaskId }>();
-  const { studentName, requestAuth, focusedTask, setTopNavContent, setNavigationGuard } = useOutletContext<WorkspaceOutletContext>();
+  const { studentName, requestAuth, focusedTask, setFocusedTaskId, setTopNavContent, setNavigationGuard } = useOutletContext<WorkspaceOutletContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [history, setHistory] = useState<TaskHistoryItem[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<RemediationDiagnosis | null>(null);
   const [draft, setDraft] = useState<ClientDraftState>(emptyDraft());
   const advanceTimer = useRef<number | null>(null);
   const sessionRef = useRef<PracticeSession | null>(null);
@@ -126,7 +128,7 @@ export function PracticePage() {
             const restored = await api.restorePractice(restoreId);
             if (cancelled) return;
             setSession(restored);
-            setStoredSessionId(taskId, restored.sessionId);
+            if (restored.sessionKind === "practice") setStoredSessionId(taskId, restored.sessionId);
             if (sessionIdFromUrl !== restored.sessionId) {
               setSearchParams({ sessionId: restored.sessionId }, { replace: true });
             }
@@ -167,7 +169,7 @@ export function PracticePage() {
 
   useEffect(() => {
     setDraft(emptyDraft());
-  }, [runtime?.instance.instanceId, runtime]);
+  }, [runtime?.instance.instanceId, runtime?.runtimeState.currentStepId]);
 
   const refreshHistory = async (nextTaskId: TaskId, nextStudentName: string) => {
     const historyResponse = await api.getTaskHistory(nextTaskId, nextStudentName, CHART_LIMIT).catch(() => null);
@@ -186,10 +188,16 @@ export function PracticePage() {
     try {
       clearStoredSessionId(taskId);
       setIsHistoryOpen(false);
-      const started = await api.startPractice(taskId, studentName);
+      const current = sessionRef.current;
+      const started = current?.sessionKind === "challenge" && current.challengeId
+        ? await api.startChallenge(current.challengeId, studentName)
+        : current?.sessionKind === "remediation" && current.sourceSessionId
+          ? await api.startRemediation(current.sourceSessionId)
+          : await api.startPractice(taskId, studentName);
       setSession(started);
+      setDiagnosis(null);
       setDraft(emptyDraft());
-      setStoredSessionId(taskId, started.sessionId);
+      if (started.sessionKind === "practice") setStoredSessionId(taskId, started.sessionId);
       setSearchParams({ sessionId: started.sessionId }, { replace: true });
       await refreshHistory(taskId, studentName);
     } finally {
@@ -207,8 +215,15 @@ export function PracticePage() {
 
   const finishPractice = async (currentSession: PracticeSession) => {
     const finished = await api.finishPractice(currentSession.sessionId);
-    clearStoredSessionId(currentSession.taskId);
+    if (currentSession.sessionKind === "practice") clearStoredSessionId(currentSession.taskId);
     await refreshHistory(currentSession.taskId, currentSession.studentName);
+    if (currentSession.sessionKind === "remediation" && currentSession.sourceSessionId) {
+      const challenge = await api.restorePractice(currentSession.sourceSessionId);
+      window.setTimeout(() => {
+        navigate(`/practice/${challenge.taskId}?sessionId=${challenge.sessionId}&resumed=1`, { replace: true });
+      }, AUTO_ADVANCE_DELAY);
+      return;
+    }
     window.setTimeout(() => {
       navigate(`/review/${currentSession.taskId}?sessionId=${finished.resultSnapshot.sessionId}`, { replace: true });
     }, AUTO_ADVANCE_DELAY);
@@ -246,9 +261,15 @@ export function PracticePage() {
     if (response.evaluation === "wrong") {
       const restored = await api.restorePractice(currentSession.sessionId);
       setSession({ ...restored, phase: restored.phase, runtime: restored.runtime });
+      if (currentSession.sessionKind === "challenge") {
+        const nextDiagnosis = await api.getChallengeDiagnosis(currentSession.sessionId).catch(() => null);
+        setDiagnosis(nextDiagnosis);
+      }
       triggerFeedback("wrong");
       return;
     }
+
+    setDiagnosis(null);
 
     triggerFeedback(feedbackKind(response.runtime));
 
@@ -265,6 +286,14 @@ export function PracticePage() {
     const restored = await api.restorePractice(currentSession.sessionId);
     setSession(restored);
     setDraft(emptyDraft());
+  };
+
+  const beginRemediation = async () => {
+    if (!session || session.sessionKind !== "challenge") return;
+    const remediation = await api.startRemediation(session.sessionId);
+    setDiagnosis(null);
+    setFocusedTaskId(remediation.taskId);
+    navigate(`/practice/${remediation.taskId}?sessionId=${remediation.sessionId}`);
   };
 
   const practiceTopNav = useMemo(() => {
@@ -433,6 +462,13 @@ export function PracticePage() {
           onSubmit={(stepId, value) => void submitRuntimeAction({ type: "submit", stepId, value })}
         />
         </>}
+
+        {diagnosis ? (
+          <section className="challenge-diagnosis-panel" aria-live="assertive">
+            <div><span className="eyebrow">当前卡点</span><h2>{diagnosis.title}</h2><p>{diagnosis.coachingCopy}</p></div>
+            <div className="action-row"><button className="btn btn-primary" type="button" onClick={() => void beginRemediation()}>练 3 道针对题</button><button className="btn btn-ghost" type="button" onClick={() => setDiagnosis(null)}>仍然重试挑战</button></div>
+          </section>
+        ) : null}
       </main>
 
       <FeedbackController runtime={runtime} sessionPhase={session.phase} />

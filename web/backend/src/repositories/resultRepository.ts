@@ -38,24 +38,27 @@ type InsertResultSnapshotArgs = {
 
 const getResultRowBySessionIdStatement = db.prepare(`SELECT snapshot_json FROM practice_results WHERE session_id = ?`);
 const listTaskHistoryStatement = db.prepare(
-  `SELECT session_id, student_name, elapsed_ms, cleared_at, problem_count, first_try_accuracy
-   FROM practice_results
-   WHERE task_id = ? AND student_name = ?
-   ORDER BY cleared_at DESC
+  `SELECT r.session_id, r.student_name, r.elapsed_ms, r.cleared_at, r.problem_count, r.first_try_accuracy
+   FROM practice_results r
+   JOIN practice_sessions s ON s.id = r.session_id
+   WHERE r.task_id = ? AND r.student_name = ? AND s.session_kind = 'practice'
+   ORDER BY r.cleared_at DESC
    LIMIT ?`,
 );
 const listResultSnapshotHistoryStatement = db.prepare(
-  `SELECT snapshot_json
-   FROM practice_results
-   WHERE task_id = ? AND student_name = ?
-   ORDER BY cleared_at DESC
+  `SELECT r.snapshot_json
+   FROM practice_results r
+   JOIN practice_sessions s ON s.id = r.session_id
+   WHERE r.task_id = ? AND r.student_name = ? AND s.session_kind = 'practice'
+   ORDER BY r.cleared_at DESC
    LIMIT ?`,
 );
 const getPreviousElapsedMsStatement = db.prepare(
-  `SELECT elapsed_ms
-   FROM practice_results
-   WHERE task_id = ? AND student_name = ?
-   ORDER BY cleared_at DESC
+  `SELECT r.elapsed_ms
+   FROM practice_results r
+   JOIN practice_sessions s ON s.id = r.session_id
+   WHERE r.task_id = ? AND r.student_name = ? AND s.session_kind = 'practice'
+   ORDER BY r.cleared_at DESC
    LIMIT 1`,
 );
 const insertResultSnapshotStatement = db.prepare(

@@ -1,4 +1,5 @@
 import { ContentDefinition, ExerciseEngineKind, PracticeSessionSnapshot, SessionPhase, TaskId } from "../../../../../shared/contracts";
+import type { SessionKind } from "../../../../../shared/similarityLearningMap";
 import { getTaskDefinition } from "../../tasks/catalogService";
 import { getEnginePlugin } from "./engineRegistry";
 import { type RuntimeEngineState } from "./engineTypes";
@@ -11,6 +12,12 @@ type SessionProjectionRow = {
   current_index: number;
   started_at: string;
   finished_at: string | null;
+  session_kind: SessionKind;
+  challenge_id: string | null;
+  source_session_id: string | null;
+  source_instance_id: string | null;
+  source_step_id: string | null;
+  return_mode: "resume-step" | "restart-instance" | null;
 };
 
 type RuntimeInstanceProjectionRecord = {
@@ -57,6 +64,19 @@ export function toPracticeSessionSnapshot(
     instanceCount: instances.length,
     elapsedMs: Math.max(0, elapsedMs),
     phase: session.phase,
+    sessionKind: session.session_kind,
+    challengeId: session.challenge_id ?? undefined,
+    sourceSessionId: session.source_session_id ?? undefined,
+    resumeContext: session.session_kind === "remediation" && session.source_session_id && session.source_instance_id && session.source_step_id
+      ? {
+          remediationSessionId: session.id,
+          sourceChallengeSessionId: session.source_session_id,
+          sourceInstanceId: session.source_instance_id,
+          sourceStepId: session.source_step_id,
+          preservedCompletedStepIds: [],
+          returnMode: session.return_mode || "restart-instance",
+        }
+      : undefined,
     runtime,
   };
 }

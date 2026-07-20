@@ -1,18 +1,22 @@
 import type { ContentDefinition, ExerciseEngineKind, ExerciseInstance, ResultAttemptReview, ResultSnapshot, TaskHistoryItem, TaskId } from "../../../shared/contracts";
 import { TASK_COLORS } from "../../../shared/tasks";
 import { getPreviousElapsedMs, getResultSnapshot, insertResultSnapshot, listResultHistory, listTaskHistory } from "../repositories/resultRepository";
-import { markSessionFinished } from "../repositories/sessionRepository";
+import { listChildSessionIds, markSessionFinished } from "../repositories/sessionRepository";
 import { appError } from "./runtime/platform/errors";
 import { getTaskDefinition } from "./tasks/catalogService";
 import { listActionEvents } from "../repositories/actionEventRepository";
 import { getEnginePlugin } from "./runtime/platform/engineRegistry";
 import type { RuntimeEngineState } from "./runtime/platform/engineTypes";
+import type { SessionKind } from "../../../shared/similarityLearningMap";
 
 type ResultSessionRecord = {
   id: string;
   task_id: TaskId;
   student_name: string;
   started_at: string;
+  session_kind: SessionKind;
+  challenge_id: string | null;
+  source_session_id: string | null;
 };
 
 type ResultInstanceRecord = {
@@ -115,6 +119,10 @@ export function finishAndPersistResult(
     deltaVsPreviousMs: previousElapsedMs === null ? null : elapsedMs - previousElapsedMs,
     history: [...history, { elapsedMs, clearedAt: finishedAt }],
     problemReviews,
+    sessionKind: session.session_kind,
+    challengeId: session.challenge_id ?? undefined,
+    sourceSessionId: session.source_session_id ?? undefined,
+    linkedSessionIds: listChildSessionIds(session.id),
   };
 
   insertResultSnapshot({

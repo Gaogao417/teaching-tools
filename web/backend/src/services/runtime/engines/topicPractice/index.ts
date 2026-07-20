@@ -29,6 +29,7 @@ import {
 import { appError } from "../../platform/errors";
 import { getTopicLesson, getTopicScenario, pickTopicScenario } from "./scenarioBank";
 import type { TopicPracticeEngineState } from "./types";
+import { capabilityIdsForTopicStep } from "../../../../../../shared/similarityLearningMap";
 
 const ANSWER_TARGET = "topic-answer";
 
@@ -102,7 +103,17 @@ function buildScene(state: TopicPracticeEngineState): SceneSpec {
       skillTags: scenario.skillTags,
       activeStepId: step.id,
       completedStepIds: state.completedStepIds,
-      contracts: Object.fromEntries(scenario.steps.map((item) => [item.id, item])),
+      contracts: Object.fromEntries(scenario.steps.map((item, index) => [item.id, {
+        ...item,
+        presentation: {
+          selectionMode: item.primitive === "mark-ratio" ? "pair" : item.primitive === "construct-parallel" ? "ordered" : "single",
+          inputAnchor: item.primitive === "mark-segments" ? "segment-midpoint" : "workspace",
+          retainCompletedMarks: true,
+          allowLocalUndo: true,
+          availableObjectIds: item.interaction?.availableSegments,
+          capabilityIds: capabilityIdsForTopicStep(scenario.taskId, item.primitive, index),
+        },
+      }])),
       guidedMode: state.isLearningProjection,
     },
   };

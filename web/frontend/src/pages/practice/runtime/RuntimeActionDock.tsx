@@ -47,6 +47,32 @@ function answerSlots(runtime: ExerciseRuntimeSpec, draft: ClientDraftState): Ans
 
 function canSubmit(runtime: ExerciseRuntimeSpec, draft: ClientDraftState) {
   const step = currentStep(runtime);
+  const topicWorkspace = runtime.instance.scene.topicWorkspace;
+  const topicContract = topicWorkspace?.contracts[runtime.runtimeState.currentStepId];
+  if (topicContract) {
+    const inputAction = step.allowedActions.find((action) => action.type === "input");
+    const value = inputAction?.type === "input" ? draft.inputs[inputAction.target]?.trim() || "" : "";
+    if (topicContract.primitive === "mark-segments") {
+      const labels = value.split(";").filter(Boolean).map((part) => part.split("="));
+      const required = topicContract.interaction?.expectedLabels?.length
+        || (topicContract.acceptedAnswers[0] || "").split(";").filter(Boolean).length;
+      return labels.length >= required && labels.every(([segmentId, label]) => Boolean(segmentId && label?.trim()));
+    }
+    if (topicContract.primitive === "mark-ratio") {
+      const selected = value.split(",").filter(Boolean);
+      return selected.length >= (topicContract.interaction?.expectedOrder?.length || 4);
+    }
+    if (topicContract.primitive === "construct-parallel") {
+      const parts = Object.fromEntries(value.split("|").filter(Boolean).map((part) => part.split(":")));
+      return Boolean(parts.point && parts.parallel && parts.carrier?.split(",").filter(Boolean).length === 2);
+    }
+    if (topicContract.primitive === "equation") {
+      const [equation = "", result = ""] = value.split("|");
+      const factors = equation.split("=")[1]?.split("*").filter(Boolean) || [];
+      return factors.length === 3 && Boolean(result.trim());
+    }
+    return Boolean(value);
+  }
   const actionable = step.allowedActions.filter((action) => action.type === "select" || action.type === "input");
   if (!actionable.length) return true;
 
@@ -77,6 +103,7 @@ export function RuntimeActionDock({
   const clearAction = step.allowedActions.find((action) => action.type === "clear");
   const submitAction = step.allowedActions.find((action) => action.type === "submit");
   const slots = answerSlots(runtime, draft);
+  const readyToSubmit = canSubmit(runtime, draft);
 
   return (
     <section className={`ks-action-dock ${compact ? "is-compact" : ""}`} aria-label="答案操作区">
@@ -93,18 +120,18 @@ export function RuntimeActionDock({
       </div> : null}
 
       <div className="ks-action-dock-buttons">
-        <button
+        {!compact ? <button
           className="btn btn-ghost"
           type="button"
           disabled={disabled || !clearAction}
           onClick={() => onClear(clearAction?.target || step.id)}
         >
-          清空
-        </button>
+          清空本步
+        </button> : null}
         <button
           className="btn btn-primary ks-action-submit"
           type="button"
-          disabled={disabled || !submitAction || !canSubmit(runtime, draft)}
+          disabled={disabled || !submitAction || !readyToSubmit}
           onClick={() => submitAction?.type === "submit" && onSubmit(
             submitAction.stepId,
             JSON.stringify({ selections: draft.selections, inputs: draft.inputs }),
@@ -113,6 +140,7 @@ export function RuntimeActionDock({
           提交答案
           <span className="material-symbols-outlined">arrow_forward</span>
         </button>
+        {!readyToSubmit ? <small className="ks-submit-requirement">先完成图中的当前动作</small> : null}
       </div>
     </section>
   );

@@ -19,7 +19,13 @@ db.exec(`
     started_at TEXT NOT NULL,
     finished_at TEXT,
     finished INTEGER NOT NULL DEFAULT 0,
-    schema_version INTEGER NOT NULL DEFAULT 2
+    schema_version INTEGER NOT NULL DEFAULT 2,
+    session_kind TEXT NOT NULL DEFAULT 'practice',
+    challenge_id TEXT,
+    source_session_id TEXT,
+    source_instance_id TEXT,
+    source_step_id TEXT,
+    return_mode TEXT
   );
 
   CREATE TABLE IF NOT EXISTS practice_problems (
@@ -70,6 +76,7 @@ db.exec(`
     submitted_value TEXT,
     source_id TEXT,
     step_id TEXT,
+    capability_id TEXT,
     evaluation TEXT NOT NULL,
     created_at TEXT NOT NULL,
     FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE,
@@ -78,9 +85,56 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_practice_action_events_session
     ON practice_action_events(session_id, id);
+
+  CREATE TABLE IF NOT EXISTS capability_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_name TEXT NOT NULL,
+    capability_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    session_kind TEXT NOT NULL,
+    rule_version TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(session_id, instance_id, step_id, capability_id),
+    FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(instance_id) REFERENCES practice_instances(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_capability_evidence_student
+    ON capability_evidence(student_name, capability_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS student_topic_progress (
+    student_name TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    last_step_id TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(student_name, node_id)
+  );
 `);
 
 const sessionColumns = db.prepare("PRAGMA table_info(practice_sessions)").all() as Array<{ name: string }>;
 if (!sessionColumns.some((column) => column.name === "schema_version")) {
   db.exec("ALTER TABLE practice_sessions ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1");
+}
+
+for (const [name, definition] of [
+  ["session_kind", "TEXT NOT NULL DEFAULT 'practice'"],
+  ["challenge_id", "TEXT"],
+  ["source_session_id", "TEXT"],
+  ["source_instance_id", "TEXT"],
+  ["source_step_id", "TEXT"],
+  ["return_mode", "TEXT"],
+] as const) {
+  if (!sessionColumns.some((column) => column.name === name)) {
+    db.exec(`ALTER TABLE practice_sessions ADD COLUMN ${name} ${definition}`);
+  }
+}
+
+const actionColumns = db.prepare("PRAGMA table_info(practice_action_events)").all() as Array<{ name: string }>;
+if (!actionColumns.some((column) => column.name === "capability_id")) {
+  db.exec("ALTER TABLE practice_action_events ADD COLUMN capability_id TEXT");
 }

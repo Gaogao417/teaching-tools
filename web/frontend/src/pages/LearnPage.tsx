@@ -11,6 +11,7 @@ import type { WorkspaceOutletContext } from "../components/layout/workspaceConte
 import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
 import { TopicRuntimeFrame } from "../components/exercises/topicPractice/TopicRuntimeFrame";
 import { isTopicAnswerAccepted } from "../../../shared/topicPractice";
+import { topicNodeByTaskId } from "../../../shared/similarityLearningMap";
 
 const EMPTY_DRAFT: ClientDraftState = { selections: {}, inputs: {} };
 
@@ -58,7 +59,7 @@ function runtimeAtStep(projection: LearningProjectionSpec, stepIndex: number): E
 export function LearnPage() {
   const { taskId } = useParams<{ taskId: TaskId }>();
   const navigate = useNavigate();
-  const { focusedTask, setFocusedTaskId } = useOutletContext<WorkspaceOutletContext>();
+  const { focusedTask, setFocusedTaskId, studentName } = useOutletContext<WorkspaceOutletContext>();
   const [projection, setProjection] = useState<LearningProjectionSpec | null>(null);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [draft, setDraft] = useState<ClientDraftState>(EMPTY_DRAFT);
@@ -78,6 +79,16 @@ export function LearnPage() {
       .catch(() => !cancelled && setProjection(null));
     return () => { cancelled = true; };
   }, [setFocusedTaskId, taskId]);
+
+  useEffect(() => {
+    if (!taskId || !studentName || !topicNodeByTaskId(taskId)) return;
+    void api.recordSimilarityLearnProgress(taskId, studentName, "in_progress").catch(() => undefined);
+  }, [studentName, taskId]);
+
+  const recordLearnCompleted = (lastStepId?: string) => {
+    if (!taskId || !studentName || !topicNodeByTaskId(taskId)) return;
+    void api.recordSimilarityLearnProgress(taskId, studentName, "completed", lastStepId).catch(() => undefined);
+  };
 
   useEffect(() => {
     if (inertRef.current) inertRef.current.inert = true;
@@ -112,6 +123,7 @@ export function LearnPage() {
       setTopicPhase("correct_pause");
       window.setTimeout(() => {
         if (isLast) {
+          recordLearnCompleted(activeStep.stepId);
           navigate(`/practice/${projection.taskId}`);
           return;
         }
@@ -194,7 +206,14 @@ export function LearnPage() {
             <button
               className="btn btn-primary"
               type="button"
-              onClick={() => isLast ? navigate(`/practice/${projection.taskId}`) : setActiveStepIndex((index) => index + 1)}
+              onClick={() => {
+                if (isLast) {
+                  recordLearnCompleted(activeStep.stepId);
+                  navigate(`/practice/${projection.taskId}`);
+                } else {
+                  setActiveStepIndex((index) => index + 1);
+                }
+              }}
             >
               {isLast ? "开始训练" : activeStep.nextLabel || "下一步"}
             </button>

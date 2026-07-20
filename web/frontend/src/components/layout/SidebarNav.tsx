@@ -15,6 +15,7 @@ type Props = {
   onPreviewOpen: PreviewHandler;
   onPreviewClose: () => void;
   isStudentReady: boolean;
+  onOpenSimilarityMap: () => void;
 };
 
 function taskButtonState(taskId: TaskId, focusedTaskId: TaskId | null, activeTaskId: TaskId | null) {
@@ -35,6 +36,7 @@ export function SidebarNav({
   onPreviewOpen,
   onPreviewClose,
   isStudentReady,
+  onOpenSimilarityMap,
 }: Props) {
   const openPreviewFromEvent = (taskId: TaskId, event: MouseEvent<HTMLButtonElement> | FocusEvent<HTMLButtonElement>) => {
     onPreviewOpen(taskId, event.currentTarget);
@@ -79,7 +81,12 @@ export function SidebarNav({
 
                               {chapterExpanded ? (
                                 <div className="ks-sidebar-task-list">
-                                  {chapter.tasks.map((task) => (
+                                  {chapter.id === "chapter-similarity" ? (
+                                    <button type="button" className="ks-sidebar-task ks-sidebar-map-entry" onClick={onOpenSimilarityMap}>
+                                      <span className="material-symbols-outlined">account_tree</span>
+                                      打开相似学习图谱
+                                    </button>
+                                  ) : chapter.tasks.map((task) => (
                                     <button
                                       key={task.id}
                                       type="button"

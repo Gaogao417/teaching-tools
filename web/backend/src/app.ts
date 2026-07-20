@@ -4,9 +4,19 @@ import { z } from "zod";
 import type { TaskId } from "../../shared/contracts";
 import { TASK_TREE } from "../../shared/tasks";
 import { getResult, getTaskHistory } from "./services/resultsService";
-import { finishPractice, restorePractice, startPractice, submitRuntimeAction } from "./services/runtime/platform/sessionRuntimeService";
+import {
+  finishPractice,
+  getChallengeDiagnosis,
+  restorePractice,
+  startChallenge,
+  startPractice,
+  startRemediation,
+  submitRuntimeAction,
+} from "./services/runtime/platform/sessionRuntimeService";
 import { hasTaskDefinition } from "./services/tasks/catalogService";
 import { getLearningProjection } from "./services/learningService";
+import { getSimilarityLearningMap, recordSimilarityTopicProgress } from "./services/similarityProgressionService";
+import { topicNodeByTaskId } from "../../shared/similarityLearningMap";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
   message: "Invalid taskId",
@@ -28,6 +38,60 @@ export function createApp() {
 
   app.get("/api/task-tree", (_req, res) => {
     res.json(TASK_TREE);
+  });
+
+  app.get("/api/learning-maps/similarity", (req, res, next) => {
+    try {
+      const studentName = z.string().trim().min(1).max(64).parse(req.query.studentName);
+      res.json(getSimilarityLearningMap(studentName));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/learning-maps/similarity/progress", (req, res, next) => {
+    try {
+      const body = z.object({
+        studentName: z.string().trim().min(1).max(64),
+        taskId: taskIdSchema,
+        state: z.enum(["in_progress", "completed"]),
+        lastStepId: z.string().optional(),
+      }).parse(req.body);
+      const node = topicNodeByTaskId(body.taskId);
+      if (!node) {
+        res.status(400).json({ error: { code: "BAD_REQUEST", message: "Task is not part of the similarity map" } });
+        return;
+      }
+      recordSimilarityTopicProgress({ ...body, nodeId: node.id });
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/challenges/:challengeId/start", (req, res, next) => {
+    try {
+      const studentName = z.string().trim().min(1).max(64).parse(req.body?.studentName);
+      res.json(startChallenge(req.params.challengeId, studentName));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/challenges/session/:sessionId/diagnosis", (req, res, next) => {
+    try {
+      res.json(getChallengeDiagnosis(req.params.sessionId));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/challenges/session/:sessionId/remediation", (req, res, next) => {
+    try {
+      res.json(startRemediation(req.params.sessionId));
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get("/api/learn/:taskId", (req, res, next) => {

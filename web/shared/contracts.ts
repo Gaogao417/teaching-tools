@@ -8,6 +8,7 @@ import type {
   TopicPracticeTaskId,
   TopicPracticeWorkspaceModel,
 } from "./topicPractice";
+import type { RemediationDiagnosis, RemediationResumeContext, SessionKind } from "./similarityLearningMap";
 
 export type DemoCounterTaskId = "demoCounter";
 export type TaskId = TriangleTrigTaskId | DemoCounterTaskId | AngleEquationTaskId | CoordIsoscelesTaskId | BuoyancyTaskId | TopicPracticeTaskId;
@@ -375,6 +376,11 @@ export interface PracticeSessionSnapshot {
   instanceCount: number;
   elapsedMs: number;
   phase: SessionPhase;
+  sessionKind: SessionKind;
+  challengeId?: string;
+  sourceSessionId?: string;
+  resumeContext?: RemediationResumeContext;
+  diagnosis?: RemediationDiagnosis;
   runtime?: ExerciseRuntimeSpec;
 }
 
@@ -536,6 +542,10 @@ export interface ResultSnapshot {
     clearedAt: string;
   }>;
   problemReviews: ResultProblemReview[];
+  sessionKind?: SessionKind;
+  challengeId?: string;
+  sourceSessionId?: string;
+  linkedSessionIds?: string[];
 }
 
 export interface FinishPracticeRequest {

@@ -136,6 +136,11 @@ export function ReviewPage() {
     [snapshot],
   );
   const coreProblem = needsReview[0];
+  const sessionLabel = snapshot?.sessionKind === "challenge"
+    ? "综合挑战结算"
+    : snapshot?.sessionKind === "remediation"
+      ? "精准补强记录"
+      : "训练结算";
 
   if (loading) return <section className="ks-state-page"><span className="eyebrow">复盘</span><h1>正在生成本轮结论</h1></section>;
 
@@ -153,7 +158,7 @@ export function ReviewPage() {
   return (
     <div className="ks-review-page">
       <section className="ks-debrief-hero">
-        <div className="ks-debrief-context"><span className="eyebrow">训练结算</span><p>{focusedTask?.title || snapshot.title}</p></div>
+        <div className="ks-debrief-context"><span className="eyebrow">{sessionLabel}</span><p>{focusedTask?.title || snapshot.title}</p></div>
         <div className="ks-debrief-score"><strong>{snapshot.firstTryCorrectCount} <span>/ {snapshot.problemCount}</span></strong><p>正确率 {Math.round(snapshot.firstTryAccuracy * 100)}% · 用时 {formatSeconds(snapshot.elapsedMs)}</p></div>
 
         <div className={`ks-core-diagnosis ${coreProblem ? "has-issue" : "is-clean"}`}>
@@ -161,6 +166,16 @@ export function ReviewPage() {
           <h1>{coreProblem?.diagnosisTitle || "所有题目均为首次完成"}</h1>
           <p>{coreProblem?.coachingCopy || "当前判断顺序稳定，可以提高难度或减少提示依赖。"}</p>
         </div>
+
+        {snapshot.sessionKind !== "practice" ? (
+          <div className="ks-session-lineage">
+            <span className="material-symbols-outlined">account_tree</span>
+            <div>
+              <strong>{snapshot.sessionKind === "remediation" ? "本次补强来自原挑战" : "挑战与补强链路"}</strong>
+              <p>{snapshot.sourceSessionId ? `原挑战 ${snapshot.sourceSessionId.slice(0, 8)}` : snapshot.linkedSessionIds?.length ? `已关联 ${snapshot.linkedSessionIds.length} 次补强` : "本次没有关联补强"}</p>
+            </div>
+          </div>
+        ) : null}
 
         <div className="ks-debrief-actions">
           <button className="btn btn-primary" type="button" onClick={() => navigate(`/practice/${snapshot.taskId}`)}>再练一组</button>

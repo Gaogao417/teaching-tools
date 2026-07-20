@@ -10,6 +10,7 @@ import {
   TaskId,
   TaskTreeResponse,
 } from "../../../shared/contracts";
+import type { LearningMapResponse, RemediationDiagnosis } from "../../../shared/similarityLearningMap";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
@@ -32,6 +33,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getTaskTree: () => request<TaskTreeResponse>("/api/task-tree"),
+  getSimilarityLearningMap: (studentName: string) =>
+    request<LearningMapResponse>(`/api/learning-maps/similarity?studentName=${encodeURIComponent(studentName)}`),
+  recordSimilarityLearnProgress: (taskId: TaskId, studentName: string, state: "in_progress" | "completed", lastStepId?: string) =>
+    request<{ ok: true }>("/api/learning-maps/similarity/progress", {
+      method: "POST",
+      body: JSON.stringify({ taskId, studentName, state, lastStepId }),
+    }),
   getLearningProjection: (taskId: TaskId) =>
     request<LearningProjectionSpec>(`/api/learn/${taskId}`),
   getTaskHistory: (taskId: TaskId, studentName: string, limit = 5) =>
@@ -43,6 +51,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ taskId, studentName }),
     }),
+  startChallenge: (challengeId: string, studentName: string) =>
+    request<StartPracticeResponse>(`/api/challenges/${challengeId}/start`, {
+      method: "POST",
+      body: JSON.stringify({ studentName }),
+    }),
+  getChallengeDiagnosis: (sessionId: string) =>
+    request<RemediationDiagnosis>(`/api/challenges/session/${sessionId}/diagnosis`),
+  startRemediation: (sessionId: string) =>
+    request<StartPracticeResponse>(`/api/challenges/session/${sessionId}/remediation`, { method: "POST" }),
   submitRuntimeAction: (sessionId: string, instanceId: string, action: RuntimeActionEvent) =>
     request<RuntimeActionResponse>("/api/practice/runtime-action", {
       method: "POST",

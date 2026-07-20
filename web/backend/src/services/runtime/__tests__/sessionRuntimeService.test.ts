@@ -353,7 +353,7 @@ async function main() {
     const firstInstance = engineStateAtIndex(started.sessionId, 0);
 
     assert.equal(session.current_index, 1);
-    assert.equal(session.phase, "correct_pause");
+    assert.equal(session.phase, "answering");
     assert.equal(firstInstance.status, "correct");
   });
 
@@ -453,7 +453,7 @@ async function main() {
     assert.equal(corrected.phase, "correct_pause");
 
     const restored = restorePractice(started.sessionId);
-    assert.equal(restored.phase, "correct_pause");
+    assert.equal(restored.phase, "answering");
     assert.equal(restored.runtime?.instance.engineKind, "demo-counter");
 
     const finished = finishPractice(started.sessionId);

@@ -55,6 +55,16 @@ export interface TopicGeometryInteraction {
     factorSlots: [string, string, string];
     resultLatex: string;
   };
+  presentation?: TopicInteractionPresentation;
+}
+
+export interface TopicInteractionPresentation {
+  selectionMode?: "single" | "pair" | "ordered";
+  inputAnchor?: "segment-midpoint" | "point-offset" | "workspace";
+  retainCompletedMarks?: boolean;
+  allowLocalUndo?: boolean;
+  availableObjectIds?: string[];
+  capabilityIds?: import("./similarityLearningMap").SimilarityCapabilityId[];
 }
 
 export interface TopicChoiceOption {
@@ -79,6 +89,7 @@ export interface TopicActionContract {
   hintLatex: string;
   diagramAsset?: string;
   interaction?: TopicGeometryInteraction;
+  presentation?: TopicInteractionPresentation;
   nextStepId?: string;
 }
 

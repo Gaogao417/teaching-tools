@@ -24,19 +24,35 @@ function GeometryCanvas({
   image,
   selectedPoints,
   selectedSegments,
+  labels,
+  ratioSegments,
+  activeLabelId,
+  wrongObjectIds,
+  availableSegmentIds,
+  availablePointIds,
+  constructionPreview,
   allowPoints,
   allowSegments,
   onPoint,
   onSegment,
+  onLabelChange,
 }: {
   geometry?: TopicGeometryModel;
   image?: string;
   selectedPoints: string[];
   selectedSegments: string[];
+  labels: Record<string, string>;
+  ratioSegments: string[];
+  activeLabelId?: string;
+  wrongObjectIds: string[];
+  availableSegmentIds?: string[];
+  availablePointIds?: string[];
+  constructionPreview?: { throughPoint?: string; parallelSegment?: string; carrierPoints: string[]; resultPoint?: string };
   allowPoints: boolean;
   allowSegments: boolean;
   onPoint: (id: string) => void;
   onSegment: (id: string) => void;
+  onLabelChange: (id: string, value: string) => void;
 }) {
   if (!image) return <div className="artifact-equation-focus">题图解析中</div>;
   if (!geometry) return <img src={image} alt="题图" />;
@@ -49,26 +65,86 @@ function GeometryCanvas({
           const to = pointById(geometry, segment.to);
           if (!from || !to) return null;
           const selected = selectedSegments.includes(segment.id);
+          const interactive = allowSegments && (!availableSegmentIds || availableSegmentIds.includes(segment.id));
           return (
             <line
               key={segment.id}
-              className={`topic-hit-segment ${selected ? "is-selected" : ""}`}
+              role="button"
+              tabIndex={interactive ? 0 : -1}
+              className={`topic-hit-segment ${selected ? "is-selected" : ""} ${wrongObjectIds.includes(segment.id) ? "is-wrong" : ""} ${interactive ? "is-available" : "is-idle"}`}
               x1={from.x}
               y1={from.y}
               x2={to.x}
               y2={to.y}
               vectorEffect="non-scaling-stroke"
-              onClick={() => allowSegments && onSegment(segment.id)}
+              onClick={() => interactive && onSegment(segment.id)}
+              onKeyDown={(event) => {
+                if (interactive && (event.key === "Enter" || event.key === " ")) {
+                  event.preventDefault();
+                  onSegment(segment.id);
+                }
+              }}
               aria-label={`线段 ${segment.id}`}
             />
           );
         })}
-        {geometry.points.map((point) => (
-          <g key={point.id} className={`topic-hit-point ${selectedPoints.includes(point.id) ? "is-selected" : ""}`}>
-            <circle role="button" aria-label={`点 ${point.id}`} cx={point.x} cy={point.y} r="4.5" onClick={() => allowPoints && onPoint(point.id)} />
+        {constructionPreview?.throughPoint && constructionPreview.parallelSegment ? (() => {
+          const through = pointById(geometry, constructionPreview.throughPoint!);
+          const reference = geometry.segments.find((item) => item.id === constructionPreview.parallelSegment);
+          const from = reference ? pointById(geometry, reference.from) : undefined;
+          const to = reference ? pointById(geometry, reference.to) : undefined;
+          if (!through || !from || !to) return null;
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
+          const scale = Math.max(geometry.viewBox.width, geometry.viewBox.height) / Math.max(Math.hypot(dx, dy), 1);
+          return <line className="topic-construction-preview is-parallel" x1={through.x - dx * scale} y1={through.y - dy * scale} x2={through.x + dx * scale} y2={through.y + dy * scale} />;
+        })() : null}
+        {constructionPreview?.carrierPoints.length === 2 ? (() => {
+          const from = pointById(geometry, constructionPreview.carrierPoints[0]);
+          const to = pointById(geometry, constructionPreview.carrierPoints[1]);
+          return from && to ? <line className="topic-construction-preview is-carrier" x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null;
+        })() : null}
+        {constructionPreview?.carrierPoints.length === 2 && constructionPreview.resultPoint ? (() => {
+          const point = pointById(geometry, constructionPreview.resultPoint!);
+          return point ? <circle className="topic-construction-intersection" cx={point.x} cy={point.y} r="3.5" /> : null;
+        })() : null}
+        {geometry.points.map((point) => {
+          const interactive = allowPoints && (!availablePointIds || availablePointIds.includes(point.id));
+          return (
+          <g key={point.id} className={`topic-hit-point ${selectedPoints.includes(point.id) ? "is-selected" : ""} ${wrongObjectIds.includes(point.id) ? "is-wrong" : ""} ${interactive ? "is-available" : "is-idle"}`}>
+            <circle role="button" tabIndex={interactive ? 0 : -1} aria-label={`点 ${point.id}`} cx={point.x} cy={point.y} r="8" onClick={() => interactive && onPoint(point.id)} onKeyDown={(event) => {
+              if (interactive && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                onPoint(point.id);
+              }
+            }} />
             {selectedPoints.includes(point.id) ? <text x={point.x + 8} y={point.y - 8}>{point.id}</text> : null}
           </g>
-        ))}
+        )})}
+        {Object.entries(labels).map(([segmentId, value]) => {
+          const segment = geometry.segments.find((item) => item.id === segmentId);
+          const from = segment ? pointById(geometry, segment.from) : undefined;
+          const to = segment ? pointById(geometry, segment.to) : undefined;
+          if (!from || !to) return null;
+          const x = (from.x + to.x) / 2;
+          const y = (from.y + to.y) / 2;
+          return activeLabelId === segmentId ? (
+            <foreignObject key={`label-${segmentId}`} x={x - 9} y={y - 5} width="18" height="10" className="topic-inline-label-input">
+              <input aria-label={`${segmentId} 的标注`} inputMode="decimal" autoFocus value={value} onChange={(event) => onLabelChange(segmentId, event.target.value)} />
+            </foreignObject>
+          ) : (
+            <g key={`label-${segmentId}`} className="topic-inline-label"><rect x={x - 8} y={y - 4} width="16" height="8" rx="2.5" /><text x={x} y={y + 1.6}>{value || segmentId}</text></g>
+          );
+        })}
+        {ratioSegments.map((segmentId, index) => {
+          const segment = geometry.segments.find((item) => item.id === segmentId);
+          const from = segment ? pointById(geometry, segment.from) : undefined;
+          const to = segment ? pointById(geometry, segment.to) : undefined;
+          if (!from || !to) return null;
+          const x = (from.x + to.x) / 2;
+          const y = (from.y + to.y) / 2;
+          return <g key={`ratio-${segmentId}-${index}`} className={`topic-ratio-badge group-${Math.floor(index / 2) + 1}`}><circle cx={x} cy={y} r="5" /><text x={x} y={y + 1.7}>{index < 2 ? "①" : "②"}</text></g>;
+        })}
       </svg>
     </div>
   );
@@ -109,6 +185,12 @@ export function TopicPracticeWorkspaceRenderer({
     return [part.slice(0, index), part.slice(index + 1)];
   }));
   const carrierPoints = constructParts.carrier?.split(",").filter(Boolean) || [];
+  const retainedLabels = Object.values(model.contracts)
+    .filter((item) => model.completedStepIds.includes(item.id) && item.primitive === "mark-segments")
+    .reduce((all, item) => ({ ...all, ...parseLabels(item.acceptedAnswers[0] || "") }), {} as Record<string, string>);
+  const retainedRatioSegments = Object.values(model.contracts)
+    .filter((item) => model.completedStepIds.includes(item.id) && item.primitive === "mark-ratio")
+    .flatMap((item) => (item.acceptedAnswers[0] || "").split(",").filter(Boolean));
 
   const handleSegment = (segmentId: string) => {
     if (readOnly) return;
@@ -117,6 +199,7 @@ export function TopicPracticeWorkspaceRenderer({
       if (segmentId in next) delete next[segmentId];
       else next[segmentId] = "";
       setValue(serializeLabels(next));
+      setDraft((current) => ({ ...current, focusTarget: segmentId }));
       return;
     }
     if (contract.primitive === "mark-ratio") {
@@ -126,12 +209,14 @@ export function TopicPracticeWorkspaceRenderer({
       }
       if (ratioSegments.length >= 4) return;
       setValue([...ratioSegments, segmentId].join(","));
+      setDraft((current) => ({ ...current, focusTarget: segmentId }));
       return;
     }
     if (contract.primitive === "equation") {
       if (equationSegments.length >= 3) return;
       const target = contract.interaction?.equation?.targetLatex || "未知";
       setValue(`${[...target].sort().join("")}=${[...equationSegments, segmentId].join("*")}|${equationResult}`);
+      setDraft((current) => ({ ...current, focusTarget: segmentId }));
       return;
     }
     if (contract.primitive === "construct-parallel" && constructParts.point && !constructParts.parallel) {
@@ -143,11 +228,36 @@ export function TopicPracticeWorkspaceRenderer({
     if (readOnly || contract.primitive !== "construct-parallel") return;
     if (!constructParts.point) {
       setValue(`point:${pointId}`);
+      setDraft((current) => ({ ...current, focusTarget: pointId }));
       return;
     }
     if (!constructParts.parallel || pointId === constructParts.point || carrierPoints.includes(pointId) || carrierPoints.length >= 2) return;
     const nextCarrier = [...carrierPoints, pointId];
     setValue(`point:${constructParts.point}|parallel:${constructParts.parallel}|carrier:${nextCarrier.join(",")}`);
+    setDraft((current) => ({ ...current, focusTarget: pointId }));
+  };
+
+  const undoLast = () => {
+    if (readOnly) return;
+    if (contract.primitive === "mark-segments") {
+      const ids = Object.keys(labels);
+      const target = draft.focusTarget && labels[draft.focusTarget] !== undefined ? draft.focusTarget : ids[ids.length - 1];
+      if (!target) return;
+      const next = { ...labels };
+      delete next[target];
+      setValue(serializeLabels(next));
+    } else if (contract.primitive === "mark-ratio") {
+      setValue(ratioSegments.slice(0, -1).join(","));
+    } else if (contract.primitive === "equation") {
+      setValue(`${[...contract.interaction!.equation!.targetLatex].sort().join("")}=${equationSegments.slice(0, -1).join("*")}|${equationResult}`);
+    } else if (contract.primitive === "construct-parallel") {
+      if (carrierPoints.length) setValue(`point:${constructParts.point}|parallel:${constructParts.parallel}|carrier:${carrierPoints.slice(0, -1).join(",")}`);
+      else if (constructParts.parallel) setValue(`point:${constructParts.point}`);
+      else setValue("");
+    } else {
+      setValue("");
+    }
+    setDraft((current) => ({ ...current, focusTarget: undefined }));
   };
 
   const selectedSegments = contract.primitive === "mark-segments"
@@ -160,6 +270,27 @@ export function TopicPracticeWorkspaceRenderer({
   const selectedPoints = contract.primitive === "construct-parallel"
     ? [constructParts.point, ...carrierPoints].filter(Boolean)
     : [];
+  const construction = contract.interaction?.construction;
+  const availablePointIds = contract.primitive === "construct-parallel"
+    ? !constructParts.point
+      ? construction ? [construction.throughPoint] : undefined
+      : constructParts.parallel
+        ? construction?.carrierPoints
+        : []
+    : undefined;
+  const availableSegmentIds = contract.primitive === "construct-parallel" && constructParts.point && !constructParts.parallel
+    ? construction ? [construction.parallelSegment] : contract.interaction?.availableSegments
+    : contract.interaction?.availableSegments;
+  const wrongObjectIds = runtime.runtimeState.problemStatus === "wrong" ? [...selectedSegments, ...selectedPoints] : [];
+  const constructionPrompt = !constructParts.point
+    ? "点过线点"
+    : !constructParts.parallel
+      ? "点平行参照边"
+      : carrierPoints.length === 0
+        ? "点第一个外点"
+        : carrierPoints.length === 1
+          ? "点第二个外点"
+          : "辅助线构造完成，可以提交";
 
   return (
     <div className="practice-canvas-zone topic-practice-canvas artifact-topic-canvas">
@@ -170,10 +301,23 @@ export function TopicPracticeWorkspaceRenderer({
             image={visibleDiagram}
             selectedPoints={selectedPoints}
             selectedSegments={selectedSegments}
+            labels={{ ...retainedLabels, ...labels }}
+            ratioSegments={[...retainedRatioSegments, ...ratioSegments]}
+            activeLabelId={contract.primitive === "mark-segments" ? draft.focusTarget : undefined}
+            wrongObjectIds={wrongObjectIds}
+            availableSegmentIds={availableSegmentIds}
+            availablePointIds={availablePointIds}
+            constructionPreview={contract.primitive === "construct-parallel" ? {
+              throughPoint: constructParts.point,
+              parallelSegment: constructParts.parallel,
+              carrierPoints,
+              resultPoint: construction?.resultPoint,
+            } : undefined}
             allowPoints={contract.primitive === "construct-parallel"}
             allowSegments={["construct-parallel", "mark-segments", "mark-ratio", "equation"].includes(contract.primitive)}
             onPoint={handlePoint}
             onSegment={handleSegment}
+            onLabelChange={(segmentId, value) => setValue(serializeLabels({ ...labels, [segmentId]: value }))}
           />
         </section>
       </div>
@@ -185,36 +329,13 @@ export function TopicPracticeWorkspaceRenderer({
         </div>
 
         {contract.primitive === "construct-parallel" ? (
-          <div className="topic-action-slots">
-            <span className={constructParts.point ? "is-filled" : ""}>① 顶点 {constructParts.point || "—"}</span>
-            <span className={constructParts.parallel ? "is-filled" : ""}>② 平行于 {constructParts.parallel || "—"}</span>
-            <span className={carrierPoints[0] ? "is-filled" : ""}>③ 外点 {carrierPoints[0] || "—"}</span>
-            <span className={carrierPoints[1] ? "is-filled" : ""}>④ 外点 {carrierPoints[1] || "—"}</span>
-          </div>
+          <p className="topic-next-object"><span className="material-symbols-outlined">ads_click</span>{constructionPrompt}</p>
         ) : null}
 
-        {contract.primitive === "mark-segments" ? (
-          <div className="topic-label-editor">
-            {Object.entries(labels).map(([segment, value]) => (
-              <div className="topic-label-item" key={segment}>
-                <strong>{segment}</strong>
-                <input aria-label={`${segment} 的标注`} value={value} onChange={(event) => setValue(serializeLabels({ ...labels, [segment]: event.target.value }))} placeholder="填数字" />
-                <button type="button" aria-label={`取消选择 ${segment}`} title={`取消选择 ${segment}`} onClick={() => {
-                  const next = { ...labels };
-                  delete next[segment];
-                  setValue(serializeLabels(next));
-                }}>×</button>
-              </div>
-            ))}
-          </div>
-        ) : null}
+        {contract.primitive === "mark-segments" ? <p className="topic-next-object"><span className="material-symbols-outlined">edit_location_alt</span>点线段后，直接在线段旁输入数值</p> : null}
 
         {contract.primitive === "mark-ratio" ? (
-          <div className="topic-ratio-builder">
-            <span>{ratioSegments[0] || "点线段"}</span><b>:</b><span>{ratioSegments[1] || "点线段"}</span>
-            <b>=</b>
-            <span>{ratioSegments[2] || "点线段"}</span><b>:</b><span>{ratioSegments[3] || "点线段"}</span>
-          </div>
+          <p className="topic-next-object"><span className="material-symbols-outlined">link</span>{ratioSegments.length % 2 === 0 ? "先点第一条边" : "现在点它的对应边"} · 已完成 {Math.floor(ratioSegments.length / 2)}/2 组</p>
         ) : null}
 
         {contract.primitive === "equation" && contract.interaction?.equation ? (
@@ -240,6 +361,7 @@ export function TopicPracticeWorkspaceRenderer({
         {contract.primitive === "input" ? (
           <label className="topic-free-input"><span className="sr-only">{contract.title}</span><input ref={(node) => { inputRefs.current[inputAction.target] = node; }} value={selected} onChange={(event: ChangeEvent<HTMLInputElement>) => setValue(event.target.value)} placeholder="写出规范答案" autoComplete="off" /></label>
         ) : null}
+        <button type="button" className="topic-local-undo" disabled={!selected} onClick={undoLast}><span className="material-symbols-outlined">undo</span>撤销刚才</button>
       </section>
     </div>
   );
