@@ -1,8 +1,9 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { ClientDraftState, ExerciseRuntimeSpec } from "../../../../../shared/contracts";
 import { MathText } from "../../math/MathText";
+import { FocusWorkspace } from "../../layout/FocusWorkspace";
 import { ExerciseRuntimeHost } from "../../../pages/practice/ExerciseRuntimeHost";
-import { RuntimeActionDock } from "../../../pages/practice/runtime/RuntimeActionDock";
+import { RuntimeActionControls } from "../../../pages/practice/runtime/RuntimeActionControls";
 import { currentStep } from "../../../pages/practice/runtime/sceneUtils";
 
 type TopicRuntimeFrameProps = {
@@ -74,42 +75,82 @@ export function TopicRuntimeFrame({
         || (!isExplanation ? coach?.nextActionLatex : undefined);
   const autoSubmit = Boolean(topicWorkspace?.guidedMode && activeContract?.presentation?.autoSubmitOnComplete);
 
+  const actionLabel = activeContract?.title || "当前任务";
+
   return (
-    <>
-      <section className="ks-runtime-stage topic-runtime-frame is-guided">
-        <div className="ks-prompt-line">
+    <FocusWorkspace
+      ariaLabel="专题学习工作台"
+      prompt={
+        <>
           <span>题目</span>
           <div><h1><MathText value={runtime.instance.prompt} /></h1></div>
-        </div>
-        <div className="ks-runtime-stage-canvas">
-          <ExerciseRuntimeHost
-            runtime={runtime}
-            sessionPhase={phase}
-            draft={draft}
-            setDraft={setDraft}
-            inputRefs={inputRefs}
-            onSubmit={({ stepId, value }) => onSubmit(stepId, value)}
-            onClear={onClear}
-          />
-        </div>
-        <aside className={`topic-coach-panel tone-${phase === "wrong_feedback" ? "wrong" : draft.topicCoach?.tone || "prompt"}`} aria-label="陪练老师" aria-live={phase === "wrong_feedback" ? "assertive" : "polite"}>
+        </>
+      }
+      rail={
+        <aside
+          className={`topic-coach-panel tone-${phase === "wrong_feedback" ? "wrong" : draft.topicCoach?.tone || "prompt"}`}
+          aria-label="陪练老师"
+          aria-live={phase === "wrong_feedback" ? "assertive" : "polite"}
+        >
           <div className="topic-coach-header">
             <span className="topic-coach-avatar material-symbols-outlined">school</span>
             <div>
               <small>{isExplanation ? "老师讲解" : `任务 ${activeIndex + 1}/${runtime.instance.flow.steps.length}`}</small>
               {!isExplanation ? <strong>{activeContract?.title || "当前任务"}</strong> : null}
             </div>
-            <button type="button" className="topic-coach-sound" aria-label={draft.topicCoach?.soundEnabled === false ? "开启错误提示音" : "关闭错误提示音"} onClick={() => setDraft((current) => ({ ...current, topicCoach: { ...current.topicCoach, soundEnabled: current.topicCoach?.soundEnabled === false } }))}>
-              <span className="material-symbols-outlined">{draft.topicCoach?.soundEnabled === false ? "volume_off" : "volume_up"}</span>
+            <button
+              type="button"
+              className="topic-coach-sound"
+              aria-label={draft.topicCoach?.soundEnabled === false ? "开启错误提示音" : "关闭错误提示音"}
+              onClick={() => setDraft((current) => ({
+                ...current,
+                topicCoach: { ...current.topicCoach, soundEnabled: current.topicCoach?.soundEnabled === false },
+              }))}
+            >
+              <span className="material-symbols-outlined">
+                {draft.topicCoach?.soundEnabled === false ? "volume_off" : "volume_up"}
+              </span>
             </button>
           </div>
-          <div className="topic-coach-bubble" role={phase === "wrong_feedback" ? "alert" : undefined} data-testid="topic-coach-bubble">
+          <div
+            className="topic-coach-bubble"
+            role={phase === "wrong_feedback" ? "alert" : undefined}
+            data-testid="topic-coach-bubble"
+          >
             <MathText value={coachMessage || "完成画布中的当前动作。"} block />
-            {followup && coachMessage !== followup ? <div className="topic-coach-followup"><MathText value={followup} block /></div> : null}
+            {followup && coachMessage !== followup ? (
+              <div className="topic-coach-followup">
+                <MathText value={followup} block />
+              </div>
+            ) : null}
           </div>
         </aside>
-      </section>
-      {!autoSubmit ? <RuntimeActionDock runtime={runtime} draft={draft} disabled={disabled} compact onClear={onClear} onSubmit={onSubmit} /> : null}
-    </>
+      }
+      actionBarLeft={
+        <span className="ks-focus-rail-action">{actionLabel}</span>
+      }
+      actionEnd={
+        !autoSubmit ? (
+          <RuntimeActionControls
+            runtime={runtime}
+            draft={draft}
+            disabled={disabled}
+            showSubmit={!autoSubmit}
+            onClear={onClear}
+            onSubmit={onSubmit}
+          />
+        ) : undefined
+      }
+    >
+      <ExerciseRuntimeHost
+        runtime={runtime}
+        sessionPhase={phase}
+        draft={draft}
+        setDraft={setDraft}
+        inputRefs={inputRefs}
+        onSubmit={({ stepId, value }) => onSubmit(stepId, value)}
+        onClear={onClear}
+      />
+    </FocusWorkspace>
   );
 }

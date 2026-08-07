@@ -8,6 +8,7 @@ import type {
 } from "../../../shared/contracts";
 import { api } from "../api/client";
 import type { WorkspaceOutletContext } from "../components/layout/workspaceContext";
+import { FocusWorkspace } from "../components/layout/FocusWorkspace";
 import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
 import { TopicRuntimeFrame } from "../components/exercises/topicPractice/TopicRuntimeFrame";
 import { isTopicAnswerAccepted } from "../../../shared/topicPractice";
@@ -142,75 +143,75 @@ export function LearnPage() {
     };
 
     return (
-      <div className="ks-practice-page ks-topic-learn-page">
-        <main className="ks-practice-main">
-          <TopicRuntimeFrame
-            runtime={runtime}
-            phase={topicPhase}
-            draft={draft}
-            setDraft={setDraft}
-            inputRefs={inputRefs}
-            showGuide
-            disabled={topicPhase === "correct_pause"}
-            onClear={() => { setDraft(EMPTY_DRAFT); setTopicPhase("answering"); }}
-            onSubmit={(_stepId, value) => submitTopicStep(value)}
-          />
-        </main>
+      <div className="ks-focus-page">
+        <TopicRuntimeFrame
+          runtime={runtime}
+          phase={topicPhase}
+          draft={draft}
+          setDraft={setDraft}
+          inputRefs={inputRefs}
+          showGuide
+          disabled={topicPhase === "correct_pause"}
+          onClear={() => { setDraft(EMPTY_DRAFT); setTopicPhase("answering"); }}
+          onSubmit={(_stepId, value) => submitTopicStep(value)}
+        />
       </div>
     );
   }
 
   return (
     <div className="ks-focus-page ks-learn-page">
-      <header className="ks-learn-header">
-        <div>
-          <span className="eyebrow">学习 · {focusedTask?.title || projection.taskId}</span>
-          <h1 style={{ fontSize: "var(--text-title)" }}>{projection.objective}</h1>
-        </div>
-        <span className="ks-task-progress">
-          <strong>{String(activeStepIndex + 1).padStart(2, "0")}</strong>
-          <span>/ {String(projection.steps.length).padStart(2, "0")}</span>
-        </span>
-      </header>
-
-      <main className="ks-focus-workspace ks-learn-stage">
-        <section className="ks-learn-object">
-          <div className="ks-focus-prompt">
+      <FocusWorkspace
+        ariaLabel="示范学习工作台"
+        prompt={
+          <>
             <span>示范题</span>
             <div><h1>{runtime.instance.prompt}</h1></div>
-          </div>
-          <div className="ks-focus-canvas" ref={inertRef} aria-label="只读教学场景">
-            <ExerciseRuntimeHost
-              runtime={runtime}
-              sessionPhase="answering"
-              draft={EMPTY_DRAFT}
-              setDraft={() => undefined}
-              inputRefs={inputRefs}
-              onSubmit={() => undefined}
-              onClear={() => undefined}
-              readOnly
-            />
-          </div>
-        </section>
+          </>
+        }
+        rail={
+          <>
+            <div className="ks-focus-rail-eyebrow">
+              学习目标 · 步骤 {activeStepIndex + 1}/{projection.steps.length}
+            </div>
+            <div className="ks-focus-rail-objective">{projection.objective}</div>
+            <div className="ks-focus-rail-action">{activeStep.title}</div>
+            <div className="ks-focus-rail-narration">{activeStep.narration}</div>
+            {activeStep.actionLabel ? <div className="ks-learn-action-callout">{activeStep.actionLabel}</div> : null}
 
-        <aside className="ks-focus-rail ks-learn-instruction">
-          <h2 style={{ fontSize: "var(--text-heading)" }}>{activeStep.title}</h2>
-          <p style={{ color: "var(--color-slate-700)" }}>{activeStep.narration}</p>
-          {activeStep.actionLabel ? <div className="ks-learn-action-callout">{activeStep.actionLabel}</div> : null}
-
-          <ol className="ks-learn-step-list" style={{ marginTop: "var(--space-3)" }}>
-            {projection.steps.map((step, index) => (
-              <li key={step.stepId} className={index === activeStepIndex ? "current" : index < activeStepIndex ? "done" : ""}>
-                <button type="button" aria-current={index === activeStepIndex ? "step" : undefined} onClick={() => setActiveStepIndex(index)}>
-                  <span>{index < activeStepIndex ? "✓" : index + 1}</span>
-                  <strong>{step.title}</strong>
-                </button>
-              </li>
-            ))}
-          </ol>
-
-          <div className="ks-focus-action-bar" style={{ marginTop: "auto", borderTop: "1px solid var(--color-line)", paddingTop: "var(--space-3)" }}>
-            <button className="btn btn-ghost" type="button" disabled={!activeStepIndex} onClick={() => setActiveStepIndex((index) => index - 1)}>
+            <div className="ks-step-progress" style={{ marginTop: "var(--space-3)" }}>
+              {projection.steps.map((step, index) => (
+                <span key={step.stepId} style={{ display: "inline-flex", alignItems: "center" }}>
+                  <button
+                    type="button"
+                    className={`ks-step-node ${index < activeStepIndex ? "is-done" : index === activeStepIndex ? "is-current" : ""}`}
+                    aria-current={index === activeStepIndex ? "step" : undefined}
+                    aria-label={step.title}
+                    onClick={() => setActiveStepIndex(index)}
+                  >
+                    {index < activeStepIndex ? "✓" : index + 1}
+                  </button>
+                  {index < projection.steps.length - 1 ? (
+                    <span className={`ks-step-connector ${index < activeStepIndex ? "is-done" : ""}`} />
+                  ) : null}
+                </span>
+              ))}
+            </div>
+          </>
+        }
+        actionBarLeft={
+          <span className="ks-focus-rail-action">
+            {activeStep.actionLabel || activeStep.title}
+          </span>
+        }
+        actionEnd={
+          <>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              disabled={!activeStepIndex}
+              onClick={() => setActiveStepIndex((index) => index - 1)}
+            >
               上一步
             </button>
             <button
@@ -227,9 +228,22 @@ export function LearnPage() {
             >
               {isLast ? "开始训练" : activeStep.nextLabel || "下一步"}
             </button>
-          </div>
-        </aside>
-      </main>
+          </>
+        }
+      >
+        <div ref={inertRef} aria-label="只读教学场景">
+          <ExerciseRuntimeHost
+            runtime={runtime}
+            sessionPhase="answering"
+            draft={EMPTY_DRAFT}
+            setDraft={() => undefined}
+            inputRefs={inputRefs}
+            onSubmit={() => undefined}
+            onClear={() => undefined}
+            readOnly
+          />
+        </div>
+      </FocusWorkspace>
     </div>
   );
 }

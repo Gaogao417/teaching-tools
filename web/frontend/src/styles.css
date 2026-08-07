@@ -224,77 +224,7 @@ input, select {
 .practice-demo-badge { width: fit-content; padding: 4px 8px; border-radius: var(--radius-sm); background: var(--fill-neutral-soft); color: var(--color-muted); font-size: var(--text-xs); font-weight: var(--weight-bold); }
 .practice-demo-input { display: grid; gap: var(--space-2); font-weight: var(--weight-bold); }
 
-/* ── Global focus workspace primitives ─────────────────────────────── */
-
-.ks-focus-page {
-  width: min(var(--ks-workspace-max), 100%);
-  margin: 0 auto;
-  padding: var(--ks-workspace-padding);
-}
-
-.ks-focus-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(var(--ks-rail-width), auto);
-  min-height: calc(100vh - var(--ks-top-nav-height));
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-main);
-  overflow: hidden;
-}
-
-.ks-focus-prompt {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: start;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-line);
-}
-
-.ks-focus-prompt > span,
-.ks-focus-prompt > small {
-  color: var(--color-muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-bold);
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-.ks-focus-prompt h1 {
-  font-size: var(--text-heading);
-  line-height: var(--leading-tight);
-}
-
-.ks-focus-canvas {
-  min-height: 0;
-  display: grid;
-  overflow: hidden;
-}
-
-.ks-focus-rail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-5);
-  border-left: 1px solid var(--color-line);
-  background: var(--surface-guide);
-  overflow: auto;
-}
-
-.ks-focus-action-bar {
-  min-height: var(--ks-action-bar-height);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--color-line);
-}
-
-.ks-focus-action-bar-buttons {
-  display: flex;
-  gap: var(--space-2);
-}
+/* ── Task progress ── */
 
 .ks-task-progress {
   display: flex;
@@ -309,6 +239,8 @@ input, select {
   color: var(--color-ink);
   font-size: var(--text-md);
 }
+
+/* ── Coach bubble ── */
 
 .ks-coach-bubble {
   position: relative;
@@ -352,16 +284,4 @@ input, select {
 .ks-coach-bubble.tone-wrong::before {
   border-color: var(--border-danger);
   background: var(--fill-danger-soft);
-}
-
-@media (max-width: 900px) {
-  .ks-focus-workspace {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-
-  .ks-focus-rail {
-    border-left: 0;
-    border-top: 1px solid var(--color-line);
-  }
 }

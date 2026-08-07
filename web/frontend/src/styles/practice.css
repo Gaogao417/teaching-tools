@@ -158,7 +158,6 @@
   gap: var(--space-2);
   padding: var(--space-3);
 }
-.ks-topic-learn-page .ks-practice-main { min-height: 0; height: calc(100vh - 72px); padding: var(--space-3); grid-template-rows: minmax(0, 1fr) auto; }
 
 .ks-runtime-stage .topic-practice-object { min-height: 0; }
 .ks-runtime-stage .topic-practice-meta { display: flex; align-items: center; padding-bottom: var(--space-2); }
@@ -2629,13 +2628,7 @@
   .topic-coach-bubble::before { top: -9px; left: 26px; transform: rotate(135deg); }
 }
 
-/* Topic learning: fixed viewport, diagram constrained by container height. */
-.ks-topic-learn-page .ks-practice-main {
-  height: calc(100vh - var(--ks-top-nav-height));
-  min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-}
-
+/* Topic learning: diagram constrained by container height. */
 .topic-runtime-frame .ks-runtime-stage-canvas { min-height: 0; overflow: hidden; }
 .topic-runtime-frame .artifact-topic-canvas { min-height: 0; height: 100%; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
 .topic-runtime-frame .artifact-math-object { min-height: 0; height: 100%; overflow: hidden; }
