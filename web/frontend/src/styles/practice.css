@@ -1361,7 +1361,7 @@
   overflow: hidden;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
-  background: #fff;
+  background: var(--surface-main);
 }
 .ks-prompt-line { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--color-line); }
 .ks-prompt-line > span, .ks-prompt-line > small { color: var(--color-muted); font-size: var(--text-xs); font-weight: var(--weight-bold); letter-spacing: .06em; text-transform: uppercase; }
@@ -1376,7 +1376,7 @@
   padding: var(--space-4);
   border: 0;
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--surface-main);
   box-shadow: none;
 }
 .ks-runtime-stage .practice-triangle-stage { min-height: 460px; height: 100%; }
@@ -1411,7 +1411,7 @@
 .ks-guide-hint p { margin-top: 3px; font-size: var(--text-sm); }
 
 .ks-action-dock {
-  min-height: 82px;
+  min-height: var(--ks-action-bar-height);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -1419,7 +1419,7 @@
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
-  background: #fff;
+  background: var(--surface-main);
 }
 .ks-action-dock-answer { min-width: 0; display: grid; gap: 6px; }
 .ks-action-dock-label { color: var(--color-muted); font-size: var(--text-xs); font-weight: var(--weight-bold); letter-spacing: .08em; text-transform: uppercase; }
@@ -1433,7 +1433,7 @@
 .ks-action-dock-buttons { display: flex; gap: var(--space-2); }
 .ks-action-submit { min-width: 154px; }
 
-.ks-history-modal { width: min(760px, 100%); max-height: min(82vh, 760px); display: grid; gap: var(--space-4); padding: var(--space-5); overflow: auto; background: #fff; }
+.ks-history-modal { width: min(760px, 100%); max-height: min(82vh, 760px); display: grid; gap: var(--space-4); padding: var(--space-5); overflow: auto; background: var(--surface-main); }
 .ks-history-modal-head, .ks-history-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
 .ks-history-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .ks-history-list { display: grid; gap: var(--space-2); }
@@ -1459,19 +1459,6 @@
   .ks-prompt-line > span, .ks-prompt-line > small { display: none; }
   .ks-action-dock-buttons { display: grid; grid-template-columns: 1fr 2fr; }
   .ks-action-submit { min-width: 0; }
-}
-
-.ks-practice-page {
-  position: relative;
-  min-height: calc(100vh - var(--ks-top-nav-height));
-}
-
-.ks-practice-main {
-  width: 100%;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 20px 32px 32px;
-  min-height: calc(100vh - var(--ks-top-nav-height));
 }
 
 /* ── Session bar (top strip) ── */
@@ -2426,7 +2413,7 @@
   padding: var(--space-4);
   border: 0;
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--surface-main);
   box-shadow: none;
 }
 
@@ -2442,7 +2429,7 @@
   padding: var(--space-3);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--surface-main);
 }
 
 @media (max-width: 820px) {
@@ -2564,10 +2551,10 @@
 .topic-runtime-frame .ks-prompt-line h1 { font-size: var(--text-question); font-weight: var(--weight-medium); line-height: 1.55; letter-spacing: 0; }
 .topic-runtime-frame .ks-prompt-line h1 .katex { font-size: 1em; }
 .topic-runtime-frame .ks-prompt-line p { display: none; }
-.topic-runtime-frame.is-guided { grid-template-columns: minmax(0, 1fr) minmax(260px, 300px); grid-template-rows: auto minmax(0, 1fr); gap: 0 var(--space-4); overflow: visible; }
+.topic-runtime-frame.is-guided { grid-template-columns: minmax(0, 1fr) minmax(260px, 280px); grid-template-rows: auto minmax(0, 1fr); gap: 0 var(--space-4); overflow: hidden; }
 .topic-runtime-frame.is-guided .ks-prompt-line { grid-column: 1; grid-row: 1; }
-.topic-runtime-frame.is-guided .ks-runtime-stage-canvas { grid-column: 1; grid-row: 2; }
-.topic-coach-panel { position: sticky; top: 12px; grid-column: 2; grid-row: 1 / span 2; align-self: start; display: grid; align-content: start; gap: var(--space-2); padding: var(--space-2) 0; background: transparent; }
+.topic-runtime-frame.is-guided .ks-runtime-stage-canvas { grid-column: 1; grid-row: 2; min-height: 0; overflow: auto; }
+.topic-coach-panel { grid-column: 2; grid-row: 1 / span 2; align-self: start; display: grid; align-content: start; gap: var(--space-2); padding: var(--space-2) 0; background: transparent; max-height: 100%; overflow: auto; }
 .topic-coach-header { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px; align-items: center; gap: var(--space-2); padding: 0 var(--space-2); }
 .topic-coach-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--color-primary); color: #fff; font-size: 20px; }
 .topic-coach-header div { display: grid; gap: 2px; }
@@ -2642,10 +2629,16 @@
   .topic-coach-bubble::before { top: -9px; left: 26px; transform: rotate(135deg); }
 }
 
-/* Topic learning must show the complete diagram and allow the page to grow. */
-.ks-topic-learn-page .ks-practice-main { height: auto; min-height: calc(100vh - 72px); grid-template-rows: auto auto; }
-.topic-runtime-frame .ks-runtime-stage-canvas { overflow: visible; }
-.topic-runtime-frame .artifact-topic-canvas { height: auto; grid-template-rows: auto auto; overflow: visible; }
-.topic-runtime-frame .artifact-math-object { min-height: 0; overflow: visible; }
-.topic-runtime-frame .artifact-diagram-stage { min-height: 390px; overflow: visible; }
-.topic-runtime-frame .topic-geometry-canvas { width: min(780px, 100%); max-height: none; }
+/* Topic learning: fixed viewport, diagram constrained by container height. */
+.ks-topic-learn-page .ks-practice-main {
+  height: calc(100vh - var(--ks-top-nav-height));
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.topic-runtime-frame .ks-runtime-stage-canvas { min-height: 0; overflow: hidden; }
+.topic-runtime-frame .artifact-topic-canvas { min-height: 0; height: 100%; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
+.topic-runtime-frame .artifact-math-object { min-height: 0; height: 100%; overflow: hidden; }
+.topic-runtime-frame .artifact-diagram-stage { min-height: 0; height: 100%; overflow: hidden; }
+.topic-runtime-frame .artifact-diagram-stage img { max-height: 100%; }
+.topic-runtime-frame .topic-geometry-canvas { width: 100%; max-height: 100%; }

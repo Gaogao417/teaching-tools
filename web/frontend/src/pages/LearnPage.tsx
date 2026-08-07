@@ -161,22 +161,25 @@ export function LearnPage() {
   }
 
   return (
-    <div className="ks-learn-page">
+    <div className="ks-focus-page ks-learn-page">
       <header className="ks-learn-header">
         <div>
           <span className="eyebrow">学习 · {focusedTask?.title || projection.taskId}</span>
-          <h1>{projection.objective}</h1>
+          <h1 style={{ fontSize: "var(--text-title)" }}>{projection.objective}</h1>
         </div>
-        <span className="ks-step-counter">{String(activeStepIndex + 1).padStart(2, "0")} / {String(projection.steps.length).padStart(2, "0")}</span>
+        <span className="ks-task-progress">
+          <strong>{String(activeStepIndex + 1).padStart(2, "0")}</strong>
+          <span>/ {String(projection.steps.length).padStart(2, "0")}</span>
+        </span>
       </header>
 
-      <main className="ks-learn-stage">
+      <main className="ks-focus-workspace ks-learn-stage">
         <section className="ks-learn-object">
-          <div className="ks-learn-prompt">
+          <div className="ks-focus-prompt">
             <span>示范题</span>
-            <p>{runtime.instance.prompt}</p>
+            <div><h1>{runtime.instance.prompt}</h1></div>
           </div>
-          <div className="ks-runtime-readonly" ref={inertRef} aria-label="只读教学场景">
+          <div className="ks-focus-canvas" ref={inertRef} aria-label="只读教学场景">
             <ExerciseRuntimeHost
               runtime={runtime}
               sessionPhase="answering"
@@ -190,16 +193,15 @@ export function LearnPage() {
           </div>
         </section>
 
-        <aside className="ks-learn-instruction">
-          <span className="ks-learn-step-label">当前动作</span>
-          <h2>{activeStep.title}</h2>
-          <p>{activeStep.narration}</p>
+        <aside className="ks-focus-rail ks-learn-instruction">
+          <h2 style={{ fontSize: "var(--text-heading)" }}>{activeStep.title}</h2>
+          <p style={{ color: "var(--color-slate-700)" }}>{activeStep.narration}</p>
           {activeStep.actionLabel ? <div className="ks-learn-action-callout">{activeStep.actionLabel}</div> : null}
 
-          <ol className="ks-learn-step-list">
+          <ol className="ks-learn-step-list" style={{ marginTop: "var(--space-3)" }}>
             {projection.steps.map((step, index) => (
               <li key={step.stepId} className={index === activeStepIndex ? "current" : index < activeStepIndex ? "done" : ""}>
-                <button type="button" onClick={() => setActiveStepIndex(index)}>
+                <button type="button" aria-current={index === activeStepIndex ? "step" : undefined} onClick={() => setActiveStepIndex(index)}>
                   <span>{index < activeStepIndex ? "✓" : index + 1}</span>
                   <strong>{step.title}</strong>
                 </button>
@@ -207,7 +209,7 @@ export function LearnPage() {
             ))}
           </ol>
 
-          <div className="ks-learn-controls">
+          <div className="ks-focus-action-bar" style={{ marginTop: "auto", borderTop: "1px solid var(--color-line)", paddingTop: "var(--space-3)" }}>
             <button className="btn btn-ghost" type="button" disabled={!activeStepIndex} onClick={() => setActiveStepIndex((index) => index - 1)}>
               上一步
             </button>
