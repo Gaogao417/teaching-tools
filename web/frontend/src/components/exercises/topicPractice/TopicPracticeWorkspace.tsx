@@ -1,5 +1,5 @@
 import { useEffect, type ChangeEvent } from "react";
-import type { TopicGeometryModel, TopicGeometryPoint, TopicGeometrySegment } from "../../../../../shared/topicPractice";
+import { assertNeverPrimitive, type TopicActionPrimitive, type TopicGeometryModel, type TopicGeometryPoint, type TopicGeometrySegment } from "../../../../../shared/topicPractice";
 import { MathText } from "../../math/MathText";
 import { currentStep } from "../../../pages/practice/runtime/sceneUtils";
 import type { WorkspaceRendererProps } from "../../../pages/practice/runtime/workspaceRenderers";
@@ -23,6 +23,23 @@ function playErrorBeep() {
 
 function pointById(geometry: TopicGeometryModel, id: string): TopicGeometryPoint | undefined {
   return geometry.points.find((point) => point.id === id);
+}
+
+function allowsSegmentCanvas(primitive: TopicActionPrimitive): boolean {
+  switch (primitive) {
+    case "construct-parallel":
+    case "mark-segments":
+    case "mark-ratio":
+    case "ratio-scratch":
+    case "convert-collinear":
+    case "equation":
+      return true;
+    case "select":
+    case "input":
+      return false;
+    default:
+      return assertNeverPrimitive(primitive);
+  }
 }
 
 function parseLabels(value: string): Record<string, string> {
@@ -364,81 +381,92 @@ export function TopicPracticeWorkspaceRenderer({
 
   const handleSegment = (segmentId: string) => {
     if (readOnly) return;
-    if (contract.primitive === "mark-segments") {
-      if (model.guidedMode && contract.presentation?.autoFocusSequence) return;
-      const expected = contract.interaction?.expectedLabels?.map((item) => item.segmentId) || [];
-      if (!expected.includes(segmentId)) {
-        rejectObject(segmentId);
-        return;
-      }
-      const next = { ...labels };
-      if (segmentId in next) {
-        if (wrongObjectIds.includes(segmentId)) {
-          setDraft((current) => ({ ...current, focusTarget: segmentId }));
-          return;
-        }
-        delete next[segmentId];
-      } else next[segmentId] = "";
-      setValue(serializeLabels(next));
-      setDraft((current) => ({ ...current, focusTarget: segmentId }));
-      updateCoach(contract.coach?.targetHintsLatex?.[segmentId] || "这条线段找对了，把题干中的边长填进去。", "correct", { activeSlotId: segmentId });
-      return;
-    }
-    if (contract.primitive === "mark-ratio") {
-      if (ratioSegments.length >= 4) return;
-      setValue([...ratioSegments, segmentId].join(","));
-      setDraft((current) => ({ ...current, focusTarget: segmentId }));
-      return;
-    }
-    if (contract.primitive === "ratio-scratch") {
-      const expected = contract.interaction?.expectedOrder || [];
-      const expectedNow = expected[ratioScratchSegments.length];
-      if (segmentId !== expectedNow) {
-        rejectObject(segmentId);
-        return;
-      }
-      const nextSegments = [...ratioScratchSegments, segmentId];
-      setValue(`${nextSegments.join(",")}|${ratioScratchValues.join(",")}`);
-      const nextTarget = expected[nextSegments.length];
-      updateCoach(
-        nextTarget
-          ? contract.coach?.targetHintsLatex?.[nextTarget] || `这条边找对了，接着点 ${nextTarget}。`
-          : contract.coach?.nextActionLatex || "对应边找对了，现在在草稿区约分。",
-        "correct",
-        { activeSlotId: nextTarget ? undefined : "ratio-first" },
-      );
-      return;
-    }
-    if (contract.primitive === "convert-collinear") {
-      if (collinearSegments.includes(segmentId)) {
-        setValue(collinearSegments.filter((item) => item !== segmentId).join(","));
-        return;
-      }
-      if (collinearSegments.length >= 3) return;
-      setValue([...collinearSegments, segmentId].join(","));
-      setDraft((current) => ({ ...current, focusTarget: segmentId }));
-      return;
-    }
-    if (contract.primitive === "equation") {
-      if (contract.interaction?.equation?.shareValues) {
-        const expectedKnown = contract.interaction.expectedOrder?.[0];
-        if (equationSegments[0] || segmentId !== expectedKnown) {
+    switch (contract.primitive) {
+      case "mark-segments": {
+        if (model.guidedMode && contract.presentation?.autoFocusSequence) return;
+        const expected = contract.interaction?.expectedLabels?.map((item) => item.segmentId) || [];
+        if (!expected.includes(segmentId)) {
           rejectObject(segmentId);
           return;
         }
-        const target = [...contract.interaction.equation.targetLatex].sort().join("");
-        setValue(`${target}=${segmentId}**|${equationResult}`);
-        updateCoach(contract.coach?.slotHints?.known?.correctLatex || "已知边正确，现在填未知边的份数。", "correct", { activeSlotId: "numerator" });
+        const next = { ...labels };
+        if (segmentId in next) {
+          if (wrongObjectIds.includes(segmentId)) {
+            setDraft((current) => ({ ...current, focusTarget: segmentId }));
+            return;
+          }
+          delete next[segmentId];
+        } else next[segmentId] = "";
+        setValue(serializeLabels(next));
+        setDraft((current) => ({ ...current, focusTarget: segmentId }));
+        updateCoach(contract.coach?.targetHintsLatex?.[segmentId] || "这条线段找对了，把题干中的边长填进去。", "correct", { activeSlotId: segmentId });
         return;
       }
-      if (equationSegments.length >= 3) return;
-      const target = contract.interaction?.equation?.targetLatex || "未知";
-      setValue(`${[...target].sort().join("")}=${[...equationSegments, segmentId].join("*")}|${equationResult}`);
-      setDraft((current) => ({ ...current, focusTarget: segmentId }));
-      return;
-    }
-    if (contract.primitive === "construct-parallel" && constructParts.point && !constructParts.parallel) {
-      setValue(`point:${constructParts.point}|parallel:${segmentId}`);
+      case "mark-ratio": {
+        if (ratioSegments.length >= 4) return;
+        setValue([...ratioSegments, segmentId].join(","));
+        setDraft((current) => ({ ...current, focusTarget: segmentId }));
+        return;
+      }
+      case "ratio-scratch": {
+        const expected = contract.interaction?.expectedOrder || [];
+        const expectedNow = expected[ratioScratchSegments.length];
+        if (segmentId !== expectedNow) {
+          rejectObject(segmentId);
+          return;
+        }
+        const nextSegments = [...ratioScratchSegments, segmentId];
+        setValue(`${nextSegments.join(",")}|${ratioScratchValues.join(",")}`);
+        const nextTarget = expected[nextSegments.length];
+        updateCoach(
+          nextTarget
+            ? contract.coach?.targetHintsLatex?.[nextTarget] || `这条边找对了，接着点 ${nextTarget}。`
+            : contract.coach?.nextActionLatex || "对应边找对了，现在在草稿区约分。",
+          "correct",
+          { activeSlotId: nextTarget ? undefined : "ratio-first" },
+        );
+        return;
+      }
+      case "convert-collinear": {
+        if (collinearSegments.includes(segmentId)) {
+          setValue(collinearSegments.filter((item) => item !== segmentId).join(","));
+          return;
+        }
+        if (collinearSegments.length >= 3) return;
+        setValue([...collinearSegments, segmentId].join(","));
+        setDraft((current) => ({ ...current, focusTarget: segmentId }));
+        return;
+      }
+      case "equation": {
+        if (contract.interaction?.equation?.shareValues) {
+          const expectedKnown = contract.interaction.expectedOrder?.[0];
+          if (equationSegments[0] || segmentId !== expectedKnown) {
+            rejectObject(segmentId);
+            return;
+          }
+          const target = [...contract.interaction.equation.targetLatex].sort().join("");
+          setValue(`${target}=${segmentId}**|${equationResult}`);
+          updateCoach(contract.coach?.slotHints?.known?.correctLatex || "已知边正确，现在填未知边的份数。", "correct", { activeSlotId: "numerator" });
+          return;
+        }
+        if (equationSegments.length >= 3) return;
+        const target = contract.interaction?.equation?.targetLatex || "未知";
+        setValue(`${[...target].sort().join("")}=${[...equationSegments, segmentId].join("*")}|${equationResult}`);
+        setDraft((current) => ({ ...current, focusTarget: segmentId }));
+        return;
+      }
+      case "construct-parallel": {
+        if (constructParts.point && !constructParts.parallel) {
+          setValue(`point:${constructParts.point}|parallel:${segmentId}`);
+        }
+        return;
+      }
+      case "select":
+      case "input":
+        // These primitives own no segment-click interaction.
+        return;
+      default:
+        assertNeverPrimitive(contract.primitive);
     }
   };
 
@@ -457,43 +485,57 @@ export function TopicPracticeWorkspaceRenderer({
 
   const undoLast = () => {
     if (readOnly) return;
-    if (contract.primitive === "mark-segments") {
-      const ids = Object.keys(labels);
-      const target = draft.focusTarget && labels[draft.focusTarget] !== undefined ? draft.focusTarget : ids[ids.length - 1];
-      if (!target) return;
-      const next = { ...labels };
-      delete next[target];
-      setValue(serializeLabels(next));
-    } else if (contract.primitive === "mark-ratio") {
-      setValue(ratioSegments.slice(0, -1).join(","));
-    } else if (contract.primitive === "ratio-scratch") {
-      if (ratioScratchValues.some(Boolean)) setValue(`${ratioScratchSegments.join(",")}|`);
-      else setValue(`${ratioScratchSegments.slice(0, -1).join(",")}|`);
-    } else if (contract.primitive === "convert-collinear") {
-      setValue(collinearSegments.slice(0, -1).join(","));
-    } else if (contract.primitive === "equation") {
-      setValue(`${[...contract.interaction!.equation!.targetLatex].sort().join("")}=${equationSegments.slice(0, -1).join("*")}|${equationResult}`);
-    } else if (contract.primitive === "construct-parallel") {
-      if (carrierPoints.length) setValue(`point:${constructParts.point}|parallel:${constructParts.parallel}|carrier:${carrierPoints.slice(0, -1).join(",")}`);
-      else if (constructParts.parallel) setValue(`point:${constructParts.point}`);
-      else setValue("");
-    } else {
-      setValue("");
+    switch (contract.primitive) {
+      case "mark-segments": {
+        const ids = Object.keys(labels);
+        const target = draft.focusTarget && labels[draft.focusTarget] !== undefined ? draft.focusTarget : ids[ids.length - 1];
+        if (!target) break;
+        const next = { ...labels };
+        delete next[target];
+        setValue(serializeLabels(next));
+        break;
+      }
+      case "mark-ratio":
+        setValue(ratioSegments.slice(0, -1).join(","));
+        break;
+      case "ratio-scratch":
+        if (ratioScratchValues.some(Boolean)) setValue(`${ratioScratchSegments.join(",")}|`);
+        else setValue(`${ratioScratchSegments.slice(0, -1).join(",")}|`);
+        break;
+      case "convert-collinear":
+        setValue(collinearSegments.slice(0, -1).join(","));
+        break;
+      case "equation":
+        setValue(`${[...contract.interaction!.equation!.targetLatex].sort().join("")}=${equationSegments.slice(0, -1).join("*")}|${equationResult}`);
+        break;
+      case "construct-parallel":
+        if (carrierPoints.length) setValue(`point:${constructParts.point}|parallel:${constructParts.parallel}|carrier:${carrierPoints.slice(0, -1).join(",")}`);
+        else if (constructParts.parallel) setValue(`point:${constructParts.point}`);
+        else setValue("");
+        break;
+      case "select":
+      case "input":
+        setValue("");
+        break;
+      default:
+        assertNeverPrimitive(contract.primitive);
     }
     setDraft((current) => ({ ...current, focusTarget: undefined }));
   };
 
-  const selectedSegments = contract.primitive === "mark-segments"
-    ? Object.keys(labels)
-    : contract.primitive === "mark-ratio"
-      ? ratioSegments
-      : contract.primitive === "ratio-scratch"
-        ? ratioScratchSegments
-      : contract.primitive === "convert-collinear"
-        ? collinearSegments
-      : contract.primitive === "equation"
-        ? equationSegments.filter(Boolean)
-        : constructParts.parallel ? [constructParts.parallel] : [];
+  const selectedSegments = (() => {
+    switch (contract.primitive) {
+      case "mark-segments": return Object.keys(labels);
+      case "mark-ratio": return ratioSegments;
+      case "ratio-scratch": return ratioScratchSegments;
+      case "convert-collinear": return collinearSegments;
+      case "equation": return equationSegments.filter(Boolean);
+      case "construct-parallel": return constructParts.parallel ? [constructParts.parallel] : [];
+      case "select":
+      case "input": return [];
+      default: return assertNeverPrimitive(contract.primitive);
+    }
+  })();
   const selectedPoints = contract.primitive === "construct-parallel"
     ? [constructParts.point, ...carrierPoints].filter(Boolean)
     : [];
@@ -540,7 +582,7 @@ export function TopicPracticeWorkspaceRenderer({
               resultPoint: construction?.resultPoint,
             } : undefined}
             allowPoints={contract.primitive === "construct-parallel"}
-            allowSegments={["construct-parallel", "mark-segments", "mark-ratio", "ratio-scratch", "convert-collinear", "equation"].includes(contract.primitive)
+            allowSegments={allowsSegmentCanvas(contract.primitive)
               && !(model.guidedMode && contract.primitive === "mark-segments" && contract.presentation?.autoFocusSequence)
               && !(model.guidedMode && contract.primitive === "equation" && contract.presentation?.prefillKnownFactor)}
             onPoint={handlePoint}

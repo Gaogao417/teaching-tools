@@ -18,6 +18,15 @@ export type TopicActionPrimitive =
   | "convert-collinear"
   | "equation";
 
+/**
+ * Exhaustiveness guard for {@link TopicActionPrimitive}. Use as the `default`
+ * branch of a `switch` over a primitive so that adding a new variant forces
+ * every dispatch site to be updated at compile time.
+ */
+export function assertNeverPrimitive(value: never): never {
+  throw new Error(`Unhandled topic action primitive: ${JSON.stringify(value)}`);
+}
+
 export interface TopicGeometryPoint {
   id: string;
   x: number;

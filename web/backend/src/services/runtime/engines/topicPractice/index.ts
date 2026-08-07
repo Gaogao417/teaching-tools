@@ -16,7 +16,9 @@ import type {
   TaskDefinition,
 } from "../../../../../../shared/contracts";
 import {
+  assertNeverPrimitive,
   isTopicAnswerAccepted,
+  type TopicActionPrimitive,
   type TopicPracticeContentDefinition,
   type TopicResolvedScenario,
   type TopicScenarioRecord,
@@ -34,6 +36,41 @@ import { capabilityIdsForTopicStep } from "../../../../../../shared/similarityLe
 import type { ScenarioRecord } from "../../../../../../shared/scenarios";
 
 const ANSWER_TARGET = "topic-answer";
+
+function selectionModeForPrimitive(primitive: TopicActionPrimitive): "single" | "pair" | "ordered" {
+  switch (primitive) {
+    case "mark-ratio":
+    case "ratio-scratch":
+      return "pair";
+    case "construct-parallel":
+    case "convert-collinear":
+      return "ordered";
+    case "select":
+    case "input":
+    case "mark-segments":
+    case "equation":
+      return "single";
+    default:
+      return assertNeverPrimitive(primitive);
+  }
+}
+
+function inputAnchorForPrimitive(primitive: TopicActionPrimitive): "segment-midpoint" | "workspace" {
+  switch (primitive) {
+    case "mark-segments":
+      return "segment-midpoint";
+    case "select":
+    case "input":
+    case "construct-parallel":
+    case "mark-ratio":
+    case "ratio-scratch":
+    case "convert-collinear":
+    case "equation":
+      return "workspace";
+    default:
+      return assertNeverPrimitive(primitive);
+  }
+}
 
 function cue(key: string, scope: FeedbackCue["scope"]): FeedbackCue {
   return { key, scope };
@@ -131,8 +168,8 @@ function buildScene(state: TopicPracticeEngineState): SceneSpec {
         return [item.id, {
           ...projection,
           presentation: {
-            selectionMode: ["mark-ratio", "ratio-scratch"].includes(item.primitive) ? "pair" : ["construct-parallel", "convert-collinear"].includes(item.primitive) ? "ordered" : "single",
-            inputAnchor: item.primitive === "mark-segments" ? "segment-midpoint" : "workspace",
+            selectionMode: selectionModeForPrimitive(item.primitive),
+            inputAnchor: inputAnchorForPrimitive(item.primitive),
             retainCompletedMarks: true,
             allowLocalUndo: true,
             availableObjectIds: item.interaction?.availableSegments,
@@ -298,55 +335,64 @@ function parseDelimitedObjects(value: string, delimiter = ","): string[] {
 
 function wrongObjectsForSubmission(submitted: string, step: TopicResolvedScenario["steps"][number]): string[] {
   const expected = step.acceptedAnswers[0] || "";
-  if (step.primitive === "mark-segments") {
-    const expectedLabels = new Map(parseDelimitedObjects(expected, ";").map((part) => {
-      const separator = part.indexOf("=");
-      return [part.slice(0, separator), part.slice(separator + 1)] as const;
-    }));
-    return parseDelimitedObjects(submitted, ";").flatMap((part) => {
-      const separator = part.indexOf("=");
-      const objectId = part.slice(0, separator);
-      const value = part.slice(separator + 1);
-      return expectedLabels.get(objectId) === value ? [] : [objectId];
-    });
-  }
-  if (step.primitive === "mark-ratio" || step.primitive === "convert-collinear") {
-    const selected = parseDelimitedObjects(submitted);
-    const expectedOrder = step.interaction?.expectedOrder || parseDelimitedObjects(expected);
-    return [...new Set(selected.filter((objectId, index) => objectId !== expectedOrder[index]))];
-  }
-  if (step.primitive === "ratio-scratch") {
-    const [submittedObjects = "", submittedRatio = ""] = submitted.split("|");
-    const selected = parseDelimitedObjects(submittedObjects);
-    const expectedOrder = step.interaction?.expectedOrder || [];
-    const wrongObjects = selected.filter((objectId, index) => objectId !== expectedOrder[index]);
-    const expectedRatio = step.interaction?.ratioScratch;
-    const values = parseDelimitedObjects(submittedRatio);
-    if (expectedRatio && (values[0] !== expectedRatio.simplifiedFirstLatex || values[1] !== expectedRatio.simplifiedSecondLatex)) {
-      wrongObjects.push("最简整数比");
+  const primitive: TopicActionPrimitive = step.primitive;
+  switch (primitive) {
+    case "select":
+    case "input":
+      // Whole-submission verdicts; per-object diagnosis does not apply.
+      return [];
+    case "mark-segments": {
+      const expectedLabels = new Map(parseDelimitedObjects(expected, ";").map((part) => {
+        const separator = part.indexOf("=");
+        return [part.slice(0, separator), part.slice(separator + 1)] as const;
+      }));
+      return parseDelimitedObjects(submitted, ";").flatMap((part) => {
+        const separator = part.indexOf("=");
+        const objectId = part.slice(0, separator);
+        const value = part.slice(separator + 1);
+        return expectedLabels.get(objectId) === value ? [] : [objectId];
+      });
     }
-    return [...new Set(wrongObjects)];
+    case "mark-ratio":
+    case "convert-collinear": {
+      const selected = parseDelimitedObjects(submitted);
+      const expectedOrder = step.interaction?.expectedOrder || parseDelimitedObjects(expected);
+      return [...new Set(selected.filter((objectId, index) => objectId !== expectedOrder[index]))];
+    }
+    case "ratio-scratch": {
+      const [submittedObjects = "", submittedRatio = ""] = submitted.split("|");
+      const selected = parseDelimitedObjects(submittedObjects);
+      const expectedOrder = step.interaction?.expectedOrder || [];
+      const wrongObjects = selected.filter((objectId, index) => objectId !== expectedOrder[index]);
+      const expectedRatio = step.interaction?.ratioScratch;
+      const values = parseDelimitedObjects(submittedRatio);
+      if (expectedRatio && (values[0] !== expectedRatio.simplifiedFirstLatex || values[1] !== expectedRatio.simplifiedSecondLatex)) {
+        wrongObjects.push("最简整数比");
+      }
+      return [...new Set(wrongObjects)];
+    }
+    case "construct-parallel": {
+      const parts = Object.fromEntries(submitted.split("|").filter(Boolean).map((part) => part.split(":")));
+      const construction = step.interaction?.construction;
+      if (!construction) return [];
+      return [
+        parts.point !== construction.throughPoint ? parts.point : undefined,
+        parts.parallel !== construction.parallelSegment ? parts.parallel : undefined,
+        ...parseDelimitedObjects(parts.carrier || "").filter((point, index) => point !== construction.carrierPoints[index]),
+      ].filter((value): value is string => Boolean(value));
+    }
+    case "equation": {
+      const [submittedEquation = "", submittedResult = ""] = submitted.split("|");
+      const selected = submittedEquation.split("=")[1]?.split("*").filter(Boolean) || [];
+      const expectedOrder = step.interaction?.expectedOrder || [];
+      const wrongObjects = selected.filter((objectId, index) => objectId !== expectedOrder[index]);
+      const expectedResult = expected.split("|")[1];
+      if (submittedResult && expectedResult && submittedResult !== expectedResult) wrongObjects.push("计算结果");
+      return [...new Set(wrongObjects)];
+    }
+    default:
+      return assertNeverPrimitive(primitive);
   }
-  if (step.primitive === "construct-parallel") {
-    const parts = Object.fromEntries(submitted.split("|").filter(Boolean).map((part) => part.split(":")));
-    const construction = step.interaction?.construction;
-    if (!construction) return [];
-    return [
-      parts.point !== construction.throughPoint ? parts.point : undefined,
-      parts.parallel !== construction.parallelSegment ? parts.parallel : undefined,
-      ...parseDelimitedObjects(parts.carrier || "").filter((point, index) => point !== construction.carrierPoints[index]),
-    ].filter((value): value is string => Boolean(value));
-  }
-  if (step.primitive === "equation") {
-    const [submittedEquation = "", submittedResult = ""] = submitted.split("|");
-    const selected = submittedEquation.split("=")[1]?.split("*").filter(Boolean) || [];
-    const expectedOrder = step.interaction?.expectedOrder || [];
-    const wrongObjects = selected.filter((objectId, index) => objectId !== expectedOrder[index]);
-    const expectedResult = expected.split("|")[1];
-    if (submittedResult && expectedResult && submittedResult !== expectedResult) wrongObjects.push("计算结果");
-    return [...new Set(wrongObjects)];
-  }
-  return [];
 }
 
 function parseSubmittedInput(action: RuntimeActionEvent): string {
