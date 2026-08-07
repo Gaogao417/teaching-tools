@@ -48,14 +48,13 @@
 
 ## 4. 入口状态
 
-挑战节点始终可点击，但状态不同：
+挑战节点始终可点击，并与普通知识点使用同一套学生可见状态：
 
-- `recommended-ready`：推荐前置均掌握。
-- `early-attempt`：仍缺前置，但允许挑战。
-- `in-progress`：存在未完成 challenge session。
-- `passed`：挑战已通过。
+- `unopened` / 未开启：尚未尝试挑战。
+- `open` / 开启：已经尝试但尚未通过，或存在未完成 challenge session。
+- `passed` / 通关：挑战已通过。
 
-选择 `early-attempt` 时显示：
+“推荐前置均掌握”或“仍建议补前置”是详情信息，不是第四种节点状态。建议前置不足时显示：
 
 ```text
 这道挑战建议先掌握：
@@ -99,13 +98,13 @@ type SessionKind = "practice" | "challenge" | "remediation";
 通过后：
 
 - 将挑战实际验证的 capability 写入 PRD-02 的证据系统。
-- 重新计算图谱解锁状态。
+- 重新计算图谱节点状态与推荐结果。
 - 显示“已验证哪些能力”，而不是笼统显示“跳过 2 关”。
 
 ## 7. 失败规则
 
 - 失败不降低已经掌握的能力。
-- 失败不锁定挑战节点。
+- 失败后挑战节点保持开启，不退回未开启，也不产生锁定状态。
 - 系统记录最早的核心阻塞动作和重复错误动作。
 - 学生可以立即重试，也可以进入 PRD-05 的补强回路。
 
@@ -123,7 +122,7 @@ type ChallengeDefinition = {
     requiredStepIds: string[];
   }>;
   scenarioIds: string[];
-  unlockEffects: string[];
+  passEffects: string[];
 };
 ```
 
@@ -135,8 +134,9 @@ type ChallengeDefinition = {
 2. 开始前能看见已具备和缺失的能力，但只需一次确认。
 3. 只答对最终数值不会误判为挑战通过。
 4. 挑战通过后，图谱节点状态由服务端重新计算。
-5. 挑战失败后能够返回具体 `diagnosisCode` 和 `focusStepId`。
-6. 挑战 session 可恢复，刷新页面不丢失当前数学对象。
+5. 挑战节点只显示未开启、开启、通关三种状态，建议前置不足不产生锁图标或禁用态。
+6. 挑战失败后能够返回具体 `diagnosisCode` 和 `focusStepId`。
+7. 挑战 session 可恢复，刷新页面不丢失当前数学对象。
 
 ## 10. 埋点与指标
 

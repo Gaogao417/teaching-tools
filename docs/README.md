@@ -39,6 +39,8 @@
   实施顺序、测试计划、迁移重点
 - `adr/`
   关键架构决策记录
+- `prd/teacher-directed-learning-system/`
+  教师诊断驱动的学生复习、作业编排与基础技能训练草案
 
 ## Writing Rules
 
