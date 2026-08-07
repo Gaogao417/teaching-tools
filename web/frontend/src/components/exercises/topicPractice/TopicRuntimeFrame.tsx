@@ -1,7 +1,7 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { ClientDraftState, ExerciseRuntimeSpec } from "../../../../../shared/contracts";
 import { MathText } from "../../math/MathText";
-import { ExerciseRuntimeHost, GuideHUD } from "../../../pages/practice/ExerciseRuntimeHost";
+import { ExerciseRuntimeHost } from "../../../pages/practice/ExerciseRuntimeHost";
 import { RuntimeActionDock } from "../../../pages/practice/runtime/RuntimeActionDock";
 import { currentStep } from "../../../pages/practice/runtime/sceneUtils";
 
@@ -23,20 +23,63 @@ export function TopicRuntimeFrame({
   draft,
   setDraft,
   inputRefs,
-  showGuide,
   disabled,
   onClear,
   onSubmit,
 }: TopicRuntimeFrameProps) {
   const step = currentStep(runtime);
   const activeIndex = runtime.instance.flow.steps.findIndex((item) => item.id === runtime.runtimeState.currentStepId);
+  const topicWorkspace = runtime.instance.scene.topicWorkspace;
+  const activeContract = topicWorkspace?.contracts[runtime.runtimeState.currentStepId];
+  const wrongObjectIds = runtime.runtimeState.wrongObjectIds || [];
+  const coach = activeContract?.coach;
+  const startsWithExplanation = Boolean(topicWorkspace?.guidedMode && coach?.explanationLatex);
+
+  useEffect(() => {
+    setDraft((current) => ({
+      ...current,
+      topicCoach: {
+        soundEnabled: current.topicCoach?.soundEnabled !== false,
+        messageLatex: startsWithExplanation ? coach?.explanationLatex : coach?.entryLatex,
+        tone: startsWithExplanation ? "explain" : "prompt",
+        displayMode: startsWithExplanation ? "explanation" : "task",
+        invalidObjectCount: 0,
+        feedbackNonce: (current.topicCoach?.feedbackNonce || 0) + 1,
+      },
+    }));
+  }, [runtime.runtimeState.currentStepId]);
+
+  useEffect(() => {
+    if (phase !== "answering" || draft.topicCoach?.displayMode === "explanation" || !coach?.idleHintsLatex?.length) return undefined;
+    const timers = coach.idleHintsLatex.map((messageLatex, index) => window.setTimeout(() => {
+      setDraft((current) => ({
+        ...current,
+        topicCoach: { ...current.topicCoach, messageLatex, tone: "prompt" },
+      }));
+    }, 8000 + index * 7000));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [runtime.runtimeState.currentStepId, draft.topicCoach?.feedbackNonce, draft.topicCoach?.displayMode, phase]);
+
+  const isExplanation = phase === "answering" && draft.topicCoach?.displayMode === "explanation";
+  const coachMessage = phase === "wrong_feedback"
+    ? activeContract?.errorDiagnosis || "当前答案与这一步的数学关系不一致。"
+    : draft.topicCoach?.messageLatex
+      || (isExplanation ? coach?.explanationLatex : coach?.entryLatex)
+      || runtime.instance.guide.hint;
+  const followup = phase === "wrong_feedback"
+    ? activeContract?.hintLatex || (wrongObjectIds.length ? `只检查 ${wrongObjectIds.join("、")}。` : undefined)
+    : draft.topicCoach?.tone === "correct" && !draft.topicCoach.activeSlotId
+      ? undefined
+      : (draft.topicCoach?.activeSlotId && coach?.slotHints?.[draft.topicCoach.activeSlotId]?.hintLatex)
+        || (!isExplanation ? coach?.nextActionLatex : undefined);
+  const autoSubmit = Boolean(topicWorkspace?.guidedMode && activeContract?.presentation?.autoSubmitOnComplete);
+
   return (
     <>
-      <section className={`ks-runtime-stage topic-runtime-frame ${showGuide ? "is-guided" : "is-unguided"}`}>
+      <section className="ks-runtime-stage topic-runtime-frame is-guided">
         <div className="ks-prompt-line">
           <span>题目</span>
-          <div><h1><MathText value={runtime.instance.prompt} /></h1><p><MathText value={step.goal} /></p></div>
-          <small>步骤 {activeIndex + 1}</small>
+          <div><h1><MathText value={runtime.instance.prompt} /></h1></div>
         </div>
         <div className="ks-runtime-stage-canvas">
           <ExerciseRuntimeHost
@@ -49,9 +92,24 @@ export function TopicRuntimeFrame({
             onClear={onClear}
           />
         </div>
-        {showGuide ? <GuideHUD runtime={runtime} sessionPhase={phase} defaultExpanded staticMode /> : null}
+        <aside className={`topic-coach-panel tone-${phase === "wrong_feedback" ? "wrong" : draft.topicCoach?.tone || "prompt"}`} aria-label="陪练老师" aria-live={phase === "wrong_feedback" ? "assertive" : "polite"}>
+          <div className="topic-coach-header">
+            <span className="topic-coach-avatar material-symbols-outlined">school</span>
+            <div>
+              <small>{isExplanation ? "老师讲解" : `任务 ${activeIndex + 1}/${runtime.instance.flow.steps.length}`}</small>
+              {!isExplanation ? <strong>{activeContract?.title || "当前任务"}</strong> : null}
+            </div>
+            <button type="button" className="topic-coach-sound" aria-label={draft.topicCoach?.soundEnabled === false ? "开启错误提示音" : "关闭错误提示音"} onClick={() => setDraft((current) => ({ ...current, topicCoach: { ...current.topicCoach, soundEnabled: current.topicCoach?.soundEnabled === false } }))}>
+              <span className="material-symbols-outlined">{draft.topicCoach?.soundEnabled === false ? "volume_off" : "volume_up"}</span>
+            </button>
+          </div>
+          <div className="topic-coach-bubble" role={phase === "wrong_feedback" ? "alert" : undefined} data-testid="topic-coach-bubble">
+            <MathText value={coachMessage || "完成画布中的当前动作。"} block />
+            {followup && coachMessage !== followup ? <div className="topic-coach-followup"><MathText value={followup} block /></div> : null}
+          </div>
+        </aside>
       </section>
-      <RuntimeActionDock runtime={runtime} draft={draft} disabled={disabled} compact onClear={onClear} onSubmit={onSubmit} />
+      {!autoSubmit ? <RuntimeActionDock runtime={runtime} draft={draft} disabled={disabled} compact onClear={onClear} onSubmit={onSubmit} /> : null}
     </>
   );
 }

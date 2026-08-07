@@ -1,5 +1,4 @@
 .ks-app-shell {
-  --ks-top-nav-height: 64px;
   min-height: 100vh;
 }
 
@@ -244,7 +243,7 @@
   grid-template-rows: 110px 120px 140px 120px 120px;
   gap: 12px;
   padding: 24px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--color-line);
   border-radius: 24px;
   background: linear-gradient(145deg, #fbfcff, #f5f7fb);
@@ -262,33 +261,48 @@
 .slot-butterfly { grid-column: 4 / 6; grid-row: 5; }
 .similarity-map-challenges { grid-column: 2 / 6; grid-row: 3; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: center; z-index: 2; }
 .similarity-map-node {
-  width: 100%; min-height: 88px; display: flex; align-items: center; gap: 14px; padding: 16px 18px;
-  text-align: left; border: 1px solid #dbe1ea; border-radius: 18px; background: #fff; cursor: pointer;
+  position: relative; width: 100%; min-height: 88px; display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: stretch;
+  text-align: left; border: 1px solid #dbe1ea; border-radius: 18px; background: #fff;
   transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-.similarity-map-node:hover { transform: translateY(-2px); border-color: #9fb2d4; }
-.similarity-map-node > .material-symbols-outlined { color: #718096; font-size: 28px; }
-.similarity-map-node > span:last-child { display: grid; gap: 5px; min-width: 0; }
+.similarity-map-node:hover, .similarity-map-node:focus-within { z-index: 8; transform: translateY(-2px); border-color: #9fb2d4; }
+.similarity-map-preview-trigger, .similarity-map-node-main { border: 0; background: transparent; color: inherit; font: inherit; }
+.similarity-map-preview-trigger {
+  display: grid; place-items: center; min-width: 44px; padding: 12px 8px; border-radius: inherit; cursor: help;
+}
+.similarity-map-preview-trigger:hover, .similarity-map-preview-trigger:focus-visible { background: rgba(93, 115, 151, .09); outline: 2px solid color-mix(in srgb, var(--color-primary) 46%, transparent); outline-offset: -4px; }
+.similarity-map-preview-trigger .material-symbols-outlined { color: #718096; font-size: 28px; }
+.similarity-map-node-main { width: 100%; min-width: 0; display: grid; align-content: center; gap: 5px; padding: 16px 18px 16px 0; text-align: left; cursor: pointer; }
+.similarity-map-node-main:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -5px; border-radius: 12px; }
 .similarity-map-node strong { font-size: 16px; }
 .similarity-map-node small { color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.similarity-map-node.state-mastered { background: #f2fbf7; border-color: #9bd6b9; }
-.similarity-map-node.state-mastered > .material-symbols-outlined { color: #14804a; }
-.similarity-map-node.state-locked { background: #f4f5f7; color: #89909d; }
-.similarity-map-node.state-in_progress { border-color: #7797dd; }
+.similarity-map-node.state-passed { background: #f2fbf7; border-color: #9bd6b9; }
+.similarity-map-node.state-passed .similarity-map-preview-trigger .material-symbols-outlined { color: #14804a; }
+.similarity-map-node.state-unopened { background: #f4f5f7; color: #89909d; }
+.similarity-map-node.state-open { border-color: #7797dd; }
 .similarity-map-node.kind-challenge { border-radius: 8px 24px 8px 24px; background: #fffaf0; border-color: #e9c878; }
 .similarity-map-node.is-recommended { box-shadow: 0 0 0 3px rgba(31, 100, 255, .13); border-color: var(--color-primary); }
+.similarity-map-node.is-focused { outline: 2px solid color-mix(in srgb, var(--color-primary) 28%, transparent); outline-offset: 3px; }
 .similarity-map-node.is-selected { box-shadow: 0 10px 28px rgba(43, 62, 94, .14); }
-.similarity-map-connector { position: absolute; z-index: 1; border-left: 2px solid #d1d8e2; border-bottom: 2px solid #d1d8e2; }
-.connector-one { left: 28%; top: 110px; width: 27%; height: 100px; }
-.connector-two { right: 16%; top: 215px; width: 30%; height: 230px; }
+.similarity-map-question-preview {
+  position: absolute; z-index: 20; top: calc(100% + 10px); left: 12px; width: min(380px, calc(100vw - 64px)); max-height: 440px; overflow: auto;
+  display: grid; gap: 12px; padding: 16px; border: 1px solid #d7dee9; border-radius: 16px; background: #fff; color: var(--color-ink);
+  box-shadow: 0 18px 48px rgba(43, 62, 94, .2); cursor: default;
+}
+.similarity-map-question-preview-label { color: var(--color-muted); font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+.similarity-map-question-preview .math-text { line-height: 1.65; }
+.similarity-map-question-preview img { display: block; width: 100%; max-height: 230px; object-fit: contain; border-radius: 10px; background: #f8fafc; }
+.similarity-map-edge-layer { position: absolute; inset: 24px; z-index: 1; width: calc(100% - 48px); height: calc(100% - 48px); overflow: visible; pointer-events: none; }
+.similarity-map-edge-layer line { vector-effect: non-scaling-stroke; stroke: #d1d8e2; stroke-width: 2; }
+.similarity-map-edge-layer .edge-challenge-requires { stroke: #dfbd69; stroke-dasharray: 6 5; }
 
 .similarity-map-detail { position: sticky; top: 84px; display: grid; gap: 18px; padding: 22px; border: 1px solid var(--color-line); border-radius: 20px; background: #fff; }
 .similarity-detail-head { display: grid; gap: 8px; }
 .similarity-detail-head h2 { font-size: 26px; }
 .similarity-detail-head p { color: var(--color-muted); }
 .similarity-state { width: fit-content; padding: 5px 9px; border-radius: 999px; background: #eef2f7; color: #596273; font-size: 12px; font-weight: 700; }
-.similarity-state.state-mastered { background: #e3f6eb; color: #167147; }
-.similarity-state.state-in_progress { background: #e9efff; color: #315fb5; }
+.similarity-state.state-passed { background: #e3f6eb; color: #167147; }
+.similarity-state.state-open { background: #e9efff; color: #315fb5; }
 .similarity-detail-block { display: grid; gap: 7px; padding: 14px; border-radius: 12px; background: #f7f8fa; }
 .similarity-detail-block small { color: var(--color-muted); }
 .similarity-detail-block ul { margin: 0; padding-left: 19px; display: grid; gap: 5px; }
@@ -308,13 +322,15 @@
   .similarity-map-lane small { writing-mode: horizontal-tb; }
   .similarity-map-node-slot, .slot-parallel, .slot-auxiliary, .slot-reverse, .slot-nested, .slot-butterfly { grid-column: 2; grid-row: auto; }
   .similarity-map-challenges { grid-column: 2; grid-row: auto; grid-template-columns: 1fr; }
-  .similarity-map-connector { display: none; }
+  .similarity-map-edge-layer { display: none; }
+  .similarity-map-question-preview { position: fixed; z-index: 100; inset: auto 12px 12px; width: auto; max-height: min(70vh, 560px); }
 }
 
 @media (max-width: 360px) {
   .similarity-map-page { width: calc(100% - 16px); }
   .similarity-map-canvas { padding: 14px 10px; grid-template-columns: 30px minmax(0, 1fr); }
-  .similarity-map-node { min-width: 0; padding: 13px; }
+  .similarity-map-node { min-width: 0; grid-template-columns: 48px minmax(0, 1fr); }
+  .similarity-map-node-main { padding: 13px 13px 13px 0; }
 }
 
 .ks-session-lineage { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--color-line); border-radius: 12px; background: #f7f8fb; }

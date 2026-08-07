@@ -114,8 +114,16 @@ export function LearnPage() {
 
   if (runtime.instance.engineKind === "topic-practice") {
     const contract = runtime.instance.scene.topicWorkspace?.contracts[runtime.runtimeState.currentStepId];
-    const submitTopicStep = () => {
-      const value = draft.inputs["topic-answer"] || "";
+    const submitTopicStep = (submittedPayload?: string) => {
+      let value = draft.inputs["topic-answer"] || "";
+      if (submittedPayload) {
+        try {
+          const submitted = JSON.parse(submittedPayload) as { inputs?: Record<string, string> };
+          value = submitted.inputs?.["topic-answer"] || value;
+        } catch {
+          // The action dock and workspace both use JSON payloads; keep the live draft as a safe fallback.
+        }
+      }
       if (!contract || !isTopicAnswerAccepted(value, contract.acceptedAnswers)) {
         setTopicPhase("wrong_feedback");
         return;
@@ -145,7 +153,7 @@ export function LearnPage() {
             showGuide
             disabled={topicPhase === "correct_pause"}
             onClear={() => { setDraft(EMPTY_DRAFT); setTopicPhase("answering"); }}
-            onSubmit={() => submitTopicStep()}
+            onSubmit={(_stepId, value) => submitTopicStep(value)}
           />
         </main>
       </div>

@@ -62,6 +62,15 @@ function canSubmit(runtime: ExerciseRuntimeSpec, draft: ClientDraftState) {
       const selected = value.split(",").filter(Boolean);
       return selected.length >= (topicContract.interaction?.expectedOrder?.length || 4);
     }
+    if (topicContract.primitive === "ratio-scratch") {
+      const [objects = "", ratio = ""] = value.split("|");
+      return objects.split(",").filter(Boolean).length === 2
+        && ratio.split(",").filter((item) => item.trim()).length === 2;
+    }
+    if (topicContract.primitive === "convert-collinear") {
+      const selected = value.split(",").filter(Boolean);
+      return selected.length === (topicContract.interaction?.expectedOrder?.length || 3);
+    }
     if (topicContract.primitive === "construct-parallel") {
       const parts = Object.fromEntries(value.split("|").filter(Boolean).map((part) => part.split(":")));
       return Boolean(parts.point && parts.parallel && parts.carrier?.split(",").filter(Boolean).length === 2);
