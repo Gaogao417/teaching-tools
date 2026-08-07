@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "teaching-tools/scenario-record/v1",
+  "title": "ScenarioRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "taskId", "engineKind", "contentId", "version", "status", "promptData", "answerKey", "metadata", "createdAt"],
+  "properties": {
+    "schema": { "const": "teaching-tools/scenario-record/v1" },
+    "id": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string", "minLength": 1 },
+    "engineKind": { "type": "string", "minLength": 1 },
+    "contentId": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["draft", "validated", "approved", "rejected"] },
+    "promptData": { "type": "object" },
+    "answerKey": { "type": "object" },
+    "validationReportId": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "approvedAt": { "type": "string", "format": "date-time" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["source", "authoringRunId", "assignments"],
+      "properties": {
+        "source": { "enum": ["manual", "python-generator", "ai-assisted", "reviewed-bank-import"] },
+        "authoringRunId": { "type": "string" },
+        "assignments": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "difficulty": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "reviewedBy": { "type": "string" },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "wolframChecks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "expression"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "expression": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

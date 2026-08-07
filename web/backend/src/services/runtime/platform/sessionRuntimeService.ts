@@ -18,6 +18,8 @@ import { resolveContentDefinition } from "./contentRegistry";
 import { getEnginePlugin } from "./engineRegistry";
 import { type RuntimeEngineState } from "./engineTypes";
 import { appError } from "./errors";
+import { selectApprovedScenario } from "./scenarioSelector";
+import type { ScenarioRecord } from "../../../../../shared/scenarios";
 import { toPracticeSessionSnapshot } from "./runtimeSnapshotProjector";
 import {
   CAPABILITY_RULE_VERSION,
@@ -50,10 +52,18 @@ function loadRuntimeInstances(sessionId: string): RuntimeInstanceRecord[] {
   return listRuntimeInstancesBySessionId(sessionId).map((row) => {
     const content = resolveContentDefinition(row.content_id, JSON.parse(row.content_json) as ContentDefinition);
     const plugin = getEnginePlugin(row.engine_kind);
+    let pinnedScenario: ScenarioRecord | undefined;
+    if (row.scenario_json) {
+      try {
+        pinnedScenario = JSON.parse(row.scenario_json) as ScenarioRecord;
+      } catch {
+        throw appError("RUNTIME_CONTRACT_INVALID", `Stored scenario snapshot is invalid for instance ${row.id}`, 500);
+      }
+    }
     return {
       row,
       content,
-      engineState: plugin.restoreState(JSON.parse(row.engine_state_json)),
+      engineState: plugin.restoreState(JSON.parse(row.engine_state_json), pinnedScenario),
     };
   });
 }
@@ -150,7 +160,8 @@ function startSession(taskId: TaskId, studentName: string, options: StartSession
   };
 
   const instances = Array.from({ length: options.instanceCount || 5 }, (_, index) => {
-    const state = plugin.createState(task, content, index);
+    const scenario = selectApprovedScenario(task, content, index);
+    const state = plugin.createState(task, content, index, scenario);
     if (options.remediationCapabilityId && task.engineKind === "topic-practice") {
       (state as TopicPracticeEngineState).remediationCapabilityId = options.remediationCapabilityId;
     }
@@ -170,6 +181,9 @@ function startSession(taskId: TaskId, studentName: string, options: StartSession
         instance_json: JSON.stringify(runtime.instance),
         engine_state_json: JSON.stringify(state),
         runtime_state_json: JSON.stringify(runtime.runtimeState),
+        scenario_id: scenario.id,
+        scenario_version: scenario.version,
+        scenario_json: JSON.stringify(scenario),
       } satisfies RuntimeInstanceRow,
       content,
       engineState: state,

@@ -6,10 +6,12 @@
 
 ```text
 Offline Authoring Pipeline
-  Skill / CLI -> Python Generator -> Wolfram Validator -> Scenario Bank
+  Skill / CLI -> Generator -> deterministic / mathematical validation
+    -> AuthoringRun + ValidationReport -> approval -> Scenario Bank
 
 Online Student Runtime
-  TaskDefinition -> ContentDefinition -> EnginePlugin -> ExerciseRuntimeSpec
+  TaskDefinition + ContentDefinition -> approved-only ScenarioSelector
+    -> EnginePlugin(private truth) -> ExerciseRuntimeSpec(safe projection)
     -> Frontend Runtime Host -> RuntimeActionEvent -> EnginePlugin
 ```
 
@@ -21,6 +23,8 @@ Online Student Runtime
 - 离线出题链路独立于学生请求
 - 题库记录与 runtime 投影分离
 - backend 成为 Scenario Bank 与 frontend 之间的唯一桥梁
+- 新 session 只使用 approved scenario；已有 session 固定原 scenario version
+- 数学真值和判定规则不进入 frontend runtime projection
 
 ## Two Pipelines
 
@@ -101,6 +105,19 @@ Online Student Runtime
 - session 生命周期
 - 页面交互状态
 
+approved 不是“成功导入”的别名。候选题必须有与其版本匹配的校验报告，并经过显式审批，才可进入新 session 的候选集合。
+
+### Scenario Selector
+
+`Scenario Selector` 是 backend port，负责：
+
+- 只从 `status = approved` 的记录中选择
+- 同时校验 `taskId`、`engineKind`、`contentId`
+- 为 session 固定 `scenarioId + scenarioVersion`
+- 在没有合格题目时返回明确错误
+
+它不负责生成、校验或审批题目，也不能在恢复旧 session 时重新选题。
+
 ### EnginePlugin
 
 `EnginePlugin` 只存在于 backend，负责：
@@ -109,6 +126,8 @@ Online Student Runtime
 - 接收学生动作并做判定
 - 推进步骤状态
 - 组装 `ExerciseRuntimeSpec`
+
+engine 可以读取 backend-only answer key 和 validation-backed truth，但只能向 frontend 投影完成当前动作所需的 public scene、allowed actions、状态和反馈。未完成题目的答案键、accepted answers、expected values、validation report 与 authoring metadata 不属于 `ExerciseRuntimeSpec`。
 
 ## Current State vs Next Step
 
@@ -120,13 +139,15 @@ Online Student Runtime
 - 多引擎注册与统一 runtime host
 - Web 前端统一 session / action / feedback 流程
 
-### Next Step
+### 本轮实现差距
 
 下一阶段要补齐：
 
 - `Scenario Bank`
 - backend `Scenario Selector`
 - Python / Wolfram authoring pipeline
+- public runtime projection 与 private truth 的类型隔离
+- 旧 topic session 的 version pinning 与兼容读取
 
 也就是说，当前代码主路径已经是 runtime-first；接下来不是再发明第二套 runtime，而是把“题目来源”从内置模板实例进一步升级为“离线入库 scenario”。
 
@@ -136,6 +157,7 @@ Online Student Runtime
 - 读取或选择 approved `ScenarioRecord`
 - 通过 `engineKind` 路由到对应 `EnginePlugin`
 - 管理 session、runtime state、result snapshot
+- 保存 scenario id/version；恢复时解析固定版本而不是重新选择
 
 ## Frontend Responsibilities
 
@@ -150,6 +172,8 @@ Online Student Runtime
 - frontend 不知道 Python / Wolfram 细节
 - 在线 API 不暴露离线 authoring 内部流程
 - `Scenario Bank` 不能退化成“前端直接读的一堆页面字段”
+- frontend 不接收 answer key、accepted answers 或其他可用于提前判题的真值
+- draft/validated/rejected scenario 不得作为“无 approved 数据”时的回退
 
 ## Current Engine Reality
 

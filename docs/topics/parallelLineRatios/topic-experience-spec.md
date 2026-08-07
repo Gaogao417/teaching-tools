@@ -175,3 +175,10 @@ flowchart TD
 - 输入浮层采用半透明细边框、离开线段的法向偏移与细引导线，并根据附近其他线段选择净空更大的方向；错误数值保留原位，通过蜂鸣与同一气泡说明当前小段。
 - 自动验证：`npm run import:topics`、backend `npm run build`、`node dist/backend/src/services/runtime/__tests__/topicPracticeEngine.test.js`、frontend `npm run build`、`git diff --check` 均通过。
 - 浏览器验收：真实走通 Q001 的 `PA=3 → AC=3 → CD=8` 自动推进；确认气泡依次显示“任务 1/2 → 老师讲解 → 任务 2/2”，错误值只在固定气泡解释，且第二任务直接显示结构项 `CD`、不要求点击线段。
+
+> 2026-08-07：在不改变上述 verified 体验行为的前提下，完成 Scenario Bank v2 架构迁移。
+
+- `parallelLineRatios` 的 50 条 ready-bank 题目全部迁为 versioned approved `ScenarioRecord`，原 stable id、题号、来源 assignment、题图与步骤契约保持不变。
+- `acceptedAnswers` 与标准答案 `expectedLatex` 只存在于 backend `answerKey`；Learn 的交互提交改由 backend `/api/learn/runtime-action` 判定，未完成 runtime projection 不再携带答案键。
+- session 固定 `scenarioId + scenarioVersion + scenario snapshot`，恢复不会因 bank 更新换题；旧 topic state 继续走兼容读取。
+- 验收：全量 importer 对账 50 条；backend 全量测试、该 topic 首/中/尾完成流、Q001 专项测试、frontend build 与 `git diff --check` 均通过。

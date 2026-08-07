@@ -24,6 +24,7 @@ import {
   type RuntimeEngineState,
 } from "../../platform/engineTypes";
 import { appError } from "../../platform/errors";
+import type { ScenarioRecord } from "../../../../../../shared/scenarios";
 
 export type DemoCounterEngineState = RuntimeEngineState & {
   taskId: "demoCounter";
@@ -166,6 +167,7 @@ export function createDemoCounterState(
   _task: TaskDefinition,
   content: DemoCounterContentDefinition,
   index: number,
+  scenario?: ScenarioRecord,
 ): DemoCounterEngineState {
   return {
     instanceId: crypto.randomUUID(),
@@ -175,7 +177,9 @@ export function createDemoCounterState(
     status: "pending",
     attempts: 0,
     firstTryCorrect: null,
-    expectedAnswer: content.expectedAnswer,
+    expectedAnswer: typeof scenario?.answerKey.expectedAnswer === "string"
+      ? scenario.answerKey.expectedAnswer
+      : content.expectedAnswer,
   };
 }
 

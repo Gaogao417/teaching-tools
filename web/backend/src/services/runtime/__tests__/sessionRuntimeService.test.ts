@@ -27,6 +27,7 @@ type MeaningState = {
   taskId: "meaning";
   instanceId: string;
   status: "pending" | "correct" | "wrong";
+  target: "sin" | "cos" | "tan" | "cot";
   referenceAngle: "A" | "C";
   answerKey: { roles: [Role, Role] };
 };
@@ -326,6 +327,26 @@ async function main() {
     assert.equal(session.current_index, 0);
     assert.equal(session.phase, "answering");
     assert.equal(runtimeInstanceCount(started.sessionId), 5);
+
+    const persisted = db.prepare(
+      `SELECT scenario_id, scenario_version, scenario_json, engine_state_json
+       FROM practice_instances
+       WHERE session_id = ?
+       ORDER BY instance_index ASC
+       LIMIT 1`,
+    ).get(started.sessionId) as { scenario_id: string; scenario_version: string; scenario_json: string; engine_state_json: string };
+    const scenario = JSON.parse(persisted.scenario_json) as {
+      id: string;
+      version: string;
+      status: string;
+      promptData: { target: string; referenceAngle: string };
+    };
+    const state = JSON.parse(persisted.engine_state_json) as MeaningState;
+    assert.equal(scenario.id, persisted.scenario_id);
+    assert.equal(persisted.scenario_version, scenario.version);
+    assert.equal(scenario.status, "approved");
+    assert.equal(state.target, scenario.promptData.target);
+    assert.equal(state.referenceAngle, scenario.promptData.referenceAngle);
   });
 
   await runTest("learning projection is deterministic and carries shared action presentation", () => {
@@ -355,6 +376,20 @@ async function main() {
     assert.equal(session.current_index, 1);
     assert.equal(session.phase, "answering");
     assert.equal(firstInstance.status, "correct");
+  });
+
+  await runTest("runtime v2 sessions created before scenario auditing still restore", () => {
+    const started = startPractice("demoCounter", "Pre-scenario Student");
+    db.prepare(
+      `UPDATE practice_instances
+       SET scenario_id = NULL, scenario_version = NULL, scenario_json = NULL
+       WHERE session_id = ?`,
+    ).run(started.sessionId);
+
+    const restored = restorePractice(started.sessionId);
+    assert.equal(restored.sessionId, started.sessionId);
+    assert.equal(restored.phase, "answering");
+    assert.equal(restored.runtime?.instance.taskId, "demoCounter");
   });
 
   await runTest("runtime-action pipeline can finish a full meaning session and persist a result snapshot", async () => {

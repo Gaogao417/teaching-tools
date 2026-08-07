@@ -20,6 +20,8 @@ import { cloneBuoyancyState, parseDraftPayload } from "./shared";
 import { generateScenario } from "./scenarioBank";
 import { evaluateStep } from "./stepEvaluator";
 import type { BuoyancyEngineState } from "./types";
+import type { ScenarioRecord } from "../../../../../../shared/scenarios";
+import type { BuoyancyScenario } from "../../../../../../shared/buoyancyForceAnalysis";
 
 const STEP_ORDER: BuoyancyStepKey[] = ["solve-unknown-1", "solve-unknown-2"];
 
@@ -39,8 +41,11 @@ export function createBuoyancyState(
   _task: TaskDefinition,
   content: BuoyancyContentDefinition,
   index: number,
+  selectedScenario?: ScenarioRecord,
 ): BuoyancyEngineState {
-  const scenario = generateScenario(index);
+  const scenario = selectedScenario
+    ? { ...selectedScenario.promptData, ...selectedScenario.answerKey } as unknown as BuoyancyScenario
+    : generateScenario(index);
 
   // Derive all 5 values from free parameters
   const { Gobj, Fb, Gwater } = scenario.params;

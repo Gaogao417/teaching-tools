@@ -2,3 +2,5 @@
 wxapp/project.private.config.json
 .opencode/
 .claude/
+__pycache__/
+*.pyc

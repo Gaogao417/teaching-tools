@@ -1,0 +1,27 @@
+{
+  "schema": "teaching-tools/scenario-record/v1",
+  "id": "demo-counter:ok",
+  "taskId": "demoCounter",
+  "engineKind": "demo-counter",
+  "contentId": "demo-counter.basic.v1",
+  "version": "1",
+  "status": "draft",
+  "createdAt": "2026-08-07T00:00:00Z",
+  "promptData": {
+    "prompt": "输入口令 ok"
+  },
+  "answerKey": {
+    "expected": "ok"
+  },
+  "metadata": {
+    "source": "manual",
+    "authoringRunId": "authoring:demo-counter:example",
+    "assignments": [],
+    "wolframChecks": [
+      {
+        "name": "arithmetic-smoke",
+        "expression": "2 + 2 == 4"
+      }
+    ]
+  }
+}

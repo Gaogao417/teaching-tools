@@ -315,10 +315,13 @@ export function TopicPracticeWorkspaceRenderer({
   const carrierPoints = constructParts.carrier?.split(",").filter(Boolean) || [];
   const retainedLabels = Object.values(model.contracts)
     .filter((item) => model.completedStepIds.includes(item.id) && item.primitive === "mark-segments")
-    .reduce((all, item) => ({ ...all, ...parseLabels(item.acceptedAnswers[0] || "") }), {} as Record<string, string>);
+    .reduce((all, item) => ({
+      ...all,
+      ...Object.fromEntries((item.presentation?.completedLabels || []).map((label) => [label.segmentId, label.valueLatex])),
+    }), {} as Record<string, string>);
   const retainedRatioSegments = Object.values(model.contracts)
     .filter((item) => model.completedStepIds.includes(item.id) && item.primitive === "mark-ratio")
-    .flatMap((item) => (item.acceptedAnswers[0] || "").split(",").filter(Boolean));
+    .flatMap((item) => item.presentation?.completedObjectIds || []);
 
   const updateCoach = (messageLatex: string, tone: "prompt" | "correct" | "wrong" | "explain", options?: { highlightedObjectIds?: string[]; activeSlotId?: string; incrementInvalid?: boolean; displayMode?: "task" | "explanation" }) => {
     setDraft((current) => ({
@@ -691,16 +694,9 @@ export function TopicPracticeWorkspaceRenderer({
               </>}
             </span>
             <span>=</span>
-            <input aria-label="计算结果" value={equationResult} onFocus={() => updateCoach(contract.coach?.slotHints?.result?.hintLatex || "计算最后结果。", "prompt", { activeSlotId: "result", displayMode: "task" })} onBlur={(event) => {
-              const expectedResult = contract.acceptedAnswers[0]?.split("|")[1];
-              if (event.currentTarget.value && event.currentTarget.value !== expectedResult) {
-                rejectSlot("result", contract.coach?.slotHints?.result?.errorLatex || "只检查最后的乘除计算。");
-              }
-            }} onChange={(event) => {
+            <input aria-label="计算结果" value={equationResult} onFocus={() => updateCoach(contract.coach?.slotHints?.result?.hintLatex || "计算最后结果。", "prompt", { activeSlotId: "result", displayMode: "task" })} onChange={(event) => {
               const target = [...contract.interaction!.equation!.targetLatex].sort().join("");
               setValue(`${target}=${equationSegments.join("*")}|${event.target.value}`);
-              const expectedResult = contract.acceptedAnswers[0]?.split("|")[1];
-              if (event.target.value === expectedResult) updateCoach(contract.coach?.slotHints?.result?.correctLatex || "结果正确，可以提交。", "correct");
             }} placeholder="结果" />
           </div>
         ) : null}

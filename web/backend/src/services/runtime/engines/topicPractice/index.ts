@@ -18,6 +18,7 @@ import type {
 import {
   isTopicAnswerAccepted,
   type TopicPracticeContentDefinition,
+  type TopicResolvedScenario,
   type TopicScenarioRecord,
 } from "../../../../../../shared/topicPractice";
 import {
@@ -27,9 +28,10 @@ import {
   type EngineActionResult,
 } from "../../platform/engineTypes";
 import { appError } from "../../platform/errors";
-import { getTopicLesson, getTopicScenario, pickTopicScenario } from "./scenarioBank";
+import { getTopicLesson, getTopicScenario, pickTopicScenario, resolveTopicScenarioRecord } from "./scenarioBank";
 import type { TopicPracticeEngineState } from "./types";
 import { capabilityIdsForTopicStep } from "../../../../../../shared/similarityLearningMap";
+import type { ScenarioRecord } from "../../../../../../shared/scenarios";
 
 const ANSWER_TARGET = "topic-answer";
 
@@ -56,8 +58,10 @@ function feedbackPacket(evaluation: RuntimeEvaluation, finalStep: boolean): Runt
   return { global: [], workspace: [cue("correct", "workspace")], guide: [] };
 }
 
-function currentScenario(state: TopicPracticeEngineState): TopicScenarioRecord {
-  return getTopicScenario(state.taskId, state.scenarioId);
+function currentScenario(state: TopicPracticeEngineState): TopicResolvedScenario {
+  return state.pinnedScenario
+    ? resolveTopicScenarioRecord(state.pinnedScenario)
+    : getTopicScenario(state.taskId, state.scenarioId);
 }
 
 function runtimeStepEntries(state: TopicPracticeEngineState) {
@@ -122,18 +126,24 @@ function buildScene(state: TopicPracticeEngineState): SceneSpec {
       skillTags: scenario.skillTags,
       activeStepId: step.id,
       completedStepIds: state.completedStepIds,
-      contracts: Object.fromEntries(entries.map(({ step: item, sourceIndex }) => [item.id, {
-        ...item,
-        presentation: {
-          selectionMode: ["mark-ratio", "ratio-scratch"].includes(item.primitive) ? "pair" : ["construct-parallel", "convert-collinear"].includes(item.primitive) ? "ordered" : "single",
-          inputAnchor: item.primitive === "mark-segments" ? "segment-midpoint" : "workspace",
-          retainCompletedMarks: true,
-          allowLocalUndo: true,
-          availableObjectIds: item.interaction?.availableSegments,
-          capabilityIds: capabilityIdsForTopicStep(scenario.taskId, item.primitive, sourceIndex),
-          ...item.presentation,
-        },
-      }])),
+      contracts: Object.fromEntries(entries.map(({ step: item, sourceIndex }) => {
+        const { acceptedAnswers: _acceptedAnswers, expectedLatex: _expectedLatex, ...projection } = item;
+        return [item.id, {
+          ...projection,
+          presentation: {
+            selectionMode: ["mark-ratio", "ratio-scratch"].includes(item.primitive) ? "pair" : ["construct-parallel", "convert-collinear"].includes(item.primitive) ? "ordered" : "single",
+            inputAnchor: item.primitive === "mark-segments" ? "segment-midpoint" : "workspace",
+            retainCompletedMarks: true,
+            allowLocalUndo: true,
+            availableObjectIds: item.interaction?.availableSegments,
+            capabilityIds: capabilityIdsForTopicStep(scenario.taskId, item.primitive, sourceIndex),
+            requiredInputCount: item.interaction?.expectedLabels?.length || item.interaction?.expectedOrder?.length,
+            completedLabels: state.completedStepIds.includes(item.id) ? item.interaction?.expectedLabels : undefined,
+            completedObjectIds: state.completedStepIds.includes(item.id) ? item.interaction?.expectedOrder : undefined,
+            ...item.presentation,
+          },
+        }];
+      })),
       guidedMode: state.isLearningProjection,
     },
   };
@@ -221,8 +231,20 @@ export function createTopicPracticeState(
   task: TaskDefinition,
   content: TopicPracticeContentDefinition,
   index: number,
+  selectedScenario?: ScenarioRecord,
 ): TopicPracticeEngineState {
-  const scenario = pickTopicScenario(content.taskId, index);
+  if (selectedScenario && (
+    selectedScenario.taskId !== task.id
+    || selectedScenario.engineKind !== "topic-practice"
+    || selectedScenario.contentId !== content.id
+    || selectedScenario.status !== "approved"
+  )) {
+    throw appError("RUNTIME_CONTRACT_INVALID", `Scenario ${selectedScenario.id} does not match ${task.id}/${content.id}`);
+  }
+  const pinnedScenario = selectedScenario as TopicScenarioRecord | undefined;
+  const scenario = pinnedScenario
+    ? resolveTopicScenarioRecord(pinnedScenario)
+    : pickTopicScenario(content.taskId, index);
   return {
     instanceId: crypto.randomUUID(),
     taskId: scenario.taskId,
@@ -232,6 +254,8 @@ export function createTopicPracticeState(
     attempts: 0,
     firstTryCorrect: null,
     scenarioId: scenario.id,
+    scenarioVersion: scenario.version,
+    pinnedScenario,
     stepIndex: 0,
     completedStepIds: [],
     hadWrongAttempt: false,
@@ -241,9 +265,24 @@ export function createTopicPracticeState(
   };
 }
 
-export function restoreTopicPracticeState(raw: unknown): TopicPracticeEngineState {
+export function restoreTopicPracticeState(raw: unknown, selectedScenario?: ScenarioRecord): TopicPracticeEngineState {
   const state = raw as TopicPracticeEngineState;
-  const restored = { ...state, wrongObjectIds: state.wrongObjectIds || [], interactionVersion: 2 };
+  const pinnedScenario = selectedScenario as TopicScenarioRecord | undefined;
+  let scenarioVersion = pinnedScenario?.version || state.scenarioVersion;
+  if (!scenarioVersion) {
+    try {
+      scenarioVersion = getTopicScenario(state.taskId, state.scenarioId).version;
+    } catch {
+      throw appError("LEGACY_SESSION_EXPIRED", `Legacy topic scenario ${state.scenarioId} is no longer available`, 409);
+    }
+  }
+  const restored = {
+    ...state,
+    pinnedScenario: pinnedScenario || state.pinnedScenario,
+    scenarioVersion,
+    wrongObjectIds: state.wrongObjectIds || [],
+    interactionVersion: 2,
+  };
   if (!state.interactionVersion && restored.taskId === "nestedSimilarity") {
     const entries = runtimeStepEntries(restored);
     restored.stepIndex = restored.status === "correct"
@@ -257,7 +296,7 @@ function parseDelimitedObjects(value: string, delimiter = ","): string[] {
   return value.split(delimiter).map((item) => item.trim()).filter(Boolean);
 }
 
-function wrongObjectsForSubmission(submitted: string, step: TopicScenarioRecord["steps"][number]): string[] {
+function wrongObjectsForSubmission(submitted: string, step: TopicResolvedScenario["steps"][number]): string[] {
   const expected = step.acceptedAnswers[0] || "";
   if (step.primitive === "mark-segments") {
     const expectedLabels = new Map(parseDelimitedObjects(expected, ";").map((part) => {

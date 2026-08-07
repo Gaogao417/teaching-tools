@@ -14,7 +14,7 @@ import {
   submitRuntimeAction,
 } from "./services/runtime/platform/sessionRuntimeService";
 import { hasTaskDefinition } from "./services/tasks/catalogService";
-import { getLearningProjection } from "./services/learningService";
+import { getLearningProjection, submitLearningAction } from "./services/learningService";
 import { getSimilarityLearningMap, recordSimilarityTopicProgress } from "./services/similarityProgressionService";
 import { topicNodeByTaskId } from "../../shared/similarityLearningMap";
 
@@ -97,6 +97,19 @@ export function createApp() {
   app.get("/api/learn/:taskId", (req, res, next) => {
     try {
       res.json(getLearningProjection(taskIdSchema.parse(req.params.taskId)));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/learn/runtime-action", (req, res, next) => {
+    try {
+      const body = z.object({
+        taskId: taskIdSchema,
+        stepId: z.string().min(1),
+        value: z.string().max(10_000),
+      }).parse(req.body);
+      res.json(submitLearningAction(body.taskId, body.stepId, body.value));
     } catch (error) {
       next(error);
     }

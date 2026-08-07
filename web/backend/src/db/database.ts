@@ -51,6 +51,9 @@ db.exec(`
     instance_json TEXT NOT NULL,
     engine_state_json TEXT NOT NULL,
     runtime_state_json TEXT NOT NULL,
+    scenario_id TEXT,
+    scenario_version TEXT,
+    scenario_json TEXT,
     FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE
   );
 
@@ -143,4 +146,15 @@ if (!actionColumns.some((column) => column.name === "capability_id")) {
 }
 if (!actionColumns.some((column) => column.name === "capability_ids_json")) {
   db.exec("ALTER TABLE practice_action_events ADD COLUMN capability_ids_json TEXT");
+}
+
+const instanceColumns = db.prepare("PRAGMA table_info(practice_instances)").all() as Array<{ name: string }>;
+if (!instanceColumns.some((column) => column.name === "scenario_id")) {
+  db.exec("ALTER TABLE practice_instances ADD COLUMN scenario_id TEXT");
+}
+if (!instanceColumns.some((column) => column.name === "scenario_version")) {
+  db.exec("ALTER TABLE practice_instances ADD COLUMN scenario_version TEXT");
+}
+if (!instanceColumns.some((column) => column.name === "scenario_json")) {
+  db.exec("ALTER TABLE practice_instances ADD COLUMN scenario_json TEXT");
 }

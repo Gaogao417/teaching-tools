@@ -48,6 +48,12 @@
 - 返回 `LearningProjectionSpec`，其中 `sampleRuntime` 继续使用共享 `ExerciseRuntimeSpec`
 - 返回当前教学步骤的叙述、聚焦目标与下一动作，不在 frontend 重新实现题型场景
 
+## Learn Runtime Action
+
+`POST /api/learn/runtime-action` 对 topic Learn 的当前步骤做 backend 判定。请求只包含
+`taskId`、`stepId` 和学生提交值，响应只返回 `correct` / `wrong`；answer key 不进入
+`LearningProjectionSpec`。该接口不创建 Practice session，也不持久化练习结果。
+
 ## Start Session
 
 `POST /api/practice/start`
@@ -77,6 +83,9 @@ interface StartPracticeResponse extends PracticeSessionSnapshot {}
 
 - frontend 不知道被选中的 scenario id
 - 是否使用内置样例、数据库 scenario、或其他来源，属于 backend 内部实现
+- backend selector 只允许选择 `approved` 且 task/content/engine 匹配的 scenario
+- session 在 backend 固定 scenario id/version；restore 不重新选题
+- 响应不得包含 answer key、accepted answers、expected values、validation report 或 authoring run metadata
 
 ## Restore Session
 
@@ -180,6 +189,7 @@ interface ApiErrorResponse {
 - `INSTANCE_NOT_ACTIVE`
 - `RUNTIME_CONTRACT_INVALID`
 - `LEGACY_SESSION_EXPIRED`
+- `NO_APPROVED_SCENARIO`
 
 ## Explicit Non-API Scope
 

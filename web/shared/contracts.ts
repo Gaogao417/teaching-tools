@@ -500,6 +500,17 @@ export interface LearningProjectionSpec {
   topicLesson?: TopicLessonRecord;
 }
 
+export interface LearningActionRequest {
+  taskId: TaskId;
+  stepId: string;
+  value: string;
+}
+
+export interface LearningActionResponse {
+  accepted: true;
+  evaluation: "correct" | "wrong";
+}
+
 export interface TaskHistoryResponse {
   taskId: TaskId;
   studentName: string;
@@ -582,6 +593,7 @@ export interface ApiErrorResponse {
       | "ACTION_NOT_ALLOWED"
       | "INSTANCE_NOT_ACTIVE"
       | "RUNTIME_CONTRACT_INVALID"
+      | "NO_APPROVED_SCENARIO"
       | "LEGACY_SESSION_EXPIRED"
       | "INTERNAL_ERROR";
     message: string;

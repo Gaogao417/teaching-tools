@@ -36,6 +36,8 @@ import type {
   RatioEngineState,
   TriangleTrigEngineState,
 } from "./types";
+import type { ScenarioRecord } from "../../../../../../shared/scenarios";
+import type { Angle, TrigFunction } from "../../../../../../shared/triangleTrig";
 
 export type {
   GuidedEngineState,
@@ -56,11 +58,14 @@ export function createTriangleTrigState(
   task: TaskDefinition,
   content: TriangleTrigContentDefinition,
   index: number,
+  scenario?: ScenarioRecord,
 ): TriangleTrigEngineState {
+  const target = scenario?.promptData.target;
+  const referenceAngle = scenario?.promptData.referenceAngle;
   return getTriangleTrigTaskStrategy(taskIdOf(task)).createState(task, content, index, {
     instanceId: crypto.randomUUID(),
-    target: randomItem(TRIGS),
-    referenceAngle: randomItem(ACUTE_ANGLES),
+    target: typeof target === "string" ? target as TrigFunction : randomItem(TRIGS),
+    referenceAngle: typeof referenceAngle === "string" ? referenceAngle as Angle : randomItem(ACUTE_ANGLES),
   });
 }
 

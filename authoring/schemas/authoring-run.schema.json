@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "teaching-tools/authoring-run/v1",
+  "title": "AuthoringRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "status", "taskIds", "startedAt", "toolchainVersion", "inputSpecVersion", "counts"],
+  "properties": {
+    "schema": { "const": "teaching-tools/authoring-run/v1" },
+    "id": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["running", "completed", "failed"] },
+    "taskIds": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "toolchainVersion": { "type": "string", "minLength": 1 },
+    "inputSpecVersion": { "type": "string", "minLength": 1 },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate", "validated", "approved", "rejected"],
+      "properties": {
+        "candidate": { "type": "integer", "minimum": 0 },
+        "validated": { "type": "integer", "minimum": 0 },
+        "approved": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "errorSummary": { "type": "string" },
+    "scenarioIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+  }
+}

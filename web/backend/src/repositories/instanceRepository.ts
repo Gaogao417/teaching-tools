@@ -12,6 +12,9 @@ export type RuntimeInstanceRow = {
   instance_json: string;
   engine_state_json: string;
   runtime_state_json: string;
+  scenario_id: string | null;
+  scenario_version: string | null;
+  scenario_json: string | null;
 };
 
 const listRuntimeInstancesBySessionIdStatement = db.prepare(
@@ -21,8 +24,8 @@ const listRuntimeInstancesBySessionIdStatement = db.prepare(
    ORDER BY instance_index ASC`,
 );
 const insertRuntimeInstanceStatement = db.prepare(
-  `INSERT INTO practice_instances (id, session_id, task_id, content_id, engine_kind, instance_index, content_json, instance_json, engine_state_json, runtime_state_json)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  `INSERT INTO practice_instances (id, session_id, task_id, content_id, engine_kind, instance_index, content_json, instance_json, engine_state_json, runtime_state_json, scenario_id, scenario_version, scenario_json)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 const updateRuntimeInstanceStateStatement = db.prepare(
   `UPDATE practice_instances
@@ -47,6 +50,9 @@ export function insertRuntimeInstances(rows: RuntimeInstanceRow[]) {
       row.instance_json,
       row.engine_state_json,
       row.runtime_state_json,
+      row.scenario_id,
+      row.scenario_version,
+      row.scenario_json,
     );
   }
 }

@@ -9,9 +9,10 @@ import {
   reduceTopicPracticeAction,
   restoreTopicPracticeState,
 } from "../engines/topicPractice";
-import { getTopicLesson, getTopicScenario } from "../engines/topicPractice/scenarioBank";
+import { getTopicLesson, getTopicScenario, pickTopicScenarioRecord, resolveTopicScenarioRecord } from "../engines/topicPractice/scenarioBank";
 import type { TopicPracticeEngineState } from "../engines/topicPractice/types";
 import { resolveContentDefinition } from "../platform/contentRegistry";
+import { submitLearningAction } from "../../learningService";
 
 const TASK_IDS: TopicPracticeTaskId[] = [
   "quadraticCompletion",
@@ -82,6 +83,92 @@ async function main() {
     }
   });
 
+  await runTest("topic bundle stores approved v2 records and runtime projections hide answer keys", () => {
+    for (const taskId of TASK_IDS) {
+      const { task, content } = taskContext(taskId);
+      const record = pickTopicScenarioRecord(taskId, 0);
+      assert.equal(record.taskId, task.id);
+      assert.equal(record.engineKind, "topic-practice");
+      assert.equal(record.contentId, content.id);
+      assert.equal(record.status, "approved");
+      assert.equal(record.validation.passed, true);
+      assert.equal(record.validation.scenarioId, record.id);
+      assert.ok(Object.keys(record.answerKey.steps).length >= 2);
+      assert.ok(record.promptData.steps.every((step) => !("acceptedAnswers" in step)));
+
+      const state = createTopicPracticeState(task, content, 0, record);
+      assert.equal(state.scenarioId, record.id);
+      const runtime = buildTopicPracticeRuntime(task, content, state, "answering");
+      const serialized = JSON.stringify(runtime.instance.scene.topicWorkspace?.contracts || {});
+      assert.equal(serialized.includes("acceptedAnswers"), false);
+      assert.equal(serialized.includes("expectedLatex"), false);
+    }
+  });
+
+  await runTest("interactive Learn evaluates on the backend without returning answer truth", () => {
+    const scenario = getTopicScenario("parallelLineRatios", "three-known-fourth-parallel-2026-07-17:Q001");
+    const step = scenario.steps[0];
+    const wrong = submitLearningAction("parallelLineRatios", step.id, "AC=9;AP=9;CD=9");
+    const correct = submitLearningAction("parallelLineRatios", step.id, step.acceptedAnswers[0]);
+    assert.deepEqual(wrong, { accepted: true, evaluation: "wrong" });
+    assert.deepEqual(correct, { accepted: true, evaluation: "correct" });
+    assert.equal(JSON.stringify(correct).includes("acceptedAnswers"), false);
+  });
+
+  await runTest("selected scenario snapshots stay pinned across restore", () => {
+    const { task, content } = taskContext("quadraticCompletion");
+    const source = pickTopicScenarioRecord("quadraticCompletion", 0);
+    const selected = {
+      ...source,
+      id: `${source.id}:snapshot-only`,
+      validation: { ...source.validation, scenarioId: `${source.id}:snapshot-only` },
+    };
+    const created = createTopicPracticeState(task, content, 3, selected);
+    assert.equal(created.scenarioId, selected.id);
+    assert.equal(created.scenarioVersion, selected.version);
+
+    const persistedWithoutInlineSnapshot = { ...created, pinnedScenario: undefined };
+    const restored = restoreTopicPracticeState(persistedWithoutInlineSnapshot, selected);
+    const runtime = buildTopicPracticeRuntime(task, content, restored, "answering");
+    assert.equal(runtime.instance.prompt, selected.promptData.promptLatex);
+    assert.equal(restored.pinnedScenario?.id, selected.id);
+  });
+
+  await runTest("all six migrated topics smoke first, middle, and last approved records", () => {
+    const counts: Record<TopicPracticeTaskId, number> = {
+      quadraticCompletion: 30,
+      parallelLineRatios: 50,
+      auxiliaryTwoRatios: 50,
+      reverseASimilarity: 50,
+      nestedSimilarity: 50,
+      butterflySimilarity: 50,
+    };
+    for (const taskId of TASK_IDS) {
+      const { task, content } = taskContext(taskId);
+      for (const index of [0, Math.floor(counts[taskId] / 2), counts[taskId] - 1]) {
+        const record = pickTopicScenarioRecord(taskId, index);
+        const scenario = resolveTopicScenarioRecord(record);
+        let state = createTopicPracticeState(task, content, index, record);
+        const wrong = reduceTopicPracticeAction(task, content, state, submit(scenario.steps[0].id, "__wrong__"));
+        assert.equal(wrong.evaluation, "wrong", `${taskId}#${index} exposes a diagnosis branch`);
+        state = wrong.engineState;
+        while (state.status !== "correct") {
+          const activeStep = scenario.steps[state.stepIndex];
+          state = reduceTopicPracticeAction(
+            task,
+            content,
+            state,
+            submit(activeStep.id, activeStep.acceptedAnswers[0]),
+          ).engineState;
+        }
+        const restored = restoreTopicPracticeState(JSON.parse(JSON.stringify(state)), record);
+        assert.equal(restored.status, "correct");
+        assert.equal(restored.scenarioId, record.id);
+        assert.equal(restored.scenarioVersion, record.version);
+      }
+    }
+  });
+
   await runTest("quadratic practice advances one action at a time and records an intervening mistake", () => {
     const { task, content } = taskContext("quadraticCompletion");
     let state = createTopicPracticeState(task, content, 0);
@@ -116,7 +203,6 @@ async function main() {
     const practiceState = createTopicPracticeState(task, content, 0);
     const practiceRuntime = buildTopicPracticeRuntime(task, content, practiceState, "answering");
     assert.equal(practiceRuntime.instance.scene.topicWorkspace?.guidedMode, false);
-    assert.equal(Object.values(practiceRuntime.instance.scene.topicWorkspace?.contracts || {}).some((step) => step.expectedLatex === ""), false);
     assert.deepEqual(getTopicScenario("reverseASimilarity", practiceState.scenarioId).steps.map((step) => step.primitive), ["mark-segments", "mark-ratio", "equation"]);
 
     const learningState: TopicPracticeEngineState = {
@@ -225,6 +311,20 @@ async function main() {
     const restored = restoreTopicPracticeState(legacyState);
     const runtime = buildTopicPracticeRuntime(task, content, restored, "answering");
     assert.equal(runtime.instance.scene.topicWorkspace?.contracts[runtime.runtimeState.currentStepId].primitive, "convert-collinear");
+  });
+
+  await runTest("unmappable legacy topic state expires instead of silently changing scenario", () => {
+    const { task, content } = taskContext("nestedSimilarity");
+    const legacy = {
+      ...createTopicPracticeState(task, content, 0),
+      scenarioId: "retired:missing",
+      scenarioVersion: undefined,
+      pinnedScenario: undefined,
+    };
+    assert.throws(
+      () => restoreTopicPracticeState(legacy),
+      (error: any) => error?.body?.error?.code === "LEGACY_SESSION_EXPIRED",
+    );
   });
 
   await runTest("topic evaluation identifies only the incorrect geometry object", () => {

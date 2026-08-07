@@ -13,6 +13,7 @@ import type {
   TaskDefinition,
   TaskId,
 } from "../../../../../shared/contracts";
+import type { ScenarioRecord } from "../../../../../shared/scenarios";
 
 export type RuntimeEngineState = {
   instanceId: string;
@@ -37,8 +38,8 @@ export type EnginePlugin<
   TContent extends ContentDefinition = ContentDefinition,
   TState extends RuntimeEngineState = RuntimeEngineState,
 > = {
-  createState: (task: TaskDefinition, content: TContent, index: number) => TState;
-  restoreState: (raw: unknown) => TState;
+  createState: (task: TaskDefinition, content: TContent, index: number, scenario: ScenarioRecord) => TState;
+  restoreState: (raw: unknown, pinnedScenario?: ScenarioRecord) => TState;
   buildRuntime: (task: TaskDefinition, content: TContent, state: TState, phase: SessionPhase) => ExerciseRuntimeSpec;
   buildLearningProjection: (
     task: TaskDefinition,

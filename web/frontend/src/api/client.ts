@@ -1,6 +1,7 @@
 import {
   FinishPracticeResponse,
   LearningProjectionSpec,
+  LearningActionResponse,
   RuntimeActionEvent,
   RuntimeActionResponse,
   RestorePracticeResponse,
@@ -42,6 +43,11 @@ export const api = {
     }),
   getLearningProjection: (taskId: TaskId) =>
     request<LearningProjectionSpec>(`/api/learn/${taskId}`),
+  submitLearningAction: (taskId: TaskId, stepId: string, value: string) =>
+    request<LearningActionResponse>("/api/learn/runtime-action", {
+      method: "POST",
+      body: JSON.stringify({ taskId, stepId, value }),
+    }),
   getTaskHistory: (taskId: TaskId, studentName: string, limit = 5) =>
     request<TaskHistoryResponse>(
       `/api/task-history/${taskId}?studentName=${encodeURIComponent(studentName)}&limit=${limit}`,

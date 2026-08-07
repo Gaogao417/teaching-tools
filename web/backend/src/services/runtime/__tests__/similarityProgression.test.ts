@@ -7,6 +7,7 @@ if (existsSync(sqlitePath)) rmSync(sqlitePath, { force: true });
 process.env.SQLITE_PATH = sqlitePath;
 
 const { db } = require("../../../db/database") as typeof import("../../../db/database");
+const { listRuntimeInstancesBySessionId } = require("../../../repositories/instanceRepository") as typeof import("../../../repositories/instanceRepository");
 const {
   finishPractice,
   getChallengeDiagnosis,
@@ -29,10 +30,15 @@ function activeContract(sessionId: string) {
 
 function submitCurrentCorrect(sessionId: string) {
   const { runtime, contract } = activeContract(sessionId);
+  const row = listRuntimeInstancesBySessionId(sessionId).find((item) => item.id === runtime.instance.instanceId);
+  assert.ok(row?.scenario_json);
+  const scenario = JSON.parse(row.scenario_json) as import("../../../../../shared/topicPractice").TopicScenarioRecord;
+  const acceptedAnswer = scenario.answerKey.steps[contract.id]?.acceptedAnswers[0];
+  assert.ok(acceptedAnswer);
   return submitRuntimeAction(sessionId, runtime.instance.instanceId, {
     type: "submit",
     stepId: contract.id,
-    value: JSON.stringify({ inputs: { "topic-answer": contract.acceptedAnswers[0] } }),
+    value: JSON.stringify({ inputs: { "topic-answer": acceptedAnswer } }),
   });
 }
 

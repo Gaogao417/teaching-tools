@@ -13,6 +13,8 @@ Skill / Codex CLI
   -> Python generator
   -> deterministic validation
   -> Wolfram validation
+  -> ScenarioValidationReport
+  -> explicit approval
   -> Scenario Bank
 ```
 
@@ -41,6 +43,8 @@ Skill / Codex CLI
 - 检查 schema
 - 调用本地规则过滤
 - 写入 `ScenarioRecord`
+
+生成器只写 candidate，不直接授予 approved 状态。
 
 ### Deterministic Validation
 
@@ -78,6 +82,11 @@ Skill / Codex CLI
 - 最终答案键
 - 校验状态
 - 来源元数据
+- record version 与 authoring run id
+- 供 engine 投影的 prompt data（仍需 frontend allowlist）
+- 只供 backend engine 使用的 answer key
+
+每个 approved record 必须存在同 `scenarioId + scenarioVersion` 的通过报告，并可追溯到完成状态的 `AuthoringRun`。发布采用完整 bank 的原子切换；失败 run 不覆盖上一次可用 bank。
 
 ## Boundary With Online Runtime
 
@@ -87,6 +96,8 @@ Skill / Codex CLI
 - 将 scenario 投影为 runtime
 - 接收学生动作并判题
 
+选择器同时校验 task、content 和 engine。已有 session 使用固定 scenario version 恢复，不参与重新选择；未完成题目的 answer key 不进入 frontend runtime payload。
+
 在线 runtime 不做这些事：
 
 - 现场调用 AI 出题
@@ -95,15 +106,18 @@ Skill / Codex CLI
 
 ## Recommended Implementation Order
 
-1. 定义 `ScenarioRecord` schema
-2. 定义 `ScenarioValidationReport` schema
-3. 写 Python 生成与校验脚本
-4. 接入 Wolfram session
-5. 写入题库
-6. 在 backend 中新增 `Scenario Selector`
+1. 定义 `ScenarioRecord`、`ScenarioValidationReport`、`AuthoringRun` schema
+2. 分离 prompt data、private answer key 与 public runtime projection
+3. 写生成、归一化和 deterministic validation
+4. 接入 Wolfram validation adapter
+5. 通过显式审批发布版本化 bank
+6. 在 backend 中新增 approved-only `Scenario Selector`
+7. 迁移六个已有 topic，并验证旧 session version pinning
 
 ## Current Status
 
 当前仓库已经具备在线 runtime 主路径。
 
 本文件记录的是下一阶段 authoring pipeline 的明确边界，供后续 Python / Wolfram 实现落地使用。
+
+`auxiliaryTwoRatios` 当前体验规格仍是 draft；pipeline 可以迁移其现有 50 条数据，但不能借数据迁移实现草案交互。

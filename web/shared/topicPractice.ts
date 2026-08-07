@@ -1,3 +1,5 @@
+import type { AuthoringRun, ScenarioRecord, ScenarioValidationReport } from "./scenarios";
+
 export type TopicPracticeTaskId =
   | "quadraticCompletion"
   | "parallelLineRatios"
@@ -105,6 +107,9 @@ export interface TopicInteractionPresentation {
   autoFocusSequence?: boolean;
   autoSubmitOnComplete?: boolean;
   prefillKnownFactor?: boolean;
+  requiredInputCount?: number;
+  completedLabels?: TopicSegmentLabel[];
+  completedObjectIds?: string[];
 }
 
 export interface TopicChoiceOption {
@@ -134,9 +139,10 @@ export interface TopicActionContract {
   nextStepId?: string;
 }
 
-export interface TopicScenarioRecord {
-  id: string;
-  taskId: TopicPracticeTaskId;
+/** Learner-visible projection. Answer truth must never cross the backend boundary. */
+export type TopicActionProjection = Omit<TopicActionContract, "acceptedAnswers" | "expectedLatex">;
+
+export interface TopicScenarioPromptData {
   sourceBankId: string;
   sourceBankTitle: string;
   sourceQuestionId: string;
@@ -148,15 +154,48 @@ export interface TopicScenarioRecord {
   promptLatex: string;
   promptDiagramAsset?: string;
   promptGeometry?: TopicGeometryModel;
-  answerLatex: string;
   explanationLatex: string;
   teaching: {
     goal: string;
     expectedBlocker: string;
     fallbackMove: string;
   };
-  steps: TopicActionContract[];
+  steps: TopicActionProjection[];
 }
+
+export interface TopicScenarioAnswerKey {
+  answerLatex: string;
+  steps: Record<string, {
+    acceptedAnswers: string[];
+    expectedLatex: string;
+  }>;
+}
+
+export type TopicScenarioValidationReport = ScenarioValidationReport;
+
+export type TopicScenarioRecord = Omit<ScenarioRecord, "taskId" | "engineKind" | "promptData" | "answerKey" | "metadata"> & {
+  taskId: TopicPracticeTaskId;
+  engineKind: "topic-practice";
+  promptData: TopicScenarioPromptData & Record<string, unknown>;
+  answerKey: TopicScenarioAnswerKey & Record<string, unknown>;
+  metadata: ScenarioRecord["metadata"] & {
+    sourceBankId: string;
+    sourceQuestionId: string;
+    sourceAssignment: string;
+    importTool: string;
+  };
+  validation: TopicScenarioValidationReport;
+};
+
+/** Backend-only hydrated scenario used by topic-practice evaluation. */
+export type TopicResolvedScenario = Omit<TopicScenarioPromptData, "steps"> & {
+  id: string;
+  taskId: TopicPracticeTaskId;
+  contentId: string;
+  version: string;
+  answerLatex: string;
+  steps: TopicActionContract[];
+};
 
 export interface TopicLessonSideItem {
   kind: "hint" | "mistake" | "note";
@@ -191,10 +230,11 @@ export interface TopicLessonRecord {
 }
 
 export interface TopicScenarioBundle {
-  schema: "teaching-tools/topic-scenario-bundle/v1";
+  schema: "teaching-tools/topic-scenario-bundle/v2";
   version: string;
   generatedAt: string;
   sourceRoot: string;
+  authoringRun: AuthoringRun;
   lessons: Record<TopicPracticeTaskId, TopicLessonRecord>;
   scenarios: Record<TopicPracticeTaskId, TopicScenarioRecord[]>;
 }
@@ -223,7 +263,7 @@ export interface TopicPracticeWorkspaceModel {
   skillTags: string[];
   activeStepId: string;
   completedStepIds: string[];
-  contracts: Record<string, TopicActionContract>;
+  contracts: Record<string, TopicActionProjection>;
   guidedMode: boolean;
 }
 

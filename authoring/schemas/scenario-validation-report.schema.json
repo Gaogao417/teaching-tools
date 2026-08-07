@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "teaching-tools/scenario-validation-report/v1",
+  "title": "ScenarioValidationReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "scenarioId", "scenarioVersion", "authoringRunId", "passed", "checks", "createdAt"],
+  "properties": {
+    "schema": { "const": "teaching-tools/scenario-validation-report/v1" },
+    "id": { "type": "string", "minLength": 1 },
+    "scenarioId": { "type": "string", "minLength": 1 },
+    "scenarioVersion": { "type": "string", "minLength": 1 },
+    "authoringRunId": { "type": "string", "minLength": 1 },
+    "passed": { "type": "boolean" },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "passed"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["schema", "domain", "asset", "mathematical"] },
+          "passed": { "type": "boolean" },
+          "message": { "type": "string" },
+          "evidence": { "type": "object" }
+        }
+      }
+    },
+    "wolframSummary": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

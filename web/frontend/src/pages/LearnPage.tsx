@@ -11,7 +11,6 @@ import type { WorkspaceOutletContext } from "../components/layout/workspaceConte
 import { FocusWorkspace } from "../components/layout/FocusWorkspace";
 import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
 import { TopicRuntimeFrame } from "../components/exercises/topicPractice/TopicRuntimeFrame";
-import { isTopicAnswerAccepted } from "../../../shared/topicPractice";
 import { topicNodeByTaskId } from "../../../shared/similarityLearningMap";
 
 const EMPTY_DRAFT: ClientDraftState = { selections: {}, inputs: {} };
@@ -115,7 +114,7 @@ export function LearnPage() {
 
   if (runtime.instance.engineKind === "topic-practice") {
     const contract = runtime.instance.scene.topicWorkspace?.contracts[runtime.runtimeState.currentStepId];
-    const submitTopicStep = (submittedPayload?: string) => {
+    const submitTopicStep = async (submittedPayload?: string) => {
       let value = draft.inputs["topic-answer"] || "";
       if (submittedPayload) {
         try {
@@ -125,7 +124,15 @@ export function LearnPage() {
           // The action dock and workspace both use JSON payloads; keep the live draft as a safe fallback.
         }
       }
-      if (!contract || !isTopicAnswerAccepted(value, contract.acceptedAnswers)) {
+      if (!contract || !value.trim()) return;
+      let result;
+      try {
+        result = await api.submitLearningAction(projection.taskId, contract.id, value);
+      } catch {
+        setTopicPhase("wrong_feedback");
+        return;
+      }
+      if (result.evaluation === "wrong") {
         setTopicPhase("wrong_feedback");
         return;
       }
@@ -153,7 +160,7 @@ export function LearnPage() {
           showGuide
           disabled={topicPhase === "correct_pause"}
           onClear={() => { setDraft(EMPTY_DRAFT); setTopicPhase("answering"); }}
-          onSubmit={(_stepId, value) => submitTopicStep(value)}
+          onSubmit={(_stepId, value) => { void submitTopicStep(value); }}
         />
       </div>
     );

@@ -31,6 +31,8 @@ import {
   evaluateTransformRange,
 } from "./stepEvaluator";
 import type { AngleEquationEngineState } from "./types";
+import type { ScenarioRecord } from "../../../../../../shared/scenarios";
+import type { AngleEquationScenario } from "../../../../../../shared/angleEquation";
 
 // ─── Step order ──────────────────────────────────────────────────────
 
@@ -51,8 +53,11 @@ export function createAngleEquationState(
   task: TaskDefinition,
   content: AngleEquationContentDefinition,
   index: number,
+  selectedScenario?: ScenarioRecord,
 ): AngleEquationEngineState {
-  const scenario = pickScenario(index);
+  const scenario = selectedScenario
+    ? { ...selectedScenario.promptData, answerKey: selectedScenario.answerKey } as unknown as AngleEquationScenario
+    : pickScenario(index);
 
   return {
     instanceId: crypto.randomUUID(),

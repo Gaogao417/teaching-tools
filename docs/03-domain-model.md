@@ -68,18 +68,22 @@
 ```ts
 type ScenarioRecord = {
   id: string
+  version: string
   taskId: TaskId
   engineKind: ExerciseEngineKind
   contentId: string
-  version: string
   status: "draft" | "validated" | "approved" | "rejected"
   promptData: Record<string, unknown>
   answerKey: Record<string, unknown>
   metadata: {
     source: "manual" | "python-generator" | "ai-assisted"
+    assignments: string[]
+    authoringRunId: string
     difficulty?: string
     tags?: string[]
   }
+  createdAt: string
+  approvedAt?: string
 }
 ```
 
@@ -88,6 +92,10 @@ type ScenarioRecord = {
 - 保存单题变量
 - 保存中间步骤答案键与最终答案键
 - 保存来源与审核状态
+
+`promptData` 是 authoring 侧的题面、场景和动作描述，`answerKey` 是 backend-only 的答案键、判定规则和诊断真值。`promptData` 也不自动等于 frontend DTO；engine 必须用 allowlist 投影公开字段，不能把完整 `ScenarioRecord` 序列化给 frontend。
+
+approved record 是不可变版本。内容变化必须创建新 version；已有 session 继续引用原 `id + version`。
 
 ## ScenarioValidationReport
 
@@ -98,11 +106,15 @@ type ScenarioRecord = {
 ```ts
 type ScenarioValidationReport = {
   scenarioId: string
+  scenarioVersion: string
+  authoringRunId: string
   passed: boolean
   checks: Array<{
     name: string
+    kind: "schema" | "domain" | "asset" | "mathematical"
     passed: boolean
     message?: string
+    evidence?: Record<string, unknown>
   }>
   wolframSummary?: string
   createdAt: string
@@ -124,12 +136,19 @@ type ScenarioValidationReport = {
 ```ts
 type AuthoringRun = {
   id: string
-  taskId: TaskId
+  status: "running" | "completed" | "failed"
+  taskIds: TaskId[]
   startedAt: string
   finishedAt?: string
   toolchainVersion: string
   inputSpecVersion: string
-  outputCount: number
+  counts: {
+    candidate: number
+    validated: number
+    approved: number
+    rejected: number
+  }
+  errorSummary?: string
 }
 ```
 
@@ -162,6 +181,8 @@ type ExerciseInstance = {
 - `ContentDefinition`
 - `ScenarioRecord`
 - 当前 engine state
+
+`ExerciseInstance` 不包含 scenario id/version、answer key、accepted answers 或 validation metadata。scenario reference 保存在 backend session/engine state 中。
 
 ## ExerciseRuntimeSpec
 
@@ -225,3 +246,5 @@ Review 模式使用的不可变完成后快照。除用时、首次正确率与�
 - `AuthoringRun`
 
 这三者用于承接后续 Python / Wolfram authoring pipeline。
+
+现有 `TopicScenarioRecord` 是迁移输入，不是新架构的跨层领域模型；六个 topic 需要迁移到上述统一 schema。

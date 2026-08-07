@@ -10,8 +10,7 @@ function canSubmit(runtime: ExerciseRuntimeSpec, draft: ClientDraftState) {
     const value = inputAction?.type === "input" ? draft.inputs[inputAction.target]?.trim() || "" : "";
     if (topicContract.primitive === "mark-segments") {
       const labels = value.split(";").filter(Boolean).map((part) => part.split("="));
-      const required = topicContract.interaction?.expectedLabels?.length
-        || (topicContract.acceptedAnswers[0] || "").split(";").filter(Boolean).length;
+      const required = topicContract.presentation?.requiredInputCount || 1;
       return labels.length >= required && labels.every(([segmentId, label]) => Boolean(segmentId && label?.trim()));
     }
     if (topicContract.primitive === "mark-ratio") {

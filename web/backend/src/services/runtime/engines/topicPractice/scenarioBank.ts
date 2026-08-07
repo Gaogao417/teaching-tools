@@ -2,14 +2,15 @@ import bundleJson from "../../../../content/topicScenarioBundle.json";
 import type {
   TopicLessonRecord,
   TopicPracticeTaskId,
+  TopicResolvedScenario,
   TopicScenarioBundle,
   TopicScenarioRecord,
 } from "../../../../../../shared/topicPractice";
 
 // Generated offline from final explanation TeX plus ready-bank YAML.
-const bundle = bundleJson as TopicScenarioBundle;
+const bundle = bundleJson as unknown as TopicScenarioBundle;
 
-function withRuntimeInteractionSteps(scenario: TopicScenarioRecord): TopicScenarioRecord {
+function withRuntimeInteractionSteps(scenario: TopicResolvedScenario): TopicResolvedScenario {
   if (scenario.taskId !== "nestedSimilarity" || scenario.steps.some((step) => step.primitive === "convert-collinear")) {
     return scenario;
   }
@@ -67,14 +68,45 @@ export function getTopicLesson(taskId: TopicPracticeTaskId): TopicLessonRecord {
   return lesson;
 }
 
-export function pickTopicScenario(taskId: TopicPracticeTaskId, index: number): TopicScenarioRecord {
-  const scenarios = bundle.scenarios[taskId];
-  if (!scenarios?.length) throw new Error(`No scenarios for ${taskId}`);
-  return withRuntimeInteractionSteps(scenarios[index % scenarios.length]);
+function approvedRecords(taskId: TopicPracticeTaskId): TopicScenarioRecord[] {
+  return (bundle.scenarios[taskId] || []).filter((record) => record.status === "approved" && record.validation.passed);
 }
 
-export function getTopicScenario(taskId: TopicPracticeTaskId, scenarioId: string): TopicScenarioRecord {
-  const scenario = bundle.scenarios[taskId]?.find((item) => item.id === scenarioId);
-  if (!scenario) throw new Error(`Unknown topic scenario ${scenarioId}`);
-  return withRuntimeInteractionSteps(scenario);
+export function resolveTopicScenarioRecord(record: TopicScenarioRecord): TopicResolvedScenario {
+  if (record.engineKind !== "topic-practice") throw new Error(`Scenario ${record.id} has incompatible engine ${record.engineKind}`);
+  if (record.status !== "approved" || !record.validation.passed) throw new Error(`Scenario ${record.id} is not approved`);
+  const steps = record.promptData.steps.map((step) => {
+    const answer = record.answerKey.steps[step.id];
+    if (!answer?.acceptedAnswers.length) throw new Error(`Scenario ${record.id} has no answer key for ${step.id}`);
+    return { ...step, acceptedAnswers: answer.acceptedAnswers, expectedLatex: answer.expectedLatex };
+  });
+  return withRuntimeInteractionSteps({
+    id: record.id,
+    taskId: record.taskId,
+    contentId: record.contentId,
+    version: record.version,
+    ...record.promptData,
+    answerLatex: record.answerKey.answerLatex,
+    steps,
+  });
+}
+
+export function pickTopicScenarioRecord(taskId: TopicPracticeTaskId, index: number): TopicScenarioRecord {
+  const scenarios = approvedRecords(taskId);
+  if (!scenarios?.length) throw new Error(`No scenarios for ${taskId}`);
+  return scenarios[index % scenarios.length];
+}
+
+export function pickTopicScenario(taskId: TopicPracticeTaskId, index: number): TopicResolvedScenario {
+  return resolveTopicScenarioRecord(pickTopicScenarioRecord(taskId, index));
+}
+
+export function getTopicScenarioRecord(taskId: TopicPracticeTaskId, scenarioId: string): TopicScenarioRecord {
+  const record = approvedRecords(taskId).find((item) => item.id === scenarioId);
+  if (!record) throw new Error(`Unknown approved topic scenario ${scenarioId}`);
+  return record;
+}
+
+export function getTopicScenario(taskId: TopicPracticeTaskId, scenarioId: string): TopicResolvedScenario {
+  return resolveTopicScenarioRecord(getTopicScenarioRecord(taskId, scenarioId));
 }

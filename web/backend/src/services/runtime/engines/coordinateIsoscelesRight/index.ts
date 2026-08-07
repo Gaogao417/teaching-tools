@@ -31,6 +31,8 @@ import {
   evaluateSolveCoordinates,
 } from "./stepEvaluator";
 import type { CoordIsoscelesEngineState } from "./types";
+import type { ScenarioRecord } from "../../../../../../shared/scenarios";
+import type { CoordIsoscelesScenario } from "../../../../../../shared/coordinateIsoscelesRight";
 
 // ─── Step order ──────────────────────────────────────────────────────
 
@@ -51,8 +53,11 @@ export function createCoordIsoscelesState(
   task: TaskDefinition,
   content: CoordIsoscelesContentDefinition,
   index: number,
+  selectedScenario?: ScenarioRecord,
 ): CoordIsoscelesEngineState {
-  const scenario = pickScenario(index);
+  const scenario = selectedScenario
+    ? { ...selectedScenario.promptData, answerKey: selectedScenario.answerKey } as unknown as CoordIsoscelesScenario
+    : pickScenario(index);
 
   return {
     instanceId: crypto.randomUUID(),

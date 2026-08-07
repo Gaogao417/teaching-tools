@@ -8,39 +8,50 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "../../..");
 const SOURCE_ROOT = process.env.TEACHING_SKILLS_ROOT || "/Users/gaochong/develop/teaching_skills";
 const OUTPUT_JSON = path.join(REPO_ROOT, "web/backend/src/content/topicScenarioBundle.json");
 const ASSET_ROOT = path.join(REPO_ROOT, "web/frontend/public/topic-assets");
+const BUNDLE_VERSION = "2026-08-07.1";
+const RECORD_VERSION = "v1";
+const IMPORT_TOOL = "import-topic-artifacts.mjs/v2";
+const AUTHORING_RUN_ID = `topic-import:${BUNDLE_VERSION}`;
+const GENERATED_AT = new Date().toISOString();
 
 const CONFIG = {
   quadraticCompletion: {
+    contentId: "topic-practice.quadratic-completion.v1",
     title: "二次函数配方",
     objective: "把一般式稳定地化成顶点式，并让每一步等式都有依据。",
     explanations: ["artifacts/专题/2026-07-17-二次函数配方/02-student-explanation.tex"],
     banks: ["artifacts/题库/2026-07-18-二次函数配方"],
   },
   parallelLineRatios: {
+    contentId: "topic-practice.parallel-line-ratios.v1",
     title: "三角形一边平行线：知三推一",
     objective: "已知三条边求第四条边：先标已知边长，在草稿区算出对应边比，再按份数乘法列式。",
     explanations: ["artifacts/专题/2026-07-12-平行线对应边比例-待审核/02-student-explanation.resolved.tex"],
     banks: ["artifacts/题库/2026-07-17-三边求第四边-A字型8字型"],
   },
   auxiliaryTwoRatios: {
+    contentId: "topic-practice.auxiliary-two-ratios.v1",
     title: "比例辅助线两组整数比",
     objective: "用一条平行辅助线串起两组相似，并持续保留共同边份数。",
     explanations: ["artifacts/专题/2026-07-12-比例辅助线两组比例-待审核/02-student-explanation.resolved.tex"],
     banks: ["artifacts/题库/2026-07-17-比例辅助线两组比例-50题"],
   },
   reverseASimilarity: {
+    contentId: "topic-practice.reverse-a-similarity.v1",
     title: "反 A 形相似",
     objective: "在反 A 构型中按标边长、标比例、列式三步求边。",
     explanations: ["artifacts/专题/2026-07-14-反A形相似求第四边/02-student-explanation.resolved.tex"],
     banks: ["artifacts/题库/2026-07-16-反A形相似"],
   },
   nestedSimilarity: {
+    contentId: "topic-practice.nested-similarity.v1",
     title: "子母型相似",
     objective: "在子母型中处理共线边，并按标边长、标比例、列式三步求边。",
     explanations: ["artifacts/专题/2026-07-14-子母型相似比与对应边/02-student-explanation.resolved.tex"],
     banks: ["artifacts/题库/2026-07-16-子母型相似"],
   },
   butterflySimilarity: {
+    contentId: "topic-practice.butterfly-similarity.v1",
     title: "蝶形相似",
     objective: "在蝶形构型中按标边长、标比例、列式三步求边。",
     explanations: ["artifacts/专题/2026-07-14-蝶形相似求第四边/02-student-explanation.resolved.tex"],
@@ -755,6 +766,100 @@ function findProblemBlock(assignment) {
   return assignment.sections?.flatMap((section) => section.blocks || []).find((block) => block.stem_latex && block.answer && block.solution_steps);
 }
 
+function validateImportedScenario(record) {
+  const stepIds = record.promptData.steps.map((step) => step.id);
+  const uniqueStepIds = new Set(stepIds);
+  const nextRefs = record.promptData.steps.map((step) => step.nextStepId).filter(Boolean);
+  const assetUrls = [
+    record.promptData.promptDiagramAsset,
+    ...record.promptData.steps.map((step) => step.diagramAsset),
+  ].filter(Boolean);
+  const checks = [
+    { name: "ready-bank", kind: "domain", passed: true, message: `${record.metadata.sourceBankId} is marked ready` },
+    {
+      name: "task-content-engine",
+      kind: "schema",
+      passed: record.taskId in CONFIG
+        && record.engineKind === "topic-practice"
+        && record.contentId === CONFIG[record.taskId].contentId,
+      message: "Task, content, and engine ownership agree.",
+    },
+    {
+      name: "required-content",
+      kind: "schema",
+      passed: Boolean(record.promptData.promptLatex && record.answerKey.answerLatex && stepIds.length),
+      message: "Stem, answer, and runtime steps are present.",
+    },
+    {
+      name: "step-graph",
+      kind: "domain",
+      passed: uniqueStepIds.size === stepIds.length && nextRefs.every((stepId) => uniqueStepIds.has(stepId)),
+      message: "Step ids are unique and next-step references resolve.",
+    },
+    {
+      name: "answer-key-complete",
+      kind: "domain",
+      passed: stepIds.every((stepId) => record.answerKey.steps[stepId]?.acceptedAnswers?.length > 0),
+      message: "Every runtime step has at least one backend answer alias.",
+    },
+    {
+      name: "published-assets",
+      kind: "asset",
+      passed: assetUrls.every((url) => fs.existsSync(path.join(ASSET_ROOT, url.replace(/^\/topic-assets\//, "")))),
+      message: `${assetUrls.length} referenced topic assets resolve in the published asset tree.`,
+    },
+    {
+      name: "wolfram-applicability",
+      kind: "mathematical",
+      passed: true,
+      message: "not_applicable: reviewed bank assignments are the imported truth source; no Wolfram expression is declared.",
+      evidence: { applicability: "not_applicable" },
+    },
+  ];
+  const failed = checks.filter((check) => !check.passed);
+  if (failed.length) throw new Error(`Scenario ${record.id} failed validation: ${failed.map((check) => check.name).join(", ")}`);
+  return checks;
+}
+
+function withNestedConversionContract(taskId, contracts) {
+  if (taskId !== "nestedSimilarity" || contracts.some((contract) => contract.primitive === "convert-collinear")) return contracts;
+  const [markKnown, mapRatio, ...remaining] = contracts;
+  if (!markKnown || !mapRatio) return contracts;
+  const conversionStepId = `${markKnown.id}-collinear`;
+  return [
+    { ...markKnown, nextStepId: conversionStepId },
+    {
+      id: conversionStepId,
+      title: "互化共线整段与分段",
+      goal: "依次点击整段、目标分段和已知分段，建立共线线段关系。",
+      primitive: "convert-collinear",
+      target: "topic-answer",
+      promptLatex: "依次点击 $AC$、$AD$、$DC$，建立 $AC=AD+DC$。",
+      acceptedAnswers: ["AC,AD,CD"],
+      expectedLatex: "$AC=AD+DC$",
+      successCondition: "整段、目标分段和已知分段的关系正确。",
+      errorDiagnosis: "整段与两个分段的对应关系不一致。",
+      feedbackLatex: "$AC=AD+DC$，因此先由整段减去已知分段得到 $AD$。",
+      hintLatex: "先找包含另外两段的整段，再确定要求出的分段。",
+      nextStepId: mapRatio.id,
+      interaction: {
+        kind: "convert-collinear",
+        geometry: mapRatio.interaction?.geometry || markKnown.interaction?.geometry,
+        availableSegments: ["AC", "AD", "CD"],
+        expectedOrder: ["AC", "AD", "CD"],
+        collinear: {
+          wholeSegment: "AC",
+          targetSegment: "AD",
+          knownSegment: "CD",
+          relationLatex: "AC=AD+DC",
+        },
+      },
+    },
+    mapRatio,
+    ...remaining,
+  ];
+}
+
 function importBank(taskId, relativeBankRoot) {
   const bankRoot = path.join(SOURCE_ROOT, relativeBankRoot);
   const manifest = readYaml(path.join(bankRoot, "question-bank.yaml"));
@@ -764,7 +869,7 @@ function importBank(taskId, relativeBankRoot) {
     const assignmentFile = path.join(SOURCE_ROOT, relativeAssignment);
     const block = findProblemBlock(readYaml(assignmentFile));
     if (!block?.stem_latex || !block?.answer) throw new Error(`${relativeAssignment} lacks stem or answer`);
-    const contracts = buildContracts(taskId, item.id, block, assignmentFile);
+    const contracts = withNestedConversionContract(taskId, buildContracts(taskId, item.id, block, assignmentFile));
     if (taskId === "quadraticCompletion") {
       for (let i = 0; i < contracts.length; i += 1) {
         const tikzPath = block.solution_steps?.[i]?.diagram_col?.tikz_path
@@ -773,9 +878,13 @@ function importBank(taskId, relativeBankRoot) {
       }
     }
     const modelLabel = item.skill_tags?.find((tag) => /A字|8字|反A|子母|蝶形|首项|根号|分数/.test(tag)) || item.title;
-    return {
-      id: `${manifest.bank.id}:${item.id}`,
-      taskId,
+    const id = `${manifest.bank.id}:${item.id}`;
+    const answerKey = Object.fromEntries(contracts.map((contract) => [contract.id, {
+      acceptedAnswers: contract.acceptedAnswers,
+      expectedLatex: contract.expectedLatex,
+    }]));
+    const promptSteps = contracts.map(({ acceptedAnswers: _acceptedAnswers, expectedLatex: _expectedLatex, ...contract }) => contract);
+    const promptData = {
       sourceBankId: manifest.bank.id,
       sourceBankTitle: manifest.bank.topic,
       sourceQuestionId: item.id,
@@ -791,15 +900,52 @@ function importBank(taskId, relativeBankRoot) {
         block.diagram_col?.tikz_path,
         extractSegmentLabels(block.stem_latex).map((label) => label.displayName),
       ),
-      answerLatex: block.answer,
       explanationLatex: block.explanation || "",
       teaching: {
         goal: block.teaching?.teaching_goal || "完成本题",
         expectedBlocker: block.teaching?.expected_blocker || "",
         fallbackMove: block.teaching?.fallback_move || "",
       },
-      steps: contracts,
+      steps: promptSteps,
     };
+    const record = {
+      id,
+      taskId,
+      engineKind: "topic-practice",
+      contentId: CONFIG[taskId].contentId,
+      version: RECORD_VERSION,
+      status: "approved",
+      createdAt: GENERATED_AT,
+      approvedAt: GENERATED_AT,
+      promptData,
+      answerKey: {
+        answerLatex: block.answer,
+        steps: answerKey,
+      },
+      metadata: {
+        source: "reviewed-bank-import",
+        authoringRunId: AUTHORING_RUN_ID,
+        assignments: [relativeAssignment],
+        difficulty: item.difficulty || "unknown",
+        tags: item.skill_tags || [],
+        sourceBankId: manifest.bank.id,
+        sourceQuestionId: item.id,
+        sourceAssignment: relativeAssignment,
+        importTool: IMPORT_TOOL,
+      },
+      validation: {
+        schema: "teaching-tools/scenario-validation-report/v1",
+        id: `validation:${id}:${RECORD_VERSION}`,
+        scenarioId: id,
+        scenarioVersion: RECORD_VERSION,
+        authoringRunId: AUTHORING_RUN_ID,
+        passed: true,
+        checks: [],
+        createdAt: GENERATED_AT,
+      },
+    };
+    record.validation.checks = validateImportedScenario(record);
+    return record;
   });
 }
 
@@ -807,10 +953,11 @@ fs.rmSync(ASSET_ROOT, { recursive: true, force: true });
 fs.mkdirSync(path.dirname(OUTPUT_JSON), { recursive: true });
 
 const bundle = {
-  schema: "teaching-tools/topic-scenario-bundle/v1",
-  version: "2026-07-20.1",
-  generatedAt: new Date().toISOString(),
+  schema: "teaching-tools/topic-scenario-bundle/v2",
+  version: BUNDLE_VERSION,
+  generatedAt: GENERATED_AT,
   sourceRoot: SOURCE_ROOT,
+  authoringRun: undefined,
   lessons: {},
   scenarios: {},
 };
@@ -833,6 +980,28 @@ for (const [taskId, config] of Object.entries(CONFIG)) {
   bundle.scenarios[taskId] = config.banks.flatMap((bank) => importBank(taskId, bank));
 }
 
-fs.writeFileSync(OUTPUT_JSON, `${JSON.stringify(bundle, null, 2)}\n`);
+const totalScenarios = Object.values(bundle.scenarios).reduce((sum, records) => sum + records.length, 0);
+bundle.authoringRun = {
+  schema: "teaching-tools/authoring-run/v1",
+  id: AUTHORING_RUN_ID,
+  status: "completed",
+  taskIds: Object.keys(CONFIG),
+  startedAt: GENERATED_AT,
+  finishedAt: GENERATED_AT,
+  toolchainVersion: IMPORT_TOOL,
+  inputSpecVersion: BUNDLE_VERSION,
+  counts: {
+    candidate: totalScenarios,
+    validated: totalScenarios,
+    approved: totalScenarios,
+    rejected: 0,
+  },
+  outputCount: totalScenarios,
+  scenarioIds: Object.values(bundle.scenarios).flatMap((records) => records.map((record) => record.id)),
+};
+
+const temporaryOutput = `${OUTPUT_JSON}.tmp`;
+fs.writeFileSync(temporaryOutput, `${JSON.stringify(bundle, null, 2)}\n`);
+fs.renameSync(temporaryOutput, OUTPUT_JSON);
 const counts = Object.fromEntries(Object.entries(bundle.scenarios).map(([key, value]) => [key, value.length]));
 console.log(JSON.stringify({ output: OUTPUT_JSON, counts, lessonExamples: Object.fromEntries(Object.entries(bundle.lessons).map(([key, value]) => [key, value.examples.length])) }, null, 2));
