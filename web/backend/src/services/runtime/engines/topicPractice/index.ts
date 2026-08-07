@@ -60,8 +60,25 @@ function currentScenario(state: TopicPracticeEngineState): TopicScenarioRecord {
   return getTopicScenario(state.taskId, state.scenarioId);
 }
 
+function runtimeStepEntries(state: TopicPracticeEngineState) {
+  const scenario = currentScenario(state);
+  return scenario.steps
+    .map((step, sourceIndex) => ({ step, sourceIndex }))
+    .filter(({ step }) => !(
+      state.isLearningProjection
+      && state.taskId === "parallelLineRatios"
+      && step.primitive === "ratio-scratch"
+    ))
+    .filter(({ step, sourceIndex }) => {
+      const capabilityIds = capabilityIdsForTopicStep(scenario.taskId, step.primitive, sourceIndex);
+      if (state.remediationCapabilityId) return capabilityIds.includes(state.remediationCapabilityId);
+      if (state.allowedCapabilityIds?.length) return capabilityIds.some((item) => state.allowedCapabilityIds?.includes(item));
+      return true;
+    });
+}
+
 function currentStep(state: TopicPracticeEngineState) {
-  return currentScenario(state).steps[state.stepIndex];
+  return runtimeStepEntries(state)[state.stepIndex]?.step;
 }
 
 function buildServerState(state: TopicPracticeEngineState, phase: SessionPhase): ServerRuntimeState {
@@ -72,12 +89,14 @@ function buildServerState(state: TopicPracticeEngineState, phase: SessionPhase):
     completedStepIds: state.completedStepIds,
     problemStatus: state.status,
     attempts: state.attempts,
+    wrongObjectIds: state.wrongObjectIds,
   };
 }
 
 function buildScene(state: TopicPracticeEngineState): SceneSpec {
   const scenario = currentScenario(state);
   const step = currentStep(state);
+  const entries = runtimeStepEntries(state);
   return {
     sceneKind: "custom",
     entities: [],
@@ -103,15 +122,16 @@ function buildScene(state: TopicPracticeEngineState): SceneSpec {
       skillTags: scenario.skillTags,
       activeStepId: step.id,
       completedStepIds: state.completedStepIds,
-      contracts: Object.fromEntries(scenario.steps.map((item, index) => [item.id, {
+      contracts: Object.fromEntries(entries.map(({ step: item, sourceIndex }) => [item.id, {
         ...item,
         presentation: {
-          selectionMode: item.primitive === "mark-ratio" ? "pair" : item.primitive === "construct-parallel" ? "ordered" : "single",
+          selectionMode: ["mark-ratio", "ratio-scratch"].includes(item.primitive) ? "pair" : ["construct-parallel", "convert-collinear"].includes(item.primitive) ? "ordered" : "single",
           inputAnchor: item.primitive === "mark-segments" ? "segment-midpoint" : "workspace",
           retainCompletedMarks: true,
           allowLocalUndo: true,
           availableObjectIds: item.interaction?.availableSegments,
-          capabilityIds: capabilityIdsForTopicStep(scenario.taskId, item.primitive, index),
+          capabilityIds: capabilityIdsForTopicStep(scenario.taskId, item.primitive, sourceIndex),
+          ...item.presentation,
         },
       }])),
       guidedMode: state.isLearningProjection,
@@ -126,13 +146,14 @@ function buildGuide(
 ): GuideSpec {
   const scenario = currentScenario(state);
   const active = currentStep(state);
+  const entries = runtimeStepEntries(state);
   return {
     banner: content.guideTemplate.banner,
     hint: phase === "wrong_feedback" ? active.hintLatex : content.guideTemplate.hint,
     statusCopy: phase === "wrong_feedback"
       ? "当前动作还没对上。只修正这一步，不需要推翻前面已经完成的动作。"
       : `当前构型：${scenario.modelLabel} · 来源 ${scenario.sourceQuestionId}`,
-    stepItems: scenario.steps.map((step, index) => ({
+    stepItems: entries.map(({ step }, index) => ({
       stepId: step.id,
       title: step.title,
       status: state.completedStepIds.includes(step.id) ? "done" : index === state.stepIndex ? "active" : "locked",
@@ -148,6 +169,7 @@ function buildInstance(
   phase: SessionPhase,
 ): ExerciseInstance {
   const scenario = currentScenario(state);
+  const entries = runtimeStepEntries(state);
   return {
     instanceId: state.instanceId,
     taskId: task.id,
@@ -156,7 +178,7 @@ function buildInstance(
     prompt: scenario.promptLatex,
     scene: buildScene(state),
     flow: {
-      steps: scenario.steps.map((step, index) => ({
+      steps: entries.map(({ step }, index) => ({
         id: step.id,
         title: step.title,
         goal: step.goal,
@@ -214,11 +236,78 @@ export function createTopicPracticeState(
     completedStepIds: [],
     hadWrongAttempt: false,
     isLearningProjection: false,
+    wrongObjectIds: [],
+    interactionVersion: 2,
   };
 }
 
 export function restoreTopicPracticeState(raw: unknown): TopicPracticeEngineState {
-  return raw as TopicPracticeEngineState;
+  const state = raw as TopicPracticeEngineState;
+  const restored = { ...state, wrongObjectIds: state.wrongObjectIds || [], interactionVersion: 2 };
+  if (!state.interactionVersion && restored.taskId === "nestedSimilarity") {
+    const entries = runtimeStepEntries(restored);
+    restored.stepIndex = restored.status === "correct"
+      ? entries.length - 1
+      : Math.max(0, entries.findIndex(({ step }) => !restored.completedStepIds.includes(step.id)));
+  }
+  return restored;
+}
+
+function parseDelimitedObjects(value: string, delimiter = ","): string[] {
+  return value.split(delimiter).map((item) => item.trim()).filter(Boolean);
+}
+
+function wrongObjectsForSubmission(submitted: string, step: TopicScenarioRecord["steps"][number]): string[] {
+  const expected = step.acceptedAnswers[0] || "";
+  if (step.primitive === "mark-segments") {
+    const expectedLabels = new Map(parseDelimitedObjects(expected, ";").map((part) => {
+      const separator = part.indexOf("=");
+      return [part.slice(0, separator), part.slice(separator + 1)] as const;
+    }));
+    return parseDelimitedObjects(submitted, ";").flatMap((part) => {
+      const separator = part.indexOf("=");
+      const objectId = part.slice(0, separator);
+      const value = part.slice(separator + 1);
+      return expectedLabels.get(objectId) === value ? [] : [objectId];
+    });
+  }
+  if (step.primitive === "mark-ratio" || step.primitive === "convert-collinear") {
+    const selected = parseDelimitedObjects(submitted);
+    const expectedOrder = step.interaction?.expectedOrder || parseDelimitedObjects(expected);
+    return [...new Set(selected.filter((objectId, index) => objectId !== expectedOrder[index]))];
+  }
+  if (step.primitive === "ratio-scratch") {
+    const [submittedObjects = "", submittedRatio = ""] = submitted.split("|");
+    const selected = parseDelimitedObjects(submittedObjects);
+    const expectedOrder = step.interaction?.expectedOrder || [];
+    const wrongObjects = selected.filter((objectId, index) => objectId !== expectedOrder[index]);
+    const expectedRatio = step.interaction?.ratioScratch;
+    const values = parseDelimitedObjects(submittedRatio);
+    if (expectedRatio && (values[0] !== expectedRatio.simplifiedFirstLatex || values[1] !== expectedRatio.simplifiedSecondLatex)) {
+      wrongObjects.push("最简整数比");
+    }
+    return [...new Set(wrongObjects)];
+  }
+  if (step.primitive === "construct-parallel") {
+    const parts = Object.fromEntries(submitted.split("|").filter(Boolean).map((part) => part.split(":")));
+    const construction = step.interaction?.construction;
+    if (!construction) return [];
+    return [
+      parts.point !== construction.throughPoint ? parts.point : undefined,
+      parts.parallel !== construction.parallelSegment ? parts.parallel : undefined,
+      ...parseDelimitedObjects(parts.carrier || "").filter((point, index) => point !== construction.carrierPoints[index]),
+    ].filter((value): value is string => Boolean(value));
+  }
+  if (step.primitive === "equation") {
+    const [submittedEquation = "", submittedResult = ""] = submitted.split("|");
+    const selected = submittedEquation.split("=")[1]?.split("*").filter(Boolean) || [];
+    const expectedOrder = step.interaction?.expectedOrder || [];
+    const wrongObjects = selected.filter((objectId, index) => objectId !== expectedOrder[index]);
+    const expectedResult = expected.split("|")[1];
+    if (submittedResult && expectedResult && submittedResult !== expectedResult) wrongObjects.push("计算结果");
+    return [...new Set(wrongObjects)];
+  }
+  return [];
 }
 
 function parseSubmittedInput(action: RuntimeActionEvent): string {
@@ -254,7 +343,6 @@ export function reduceTopicPracticeAction(
     throw appError("ACTION_NOT_ALLOWED", "Only clear and submit actions are supported");
   }
 
-  const scenario = currentScenario(state);
   const step = currentStep(state);
   if (action.stepId && action.stepId !== step.id) {
     throw appError("ACTION_NOT_ALLOWED", `Step ${action.stepId} is not active`);
@@ -265,6 +353,7 @@ export function reduceTopicPracticeAction(
   if (!isTopicAnswerAccepted(submitted, step.acceptedAnswers)) {
     state.status = "wrong";
     state.hadWrongAttempt = true;
+    state.wrongObjectIds = wrongObjectsForSubmission(submitted, step);
     return {
       accepted: true,
       evaluation: "wrong",
@@ -276,7 +365,8 @@ export function reduceTopicPracticeAction(
   }
 
   state.completedStepIds.push(step.id);
-  const isFinal = state.stepIndex === scenario.steps.length - 1;
+  state.wrongObjectIds = [];
+  const isFinal = state.stepIndex === runtimeStepEntries(state).length - 1;
   if (isFinal) {
     state.status = "correct";
     state.firstTryCorrect = !state.hadWrongAttempt;
@@ -307,8 +397,13 @@ function buildLearningProjection(
     instanceId: `learn-${task.id}`,
     isLearningProjection: true,
   };
+  const runtime = buildTopicPracticeRuntime(task, content, learningState, "answering");
+  const runtimeAlignedTask = {
+    ...task,
+    steps: runtime.instance.flow.steps.map((step) => step.goal),
+  };
   return {
-    ...learningProjectionFromRuntime(task, buildTopicPracticeRuntime(task, content, learningState, "answering")),
+    ...learningProjectionFromRuntime(runtimeAlignedTask, runtime),
     objective: getTopicLesson(content.taskId).objective,
     topicLesson: getTopicLesson(content.taskId),
   };

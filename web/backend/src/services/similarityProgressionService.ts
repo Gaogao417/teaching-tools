@@ -22,6 +22,17 @@ import {
   type SavedTopicProgressRow,
   type StudentSessionProgressRow,
 } from "../repositories/progressionRepository";
+import { pickTopicScenario } from "./runtime/engines/topicPractice/scenarioBank";
+
+function questionPreview(taskId: (typeof SIMILARITY_TOPIC_NODES)[number]["taskId"], title: string) {
+  const scenario = pickTopicScenario(taskId, 0);
+  return {
+    questionId: scenario.id,
+    stemLatex: scenario.promptLatex,
+    diagramAssetUrl: scenario.promptDiagramAsset,
+    diagramAlt: scenario.promptDiagramAsset ? `${title}代表题题图` : undefined,
+  };
+}
 
 function capabilityStates(studentName: string): StudentCapabilityState[] {
   const evidence = new Map(listCapabilityEvidence(studentName, CAPABILITY_RULE_VERSION).map((row) => [row.capability_id, row]));
@@ -90,12 +101,10 @@ export function getSimilarityLearningMap(studentName: string): LearningMapRespon
     const progress = progresses.get(definition.id)!;
     const missingPrerequisiteIds = definition.requiredCapabilityIds.filter((capabilityId) => !mastered.has(capabilityId));
     const state = missingPrerequisiteIds.length
-      ? "locked"
+      ? "unopened"
       : progress.state === "completed" && mastered.has(definition.primaryCapabilityId)
-        ? "mastered"
-        : progress.state !== "not_started"
-          ? "in_progress"
-          : "available";
+        ? "passed"
+        : "open";
     const active = latestSession(sessions.filter((session) => session.task_id === definition.taskId && !session.finished && session.session_kind === "practice"));
     return {
       id: definition.id,
@@ -109,6 +118,7 @@ export function getSimilarityLearningMap(studentName: string): LearningMapRespon
       recommended: false,
       progress: { completed: progress.state === "completed" ? 1 : 0, total: 1 },
       missingPrerequisiteIds,
+      previewQuestion: questionPreview(definition.taskId, definition.title),
       activeSessionId: active?.id,
     };
   });
@@ -118,16 +128,15 @@ export function getSimilarityLearningMap(studentName: string): LearningMapRespon
     const active = latestSession(challengeSessions.filter((session) => !session.finished));
     const passed = challengeSessions.some((session) => session.finished);
     const missingPrerequisiteIds = definition.requiredCapabilityIds.filter((capabilityId) => !mastered.has(capabilityId));
-    const challengeState = passed ? "passed" : active ? "in-progress" : missingPrerequisiteIds.length ? "early-attempt" : "recommended-ready";
     return {
       id: definition.id,
       kind: "challenge",
       title: definition.title,
       actionLabel: definition.actionLabel,
-      state: passed ? "mastered" : active ? "in_progress" : "available",
+      state: passed ? "passed" : active ? "open" : "unopened",
       recommended: false,
       missingPrerequisiteIds,
-      challengeState,
+      previewQuestion: questionPreview(definition.sourceTaskId, definition.title),
       activeSessionId: active?.id,
     };
   });
@@ -136,10 +145,10 @@ export function getSimilarityLearningMap(studentName: string): LearningMapRespon
   const sourceChallenge = remediation
     ? challengeNodes.find((node) => sessions.some((session) => session.id === remediation.source_session_id && session.challenge_id === node.id))
     : undefined;
-  const activeTopic = topicNodes.find((node) => node.state === "in_progress");
-  const activeChallenge = challengeNodes.find((node) => node.challengeState === "in-progress");
-  const availableTopic = topicNodes.find((node) => node.state === "available");
-  const readyChallenge = challengeNodes.find((node) => node.challengeState === "recommended-ready");
+  const activeTopic = topicNodes.find((node) => progresses.get(node.id)?.state === "in_progress");
+  const activeChallenge = challengeNodes.find((node) => node.activeSessionId);
+  const availableTopic = topicNodes.find((node) => node.state === "open");
+  const readyChallenge = challengeNodes.find((node) => node.state === "unopened" && !node.missingPrerequisiteIds.length);
   const recommended = sourceChallenge || activeChallenge || activeTopic || availableTopic || readyChallenge;
   if (recommended) recommended.recommended = true;
 

@@ -25,7 +25,8 @@ db.exec(`
     source_session_id TEXT,
     source_instance_id TEXT,
     source_step_id TEXT,
-    return_mode TEXT
+    return_mode TEXT,
+    preserved_completed_step_ids_json TEXT
   );
 
   CREATE TABLE IF NOT EXISTS practice_problems (
@@ -77,6 +78,7 @@ db.exec(`
     source_id TEXT,
     step_id TEXT,
     capability_id TEXT,
+    capability_ids_json TEXT,
     evaluation TEXT NOT NULL,
     created_at TEXT NOT NULL,
     FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE,
@@ -128,6 +130,7 @@ for (const [name, definition] of [
   ["source_instance_id", "TEXT"],
   ["source_step_id", "TEXT"],
   ["return_mode", "TEXT"],
+  ["preserved_completed_step_ids_json", "TEXT"],
 ] as const) {
   if (!sessionColumns.some((column) => column.name === name)) {
     db.exec(`ALTER TABLE practice_sessions ADD COLUMN ${name} ${definition}`);
@@ -137,4 +140,7 @@ for (const [name, definition] of [
 const actionColumns = db.prepare("PRAGMA table_info(practice_action_events)").all() as Array<{ name: string }>;
 if (!actionColumns.some((column) => column.name === "capability_id")) {
   db.exec("ALTER TABLE practice_action_events ADD COLUMN capability_id TEXT");
+}
+if (!actionColumns.some((column) => column.name === "capability_ids_json")) {
+  db.exec("ALTER TABLE practice_action_events ADD COLUMN capability_ids_json TEXT");
 }

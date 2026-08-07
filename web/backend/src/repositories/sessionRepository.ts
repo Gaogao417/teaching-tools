@@ -18,14 +18,16 @@ export type SessionRow = {
   source_instance_id: string | null;
   source_step_id: string | null;
   return_mode: "resume-step" | "restart-instance" | null;
+  preserved_completed_step_ids_json: string | null;
 };
 
 const getSessionByIdStatement = db.prepare(`SELECT * FROM practice_sessions WHERE id = ?`);
 const insertSessionStatement = db.prepare(
   `INSERT INTO practice_sessions
     (id, task_id, student_name, phase, current_index, started_at, finished_at, finished, schema_version,
-     session_kind, challenge_id, source_session_id, source_instance_id, source_step_id, return_mode)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     session_kind, challenge_id, source_session_id, source_instance_id, source_step_id, return_mode,
+     preserved_completed_step_ids_json)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 const updateSessionProgressStatement = db.prepare(
   `UPDATE practice_sessions
@@ -62,6 +64,7 @@ export function createSession(session: SessionRow) {
     session.source_instance_id,
     session.source_step_id,
     session.return_mode,
+    session.preserved_completed_step_ids_json,
   );
 }
 

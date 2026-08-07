@@ -21,14 +21,15 @@ import { appError } from "./errors";
 import { toPracticeSessionSnapshot } from "./runtimeSnapshotProjector";
 import {
   CAPABILITY_RULE_VERSION,
-  capabilityIdsForTopicStep,
+  CAPABILITY_MASTERY_RULE,
   challengeById,
   REMEDIATION_TASK_BY_CAPABILITY,
   type RemediationDiagnosis,
   type SessionKind,
   type SimilarityCapabilityId,
 } from "../../../../../shared/similarityLearningMap";
-import type { TopicActionContract, TopicPracticeTaskId } from "../../../../../shared/topicPractice";
+import type { TopicPracticeTaskId } from "../../../../../shared/topicPractice";
+import type { TopicPracticeEngineState } from "../engines/topicPractice/types";
 
 type RuntimeInstanceRecord = {
   row: RuntimeInstanceRow;
@@ -74,6 +75,7 @@ const persistProgress = db.transaction(
     evaluation: RuntimeActionResponse["evaluation"],
     capabilityIds: SimilarityCapabilityId[],
     session: SessionRow,
+    isIndependentCorrect: boolean,
   ) => {
     updateRuntimeInstanceState(
       record.row.id,
@@ -82,8 +84,8 @@ const persistProgress = db.transaction(
       JSON.stringify(runtime.runtimeState),
     );
     updateSessionProgress(sessionId, nextIndex, nextPhase);
-    insertActionEvent(sessionId, record.row.id, action, evaluation, capabilityIds[0]);
-    if (action.type === "submit" && evaluation !== "wrong" && action.stepId) {
+    insertActionEvent(sessionId, record.row.id, action, evaluation, capabilityIds);
+    if (isIndependentCorrect && action.stepId && CAPABILITY_MASTERY_RULE.allowedSessionKinds.includes(session.session_kind)) {
       for (const capabilityId of capabilityIds) {
         insertCapabilityEvidence({
           studentName: session.student_name,
@@ -112,6 +114,9 @@ type StartSessionOptions = {
   sourceInstanceId?: string;
   sourceStepId?: string;
   returnMode?: "resume-step" | "restart-instance";
+  remediationCapabilityId?: SimilarityCapabilityId;
+  preservedCompletedStepIds?: string[];
+  allowedCapabilityIds?: SimilarityCapabilityId[];
 };
 
 function startSession(taskId: TaskId, studentName: string, options: StartSessionOptions = {}): StartPracticeResponse {
@@ -139,10 +144,19 @@ function startSession(taskId: TaskId, studentName: string, options: StartSession
     source_instance_id: options.sourceInstanceId || null,
     source_step_id: options.sourceStepId || null,
     return_mode: options.returnMode || null,
+    preserved_completed_step_ids_json: options.preservedCompletedStepIds
+      ? JSON.stringify(options.preservedCompletedStepIds)
+      : null,
   };
 
   const instances = Array.from({ length: options.instanceCount || 5 }, (_, index) => {
     const state = plugin.createState(task, content, index);
+    if (options.remediationCapabilityId && task.engineKind === "topic-practice") {
+      (state as TopicPracticeEngineState).remediationCapabilityId = options.remediationCapabilityId;
+    }
+    if (options.allowedCapabilityIds?.length && task.engineKind === "topic-practice") {
+      (state as TopicPracticeEngineState).allowedCapabilityIds = options.allowedCapabilityIds;
+    }
     const runtime = plugin.buildRuntime(task, content, state, "answering");
     return {
       row: {
@@ -177,6 +191,7 @@ export function startChallenge(challengeId: string, studentName: string): StartP
     sessionKind: "challenge",
     instanceCount: 2,
     challengeId,
+    allowedCapabilityIds: challenge.requiredCapabilityIds,
   });
 }
 
@@ -205,12 +220,13 @@ export function submitRuntimeAction(
 
   const beforeRuntime = plugin.buildRuntime(task, activeRecord.content, activeRecord.engineState, session.phase);
   const contracts = beforeRuntime.instance.scene.topicWorkspace?.contracts;
-  const orderedContracts = contracts ? Object.values(contracts) : [];
   const activeContract = action.stepId ? contracts?.[action.stepId] : undefined;
-  const stepIndex = activeContract ? orderedContracts.findIndex((contract) => contract.id === activeContract.id) : -1;
-  const capabilityIds = activeContract && stepIndex >= 0
-    ? capabilityIdsForTopicStep(activeRecord.row.task_id, (activeContract as TopicActionContract).primitive, stepIndex)
-    : [];
+  const capabilityIds = activeContract?.presentation?.capabilityIds || [];
+  const hadPriorWrong = action.stepId
+    ? listActionEvents(sessionId).some((event) => event.instance_id === activeRecord.row.id
+      && event.step_id === action.stepId && event.evaluation === "wrong")
+    : false;
+  const isIndependentCorrect = action.type === "submit" && reduced.evaluation !== "wrong" && !hadPriorWrong;
 
   let nextIndex = session.current_index;
   let nextPhase = reduced.phase;
@@ -227,7 +243,7 @@ export function submitRuntimeAction(
   }
 
   const runtime = plugin.buildRuntime(task, activeRecord.content, reduced.engineState, nextPhase);
-  persistProgress(sessionId, nextIndex, persistedPhase, activeRecord, reduced.engineState, runtime, action, reduced.evaluation, capabilityIds, session);
+  persistProgress(sessionId, nextIndex, persistedPhase, activeRecord, reduced.engineState, runtime, action, reduced.evaluation, capabilityIds, session, isIndependentCorrect);
 
   return {
     accepted: reduced.accepted,
@@ -275,14 +291,32 @@ const DIAGNOSIS_COPY: Record<SimilarityCapabilityId, { title: string; coachingCo
 export function getChallengeDiagnosis(sessionId: string): RemediationDiagnosis {
   const session = requireRuntimeSession(sessionId);
   if (session.session_kind !== "challenge") throw appError("BAD_REQUEST", "Session is not a challenge", 400);
-  const events = listActionEvents(sessionId).filter((event) => event.evaluation === "wrong" && event.capability_id);
-  const counts = new Map<SimilarityCapabilityId, number>();
-  for (const item of events) {
-    if (item.capability_id) counts.set(item.capability_id, (counts.get(item.capability_id) || 0) + 1);
-  }
-  const capability = [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0];
-  const event = events.find((item) => item.capability_id === capability);
-  const capabilityId = event?.capability_id;
+  const challenge = session.challenge_id ? challengeById(session.challenge_id) : undefined;
+  if (!challenge) throw appError("TASK_NOT_FOUND", "Challenge definition not found", 404);
+  const targetCapabilities = new Set(challenge.requiredCapabilityIds);
+  const events = listActionEvents(sessionId).filter((event) => event.evaluation === "wrong" && event.step_id);
+  const candidates = new Map<SimilarityCapabilityId, { count: number; firstIndex: number; event: typeof events[number] }>();
+  events.forEach((event, eventIndex) => {
+    let capabilityIds: SimilarityCapabilityId[] = [];
+    if (event.capability_ids_json) {
+      try {
+        capabilityIds = JSON.parse(event.capability_ids_json) as SimilarityCapabilityId[];
+      } catch {
+        capabilityIds = [];
+      }
+    }
+    if (!capabilityIds.length && event.capability_id) capabilityIds = [event.capability_id];
+    for (const capabilityId of capabilityIds.filter((item) => targetCapabilities.has(item))) {
+      const current = candidates.get(capabilityId);
+      candidates.set(capabilityId, current
+        ? { ...current, count: current.count + 1 }
+        : { count: 1, firstIndex: eventIndex, event });
+    }
+  });
+  const selected = [...candidates.entries()].sort((left, right) =>
+    left[1].firstIndex - right[1].firstIndex || right[1].count - left[1].count)[0];
+  const capabilityId = selected?.[0];
+  const event = selected?.[1].event;
   if (!event || !capabilityId || !event.step_id) throw appError("ANSWER_INVALID", "No actionable challenge diagnosis is available", 409);
   const copy = DIAGNOSIS_COPY[capabilityId];
   return {
@@ -301,6 +335,17 @@ export function startRemediation(challengeSessionId: string): StartPracticeRespo
   const diagnosis = getChallengeDiagnosis(challengeSessionId);
   const records = loadRuntimeInstances(challengeSessionId);
   const active = records[challengeSession.current_index];
+  const sourceState = active?.engineState as Partial<TopicPracticeEngineState> | undefined;
+  const sourceRuntime = active
+    ? getEnginePlugin(active.row.engine_kind).buildRuntime(
+        getTaskDefinition(active.row.task_id),
+        active.content,
+        active.engineState,
+        challengeSession.phase,
+      )
+    : undefined;
+  const canResumeStep = sourceRuntime?.runtimeState.currentStepId === diagnosis.focusStepId;
+  const preservedCompletedStepIds = canResumeStep ? sourceState?.completedStepIds || [] : [];
   const taskId: TopicPracticeTaskId = REMEDIATION_TASK_BY_CAPABILITY[diagnosis.capabilityId];
   return startSession(taskId, challengeSession.student_name, {
     sessionKind: "remediation",
@@ -308,6 +353,8 @@ export function startRemediation(challengeSessionId: string): StartPracticeRespo
     sourceSessionId: challengeSessionId,
     sourceInstanceId: active?.row.id,
     sourceStepId: diagnosis.focusStepId,
-    returnMode: "resume-step",
+    returnMode: canResumeStep ? "resume-step" : "restart-instance",
+    preservedCompletedStepIds,
+    remediationCapabilityId: diagnosis.capabilityId,
   });
 }

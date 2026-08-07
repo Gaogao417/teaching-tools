@@ -18,7 +18,7 @@ const CONFIG = {
   },
   parallelLineRatios: {
     title: "三角形一边平行线：知三推一",
-    objective: "已知三条边求第四条边：先标已知边长，再标约分后的对应份数，最后按份数乘法列式。",
+    objective: "已知三条边求第四条边：先标已知边长，在草稿区算出对应边比，再按份数乘法列式。",
     explanations: ["artifacts/专题/2026-07-12-平行线对应边比例-待审核/02-student-explanation.resolved.tex"],
     banks: ["artifacts/题库/2026-07-17-三边求第四边-A字型8字型"],
   },
@@ -390,6 +390,44 @@ function extractSegmentLabels(tex) {
   return [...new Map(labels.map((label) => [label.segmentId, label])).values()];
 }
 
+function pointBetween(geometry, middleId, firstId, secondId) {
+  const point = (id) => geometry?.points.find((item) => item.id === id);
+  const middle = point(middleId);
+  const first = point(firstId);
+  const second = point(secondId);
+  if (!middle || !first || !second) return false;
+  const distance = (left, right) => Math.hypot(left.x - right.x, left.y - right.y);
+  return Math.abs(distance(first, middle) + distance(middle, second) - distance(first, second)) < 1;
+}
+
+function subtractSimpleLatex(whole, part) {
+  const wholeNumber = Number(whole);
+  const partNumber = Number(part);
+  return Number.isFinite(wholeNumber) && Number.isFinite(partNumber) ? String(wholeNumber - partNumber) : undefined;
+}
+
+function labelsOnSmallSegments(labels, geometry) {
+  const byId = new Map(labels.map((label) => [label.segmentId, label]));
+  const substitutions = new Map();
+  const replaceWhole = (middle, first, second) => {
+    if (!pointBetween(geometry, middle, first, second)) return;
+    const wholeId = canonicalSegment(`${first}${second}`);
+    const firstPartId = canonicalSegment(`${first}${middle}`);
+    const secondPartId = canonicalSegment(`${middle}${second}`);
+    const whole = byId.get(wholeId);
+    const firstPart = byId.get(firstPartId);
+    if (!whole || !firstPart) return;
+    const valueLatex = subtractSimpleLatex(whole.valueLatex, firstPart.valueLatex);
+    if (!valueLatex) return;
+    substitutions.set(wholeId, { segmentId: secondPartId, displayName: `${middle}${second}`, valueLatex });
+  };
+  replaceWhole("A", "P", "C");
+  replaceWhole("P", "A", "C");
+  replaceWhole("B", "P", "D");
+  replaceWhole("P", "B", "D");
+  return labels.map((label) => substitutions.get(label.segmentId) || label);
+}
+
 function findProportion(tex) {
   const fraction = tex.match(/\\(?:d?frac)\{([A-Z]{2})\}\{([A-Z]{2})\}\s*=\s*\\(?:d?frac)\{([A-Z]{2})\}\{([A-Z]{2})\}/);
   if (fraction) return fraction.slice(1, 5);
@@ -408,6 +446,24 @@ function extractShareLabels(tex) {
     });
   }
   return [...new Map(labels.map((label) => [label.segmentId, label])).values()];
+}
+
+function extractRatioCalculation(steps) {
+  const step = steps.find((item) => /计算并约分|对应边.*比/.test(`${item.title || ""}${item.content_latex || item.content || ""}`));
+  const content = step?.content_latex || step?.content || "";
+  const match = content.match(/\\(?:d?frac)\{([A-Z]{2})\}\{([A-Z]{2})\}\s*=\s*\\(?:d?frac)\{([^{}]+)\}\{([^{}]+)\}\s*=\s*\\(?:d?frac)\{([^{}]+)\}\{([^{}]+)\}/);
+  if (!match) return undefined;
+  return {
+    content,
+    firstDisplayName: match[1],
+    firstSegmentId: canonicalSegment(match[1]),
+    secondDisplayName: match[2],
+    secondSegmentId: canonicalSegment(match[2]),
+    firstValueLatex: match[3].trim(),
+    secondValueLatex: match[4].trim(),
+    simplifiedFirstLatex: match[5].trim(),
+    simplifiedSecondLatex: match[6].trim(),
+  };
 }
 
 function ratioToken(segments) {
@@ -493,6 +549,7 @@ function buildMarkRatioContracts(taskId, itemId, block, assignmentFile) {
 function buildThreeKnownParallelContracts(itemId, block, assignmentFile) {
   const steps = block.solution_steps || [];
   const labels = extractSegmentLabels(block.stem_latex);
+  const ratio = extractRatioCalculation(steps);
   const shareStep = steps.find((step) => /对应.*份/.test(step.content_latex || step.content || ""));
   const shareContent = shareStep?.content_latex || shareStep?.content || "";
   const shares = extractShareLabels(shareContent);
@@ -504,38 +561,104 @@ function buildThreeKnownParallelContracts(itemId, block, assignmentFile) {
   const targetShare = target && shares.find((label) => canonicalSegment(label.displayName) === canonicalSegment(target));
   const knownShare = known && shares.find((label) => canonicalSegment(label.displayName) === canonicalSegment(known));
   const promptTikz = block.diagram_col?.tikz_path;
-  const geometry = geometryFromDiagram(assignmentFile, promptTikz, [
+  const baseGeometry = geometryFromDiagram(assignmentFile, promptTikz, [
     ...labels.map((label) => label.displayName),
     ...shares.map((label) => label.displayName),
   ]);
+  const smallSegmentLabels = labelsOnSmallSegments(labels, baseGeometry);
+  const geometry = geometryFromDiagram(assignmentFile, promptTikz, [
+    ...labels.map((label) => label.displayName),
+    ...shares.map((label) => label.displayName),
+    ...smallSegmentLabels.map((label) => label.displayName),
+  ]);
   const common = { geometry, availableSegments: geometry?.segments.map((segment) => segment.id) };
 
-  const first = contractBase(itemId, 0, "标出三条已知边长", "mark-segments", "点击题干给出的三条线段，把已知边长逐一标到图上。", `${itemId.toLowerCase()}-step-2`);
-  first.acceptedAnswers = [labelToken(labels)];
-  first.expectedLatex = labels.map((label) => `${label.displayName}=${label.valueLatex}`).join("，");
+  const first = contractBase(itemId, 0, "填写小段边长", "mark-segments", "在系统聚焦的小段旁填入边长。", `${itemId.toLowerCase()}-step-2`);
+  first.acceptedAnswers = [labelToken(smallSegmentLabels)];
+  first.expectedLatex = smallSegmentLabels.map((label) => `${label.displayName}=${label.valueLatex}`).join("，");
   first.feedbackLatex = first.expectedLatex;
-  first.interaction = { kind: "mark-segments", ...common, expectedLabels: labels };
+  first.interaction = { kind: "mark-segments", ...common, expectedLabels: smallSegmentLabels };
+  first.presentation = { autoFocusSequence: true, autoSubmitOnComplete: true };
+  first.coach = {
+    entryLatex: `把边长标到小段上。先填写 ${smallSegmentLabels[0]?.displayName}。`,
+    idleHintsLatex: smallSegmentLabels.map((label) => `当前填写 ${label.displayName}，它的边长是 ${label.valueLatex}。`),
+    invalidObjectLatex: "不用选择线段，直接填写当前亮起的小段。",
+    objectCategoryHintLatex: "系统会按顺序把焦点移到需要填写的小段。",
+    targetHintsLatex: Object.fromEntries(smallSegmentLabels.map((label) => [label.segmentId, `填写 ${label.displayName}=${label.valueLatex}。`])),
+    nextActionLatex: "填对后会自动移到下一条小段。",
+  };
 
-  const second = contractBase(itemId, 1, "标出对应份数", "mark-segments", "把已知比例约成最简整数比，再点击对应边，标出未知边和已知边各占几份。", `${itemId.toLowerCase()}-step-3`);
-  second.acceptedAnswers = [labelToken(shares)];
-  second.expectedLatex = shares.map((label) => `${label.displayName}=${label.valueLatex}份`).join("，");
-  second.feedbackLatex = shareContent || second.expectedLatex;
-  second.interaction = { kind: "mark-segments", ...common, expectedLabels: shares };
+  const second = contractBase(itemId, 1, "计算对应边的比", "ratio-scratch", "在图中依次点出一组已知的对应边，再在草稿区代入边长并约成最简整数比。", `${itemId.toLowerCase()}-step-3`);
+  if (ratio) {
+    second.acceptedAnswers = [`${ratio.firstSegmentId},${ratio.secondSegmentId}|${ratio.simplifiedFirstLatex},${ratio.simplifiedSecondLatex}`];
+    second.expectedLatex = ratio.content;
+    second.feedbackLatex = ratio.content;
+    second.interaction = {
+      kind: "ratio-scratch",
+      ...common,
+      expectedOrder: [ratio.firstSegmentId, ratio.secondSegmentId],
+      ratioScratch: ratio,
+    };
+    second.coach = {
+      entryLatex: "三条已知边里，有两条是相似三角形的一组对应边。先按同一方向点出它们，再把边长代入草稿式并约分。",
+      idleHintsLatex: ["先找落在同一条射线上的两条已知对应边。", `先点 ${ratio.firstDisplayName}，再点 ${ratio.secondDisplayName}。`],
+      invalidObjectLatex: "这条边不能组成当前要计算的那组已知对应边比。",
+      objectCategoryHintLatex: "要找的是同一方向上、分别属于两个相似三角形的两条已知对应边。",
+      targetHintsLatex: {
+        [ratio.firstSegmentId]: `先点 ${ratio.firstDisplayName}。`,
+        [ratio.secondSegmentId]: `接着点与它对应的 ${ratio.secondDisplayName}。`,
+      },
+      nextActionLatex: `把 ${ratio.firstValueLatex}:${ratio.secondValueLatex} 约成最简整数比，分别填进两个空。`,
+      slotHints: {
+        "ratio-first": { hintLatex: `先约分 ${ratio.firstValueLatex}:${ratio.secondValueLatex}，填写前项。`, correctLatex: "前项正确，再填后项。", errorLatex: "前项还没有约到最简，检查两个数的最大公因数。" },
+        "ratio-second": { hintLatex: "保持同一次约分，填写最简比的后项。", correctLatex: "最简整数比正确，可以提交。", errorLatex: "后项要与前项除以同一个数。" },
+      },
+    };
+  } else {
+    second.acceptedAnswers = [labelToken(shares)];
+    second.expectedLatex = shareContent;
+    second.feedbackLatex = shareContent;
+    second.interaction = { kind: "mark-segments", ...common, expectedLabels: shares };
+  }
 
-  const third = contractBase(itemId, 2, "按份数列式", "equation", "依次点击已知边、未知边份数、已知边份数，再求值：未知 = 已知 × 未知份数 / 已知份数。", undefined);
+  const third = contractBase(itemId, 2, "按份数列式", "equation", "根据陪练说明，填出：未知边 = 已知边 × 未知边份数 / 已知边份数，再求值。", undefined);
   if (target && known && targetShare && knownShare) {
-    const factorSlots = [known, target, known];
+    const factorSlots = [known, targetShare.valueLatex, knownShare.valueLatex];
     const result = answerAliases(answer).at(-1);
     third.acceptedAnswers = [
-      `${canonicalSegment(target)}=${factorSlots.map(canonicalSegment).join("*")}|${result}`,
+      `${canonicalSegment(target)}=${canonicalSegment(known)}*${targetShare.valueLatex}*${knownShare.valueLatex}|${result}`,
       ...answerAliases(answer),
     ];
     third.expectedLatex = `$${target}=${known}\\times\\dfrac{${targetShare.valueLatex}}{${knownShare.valueLatex}}=${result}$`;
     third.interaction = {
       kind: "equation",
       ...common,
-      expectedOrder: factorSlots.map(canonicalSegment),
-      equation: { targetLatex: target, factorSlots, resultLatex: answer },
+      expectedOrder: [canonicalSegment(known), targetShare.valueLatex, knownShare.valueLatex],
+      equation: {
+        targetLatex: target,
+        factorSlots,
+        resultLatex: answer,
+        shareValues: [targetShare.valueLatex, knownShare.valueLatex],
+        knownValueLatex: labels.find((label) => label.segmentId === canonicalSegment(known))?.valueLatex,
+      },
+    };
+    third.presentation = { prefillKnownFactor: true };
+    const proof = ratio
+      ? `因为 $${ratio.firstDisplayName}:${ratio.secondDisplayName}=${ratio.firstValueLatex}:${ratio.secondValueLatex}=${ratio.simplifiedFirstLatex}:${ratio.simplifiedSecondLatex}$；又因为 $AB\\parallel CD$，两个三角形相似，所以对应边成比例：$\\dfrac{${ratio.firstDisplayName}}{${ratio.secondDisplayName}}=\\dfrac{${target}}{${known}}=\\dfrac{${targetShare.valueLatex}}{${knownShare.valueLatex}}$。所以 ${target} 是 ${targetShare.valueLatex} 份，${known} 是 ${knownShare.valueLatex} 份。`
+      : `因为 $AB\\parallel CD$，两个三角形相似，对应边成比例，所以 $${target}:${known}=${targetShare.valueLatex}:${knownShare.valueLatex}$。也就是 ${target} 是 ${targetShare.valueLatex} 份，${known} 是 ${knownShare.valueLatex} 份。`;
+    third.coach = {
+      entryLatex: proof,
+      explanationLatex: proof,
+      nextActionLatex: `把份数关系落到算式上：$${target}=${known}\\times\\dfrac{\\Box}{\\Box}$。`,
+      invalidObjectLatex: `这里先要放能直接代入数值的已知边 ${known}，其他线段暂时不用。`,
+      objectCategoryHintLatex: "乘号前应放已经知道具体长度、并且和未知边对应的那条边。",
+      targetHintsLatex: { [canonicalSegment(known)]: `点 ${known}，把它放到乘号前。` },
+      slotHints: {
+        known: { hintLatex: `先点已知边 ${known}。`, correctLatex: `对，乘号前是 ${known}。`, errorLatex: `这里需要能直接代入长度的 ${known}。` },
+        numerator: { hintLatex: `${target} 是 ${targetShare.valueLatex} 份，把 ${targetShare.valueLatex} 填在分子。`, correctLatex: `${target} 是 ${targetShare.valueLatex} 份，分子正确。`, errorLatex: `由 $${target}:${known}=${targetShare.valueLatex}:${knownShare.valueLatex}$ 可知 ${target} 是 ${targetShare.valueLatex} 份，所以分子填 ${targetShare.valueLatex}。` },
+        denominator: { hintLatex: `${known} 是 ${knownShare.valueLatex} 份，把 ${knownShare.valueLatex} 填在分母。`, correctLatex: `${known} 是 ${knownShare.valueLatex} 份，分母正确。`, errorLatex: `由 $${target}:${known}=${targetShare.valueLatex}:${knownShare.valueLatex}$ 可知 ${known} 是 ${knownShare.valueLatex} 份，所以分母填 ${knownShare.valueLatex}。` },
+        result: { hintLatex: `最后代入 ${known} 的边长并计算。`, correctLatex: "结果正确，可以提交。", errorLatex: `${known} 的长度是 ${labels.find((label) => label.segmentId === canonicalSegment(known))?.valueLatex || "已知数"}，计算 $${known}\\times\\dfrac{${targetShare.valueLatex}}{${knownShare.valueLatex}}$。` },
+      },
     };
   } else {
     third.acceptedAnswers = answerAliases(answer);

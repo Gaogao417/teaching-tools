@@ -18,6 +18,7 @@ type SessionProjectionRow = {
   source_instance_id: string | null;
   source_step_id: string | null;
   return_mode: "resume-step" | "restart-instance" | null;
+  preserved_completed_step_ids_json: string | null;
 };
 
 type RuntimeInstanceProjectionRecord = {
@@ -73,7 +74,9 @@ export function toPracticeSessionSnapshot(
           sourceChallengeSessionId: session.source_session_id,
           sourceInstanceId: session.source_instance_id,
           sourceStepId: session.source_step_id,
-          preservedCompletedStepIds: [],
+          preservedCompletedStepIds: session.preserved_completed_step_ids_json
+            ? JSON.parse(session.preserved_completed_step_ids_json) as string[]
+            : [],
           returnMode: session.return_mode || "restart-instance",
         }
       : undefined,

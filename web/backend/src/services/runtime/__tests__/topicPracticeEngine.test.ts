@@ -7,6 +7,7 @@ import {
   buildTopicPracticeRuntime,
   createTopicPracticeState,
   reduceTopicPracticeAction,
+  restoreTopicPracticeState,
 } from "../engines/topicPractice";
 import { getTopicLesson, getTopicScenario } from "../engines/topicPractice/scenarioBank";
 import type { TopicPracticeEngineState } from "../engines/topicPractice/types";
@@ -134,17 +135,70 @@ async function main() {
     }
   });
 
-  await runTest("parallel-line task uses the three-known-one-unknown bank and share-marking actions", () => {
+  await runTest("parallel-line task uses paper-like ratio scratch and a rigorous coach explanation", () => {
     const scenario = getTopicScenario("parallelLineRatios", "three-known-fourth-parallel-2026-07-17:Q001");
     assert.equal(scenario.sourceBankTitle, "三角形一边平行线：三边求第四边");
     assert.match(scenario.promptLatex, /PA=3/);
     assert.match(scenario.promptLatex, /PC=6/);
     assert.match(scenario.promptLatex, /CD=8/);
     assert.equal(scenario.answerLatex, "$AB=4$。");
-    assert.deepEqual(scenario.steps.map((step) => step.primitive), ["mark-segments", "mark-segments", "equation"]);
-    assert.equal(scenario.steps[0].acceptedAnswers[0], "AP=3;CD=8;CP=6");
-    assert.equal(scenario.steps[1].acceptedAnswers[0], "AB=1;CD=2");
-    assert.equal(scenario.steps[2].acceptedAnswers[0], "AB=CD*AB*CD|4");
+    assert.deepEqual(scenario.steps.map((step) => step.primitive), ["mark-segments", "ratio-scratch", "equation"]);
+    assert.equal(scenario.steps[0].acceptedAnswers[0], "AC=3;AP=3;CD=8");
+    assert.deepEqual(scenario.steps[0].interaction?.expectedLabels?.map((label) => label.displayName), ["PA", "AC", "CD"]);
+    assert.equal(scenario.steps[0].presentation?.autoFocusSequence, true);
+    assert.equal(scenario.steps[0].presentation?.autoSubmitOnComplete, true);
+    assert.equal(scenario.steps[1].acceptedAnswers[0], "AP,CP|1,2");
+    assert.deepEqual(scenario.steps[1].interaction?.ratioScratch, {
+      content: "$\\dfrac{PA}{PC}=\\dfrac{3}{6}=\\dfrac{1}{2}$。",
+      firstDisplayName: "PA",
+      firstSegmentId: "AP",
+      secondDisplayName: "PC",
+      secondSegmentId: "CP",
+      firstValueLatex: "3",
+      secondValueLatex: "6",
+      simplifiedFirstLatex: "1",
+      simplifiedSecondLatex: "2",
+    });
+    assert.equal(scenario.steps[2].acceptedAnswers[0], "AB=CD*1*2|4");
+    assert.match(scenario.steps[2].coach?.explanationLatex || "", /两个三角形相似/);
+    assert.match(scenario.steps[2].coach?.explanationLatex || "", /AB 是 1 份，CD 是 2 份/);
+    assert.equal(scenario.steps[2].presentation?.prefillKnownFactor, true);
+
+    const { task, content } = taskContext("parallelLineRatios");
+    const practiceState = createTopicPracticeState(task, content, 0);
+    const learningState: TopicPracticeEngineState = {
+      ...practiceState,
+      scenarioId: scenario.id,
+      instanceId: "learn-parallelLineRatios",
+      isLearningProjection: true,
+    };
+    const learningRuntime = buildTopicPracticeRuntime(task, content, learningState, "answering");
+    assert.deepEqual(
+      Object.values(learningRuntime.instance.scene.topicWorkspace?.contracts || {}).map((step) => step.primitive),
+      ["mark-segments", "equation"],
+    );
+    assert.equal(learningRuntime.instance.flow.steps.length, 2);
+  });
+
+  await runTest("parallel-line scratch diagnoses an unreduced ratio without losing the current step", () => {
+    const { task, content } = taskContext("parallelLineRatios");
+    const scenarioId = "three-known-fourth-parallel-2026-07-17:Q001";
+    const scenario = getTopicScenario("parallelLineRatios", scenarioId);
+    const initial = createTopicPracticeState(task, content, 0);
+    const state: TopicPracticeEngineState = {
+      ...initial,
+      scenarioId,
+      stepIndex: 1,
+      completedStepIds: [scenario.steps[0].id],
+    };
+    const wrong = reduceTopicPracticeAction(task, content, state, submit(scenario.steps[1].id, "AP,CP|2,4"));
+    assert.equal(wrong.evaluation, "wrong");
+    assert.equal(wrong.engineState.stepIndex, 1);
+    assert.deepEqual(wrong.runtime.runtimeState.wrongObjectIds, ["最简整数比"]);
+
+    const corrected = reduceTopicPracticeAction(task, content, wrong.engineState, submit(scenario.steps[1].id, "AP,CP|1,2"));
+    assert.equal(corrected.evaluation, "progress");
+    assert.equal(corrected.engineState.stepIndex, 2);
   });
 
   await runTest("auxiliary first item encodes the required four-click construction and staged labels", () => {
@@ -153,6 +207,36 @@ async function main() {
     assert.equal(scenario.steps[0].acceptedAnswers[0], "point:C|parallel:AD|carrier:B,E");
     assert.equal(scenario.steps[1].acceptedAnswers[0], "AP=1;CF=1");
     assert.equal(scenario.steps[2].acceptedAnswers[0], "DP=1/2");
+  });
+
+  await runTest("nested similarity inserts a dedicated collinear conversion action", () => {
+    const scenario = getTopicScenario("nestedSimilarity", "nested-similarity-2026-07-16:Q001");
+    assert.deepEqual(scenario.steps.map((step) => step.primitive), ["mark-segments", "convert-collinear", "mark-ratio", "equation"]);
+    assert.equal(scenario.steps[1].acceptedAnswers[0], "AC,AD,CD");
+    assert.equal(scenario.steps[1].interaction?.collinear?.relationLatex, "AC=AD+DC");
+  });
+
+  await runTest("legacy nested sessions resume at the newly required conversion action", () => {
+    const { task, content } = taskContext("nestedSimilarity");
+    const state = createTopicPracticeState(task, content, 0);
+    const scenario = getTopicScenario("nestedSimilarity", state.scenarioId);
+    const legacyState = { ...state, stepIndex: 1, completedStepIds: [scenario.steps[0].id] } as Partial<TopicPracticeEngineState>;
+    delete legacyState.interactionVersion;
+    const restored = restoreTopicPracticeState(legacyState);
+    const runtime = buildTopicPracticeRuntime(task, content, restored, "answering");
+    assert.equal(runtime.instance.scene.topicWorkspace?.contracts[runtime.runtimeState.currentStepId].primitive, "convert-collinear");
+  });
+
+  await runTest("topic evaluation identifies only the incorrect geometry object", () => {
+    const { task, content } = taskContext("reverseASimilarity");
+    const state = createTopicPracticeState(task, content, 0);
+    const scenario = getTopicScenario("reverseASimilarity", state.scenarioId);
+    const result = reduceTopicPracticeAction(task, content, state, submit(
+      scenario.steps[0].id,
+      "AB=2\\sqrt{6};AP=wrong;CD=8",
+    ));
+    assert.equal(result.evaluation, "wrong");
+    assert.deepEqual(result.runtime.runtimeState.wrongObjectIds, ["AP"]);
   });
 }
 

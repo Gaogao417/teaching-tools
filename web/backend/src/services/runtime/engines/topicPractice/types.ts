@@ -1,4 +1,5 @@
 import type { TopicPracticeTaskId } from "../../../../../../shared/topicPractice";
+import type { SimilarityCapabilityId } from "../../../../../../shared/similarityLearningMap";
 import type { RuntimeEngineState } from "../../platform/engineTypes";
 
 export type TopicPracticeEngineState = RuntimeEngineState & {
@@ -8,4 +9,8 @@ export type TopicPracticeEngineState = RuntimeEngineState & {
   completedStepIds: string[];
   hadWrongAttempt: boolean;
   isLearningProjection: boolean;
+  remediationCapabilityId?: SimilarityCapabilityId;
+  allowedCapabilityIds?: SimilarityCapabilityId[];
+  wrongObjectIds: string[];
+  interactionVersion: number;
 };

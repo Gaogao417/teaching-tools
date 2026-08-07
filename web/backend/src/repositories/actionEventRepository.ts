@@ -10,18 +10,19 @@ export type ActionEventRow = {
   source_id: string | null;
   step_id: string | null;
   capability_id: SimilarityCapabilityId | null;
+  capability_ids_json: string | null;
   evaluation: RuntimeEvaluation;
   created_at: string;
 };
 
 const insertActionEventStatement = db.prepare(
   `INSERT INTO practice_action_events
-    (session_id, instance_id, action_type, target_id, submitted_value, source_id, step_id, capability_id, evaluation, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (session_id, instance_id, action_type, target_id, submitted_value, source_id, step_id, capability_id, capability_ids_json, evaluation, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 
 const listActionEventsStatement = db.prepare(
-  `SELECT instance_id, action_type, target_id, submitted_value, source_id, step_id, capability_id, evaluation, created_at
+  `SELECT instance_id, action_type, target_id, submitted_value, source_id, step_id, capability_id, capability_ids_json, evaluation, created_at
    FROM practice_action_events
    WHERE session_id = ?
    ORDER BY id ASC`,
@@ -32,7 +33,7 @@ export function insertActionEvent(
   instanceId: string,
   action: RuntimeActionEvent,
   evaluation: RuntimeEvaluation,
-  capabilityId?: SimilarityCapabilityId,
+  capabilityIds: SimilarityCapabilityId[] = [],
   createdAt = new Date().toISOString(),
 ) {
   insertActionEventStatement.run(
@@ -43,7 +44,8 @@ export function insertActionEvent(
     action.value ?? null,
     action.sourceId ?? null,
     action.stepId ?? null,
-    capabilityId ?? null,
+    capabilityIds[0] ?? null,
+    capabilityIds.length ? JSON.stringify(capabilityIds) : null,
     evaluation,
     createdAt,
   );
