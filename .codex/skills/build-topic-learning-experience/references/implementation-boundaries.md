@@ -22,6 +22,7 @@ Use this reference only after the topic experience specification is explicitly a
 - Keep frontend state limited to draft input, focus, transient selection, and presentation effects.
 - Keep Learn and Practice on the same mathematical object and evaluation logic when specified; change guidance strength and visibility rather than creating contradictory truth.
 - Keep Review immutable and based on persisted backend evaluation.
+- Keep coaching derivations, object mappings, blank semantics, and error-specific explanations in typed runtime content traceable to the approved specification. Do not reconstruct mathematical reasons from display labels in the frontend.
 
 ## Change discipline
 

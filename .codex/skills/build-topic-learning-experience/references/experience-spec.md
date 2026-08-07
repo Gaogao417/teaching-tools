@@ -53,6 +53,12 @@ Use concrete actions such as selecting a segment, marking a value, constructing 
 
 Allow interactions beyond the framework's current primitive list. The specification describes the intended experience, not a pre-negotiated implementation compromise.
 
+## Coach explanation scripts
+
+When the experience includes a coach, guide, narrator, hint progression, or fill-in assistance, read and apply [coach-explanation.md](coach-explanation.md). Add one script row for every transition where the coach must connect a student result to the next mathematical action. Record the student's prerequisite result, the mathematical basis, a complete derivation, the next blank or action, error-specific explanations, and the exact source.
+
+Do not treat a static step title, generic hint, or final-answer feedback as a coach script. The specification must make the logical bridge reviewable before implementation.
+
 ## Page states
 
 Include only relevant states, but actively check:

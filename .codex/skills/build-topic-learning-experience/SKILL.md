@@ -30,24 +30,26 @@ Treat only explicit user language such as “确认”, “通过”, or “按�
 ## Phase 1: Generate the experience specification
 
 1. Read [references/experience-spec.md](references/experience-spec.md) completely.
-2. Inspect the exact final explanation TeX, ready question bank, enabled assignments, and diagram assets named or discoverable in the topic artifact tree.
-3. Create the specification from [assets/topic-experience-spec.template.md](assets/topic-experience-spec.template.md).
-4. Generate sections in this order:
+2. When the experience includes guidance, coaching, step narration, or fill-in assistance, read [references/coach-explanation.md](references/coach-explanation.md) completely and apply it to every learner-visible coaching transition.
+3. Inspect the exact final explanation TeX, ready question bank, enabled assignments, and diagram assets named or discoverable in the topic artifact tree.
+4. Create the specification from [assets/topic-experience-spec.template.md](assets/topic-experience-spec.template.md).
+5. Generate sections in this order:
    - source mapping;
    - user flow diagram;
    - page structure;
    - interaction rules;
+   - coach explanation scripts when coaching is present;
    - page state description;
    - decisions requiring user confirmation.
-5. Set `status: draft` even when the design appears complete.
-6. Validate the file:
+6. Set `status: draft` even when the design appears complete.
+7. Validate the file:
 
 ```bash
 python3 .codex/skills/build-topic-learning-experience/scripts/validate_experience_spec.py \
   docs/topics/<topic-id>/topic-experience-spec.md --expect-status draft
 ```
 
-7. Present the specification for review and stop. Do not edit frontend, backend, shared contracts, tests, or generated bundles in this phase.
+8. Present the specification for review and stop. Do not edit frontend, backend, shared contracts, tests, or generated bundles in this phase.
 
 Do not constrain the experience to currently available action primitives. Propose the interaction that most faithfully operationalizes the explanation. Do not add a framework-fit report or implementation classification to the specification.
 
@@ -65,21 +67,23 @@ If implementation would materially change the approved flow, page structure, int
 ## Phase 2: Implement the approved specification
 
 1. Read [references/implementation-boundaries.md](references/implementation-boundaries.md) completely.
-2. Validate that the specification is `approved` before changing product code.
-3. Implement the approved experience, reusing or extending the framework as needed. Do not insert a separate framework-adaptation gate.
-4. Keep explanation steps, question IDs, assets, accepted answers, diagnoses, and runtime steps traceable to the recorded sources.
-5. Preserve unrelated worktree changes and keep edits scoped to the approved experience.
-6. Run focused build and runtime checks.
-7. Change the specification status to `implemented` only after the implemented behavior matches the approved specification.
+2. Read [references/coach-explanation.md](references/coach-explanation.md) completely when the approved specification contains coaching or fill-in assistance.
+3. Validate that the specification is `approved` before changing product code.
+4. Implement the approved experience, reusing or extending the framework as needed. Do not insert a separate framework-adaptation gate.
+5. Keep explanation steps, question IDs, assets, accepted answers, diagnoses, coaching scripts, and runtime steps traceable to the recorded sources.
+6. Preserve unrelated worktree changes and keep edits scoped to the approved experience.
+7. Run focused build and runtime checks.
+8. Change the specification status to `implemented` only after the implemented behavior matches the approved specification.
 
 ## Phase 3: Verify the implementation
 
 1. Read [references/acceptance-checklist.md](references/acceptance-checklist.md) completely.
-2. Validate that the specification is `implemented`.
-3. Test every specified flow and page state, including wrong-answer preservation, session recovery, narrow-screen behavior, and keyboard operation.
-4. Repair implementation defects without silently changing the approved experience.
-5. Record concise verification evidence in the specification.
-6. Change the status to `verified` only when all required checks pass.
+2. Read [references/coach-explanation.md](references/coach-explanation.md) completely when verifying coaching or fill-in assistance.
+3. Validate that the specification is `implemented`.
+4. Test every specified flow and page state, including wrong-answer preservation, session recovery, narrow-screen behavior, keyboard operation, coaching transitions, and per-blank assistance.
+5. Repair implementation defects without silently changing the approved experience.
+6. Record concise verification evidence in the specification.
+7. Change the status to `verified` only when all required checks pass.
 
 ## Hard boundaries
 

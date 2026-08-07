@@ -17,6 +17,16 @@ Use this reference only after implementation is complete.
 - Verify that Learn and Practice use the approved shared mathematical object and evaluation truth.
 - Verify that Review presents persisted evaluation rather than recalculating correctness in the frontend.
 
+## Coaching quality
+
+- Verify every approved coach-script row against the running interface and its exact trigger.
+- Verify that each explanation states the student's existing result, mathematical basis, complete derivation, interpretation, and next action without a logical jump.
+- Verify that ratio direction, corresponding-object order, and numerator/denominator roles remain consistent throughout the explanation.
+- Verify per-blank assistance: the highlighted slot matches the spoken or written hint, correct prior slots remain intact, and the coach never auto-fills the student's required work.
+- Verify one verbal outlet: task directions, teacher explanation, correct confirmation, and error repair replace one another in the fixed coach bubble; no step strip, action copy, toast, or correction card repeats them.
+- Verify task counting: teacher-only explanation is not numbered as a student task and is not converted into a click or input solely to fit the flow.
+- Verify that source-defined teacher explanation is not silently converted into a question, and that generic phrases do not replace actionable guidance.
+
 ## Runtime and persistence
 
 - Test session start, action submission, step progression, finish, result query, and restore.

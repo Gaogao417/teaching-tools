@@ -20,6 +20,9 @@ REQUIRED_HEADINGS = (
     "## 待确认事项",
     "## 实现与验收记录",
 )
+COACH_MARKERS = ("陪练老师", "动态陪练", "填空辅助")
+COACH_HEADING = "## 陪练讲题脚本"
+COACH_TABLE_HEADER = "| 触发条件 | 学生已有结果 | 推理依据 | 严密讲解链 | 下一动作/填空 | 错误时如何解释 | 来源 |"
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:
@@ -65,6 +68,23 @@ def validate(path: Path, expected_status: str | None) -> list[str]:
 
     if "```mermaid" not in text:
         errors.append("用户流程图 must contain a Mermaid diagram")
+
+    has_coaching = any(marker in text for marker in COACH_MARKERS)
+    if has_coaching and COACH_HEADING not in text:
+        errors.append(f"coached experiences must contain: {COACH_HEADING}")
+    if COACH_HEADING in text:
+        coach_section = text.split(COACH_HEADING, 1)[1].split("\n## ", 1)[0]
+        if COACH_TABLE_HEADER not in coach_section:
+            errors.append("陪练讲题脚本 must use the required review table")
+        coach_rows = [
+            line for line in coach_section.splitlines()
+            if line.startswith("|")
+            and not line.startswith("| ---")
+            and line != COACH_TABLE_HEADER
+            and line.replace("|", "").strip()
+        ]
+        if not coach_rows:
+            errors.append("陪练讲题脚本 must contain at least one script row")
 
     return errors
 
