@@ -12,6 +12,8 @@ export type TopicActionPrimitive =
   | "construct-parallel"
   | "mark-segments"
   | "mark-ratio"
+  | "ratio-scratch"
+  | "convert-collinear"
   | "equation";
 
 export interface TopicGeometryPoint {
@@ -39,7 +41,7 @@ export interface TopicSegmentLabel {
 }
 
 export interface TopicGeometryInteraction {
-  kind: "construct-parallel" | "mark-segments" | "mark-ratio" | "equation";
+  kind: "construct-parallel" | "mark-segments" | "mark-ratio" | "ratio-scratch" | "convert-collinear" | "equation";
   geometry?: TopicGeometryModel;
   availableSegments?: string[];
   expectedLabels?: TopicSegmentLabel[];
@@ -50,12 +52,47 @@ export interface TopicGeometryInteraction {
     carrierPoints: [string, string];
     resultPoint: string;
   };
+  collinear?: {
+    wholeSegment: string;
+    targetSegment: string;
+    knownSegment: string;
+    relationLatex: string;
+  };
+  ratioScratch?: {
+    firstSegmentId: string;
+    firstDisplayName: string;
+    firstValueLatex: string;
+    secondSegmentId: string;
+    secondDisplayName: string;
+    secondValueLatex: string;
+    simplifiedFirstLatex: string;
+    simplifiedSecondLatex: string;
+  };
   equation?: {
     targetLatex: string;
     factorSlots: [string, string, string];
     resultLatex: string;
+    shareValues?: [string, string];
+    knownValueLatex?: string;
   };
   presentation?: TopicInteractionPresentation;
+}
+
+export interface TopicCoachSlotHint {
+  hintLatex: string;
+  correctLatex: string;
+  errorLatex: string;
+}
+
+export interface TopicCoachScript {
+  entryLatex: string;
+  idleHintsLatex?: string[];
+  invalidObjectLatex?: string;
+  objectCategoryHintLatex?: string;
+  targetHintsLatex?: Record<string, string>;
+  explanationLatex?: string;
+  nextActionLatex?: string;
+  slotHints?: Record<string, TopicCoachSlotHint>;
 }
 
 export interface TopicInteractionPresentation {
@@ -65,6 +102,9 @@ export interface TopicInteractionPresentation {
   allowLocalUndo?: boolean;
   availableObjectIds?: string[];
   capabilityIds?: import("./similarityLearningMap").SimilarityCapabilityId[];
+  autoFocusSequence?: boolean;
+  autoSubmitOnComplete?: boolean;
+  prefillKnownFactor?: boolean;
 }
 
 export interface TopicChoiceOption {
@@ -90,6 +130,7 @@ export interface TopicActionContract {
   diagramAsset?: string;
   interaction?: TopicGeometryInteraction;
   presentation?: TopicInteractionPresentation;
+  coach?: TopicCoachScript;
   nextStepId?: string;
 }
 

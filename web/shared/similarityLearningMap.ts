@@ -2,7 +2,7 @@ import type { TaskId } from "./contracts";
 import type { TopicActionPrimitive, TopicPracticeTaskId } from "./topicPractice";
 
 export const SIMILARITY_MAP_ID = "similarity-v1" as const;
-export const CAPABILITY_RULE_VERSION = "similarity-capabilities/v1" as const;
+export const CAPABILITY_RULE_VERSION = "similarity-capabilities/v2" as const;
 
 export const SIMILARITY_CAPABILITY_IDS = [
   "similarity.mark-known-segments",
@@ -17,13 +17,13 @@ export const SIMILARITY_CAPABILITY_IDS = [
 export type SimilarityCapabilityId = typeof SIMILARITY_CAPABILITY_IDS[number];
 export type CapabilityState = "unobserved" | "developing" | "mastered";
 export type TopicProgressState = "not_started" | "in_progress" | "completed";
-export type LearningMapNodeState = "locked" | "available" | "in_progress" | "mastered";
+export type LearningMapNodeState = "unopened" | "open" | "passed";
 export type SessionKind = "practice" | "challenge" | "remediation";
 
 export const CAPABILITY_MASTERY_RULE = {
   version: CAPABILITY_RULE_VERSION,
   minimumIndependentCorrectEvidence: 1,
-  allowedSessionKinds: ["practice", "challenge", "remediation"] as SessionKind[],
+  allowedSessionKinds: ["practice", "challenge"] as SessionKind[],
 } as const;
 
 export const CAPABILITY_LABELS: Record<SimilarityCapabilityId, string> = {
@@ -118,7 +118,7 @@ export type ChallengeDefinition = {
     capabilityId: SimilarityCapabilityId;
     requiredStepPrimitives: TopicActionPrimitive[];
   }>;
-  unlockEffects: SimilarityCapabilityId[];
+  passEffects: SimilarityCapabilityId[];
 };
 
 export const SIMILARITY_CHALLENGES: ChallengeDefinition[] = [
@@ -140,7 +140,7 @@ export const SIMILARITY_CHALLENGES: ChallengeDefinition[] = [
       { capabilityId: "similarity.map-corresponding-sides", requiredStepPrimitives: ["mark-segments"] },
       { capabilityId: "similarity.build-side-equation", requiredStepPrimitives: ["input"] },
     ],
-    unlockEffects: [
+    passEffects: [
       "similarity.construct-parallel-helper",
       "similarity.transfer-ratio-shares",
       "similarity.map-corresponding-sides",
@@ -163,7 +163,7 @@ export const SIMILARITY_CHALLENGES: ChallengeDefinition[] = [
       { capabilityId: "similarity.map-corresponding-sides", requiredStepPrimitives: ["mark-ratio"] },
       { capabilityId: "similarity.build-side-equation", requiredStepPrimitives: ["equation"] },
     ],
-    unlockEffects: [
+    passEffects: [
       "similarity.read-crossed-vertex-order",
       "similarity.map-corresponding-sides",
       "similarity.build-side-equation",
@@ -198,6 +198,13 @@ export interface StudentTopicProgress {
   updatedAt?: string;
 }
 
+export interface LearningMapQuestionPreview {
+  questionId: string;
+  stemLatex: string;
+  diagramAssetUrl?: string;
+  diagramAlt?: string;
+}
+
 export interface LearningMapNode {
   id: string;
   kind: "topic" | "challenge";
@@ -210,7 +217,7 @@ export interface LearningMapNode {
   recommended: boolean;
   progress?: { completed: number; total: number };
   missingPrerequisiteIds: SimilarityCapabilityId[];
-  challengeState?: "recommended-ready" | "early-attempt" | "in-progress" | "passed";
+  previewQuestion?: LearningMapQuestionPreview;
   activeSessionId?: string;
 }
 
@@ -256,6 +263,7 @@ export function capabilityIdsForTopicStep(
   stepIndex: number,
 ): SimilarityCapabilityId[] {
   if (!SIMILARITY_TOPIC_NODES.some((node) => node.taskId === taskId)) return [];
+  if (primitive === "convert-collinear") return ["similarity.convert-collinear-segments"];
   if (primitive === "equation") return ["similarity.build-side-equation"];
   if (primitive === "construct-parallel") return ["similarity.construct-parallel-helper"];
   if (taskId === "parallelLineRatios" && stepIndex === 0) return ["similarity.mark-known-segments"];
@@ -265,9 +273,6 @@ export function capabilityIdsForTopicStep(
   if (taskId === "auxiliaryTwoRatios" && stepIndex === 1) return ["similarity.map-corresponding-sides"];
   if (taskId === "auxiliaryTwoRatios" && stepIndex === 2) return ["similarity.transfer-ratio-shares"];
   if (taskId === "auxiliaryTwoRatios" && primitive === "input") return ["similarity.build-side-equation"];
-  if (taskId === "nestedSimilarity" && stepIndex === 0) {
-    return ["similarity.mark-known-segments", "similarity.convert-collinear-segments"];
-  }
   if (taskId === "butterflySimilarity" && primitive === "mark-ratio") {
     return ["similarity.read-crossed-vertex-order", "similarity.map-corresponding-sides"];
   }

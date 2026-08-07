@@ -337,6 +337,7 @@ export interface ServerRuntimeState {
   completedStepIds: string[];
   problemStatus: ProblemStatus;
   attempts: number;
+  wrongObjectIds?: string[];
 }
 
 export interface ClientDraftState {
@@ -344,6 +345,16 @@ export interface ClientDraftState {
   inputs: Record<string, string>;
   focusTarget?: string;
   transientFeedback?: string[];
+  topicCoach?: {
+    messageLatex?: string;
+    tone?: "prompt" | "correct" | "wrong" | "explain";
+    invalidObjectCount?: number;
+    highlightedObjectIds?: string[];
+    activeSlotId?: string;
+    soundEnabled?: boolean;
+    feedbackNonce?: number;
+    displayMode?: "task" | "explanation";
+  };
 }
 
 export interface ExerciseInstance {
