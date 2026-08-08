@@ -185,3 +185,27 @@ engine 可以读取 backend-only answer key 和 validation-backed truth，但只
 - `coordinate-isosceles-right`
 
 主文档必须以“多引擎统一 runtime”为前提，而不是继续按最早 3 个 trig 任务写死。
+
+## Frontend Presentation Layer Evolution
+
+当前前端展示层是“一个题型一套手写 SVG”：`SceneRenderer.tsx` 硬编码 `sceneKind` 分支，
+`WorkspaceScene.tsx` 按题型内联渲染，`AngleEquationWorkspace.tsx` 自行解析 scene JSON。
+这套手写 SVG 是过渡态。
+
+新 engine 的前端展示层采用 geometry-actions 架构（POC 已验证，见
+[ADR-002](./adr/ADR-002-geometry-actions-architecture.md)）：
+
+- `Action` 状态机表达交互语义（不依赖 React / JSXGraph）
+- 通用 `Runtime` 驱动 Action 序列（零业务 switch）
+- `WorldState` 只存纯数学依赖，不持渲染对象
+- `GeometryCanvas` 通过 JSXGraph adapter 投影 WorldState，`GeometryEvent` 转发回 Runtime
+
+这套架构是 ADR-001 的**分层演进**，不是替换：
+
+- 后端 `EnginePlugin` 不变，仍是真值 / 判题 / 投影 `ExerciseRuntimeSpec` 的唯一层
+- 前端展示层从手写 SVG 迁移到 Action + WorldState + JSXGraph
+- ADR-001 的所有硬约束（真值不下前端、approved-only scenario、version pinning）全部保留
+
+现有 SVG renderer 保留至对应 engine 迁移完成。后续 triangle-trig /
+coordinate-isosceles-right / angle-equation 的前端展示层重写按 ADR-002 的路径推进，
+后端 `EnginePlugin` 不动。

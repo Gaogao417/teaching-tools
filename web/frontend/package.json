@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "jsxgraph": "^1.13.1",
     "katex": "^0.18.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -6,6 +6,7 @@ import { TaskOverviewPanel } from "./pages/TaskOverviewPanel";
 import { ReviewPage } from "./pages/ReviewPage";
 import { LearnPage } from "./pages/LearnPage";
 import { SimilarityLearningMapPage } from "./pages/SimilarityLearningMapPage";
+import PocPage from "./poc/geometry-actions/PocPage";
 
 export default function App() {
   return (
@@ -19,6 +20,8 @@ export default function App() {
         <Route path="result/:sessionId" element={<ResultPage />} />
       </Route>
       <Route path="/tasks" element={<Navigate to="/" replace />} />
+      {/* Isolated POC: functional geometry-actions architecture. No app shell. */}
+      <Route path="/poc/geometry-actions" element={<PocPage />} />
     </Routes>
   );
 }
