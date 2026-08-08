@@ -43,10 +43,13 @@ interface RegisteredElement {
   bound?: boolean;
 }
 
-/** Build a fresh, empty board inside `container`. */
-export function createBoard(container: HTMLElement): Board {
+/** Build a fresh, empty board inside `container`, sized by the scene's viewBox. */
+export function createBoard(
+  container: HTMLElement,
+  viewBox?: [number, number, number, number],
+): Board {
   return JXG.JSXGraph.initBoard(container, {
-    boundingbox: [-6, 6, 8, -4],
+    boundingbox: viewBox ?? [-6, 6, 8, -4],
     axis: false,
     showCopyright: false,
     showNavigation: false,

@@ -20,6 +20,7 @@ import {
 interface Props {
   world: WorldState;
   interaction: InteractionView | null;
+  viewBox?: [number, number, number, number];
   onEvent: (event: GeometryEvent) => void;
 }
 
@@ -40,19 +41,22 @@ function loadJsxGraphCss(): void {
   jsxGraphCssLoaded = true;
 }
 
-export function JSXGraphCanvas({ world, interaction, onEvent }: Props) {
+export function JSXGraphCanvas({ world, interaction, viewBox, onEvent }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const adapterRef = useRef<JsxGraphAdapter | null>(null);
 
   // Stable onEvent: keep the latest handler without re-creating the board.
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  // Keep the latest viewBox without re-creating the board on every change.
+  const viewBoxRef = useRef(viewBox);
+  viewBoxRef.current = viewBox;
 
   useEffect(() => {
     loadJsxGraphCss();
     const el = containerRef.current;
     if (!el) return;
-    const board = createBoard(el);
+    const board = createBoard(el, viewBoxRef.current);
     const adapter = new JsxGraphAdapter(board, (ev) => onEventRef.current(ev));
     adapterRef.current = adapter;
     adapter.render(world, interaction);
