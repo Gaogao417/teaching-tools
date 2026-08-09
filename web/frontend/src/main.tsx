@@ -6,6 +6,7 @@ import "./styles.css";
 import "./styles/pages.css";
 import "./styles/practice.css";
 import "./styles/focus-workspace.css";
+import "./styles/geometry-poc.css";
 import "katex/dist/katex.min.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

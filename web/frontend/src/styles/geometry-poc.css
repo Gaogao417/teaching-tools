@@ -1,0 +1,136 @@
+/*
+ * Styles for the XState Geometry Canvas POC demo page.
+ *
+ * Per the frontend style contract, these reuse existing design tokens and the
+ * shared .panel / .btn / .action-row / .eyebrow / .text-muted primitives rather
+ * than inventing a new visual system. Geometry-specific layout lives here only
+ * because no existing layout shell matches a free-form board surface.
+ */
+
+.poc-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.poc-page__header {
+  padding: var(--space-4) var(--space-5);
+}
+
+.poc-page__title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold, 700);
+  margin: 0 0 var(--space-2);
+}
+
+.poc-page__tools {
+  flex-wrap: wrap;
+}
+
+.poc-page__body {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .poc-page__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.poc-page__feed {
+  margin: 0;
+}
+
+.poc-feed {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.poc-feed__item {
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-bg);
+}
+
+.poc-feed__item--error {
+  background: #fdecea;
+  color: var(--color-danger);
+}
+
+/* Geometry canvas surface -------------------------------------------------- */
+
+.geometry-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.geometry-canvas__prompt {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium, 600);
+  color: var(--color-accent-text);
+  background: var(--color-accent-bg);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.geometry-canvas__board {
+  width: 100%;
+  height: 420px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-panel);
+  position: relative;
+  overflow: hidden;
+}
+
+/* JSXGraph injects its own SVG/containers into .geometry-canvas__board; let it
+   fill the surface. */
+.geometry-canvas__board svg,
+.geometry-canvas__board .JXG {
+  width: 100%;
+  height: 100%;
+}
+
+.geometry-canvas__preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+.geometry-canvas__preview line,
+.geometry-canvas__preview circle {
+  stroke: var(--color-object);
+  stroke-width: 0.08;
+  fill: none;
+  stroke-dasharray: 0.2 0.15;
+}
+
+.geometry-canvas__meta {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.geometry-canvas__invalid {
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+  background: #fdecea;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}

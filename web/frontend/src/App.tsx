@@ -6,6 +6,8 @@ import { TaskOverviewPanel } from "./pages/TaskOverviewPanel";
 import { ReviewPage } from "./pages/ReviewPage";
 import { LearnPage } from "./pages/LearnPage";
 import { SimilarityLearningMapPage } from "./pages/SimilarityLearningMapPage";
+import PocPage from "./geometry/react/PocPage";
+import { PocErrorBoundary } from "./geometry/react/PocErrorBoundary";
 
 export default function App() {
   return (
@@ -18,6 +20,15 @@ export default function App() {
         <Route path="review/:taskId" element={<ReviewPage />} />
         <Route path="result/:sessionId" element={<ResultPage />} />
       </Route>
+      {/* Self-contained POC for the XState-driven geometry canvas. */}
+      <Route
+        path="/poc/geometry"
+        element={
+          <PocErrorBoundary>
+            <PocPage />
+          </PocErrorBoundary>
+        }
+      />
       <Route path="/tasks" element={<Navigate to="/" replace />} />
     </Routes>
   );
