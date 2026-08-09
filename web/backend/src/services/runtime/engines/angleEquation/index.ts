@@ -1,5 +1,7 @@
 import type {
   AngleEquationContentDefinition,
+  AngleEquationScenario,
+  AngleEquationScenarioRecord,
   AngleEquationStepKey,
 } from "../../../../../../shared/angleEquation";
 import type {
@@ -22,7 +24,7 @@ import {
   buildAngleEquationFeedbackPacket,
   buildAngleEquationRuntime,
 } from "./runtimeProjector";
-import { pickScenario } from "./scenarioBank";
+import { pickScenario, pickScenarioRecord } from "./scenarioBank";
 import { cloneAngleEquationState, parseDraftPayload } from "./shared";
 import {
   evaluateFilterAngles,
@@ -32,7 +34,6 @@ import {
 } from "./stepEvaluator";
 import type { AngleEquationEngineState } from "./types";
 import type { ScenarioRecord } from "../../../../../../shared/scenarios";
-import type { AngleEquationScenario } from "../../../../../../shared/angleEquation";
 
 // ─── Step order ──────────────────────────────────────────────────────
 
@@ -47,6 +48,14 @@ function currentStep(state: AngleEquationEngineState): AngleEquationStepKey {
   return STEP_ORDER.find((key) => !state.stepState[key].done) || "solve-target";
 }
 
+function scenarioFromRecord(record: ScenarioRecord): AngleEquationScenario {
+  return {
+    id: record.id,
+    ...(record.promptData as Omit<AngleEquationScenario, "id" | "answerKey">),
+    answerKey: record.answerKey as AngleEquationScenario["answerKey"],
+  };
+}
+
 // ─── Create state ────────────────────────────────────────────────────
 
 export function createAngleEquationState(
@@ -55,9 +64,17 @@ export function createAngleEquationState(
   index: number,
   selectedScenario?: ScenarioRecord,
 ): AngleEquationEngineState {
-  const scenario = selectedScenario
-    ? { ...selectedScenario.promptData, answerKey: selectedScenario.answerKey } as unknown as AngleEquationScenario
-    : pickScenario(index);
+  if (selectedScenario && (
+    selectedScenario.taskId !== task.id
+    || selectedScenario.engineKind !== "angle-equation"
+    || selectedScenario.contentId !== content.id
+    || selectedScenario.status !== "approved"
+  )) {
+    throw appError("RUNTIME_CONTRACT_INVALID", `Scenario ${selectedScenario.id} does not match ${task.id}/${content.id}`);
+  }
+  const pinnedScenario = selectedScenario as AngleEquationScenarioRecord | undefined;
+  const bundleRecord = pinnedScenario ?? pickScenarioRecord(index);
+  const scenario = pinnedScenario ? scenarioFromRecord(pinnedScenario) : pickScenario(index);
 
   return {
     instanceId: crypto.randomUUID(),
@@ -69,6 +86,8 @@ export function createAngleEquationState(
     firstTryCorrect: null,
     unknownType: scenario.unknownType,
     scenarioId: scenario.id,
+    scenarioVersion: bundleRecord.version,
+    ...(pinnedScenario ? { pinnedScenario } : {}),
     stepState: {
       "find-angles": { done: false, value: "" },
       "transform-range": { done: false, value: "" },
@@ -90,8 +109,14 @@ export function createAngleEquationState(
 
 export function restoreAngleEquationState(
   raw: unknown,
+  pinnedScenario?: ScenarioRecord,
 ): AngleEquationEngineState {
-  return raw as AngleEquationEngineState;
+  const state = raw as AngleEquationEngineState;
+  const pinned = pinnedScenario as AngleEquationScenarioRecord | undefined;
+  return {
+    ...state,
+    pinnedScenario: pinned || state.pinnedScenario,
+  };
 }
 
 // ─── Reduce action ───────────────────────────────────────────────────

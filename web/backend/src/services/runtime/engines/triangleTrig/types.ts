@@ -13,19 +13,22 @@ import type {
   GuidedStepKey,
   Role,
   Side,
+  TriangleTrigLengthValue,
+  TriangleTrigScenarioRecord,
   TriangleTrigTaskId,
   TrigFunction,
 } from "../../../../../../shared/triangleTrig";
 import type { RuntimeEngineState } from "../../platform/engineTypes";
 
-export type LengthValue = { n: number; s: number };
+/** @deprecated kept for backward compatibility with older state snapshots. */
+export type LengthValue = TriangleTrigLengthValue;
 
 export type MeaningAnswerKey = {
   roles: [Role, Role];
 };
 
 export type RatioAnswerKey = {
-  triple: Record<Side, LengthValue>;
+  triple: Record<Side, TriangleTrigLengthValue>;
 };
 
 export type GuidedAnswerKey = {
@@ -46,6 +49,11 @@ export type TriangleTrigBaseState = RuntimeEngineState & {
   firstTryCorrect: boolean | null;
   target: TrigFunction;
   referenceAngle: Angle;
+  /** Stable identifier of the bundle scenario backing this instance. */
+  scenarioId?: string;
+  scenarioVersion?: string;
+  /** Backend-only immutable bundle snapshot; never included in ExerciseRuntimeSpec. */
+  pinnedScenario?: TriangleTrigScenarioRecord;
 };
 
 export type MeaningEngineState = TriangleTrigBaseState & {

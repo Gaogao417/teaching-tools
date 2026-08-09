@@ -8,8 +8,12 @@ import type {
   TaskDefinition,
   TriangleTrigContentDefinition,
 } from "../../../../../../shared/contracts";
-import type { TriangleTrigTaskId } from "../../../../../../shared/triangleTrig";
-import type { Side } from "../../../../../../shared/triangleTrig";
+import type {
+  Side,
+  TriangleTrigResolvedScenario,
+  TriangleTrigScenarioRecord,
+  TriangleTrigTaskId,
+} from "../../../../../../shared/triangleTrig";
 import { appError } from "../../platform/errors";
 import type { EngineActionResult } from "../../platform/engineTypes";
 import { defineEnginePlugin } from "../../platform/engineTypes";
@@ -20,15 +24,21 @@ import {
 } from "../../platform/engineTypes";
 import { buildTriangleTrigFeedbackPacket, buildTriangleTrigRuntime } from "./runtimeProjector";
 import {
-  ACUTE_ANGLES,
-  TRIGS,
   cloneTriangleTrigState,
+  computeRatioPair,
   formatLength,
   parseDraftPayload,
-  randomItem,
   roleForSide,
   sideForRole,
 } from "./shared";
+import {
+  getTriangleScenario,
+  guidedAnswerOf,
+  meaningAnswerOf,
+  pickTriangleScenario,
+  ratioAnswerOf,
+  resolveTriangleScenarioRecord,
+} from "./scenarioBank";
 import { getTriangleTrigTaskStrategy } from "./taskStrategies";
 import type {
   GuidedEngineState,
@@ -37,7 +47,6 @@ import type {
   TriangleTrigEngineState,
 } from "./types";
 import type { ScenarioRecord } from "../../../../../../shared/scenarios";
-import type { Angle, TrigFunction } from "../../../../../../shared/triangleTrig";
 
 export type {
   GuidedEngineState,
@@ -54,23 +63,95 @@ function currentStepId(state: TriangleTrigEngineState, content: TriangleTrigCont
   return getTriangleTrigTaskStrategy(state.taskId).buildProjectionModel(content, state).currentStepId;
 }
 
+function currentScenario(state: TriangleTrigEngineState): TriangleTrigResolvedScenario {
+  const pinned = (state as TriangleTrigEngineState & { pinnedScenario?: TriangleTrigScenarioRecord }).pinnedScenario;
+  if (pinned) return resolveTriangleScenarioRecord(pinned);
+  // Fallback for sessions persisted before scenario pinning: resolve by id, or
+  // fall back to the first approved scenario for the task.
+  if (state.scenarioId) return getTriangleScenario(state.taskId, state.scenarioId);
+  return pickTriangleScenario(state.taskId, 0);
+}
+
+function buildStateFromScenario(
+  task: TaskDefinition,
+  content: TriangleTrigContentDefinition,
+  index: number,
+  scenario: TriangleTrigResolvedScenario,
+  instanceId: string,
+  pinnedScenario?: TriangleTrigScenarioRecord,
+): TriangleTrigEngineState {
+  const base = {
+    instanceId,
+    contentId: content.id,
+    index,
+    status: "pending" as const,
+    attempts: 0,
+    firstTryCorrect: null as boolean | null,
+    target: scenario.target,
+    referenceAngle: scenario.referenceAngle,
+    scenarioId: scenario.id,
+    scenarioVersion: scenario.version,
+    ...(pinnedScenario ? { pinnedScenario } : {}),
+  };
+
+  if (scenario.taskId === "meaning") {
+    const answer = meaningAnswerOf(scenario);
+    return { ...base, taskId: "meaning", answerKey: answer } as MeaningEngineState;
+  }
+
+  if (scenario.taskId === "ratioToSide") {
+    const answer = ratioAnswerOf(scenario);
+    return {
+      ...base,
+      taskId: "ratioToSide",
+      ratio: computeRatioPair(answer.triple, scenario.target, scenario.referenceAngle),
+      answerKey: answer,
+    } as RatioEngineState;
+  }
+
+  const answer = guidedAnswerOf(scenario);
+  return {
+    ...base,
+    taskId: "guidedSolve",
+    knownType: scenario.knownType,
+    given: scenario.given || [],
+    stepState: {
+      ratio: { done: false, value: "" },
+      third: { done: false, value: "" },
+      final: { done: false, value: "" },
+    },
+    answerKey: answer,
+  } as GuidedEngineState;
+}
+
 export function createTriangleTrigState(
   task: TaskDefinition,
   content: TriangleTrigContentDefinition,
   index: number,
-  scenario?: ScenarioRecord,
+  selectedScenario?: ScenarioRecord,
 ): TriangleTrigEngineState {
-  const target = scenario?.promptData.target;
-  const referenceAngle = scenario?.promptData.referenceAngle;
-  return getTriangleTrigTaskStrategy(taskIdOf(task)).createState(task, content, index, {
-    instanceId: crypto.randomUUID(),
-    target: typeof target === "string" ? target as TrigFunction : randomItem(TRIGS),
-    referenceAngle: typeof referenceAngle === "string" ? referenceAngle as Angle : randomItem(ACUTE_ANGLES),
-  });
+  if (selectedScenario && (
+    selectedScenario.taskId !== task.id
+    || selectedScenario.engineKind !== "triangle-trig"
+    || selectedScenario.contentId !== content.id
+    || selectedScenario.status !== "approved"
+  )) {
+    throw appError("RUNTIME_CONTRACT_INVALID", `Scenario ${selectedScenario.id} does not match ${task.id}/${content.id}`);
+  }
+  const pinnedScenario = selectedScenario as TriangleTrigScenarioRecord | undefined;
+  const scenario = pinnedScenario
+    ? resolveTriangleScenarioRecord(pinnedScenario)
+    : pickTriangleScenario(taskIdOf(task), index);
+  return buildStateFromScenario(task, content, index, scenario, crypto.randomUUID(), pinnedScenario);
 }
 
-export function restoreTriangleTrigState(raw: unknown): TriangleTrigEngineState {
-  return raw as TriangleTrigEngineState;
+export function restoreTriangleTrigState(raw: unknown, pinnedScenario?: ScenarioRecord): TriangleTrigEngineState {
+  const state = raw as TriangleTrigEngineState;
+  const pinned = pinnedScenario as TriangleTrigScenarioRecord | undefined;
+  return {
+    ...state,
+    pinnedScenario: pinned || (state as TriangleTrigEngineState & { pinnedScenario?: TriangleTrigScenarioRecord }).pinnedScenario,
+  };
 }
 
 export function reduceTriangleTrigAction(
@@ -131,11 +212,8 @@ function buildTriangleLearningProjection(
   task: TaskDefinition,
   content: TriangleTrigContentDefinition,
 ): LearningProjectionSpec {
-  const state = getTriangleTrigTaskStrategy(taskIdOf(task)).createState(task, content, 0, {
-    instanceId: `learn-${task.id}`,
-    target: TRIGS[0],
-    referenceAngle: ACUTE_ANGLES[0],
-  });
+  const state = createTriangleTrigState(task, content, 0);
+  state.instanceId = `learn-${task.id}`;
   return learningProjectionFromRuntime(task, buildTriangleTrigRuntime(task, content, state, "answering"));
 }
 

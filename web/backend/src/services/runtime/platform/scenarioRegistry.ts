@@ -1,8 +1,9 @@
 import type { TaskDefinition, ContentDefinition } from "../../../../../shared/contracts";
 import type { ScenarioRecord } from "../../../../../shared/scenarios";
-import { getAllScenarios as getAngleScenarios } from "../engines/angleEquation/scenarioBank";
+import { pickScenarioRecord as pickAngleScenarioRecord } from "../engines/angleEquation/scenarioBank";
 import { generateScenario } from "../engines/buoyancyForceAnalysis/scenarioBank";
 import { getAllScenarios as getCoordinateScenarios } from "../engines/coordinateIsoscelesRight/scenarioBank";
+import { pickTriangleScenarioRecord } from "../engines/triangleTrig/scenarioBank";
 import { pickTopicScenarioRecord } from "../engines/topicPractice/scenarioBank";
 
 type ScenarioProvider = (
@@ -40,10 +41,10 @@ function approvedRecord(
 }
 
 const providers: Partial<Record<TaskDefinition["engineKind"], ScenarioProvider>> = {
-  "angle-equation": (task, content) => getAngleScenarios().map((scenario) => {
-    const { answerKey, ...promptData } = scenario;
-    return approvedRecord(task, content, scenario.id, promptData, answerKey as unknown as Record<string, unknown>);
-  }),
+  "angle-equation": (_task, _content, index) => {
+    const record = pickAngleScenarioRecord(index);
+    return [record as unknown as ScenarioRecord];
+  },
   "coordinate-isosceles-right": (task, content) => getCoordinateScenarios().map((scenario) => {
     const { answerKey, ...promptData } = scenario;
     return approvedRecord(task, content, scenario.id, promptData, answerKey as unknown as Record<string, unknown>);
@@ -58,17 +59,8 @@ const providers: Partial<Record<TaskDefinition["engineKind"], ScenarioProvider>>
     return [scenario as unknown as ScenarioRecord];
   },
   "triangle-trig": (task, content, index) => {
-    const targets = ["sin", "cos", "tan", "cot"];
-    const referenceAngles = ["A", "C"];
-    const target = targets[index % targets.length];
-    const referenceAngle = referenceAngles[Math.floor(index / targets.length) % referenceAngles.length];
-    return [approvedRecord(
-      task,
-      content,
-      `${task.id}-${target}-${referenceAngle}-${index}`,
-      { target, referenceAngle },
-      {},
-    )];
+    const record = pickTriangleScenarioRecord(task.id as Parameters<typeof pickTriangleScenarioRecord>[0], index);
+    return [record as unknown as ScenarioRecord];
   },
   "demo-counter": (task, content) => {
     const expectedAnswer = "expectedAnswer" in content ? content.expectedAnswer : "";

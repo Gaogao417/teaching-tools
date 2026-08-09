@@ -1,0 +1,797 @@
+{
+  "schema": "teaching-tools/angle-equation-scenario-bundle/v1",
+  "version": "2026-08-07.1",
+  "generatedAt": "2026-08-07T00:00:00.000Z",
+  "authoringRun": {
+    "schema": "teaching-tools/authoring-run/v1",
+    "id": "legacy-bundle-import:2026-08-07.1",
+    "status": "completed",
+    "taskIds": [],
+    "startedAt": "2026-08-07T00:00:00.000Z",
+    "finishedAt": "2026-08-07T00:00:00.000Z",
+    "toolchainVersion": "legacy-bundle-import:1",
+    "inputSpecVersion": "legacy-seed-constants:1",
+    "counts": {
+      "candidate": 0,
+      "validated": 0,
+      "approved": 10,
+      "rejected": 0
+    },
+    "outputCount": 10
+  },
+  "scenarios": {
+    "trigEquationRange": [
+      {
+        "id": "sin-2x-half-x",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "sin-2x-half-x",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:sin-2x-half-x:v1",
+          "scenarioId": "sin-2x-half-x",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "sin",
+          "value": "1/2",
+          "omega": 2,
+          "phi": "0",
+          "unknownType": "x",
+          "unknownRange": [
+            "0",
+            "2*pi"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "pi/6",
+            "5*pi/6"
+          ],
+          "transformedRange": [
+            "0",
+            "4*pi"
+          ],
+          "filteredAngles": [
+            "pi/6",
+            "5*pi/6",
+            "13*pi/6",
+            "17*pi/6"
+          ],
+          "solutions": [
+            "pi/12",
+            "5*pi/12",
+            "13*pi/12",
+            "17*pi/12"
+          ]
+        }
+      },
+      {
+        "id": "cos-2x-neg-half-x",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "cos-2x-neg-half-x",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:cos-2x-neg-half-x:v1",
+          "scenarioId": "cos-2x-neg-half-x",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "cos",
+          "value": "-1/2",
+          "omega": 2,
+          "phi": "0",
+          "unknownType": "x",
+          "unknownRange": [
+            "0",
+            "2*pi"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "2*pi/3",
+            "4*pi/3"
+          ],
+          "transformedRange": [
+            "0",
+            "4*pi"
+          ],
+          "filteredAngles": [
+            "2*pi/3",
+            "4*pi/3",
+            "8*pi/3",
+            "10*pi/3"
+          ],
+          "solutions": [
+            "pi/3",
+            "2*pi/3",
+            "4*pi/3",
+            "5*pi/3"
+          ]
+        }
+      },
+      {
+        "id": "sin-x-pi6-half-x",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "sin-x-pi6-half-x",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:sin-x-pi6-half-x:v1",
+          "scenarioId": "sin-x-pi6-half-x",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "sin",
+          "value": "1/2",
+          "omega": 1,
+          "phi": "pi/6",
+          "unknownType": "x",
+          "unknownRange": [
+            "0",
+            "2*pi"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "pi/6",
+            "5*pi/6"
+          ],
+          "transformedRange": [
+            "pi/6",
+            "13*pi/6"
+          ],
+          "filteredAngles": [
+            "pi/6",
+            "5*pi/6",
+            "13*pi/6"
+          ],
+          "solutions": [
+            "0",
+            "2*pi/3",
+            "2*pi"
+          ]
+        }
+      },
+      {
+        "id": "tan-2x-one-x",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "tan-2x-one-x",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:tan-2x-one-x:v1",
+          "scenarioId": "tan-2x-one-x",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "tan",
+          "value": "1",
+          "omega": 2,
+          "phi": "0",
+          "unknownType": "x",
+          "unknownRange": [
+            "0",
+            "2*pi"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "pi/4"
+          ],
+          "transformedRange": [
+            "0",
+            "4*pi"
+          ],
+          "filteredAngles": [
+            "pi/4",
+            "5*pi/4",
+            "9*pi/4",
+            "13*pi/4"
+          ],
+          "solutions": [
+            "pi/8",
+            "5*pi/8",
+            "9*pi/8",
+            "13*pi/8"
+          ]
+        }
+      },
+      {
+        "id": "sin-neg-x-half-x",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "sin-neg-x-half-x",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:sin-neg-x-half-x:v1",
+          "scenarioId": "sin-neg-x-half-x",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "sin",
+          "value": "1/2",
+          "omega": -1,
+          "phi": "0",
+          "unknownType": "x",
+          "unknownRange": [
+            "0",
+            "2*pi"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "pi/6",
+            "5*pi/6"
+          ],
+          "transformedRange": [
+            "-2*pi",
+            "0"
+          ],
+          "filteredAngles": [
+            "-11*pi/6",
+            "-7*pi/6"
+          ],
+          "solutions": [
+            "7*pi/6",
+            "11*pi/6"
+          ]
+        }
+      },
+      {
+        "id": "cos-x-phi-sqrt2-half-phi",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "cos-x-phi-sqrt2-half-phi",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:cos-x-phi-sqrt2-half-phi:v1",
+          "scenarioId": "cos-x-phi-sqrt2-half-phi",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "cos",
+          "value": "sqrt(2)/2",
+          "omega": 1,
+          "phi": "unknown",
+          "unknownType": "phi",
+          "unknownRange": [
+            "-pi",
+            "pi"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "pi/4",
+            "7*pi/4"
+          ],
+          "transformedRange": [
+            "-3*pi/4",
+            "5*pi/4"
+          ],
+          "filteredAngles": [
+            "-pi/4",
+            "pi/4"
+          ],
+          "solutions": [
+            "-pi/2",
+            "0"
+          ]
+        }
+      },
+      {
+        "id": "sin-2x-pi3-sqrt3-half-x",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "sin-2x-pi3-sqrt3-half-x",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:sin-2x-pi3-sqrt3-half-x:v1",
+          "scenarioId": "sin-2x-pi3-sqrt3-half-x",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "sin",
+          "value": "sqrt(3)/2",
+          "omega": 2,
+          "phi": "pi/3",
+          "unknownType": "x",
+          "unknownRange": [
+            "0",
+            "pi"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "pi/3",
+            "2*pi/3"
+          ],
+          "transformedRange": [
+            "pi/3",
+            "7*pi/3"
+          ],
+          "filteredAngles": [
+            "pi/3",
+            "2*pi/3",
+            "7*pi/3"
+          ],
+          "solutions": [
+            "0",
+            "pi/6",
+            "pi"
+          ]
+        }
+      },
+      {
+        "id": "cos-half-x-one-x",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "cos-half-x-one-x",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:cos-half-x-one-x:v1",
+          "scenarioId": "cos-half-x-one-x",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "cos",
+          "value": "1",
+          "omega": 0.5,
+          "phi": "0",
+          "unknownType": "x",
+          "unknownRange": [
+            "0",
+            "4*pi"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "0"
+          ],
+          "transformedRange": [
+            "0",
+            "2*pi"
+          ],
+          "filteredAngles": [
+            "0",
+            "2*pi"
+          ],
+          "solutions": [
+            "0",
+            "4*pi"
+          ]
+        }
+      },
+      {
+        "id": "sin-omega-x-zero-omega",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "sin-omega-x-zero-omega",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:sin-omega-x-zero-omega:v1",
+          "scenarioId": "sin-omega-x-zero-omega",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "sin",
+          "value": "0",
+          "omega": 0,
+          "phi": "0",
+          "unknownType": "omega",
+          "unknownRange": [
+            "1",
+            "3"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "0",
+            "pi"
+          ],
+          "transformedRange": [
+            "pi/2",
+            "3*pi/2"
+          ],
+          "filteredAngles": [
+            "pi"
+          ],
+          "solutions": [
+            "2"
+          ]
+        }
+      },
+      {
+        "id": "tan-x-pi4-neg-one-x",
+        "taskId": "trigEquationRange",
+        "engineKind": "angle-equation",
+        "contentId": "angle-equation.trig-equation-range.v1",
+        "version": "v1",
+        "status": "approved",
+        "createdAt": "2026-08-07T00:00:00.000Z",
+        "approvedAt": "2026-08-07T00:00:00.000Z",
+        "metadata": {
+          "source": "reviewed-bank-import",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "assignments": [],
+          "difficulty": "foundation",
+          "tags": [
+            "legacy-seed"
+          ],
+          "sourceBankId": "legacy-angle-equation",
+          "sourceQuestionId": "tan-x-pi4-neg-one-x",
+          "importTool": "build-legacy-bundles.mjs"
+        },
+        "validation": {
+          "schema": "teaching-tools/scenario-validation-report/v1",
+          "id": "validation:tan-x-pi4-neg-one-x:v1",
+          "scenarioId": "tan-x-pi4-neg-one-x",
+          "scenarioVersion": "v1",
+          "authoringRunId": "legacy-bundle-import:2026-08-07.1",
+          "passed": true,
+          "checks": [
+            {
+              "name": "schema",
+              "kind": "schema",
+              "layer": "schema",
+              "passed": true,
+              "message": "Legacy seed-derived scenario serialized to bundle."
+            },
+            {
+              "name": "deterministic-answer-key",
+              "kind": "domain",
+              "layer": "deterministic",
+              "passed": true,
+              "message": "Answer key reproduced from legacy generator constants."
+            }
+          ],
+          "createdAt": "2026-08-07T00:00:00.000Z"
+        },
+        "promptData": {
+          "trigFn": "tan",
+          "value": "-1",
+          "omega": 1,
+          "phi": "pi/4",
+          "unknownType": "x",
+          "unknownRange": [
+            "0",
+            "2*pi"
+          ]
+        },
+        "answerKey": {
+          "referenceAngles": [
+            "3*pi/4"
+          ],
+          "transformedRange": [
+            "pi/4",
+            "9*pi/4"
+          ],
+          "filteredAngles": [
+            "3*pi/4",
+            "7*pi/4"
+          ],
+          "solutions": [
+            "pi/2",
+            "3*pi/2"
+          ]
+        }
+      }
+    ]
+  }
+}

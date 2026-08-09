@@ -1,6 +1,8 @@
 // Angle-equation engine domain types
 // Shared between frontend and backend
 
+import type { AuthoringRun, ScenarioRecord, ScenarioValidationReport } from "./scenarios";
+
 // ─── Step IDs ────────────────────────────────────────────────────────
 
 export type AngleEquationStepKey =
@@ -34,6 +36,54 @@ export interface AngleEquationScenario {
     solutions: string[];
   };
 }
+
+// ─── Scenario record (JSON bundle shape) ──────────────────────────────
+/**
+ * Scenario for the angle-equation engine. `promptData` is the learner-facing
+ * equation parameters; `answerKey` is the backend-only truth. The runtime
+ * derives per-step accepted answers from `answerKey` and never serializes it
+ * into `ExerciseRuntimeSpec`.
+ */
+export interface AngleEquationScenarioRecord extends ScenarioRecord {
+  taskId: AngleEquationTaskId;
+  engineKind: "angle-equation";
+  validation: ScenarioValidationReport;
+  promptData: {
+    trigFn: AngleEquationTrigFn;
+    value: string;
+    omega: number;
+    phi: string;
+    unknownType: UnknownType;
+    unknownRange: [string, string];
+  };
+  answerKey: AngleEquationScenario["answerKey"];
+}
+
+// ─── Resolved scenario (backend-only; answer key reattached) ──────────
+export interface AngleEquationResolvedScenario {
+  id: string;
+  taskId: AngleEquationTaskId;
+  contentId: string;
+  version: string;
+  trigFn: AngleEquationTrigFn;
+  value: string;
+  omega: number;
+  phi: string;
+  unknownType: UnknownType;
+  unknownRange: [string, string];
+  answerKey: AngleEquationScenario["answerKey"];
+}
+
+// ─── Bundle container ─────────────────────────────────────────────────
+export interface AngleEquationScenarioBundle {
+  schema: "teaching-tools/angle-equation-scenario-bundle/v1";
+  version: string;
+  generatedAt: string;
+  authoringRun: AuthoringRun;
+  scenarios: Record<AngleEquationTaskId, AngleEquationScenarioRecord[]>;
+}
+
+export type AngleEquationScenarioValidationReport = ScenarioValidationReport;
 
 // ─── ContentDefinition ───────────────────────────────────────────────
 
