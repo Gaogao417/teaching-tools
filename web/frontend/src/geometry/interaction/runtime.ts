@@ -17,7 +17,7 @@ import type { GeometryCommand } from "../domain/commands";
 import type { GeometryModel } from "../domain/model";
 import type { CanvasEvent } from "./events";
 import { idleView, type InteractionView } from "./interaction-view";
-import type { ToolDefinition, ToolId, ToolInput } from "./tool-registry";
+import type { ToolDefinition, ToolEvidence, ToolId, ToolInput } from "./tool-registry";
 import { getTool } from "./tool-registry";
 
 type Listener = () => void;
@@ -26,6 +26,13 @@ export interface ToolCompleted {
   toolId: ToolId;
   command: GeometryCommand;
   result: CommandResult;
+  /**
+   * Teaching evidence extracted from the completed snapshot (the learner's
+   * clicks), distinct from the math command. Present only when the tool
+   * declares {@link ToolDefinition.extractEvidence}. Production wiring
+   * serializes this into the existing `topic-answer` string.
+   */
+  evidence?: ToolEvidence[ToolId];
 }
 
 export interface InteractionRuntime {
@@ -103,7 +110,11 @@ export function createInteractionRuntime(executor: CommandExecutor, model: Geome
         }
         const command = output as GeometryCommand;
         const result = executor.execute(command);
-        for (const h of doneHandlers) h({ toolId: activeTool.id, command, result });
+        // Evidence is harvested from the just-completed snapshot before teardown.
+        // It is orthogonal to the math command — the learner's clicks, used by
+        // production to serialize the `topic-answer` string.
+        const evidence = activeTool.extractEvidence?.(activeActor.getSnapshot());
+        for (const h of doneHandlers) h({ toolId: activeTool.id, command, result, evidence });
         teardown();
         notify();
       });

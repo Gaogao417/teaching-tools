@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed · POC 已落地（2026-08-08）· 已演进为任务驱动 + 对象级 affordance（2026-08-09，见下方"演进"）
+Proposed · POC 已落地（2026-08-08）· 已演进为任务驱动 + 对象级 affordance（2026-08-09，见下方"演进"）· construct-parallel 已接入生产 `TopicPracticeWorkspace`（2026-08-09，见下方"生产接线"）
 
 ## Background
 
@@ -138,3 +138,21 @@ Q001 的几何是铁证：`throughPoint=C, parallelSegment=AD, carrierPoints=[B,
 - 干净的拆分应当是把 `construct-parallel` 砍回纯两阶段（点 + 参照边 → 平行线 command），把"求交落线"另立为独立工具（如 `intersect-line`），carrier 作为该工具的输入而非前者的 evidence。
 - 生产提交串 `point:T|parallel:S|carrier:C0,C1` 是**两个动作答案的字符串胶合**，属于序列化层决定，不应倒逼交互层把两个动作合并成一个。
 - UI 文案"外点"（`constructionPrompt` 中的"点第一个/第二个外点"）用词不当——carrier 实为"载体线段端点"，应在重构时一并纠正。接线切片暂保留现有措辞以保持行为等价。
+
+## 生产接线（2026-08-09）
+
+construct-parallel 已作为第一条最窄生产纵向切片接入 `TopicPracticeWorkspace`。这一步把"框架已就绪"推进到"跑在真实 `auxiliaryTwoRatios` 场景的 construct-parallel 步上"，同时不动后端、不换 Canvas、不改 machine。
+
+**接入边界**：保留现有 SVG-over-`<img>` 生产 `GeometryCanvas`；只把它背后的手写 `handlePoint`/`handleSegment`/`undoLast` 的 construct-parallel 分支换成 XState machine。其它 primitive（mark-segments / mark-ratio / ratio-scratch / convert-collinear / equation / select / input）一律不动，继续走原 switch。
+
+**接口缺口修复 —— evidence 作为 tool-discriminated 旁路通道**：machine 的输出仍是纯 `GeometryCommand`（只含 `throughPointId`/`referenceLineId`），不把 carrier points 硬塞进命令（carrier 是教学操作证据，不是"作平行线"这个数学命令本身）。新增 `ToolEvidence`（按 tool 区分的判别类型）+ `ToolDefinition.extractEvidence`：runtime 在命令执行后、`onDone` 触发前从完成态 snapshot 提取证据，经 `ToolCompleted.evidence` 暴露。生产侧用适配器 `serializeParallelEvidence` 把它序列化成原有 `point:T|parallel:S|carrier:C0,C1` 字符串，后端判题（`isTopicAnswerAccepted` + `wrongObjectsForSubmission`）零改动。这条 evidence 通道证明：machine 可以同时服务"修改数学模型"（command）和"产出可判题的教学证据"（evidence），二者边界干净。
+
+**新增的生产适配层**（`web/frontend/src/geometry/adapters/`，纯函数、无 React）：
+- `constructParallelAdapter.ts`：`construction` → `ParallelActionSpec`、`TopicGeometryModel` → domain `GeometryModel`、evidence ↔ `topic-answer` 字符串双向转换。
+- `mapInteractionView.ts`：`InteractionView` → 生产 Canvas 现有的 prop 形状（`availablePointIds` / `availableSegmentIds` / `selectedPoints` / `selectedSegments` / `wrongObjectIds` / `constructionPreview`）。
+
+**React 绑定**（`TopicPracticeWorkspace.tsx` 内的 `useConstructParallel`）：每个 construct-parallel step 建一个 runtime + machine，从 draft 注水（重放已确认正确的点击，离开再回来 partial progress 仍在），把 in-progress 选择回写 draft（撤销/推进同步），完成时落 `onDone` 的 evidence 序列化。错误的点/线经 projector 标红并并入现有 `wrongObjectIds` 渠道，复用既有 `is-wrong` 样式 —— 这是 POC 已验证但生产此前缺失的"错误对象能变红"能力。
+
+**测试**：原 55 条全绿；新增 26 条适配器测试覆盖序列化与答案键逐字节一致、InteractionView→Canvas props 映射；runtime 集成测试补 evidence 断言。前端 `tsc --noEmit` 干净。
+
+**仍未完成（逐条迁移其它 primitive 的前置）**：mark-segments / mark-ratio / ratio-scratch / convert-collinear / equation / select / input 仍各自需要一个 machine + projector + 输入 spec + evidence serializer。Canvas、事件协议、交通灯、runtime 不需要重写。

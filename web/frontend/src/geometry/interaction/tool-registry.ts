@@ -31,6 +31,32 @@ export interface ToolInput {
   "construct-circle": undefined;
 }
 
+/**
+ * Per-tool teaching evidence — the learner's actual clicks, distinct from the
+ * math {@link GeometryCommand} the machine emits on completion. The command
+ * captures the math operation (e.g. "parallel line through C along AD"); the
+ * evidence captures what the learner selected to get there (the carrier points
+ * they clicked, which are not part of the math command). Production wiring
+ * serializes evidence into the existing `topic-answer` string without polluting
+ * the command, keeping the machine reusable and the math boundary clean.
+ *
+ * Keys mirror {@link ToolId}. A tool with no production evidence need can omit
+ * {@link ToolDefinition.extractEvidence}; `ToolCompleted.evidence` will then be
+ * `undefined`.
+ */
+export interface ToolEvidence {
+  "construct-parallel": {
+    selectedPointId: string;
+    selectedLineId: string;
+    /** The two carrier-segment endpoints the learner clicked. */
+    carrierPointIds: readonly [string, string];
+  };
+  "construct-circle": {
+    selectedCenterId: string;
+    selectedThroughPointId: string;
+  };
+}
+
 export interface ToolDefinition {
   id: ToolId;
   title: string;
@@ -38,6 +64,13 @@ export interface ToolDefinition {
   machine: AnyStateMachine;
   /** Pure projector: (snapshot, model) -> InteractionView. */
   project(snapshot: SnapshotFrom<AnyStateMachine>, model: GeometryModel): InteractionView;
+  /**
+   * Extract teaching evidence from a completed snapshot. Pure. Only invoked on a
+   * machine that reached a successful done state (the executor already ran and
+   * `result.ok` holds); never on cancellation. Optional: tools without a
+   * production evidence need may omit it.
+   */
+  extractEvidence?(snapshot: SnapshotFrom<AnyStateMachine>): ToolEvidence[ToolId];
 }
 
 export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
@@ -48,6 +81,21 @@ export const TOOL_REGISTRY: Record<ToolId, ToolDefinition> = {
     machine: constructParallelMachine as unknown as AnyStateMachine,
     project: (snapshot, model) =>
       projectConstructParallel(snapshot as SnapshotFrom<typeof constructParallelMachine>, model),
+    // On a successful done the guards guarantee pointId/lineId/carrierIds are all
+    // populated; the assertions below make that invariant explicit for the type
+    // checker (and would surface a guard regression loudly in tests).
+    extractEvidence: (snapshot) => {
+      const ctx = (snapshot as SnapshotFrom<typeof constructParallelMachine>).context;
+      const carrierIds = ctx.carrierIds;
+      if (!ctx.pointId || !ctx.lineId || carrierIds.length < 2) {
+        throw new Error("construct-parallel extractEvidence: incomplete completed context");
+      }
+      return {
+        selectedPointId: ctx.pointId,
+        selectedLineId: ctx.lineId,
+        carrierPointIds: [carrierIds[0], carrierIds[1]],
+      };
+    },
   },
   "construct-circle": {
     id: "construct-circle",

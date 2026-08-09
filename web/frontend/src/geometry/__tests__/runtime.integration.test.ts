@@ -44,8 +44,8 @@ describe("InteractionRuntime — construct-parallel (runtime-only: send → done
     const executor = createCommandExecutor(model);
     const runtime = createInteractionRuntime(executor, model);
 
-    let lastCompleted: { command: GeometryCommand } | undefined;
-    runtime.onDone((c) => (lastCompleted = { command: c.command }));
+    let lastCompleted: { command: GeometryCommand; evidence?: unknown } | undefined;
+    runtime.onDone((c) => (lastCompleted = { command: c.command, evidence: c.evidence }));
 
     runtime.startTool("construct-parallel", PARALLEL_SPEC);
     expect(runtime.activeToolId()).toBe("construct-parallel");
@@ -68,6 +68,14 @@ describe("InteractionRuntime — construct-parallel (runtime-only: send → done
       type: "construct-parallel",
       throughPointId: "A",
       referenceLineId: "BC",
+    });
+
+    // Evidence carries the learner's clicks (the carriers the math command
+    // omits) so production can serialize the `topic-answer` string.
+    expect(lastCompleted!.evidence).toEqual({
+      selectedPointId: "A",
+      selectedLineId: "BC",
+      carrierPointIds: ["B", "C"],
     });
 
     // The model, NOT the machine, gained the derived geometry: a single
@@ -125,7 +133,8 @@ describe("InteractionRuntime — construct-circle uses identical dispatch", () =
     const model = seededTriangle();
     const runtime = createInteractionRuntime(createCommandExecutor(model), model);
     let lastCommand: GeometryCommand | undefined;
-    runtime.onDone((c) => (lastCommand = c.command));
+    let lastEvidence: unknown;
+    runtime.onDone((c) => { lastCommand = c.command; lastEvidence = c.evidence; });
 
     runtime.startTool("construct-circle", undefined);
     // Both steps are POINT.CLICKED — same Canvas dispatch, no tool branch.
@@ -134,6 +143,9 @@ describe("InteractionRuntime — construct-circle uses identical dispatch", () =
 
     expect(lastCommand).toEqual({ type: "construct-circle", centerId: "A", throughPointId: "B" });
     expect(model.circlesList().filter((c) => c.derived)).toHaveLength(1);
+    // construct-circle has no production evidence need yet: extractEvidence is
+    // undefined, so ToolCompleted.evidence stays undefined.
+    expect(lastEvidence).toBeUndefined();
   });
 });
 

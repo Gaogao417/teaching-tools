@@ -1,8 +1,21 @@
-import { useEffect, type ChangeEvent } from "react";
-import { assertNeverPrimitive, type TopicActionPrimitive, type TopicGeometryModel, type TopicGeometryPoint, type TopicGeometrySegment } from "../../../../../shared/topicPractice";
+import { useEffect, useMemo, useSyncExternalStore, type ChangeEvent } from "react";
+import { assertNeverPrimitive, type TopicActionProjection, type TopicActionPrimitive, type TopicGeometryModel, type TopicGeometryPoint, type TopicGeometrySegment } from "../../../../../shared/topicPractice";
 import { MathText } from "../../math/MathText";
 import { currentStep } from "../../../pages/practice/runtime/sceneUtils";
 import type { WorkspaceRendererProps } from "../../../pages/practice/runtime/workspaceRenderers";
+import { createCommandExecutor } from "../../../geometry/domain/command-executor";
+import type { CommandExecutor, CommandResult } from "../../../geometry/domain/command-executor";
+import { GeometryModel } from "../../../geometry/domain/model";
+import type { InteractionRuntime } from "../../../geometry/interaction/runtime";
+import { createInteractionRuntime } from "../../../geometry/interaction/runtime";
+import { idleView, type InteractionView } from "../../../geometry/interaction/interaction-view";
+import {
+  buildGeometryModel,
+  buildParallelSpec,
+  parseParallelAnswer,
+  serializeParallelEvidence,
+} from "../../../geometry/adapters/constructParallelAdapter";
+import { mapConstructParallelView } from "../../../geometry/adapters/mapInteractionView";
 
 function playErrorBeep() {
   const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -259,6 +272,120 @@ function GeometryCanvas({
   );
 }
 
+/**
+ * Rebuild the legacy partial `topic-answer` string from the machine's current
+ * view, so the draft stays in lockstep with the machine as the learner
+ * advances / undoes. The projector places `selected` in stage order: the
+ * through-point first, then the reference line, then the carrier points. We
+ * rebuild the same `point:T|parallel:S|carrier:C0,C1` form the legacy handlers
+ * produced at each stage (and return null when the machine has nothing chosen
+ * yet, so the draft isn't touched on a fresh start).
+ */
+function parallelAnswerFromView(view: InteractionView): string | null {
+  const points: string[] = [];
+  const lines: string[] = [];
+  for (const ref of view.selected) {
+    if (ref.kind === "point") points.push(ref.id);
+    else if (ref.kind === "line") lines.push(ref.id);
+  }
+  if (points.length === 0 && lines.length === 0) return null;
+  const parts: string[] = [];
+  if (points[0]) parts.push(`point:${points[0]}`);
+  if (lines[0]) parts.push(`parallel:${lines[0]}`);
+  const carriers = points.slice(1);
+  if (carriers.length > 0) parts.push(`carrier:${carriers.join(",")}`);
+  return parts.join("|");
+}
+
+/**
+ * No-op executor for the construct-parallel machine in production. The legacy
+ * Canvas renders its own preview from `constructionPreview` and never expected a
+ * derived geometry object to appear mid-step — so the machine running the
+ * executor's normal "add a parallel-line relation" would be redundant (and would
+ * diverge from the production rendering model). We still need AN executor to
+ * satisfy {@link createInteractionRuntime}; this one accepts the command and
+ * reports success without mutating anything. The teaching value rides on
+ * `ToolCompleted.evidence`, serialized into the `topic-answer` string.
+ */
+const NOOP_EXECUTOR: CommandExecutor = {
+  execute: (command) => {
+    const summary = command.type === "construct-parallel"
+      ? `过 ${command.throughPointId} 作 ${command.referenceLineId} 的平行线`
+      : command.type === "construct-circle"
+        ? `以 ${command.centerId} 为圆心过 ${command.throughPointId} 作圆`
+        : "几何操作";
+    const ok: CommandResult = { ok: true, summary, createdIds: [] };
+    return ok;
+  },
+};
+
+/**
+ * Drives the XState construct-parallel machine behind the existing SVG Canvas.
+ *
+ * The machine owns step flow + collected ids (point → line → two carriers); the
+ * production Canvas keeps its image + SVG overlay and is fed the same prop
+ * shapes it always read (`availablePointIds`, `selectedSegments`, …), now
+ * derived from the machine's projected view instead of the old hand-written
+ * stage switches. On completion the evidence is serialized into the legacy
+ * `point:T|parallel:S|carrier:C0,C1` draft string; submission + backend grading
+ * are unchanged.
+ *
+ * `isActive` is false for non-construct-parallel steps or when the construction
+ * spec is missing — callers fall back to the original per-primitive logic.
+ */
+interface UseConstructParallel {
+  isActive: boolean;
+  runtime?: InteractionRuntime;
+  view: InteractionView;
+}
+
+function useConstructParallel(
+  contract: TopicActionProjection | undefined,
+  geometry: TopicGeometryModel | undefined,
+): UseConstructParallel {
+  // Only build a runtime when this step is construct-parallel AND a construction
+  // spec is available. `buildParallelSpec` returning null (missing construction)
+  // means we keep the legacy hand-written branch as a fallback.
+  const spec = useMemo(
+    () => (contract?.primitive === "construct-parallel" ? buildParallelSpec(contract.interaction?.construction) : null),
+    [contract?.primitive, contract?.interaction?.construction],
+  );
+  const isActive = contract?.primitive === "construct-parallel" && spec !== null && !!geometry;
+
+  // A domain model is only needed to enumerate which points/lines exist so the
+  // projector can build affordances. Rebuild it per geometry change.
+  const model = useMemo(() => (geometry ? buildGeometryModel(geometry) : null), [geometry]);
+
+  // The runtime is per-step (keyed by contract id + model identity): a new
+  // construct-parallel step gets a fresh machine. Built via useMemo so the same
+  // instance is reused across renders within one step (avoiding render-phase
+  // ref mutation), and torn down implicitly when the step changes by producing
+  // a new instance here and stopping the old one in the effect below.
+  const runtime = useMemo<InteractionRuntime | undefined>(() => {
+    if (!isActive || !model) return undefined;
+    return createInteractionRuntime(NOOP_EXECUTOR, model);
+    // contract.id + geometry identity are the keys; model is derived from geometry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, contract?.id, model]);
+
+  // Start the tool whenever a fresh runtime appears. startTool tears down any
+  // prior tool on the same runtime, so this is safe to re-run.
+  useEffect(() => {
+    if (!isActive || !runtime || !spec) return;
+    runtime.startTool("construct-parallel", spec);
+  }, [runtime, isActive, spec]);
+
+  // Subscribe for re-render via the cached view (referentially stable between
+  // notifications — required by useSyncExternalStore).
+  const view = useSyncExternalStore(
+    (cb) => (runtime ? runtime.subscribe(cb) : () => {}),
+    () => runtime?.getView() ?? idleView,
+    () => idleView,
+  );
+
+  return { isActive, runtime, view };
+}
+
 export function TopicPracticeWorkspaceRenderer({
   runtime,
   draft,
@@ -299,6 +426,11 @@ export function TopicPracticeWorkspaceRenderer({
     });
   }, [runtime.runtimeState.currentStepId]);
 
+  // Compute geometry before early-returns so the construct-parallel hook (which
+  // must be called unconditionally) can receive it.
+  const contractGeometry = contract?.interaction?.geometry || model?.promptGeometry;
+  const parallelRuntime = useConstructParallel(contract, contractGeometry);
+
   if (!model || inputAction?.type !== "input") return <div className="practice-canvas-zone" />;
   if (!contract) return <div className="practice-canvas-zone" />;
   const ordered = Object.values(model.contracts);
@@ -311,6 +443,54 @@ export function TopicPracticeWorkspaceRenderer({
     ...current,
     inputs: { ...current.inputs, [inputAction.target]: value },
   }));
+
+  // Hydrate the machine from an existing draft whenever a (re)started tool
+  // begins. We replay only the confirmed-correct prefix — point, then parallel,
+  // then carriers — by sending the matching semantic events; the machine's
+  // guards accept each and advance, so the learner returns to a half-finished
+  // step exactly where they left it. This runs once per tool start (keyed on
+  // the runtime, which is recreated per step), NOT on every draft change, so it
+  // cannot loop against the in-progress write-back effect below.
+  useEffect(() => {
+    if (!parallelRuntime.isActive || !parallelRuntime.runtime) return;
+    const draftValue = draft.inputs[inputAction.target] || "";
+    if (!draftValue) return;
+    const rt = parallelRuntime.runtime;
+    if (rt.activeToolId() !== "construct-parallel") return;
+    const parsed = parseParallelAnswer(draftValue);
+    if (parsed.throughPointId) rt.send({ type: "POINT.CLICKED", pointId: parsed.throughPointId });
+    if (parsed.referenceLineId) rt.send({ type: "LINE.CLICKED", lineId: parsed.referenceLineId });
+    for (const carrierId of parsed.carrierPointIds) rt.send({ type: "POINT.CLICKED", pointId: carrierId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on the per-step runtime only; reading the current draft once on tool start is the point.
+  }, [parallelRuntime.isActive, parallelRuntime.runtime]);
+
+  // Reflect the machine's in-progress selection into the draft string on every
+  // view change. This keeps the draft (which `constructionPreview`, hydration,
+  // and the backend's eventual submission all read) in lockstep with the
+  // machine as the learner advances, undoes (BACK), or gets a wrong-click
+  // cleared. The serialized partial form is byte-identical to what the legacy
+  // handlers produced at each stage (`point:T`, `point:T|parallel:S`, …), so
+  // the backend grading path is unaffected.
+  useEffect(() => {
+    if (!parallelRuntime.isActive) return;
+    const value = parallelAnswerFromView(parallelRuntime.view);
+    if (value !== null) setValue(value);
+  }, [parallelRuntime.isActive, parallelRuntime.view]);
+
+  // On completion, write the final serialized evidence. (The in-progress effect
+  // above also writes the complete string at the final click, but doing it
+  // explicitly from `onDone` makes the contract obvious and survives any future
+  // change to how "done" maps onto the view.)
+  useEffect(() => {
+    if (!parallelRuntime.isActive || !parallelRuntime.runtime) return;
+    return parallelRuntime.runtime.onDone((completed) => {
+      if (completed.toolId !== "construct-parallel") return;
+      // `evidence` is a per-tool discriminated union; narrow to the
+      // construct-parallel variant before serializing into the draft.
+      if (!completed.evidence || !("selectedPointId" in completed.evidence)) return;
+      setValue(serializeParallelEvidence(completed.evidence));
+    });
+  }, [parallelRuntime.isActive, parallelRuntime.runtime, inputAction.target]);
 
   const labels = contract.primitive === "mark-segments" ? parseLabels(selected) : {};
   const ratioSegments = contract.primitive === "mark-ratio" ? selected.split(",").filter(Boolean) : [];
@@ -381,6 +561,13 @@ export function TopicPracticeWorkspaceRenderer({
 
   const handleSegment = (segmentId: string) => {
     if (readOnly) return;
+    // construct-parallel is driven by the XState machine: a segment click is a
+    // LINE.CLICKED event. The machine's guards accept the expected reference
+    // segment and otherwise record a wrong target (surfaced red via the view).
+    if (parallelRuntime.isActive && parallelRuntime.runtime) {
+      parallelRuntime.runtime.send({ type: "LINE.CLICKED", lineId: segmentId });
+      return;
+    }
     switch (contract.primitive) {
       case "mark-segments": {
         if (model.guidedMode && contract.presentation?.autoFocusSequence) return;
@@ -456,9 +643,9 @@ export function TopicPracticeWorkspaceRenderer({
         return;
       }
       case "construct-parallel": {
-        if (constructParts.point && !constructParts.parallel) {
-          setValue(`point:${constructParts.point}|parallel:${segmentId}`);
-        }
+        // Reached only when the machine is inactive (missing construction spec).
+        // The legacy branch would set the `parallel` slot; with no spec there is
+        // nothing to validate against, so no-op.
         return;
       }
       case "select":
@@ -472,15 +659,18 @@ export function TopicPracticeWorkspaceRenderer({
 
   const handlePoint = (pointId: string) => {
     if (readOnly || contract.primitive !== "construct-parallel") return;
+    // construct-parallel is driven by the XState machine: a point click is a
+    // POINT.CLICKED event (through-point, then the two carriers).
+    if (parallelRuntime.isActive && parallelRuntime.runtime) {
+      parallelRuntime.runtime.send({ type: "POINT.CLICKED", pointId });
+      return;
+    }
+    // Legacy fallback (no construction spec): keep the old single-stage behavior
+    // so the step is still minimally usable, though it cannot validate.
     if (!constructParts.point) {
       setValue(`point:${pointId}`);
       setDraft((current) => ({ ...current, focusTarget: pointId }));
-      return;
     }
-    if (!constructParts.parallel || pointId === constructParts.point || carrierPoints.includes(pointId) || carrierPoints.length >= 2) return;
-    const nextCarrier = [...carrierPoints, pointId];
-    setValue(`point:${constructParts.point}|parallel:${constructParts.parallel}|carrier:${nextCarrier.join(",")}`);
-    setDraft((current) => ({ ...current, focusTarget: pointId }));
   };
 
   const undoLast = () => {
@@ -509,9 +699,13 @@ export function TopicPracticeWorkspaceRenderer({
         setValue(`${[...contract.interaction!.equation!.targetLatex].sort().join("")}=${equationSegments.slice(0, -1).join("*")}|${equationResult}`);
         break;
       case "construct-parallel":
-        if (carrierPoints.length) setValue(`point:${constructParts.point}|parallel:${constructParts.parallel}|carrier:${carrierPoints.slice(0, -1).join(",")}`);
-        else if (constructParts.parallel) setValue(`point:${constructParts.point}`);
-        else setValue("");
+        // The machine's BACK chain (carrier1 → carrier0 → line → point) mirrors
+        // the legacy three-stage undo. The in-progress write-back effect then
+        // reflects the popped selection in the draft. We only break out of the
+        // switch here; the post-switch focusTarget clear still runs.
+        if (parallelRuntime.isActive && parallelRuntime.runtime) {
+          parallelRuntime.runtime.send({ type: "BACK" });
+        }
         break;
       case "select":
       case "input":
@@ -523,42 +717,63 @@ export function TopicPracticeWorkspaceRenderer({
     setDraft((current) => ({ ...current, focusTarget: undefined }));
   };
 
-  const selectedSegments = (() => {
-    switch (contract.primitive) {
-      case "mark-segments": return Object.keys(labels);
-      case "mark-ratio": return ratioSegments;
-      case "ratio-scratch": return ratioScratchSegments;
-      case "convert-collinear": return collinearSegments;
-      case "equation": return equationSegments.filter(Boolean);
-      case "construct-parallel": return constructParts.parallel ? [constructParts.parallel] : [];
-      case "select":
-      case "input": return [];
-      default: return assertNeverPrimitive(contract.primitive);
-    }
-  })();
-  const selectedPoints = contract.primitive === "construct-parallel"
-    ? [constructParts.point, ...carrierPoints].filter(Boolean)
-    : [];
+  // When the XState machine is active, the construct-parallel view is the
+  // single source for affordances, selection, wrong ids, and the preview —
+  // replacing the inline stage switches below. Otherwise fall back to the
+  // legacy hand-derived values.
   const construction = contract.interaction?.construction;
-  const availablePointIds = contract.primitive === "construct-parallel"
-    ? !constructParts.point
-      ? construction ? [construction.throughPoint] : undefined
-      : constructParts.parallel
-        ? construction?.carrierPoints
-        : []
+  const parallelMapped = parallelRuntime.isActive
+    ? mapConstructParallelView(parallelRuntime.view, { resultPoint: construction?.resultPoint })
     : undefined;
-  const availableSegmentIds = contract.primitive === "construct-parallel" && constructParts.point && !constructParts.parallel
-    ? construction ? [construction.parallelSegment] : contract.interaction?.availableSegments
-    : contract.interaction?.availableSegments;
-  const constructionPrompt = !constructParts.point
-    ? "点过线点"
-    : !constructParts.parallel
-      ? "点平行参照边"
-      : carrierPoints.length === 0
-        ? "点第一个外点"
-        : carrierPoints.length === 1
-          ? "点第二个外点"
-          : "辅助线构造完成，可以提交";
+  const parallelWrongIds = parallelMapped?.wrongObjectIds ?? [];
+
+  const selectedSegments = parallelMapped
+    ? parallelMapped.selectedSegments
+    : (() => {
+        switch (contract.primitive) {
+          case "mark-segments": return Object.keys(labels);
+          case "mark-ratio": return ratioSegments;
+          case "ratio-scratch": return ratioScratchSegments;
+          case "convert-collinear": return collinearSegments;
+          case "equation": return equationSegments.filter(Boolean);
+          case "construct-parallel": return constructParts.parallel ? [constructParts.parallel] : [];
+          case "select":
+          case "input": return [];
+          default: return assertNeverPrimitive(contract.primitive);
+        }
+      })();
+  const selectedPoints = parallelMapped
+    ? parallelMapped.selectedPoints
+    : contract.primitive === "construct-parallel"
+      ? [constructParts.point, ...carrierPoints].filter(Boolean)
+      : [];
+  const availablePointIds = parallelMapped
+    ? parallelMapped.availablePointIds
+    : contract.primitive === "construct-parallel"
+      ? !constructParts.point
+        ? construction ? [construction.throughPoint] : undefined
+        : constructParts.parallel
+          ? construction?.carrierPoints
+          : []
+      : undefined;
+  const availableSegmentIds = parallelMapped
+    ? parallelMapped.availableSegmentIds
+    : contract.primitive === "construct-parallel" && constructParts.point && !constructParts.parallel
+      ? construction ? [construction.parallelSegment] : contract.interaction?.availableSegments
+      : contract.interaction?.availableSegments;
+  // Prompt: the projector already produces the per-stage Chinese instruction.
+  // When the machine is inactive, keep the legacy derived prompt as a fallback.
+  const constructionPrompt = parallelMapped
+    ? parallelMapped.prompt
+    : !constructParts.point
+      ? "点过线点"
+      : !constructParts.parallel
+        ? "点平行参照边"
+        : carrierPoints.length === 0
+          ? "点第一个外点"
+          : carrierPoints.length === 1
+            ? "点第二个外点"
+            : "辅助线构造完成，可以提交";
 
   return (
     <div className={`practice-canvas-zone topic-practice-canvas artifact-topic-canvas ${model.guidedMode && contract.primitive === "mark-segments" && contract.presentation?.autoFocusSequence ? "is-guided-auto-label" : ""}`}>
@@ -572,10 +787,10 @@ export function TopicPracticeWorkspaceRenderer({
             labels={{ ...retainedLabels, ...labels }}
             ratioSegments={[...retainedRatioSegments, ...ratioSegments, ...ratioScratchSegments]}
             activeLabelId={contract.primitive === "mark-segments" ? draft.focusTarget : undefined}
-            wrongObjectIds={[...new Set([...wrongObjectIds, ...(draft.topicCoach?.highlightedObjectIds || [])])]}
+            wrongObjectIds={[...new Set([...wrongObjectIds, ...(draft.topicCoach?.highlightedObjectIds || []), ...parallelWrongIds])]}
             availableSegmentIds={availableSegmentIds}
             availablePointIds={availablePointIds}
-            constructionPreview={contract.primitive === "construct-parallel" ? {
+            constructionPreview={parallelMapped ? parallelMapped.constructionPreview : contract.primitive === "construct-parallel" ? {
               throughPoint: constructParts.point,
               parallelSegment: constructParts.parallel,
               carrierPoints,
