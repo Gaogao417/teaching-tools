@@ -7,6 +7,7 @@ import {
   type ValidationPolicy,
 } from "../../../../shared/actionRuntime";
 import type { TopicGeometryModel, TopicResolvedScenario } from "../../../../shared/topicPractice";
+import { createSolutionBoardBase } from "../../../../shared/solutionBoard";
 import type { SessionKind } from "../../../../shared/similarityLearningMap";
 import type { TopicPracticeEngineState } from "../runtime/engines/topicPractice/types";
 import { currentScenario, runtimeStepEntries } from "../runtime/engines/topicPractice";
@@ -60,6 +61,7 @@ export function materializeActionTemplate(template: AuthoredActionTemplate, mode
     submitOnComplete: template.submitOnComplete,
     presentation: mode === "assessment" ? undefined : template.presentation,
     coach: mode === "assessment" ? undefined : template.coach,
+    boardTargets: mode === "assessment" ? undefined : template.boardTargets,
   } as ActionContract;
 }
 
@@ -102,6 +104,15 @@ export function buildTopicExercisePlan(
     segments: rawGeometry.segments.filter((line) => !outputLineIds.has(line.id)),
     derivedLines: (rawGeometry.derivedLines || []).filter((line) => !outputLineIds.has(line.id)),
   } : undefined;
+  const allowedBoardExpressions = mode === "assessment" || !scenario.solutionBoard
+    ? []
+    : scenario.solutionBoard.expressions.filter((expression) => expression.modes.includes(mode));
+  const solutionBoardScript = scenario.solutionBoard && allowedBoardExpressions.length
+    ? { ...scenario.solutionBoard, expressions: allowedBoardExpressions }
+    : undefined;
+  const solutionBoard = solutionBoardScript
+    ? createSolutionBoardBase(solutionBoardScript, mode)
+    : undefined;
 
   return {
     planVersion: ACTION_RUNTIME_PLAN_VERSION,
@@ -119,8 +130,10 @@ export function buildTopicExercisePlan(
     world: {
       geometry,
       diagramAsset: activeStep?.diagramAsset || scenario.promptDiagramAsset,
+      ...(solutionBoard ? { solutionBoard } : {}),
       revision: state.attempts,
     },
+    ...(solutionBoardScript ? { solutionBoardScript } : {}),
     coach: {
       profileId: "topic-coach-v1",
       displayName: "陪练老师",

@@ -53,7 +53,7 @@ import {
 import { buildTopicExercisePlan } from "../../actionRuntime/topicPlanProjector";
 import { currentScenario, runtimeStepEntries } from "../engines/topicPractice";
 import { evaluateTopicEvidence } from "../../actionRuntime/topicTypedEvaluator";
-import { applyDomainCommands } from "../../../../../shared/actionWorld";
+import { applyActionEffectBatch, boardEffects, diagramEffects } from "../../../../../shared/actionEffects";
 
 type RuntimeInstanceRecord = {
   row: RuntimeInstanceRow;
@@ -254,9 +254,8 @@ export function getActionRuntimePlan(sessionId: string): ActionPlanResponse {
   const checkpoint = getActionCheckpoint(sessionId, activeRecord.row.id);
   const usableCheckpoint = checkpoint?.revision === activeRecord.engineState.attempts ? checkpoint : undefined;
   const plan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind, usableCheckpoint?.current_action_id);
-  const activeSourceStepId = plan.actions.find((action) => action.actionId === plan.currentActionId)?.sourceStepId;
   const storedWorld = getCommittedActionWorld(sessionId, activeRecord.row.id);
-  if (storedWorld && storedWorld.sourceStepId === activeSourceStepId) plan.world = storedWorld.world;
+  if (storedWorld) plan.world = storedWorld.world;
   return {
     sessionId,
     plan,
@@ -313,11 +312,14 @@ function performActionEvaluation(request: ActionEvaluationRequest): ActionEvalua
     throw appError("ACTION_NOT_ALLOWED", `Step ${request.sourceStepId} is not active`, 409);
   }
   if (request.revision !== activeRecord.engineState.attempts) {
+    const plan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind);
+    const storedWorld = getCommittedActionWorld(request.sessionId, request.exerciseId);
+    if (storedWorld) plan.world = storedWorld.world;
     return {
       outcome: "conflict",
       evaluation: "progress",
       revision: activeRecord.engineState.attempts,
-      plan: buildTopicExercisePlan(activeRecord.engineState, session.session_kind),
+      plan,
       phase: session.phase,
       nextIndex: session.current_index,
     };
@@ -368,9 +370,20 @@ function performActionEvaluation(request: ActionEvaluationRequest): ActionEvalua
 
   const currentPlan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind);
   const storedWorld = getCommittedActionWorld(request.sessionId, request.exerciseId);
-  const baseWorld = storedWorld?.sourceStepId === currentStep.id ? storedWorld.world : currentPlan.world;
+  const baseWorld = storedWorld?.world || currentPlan.world;
+  const boardExpressions = currentPlan.solutionBoardScript?.expressions.filter((expression) => expression.sourceStepId === currentStep.id) || [];
+  const boardCommands = boardExpressions.length ? [
+    ...boardExpressions.map((expression) => ({ type: "reveal-expression" as const, expressionId: expression.expressionId })),
+    ...diagnosis.boardCommands,
+    ...boardExpressions.map((expression) => ({ type: "complete-expression" as const, expressionId: expression.expressionId })),
+  ] : [];
   const acceptedWorld = diagnosis.accepted
-    ? { ...applyDomainCommands(baseWorld, diagnosis.commands), revision: state.attempts }
+    ? { ...applyActionEffectBatch(baseWorld, {
+        actionId: currentStep.id,
+        sourceStepId: currentStep.id,
+        commands: [...diagramEffects(diagnosis.commands), ...boardEffects(boardCommands)],
+        committed: true,
+      }), revision: state.attempts }
     : undefined;
   if (acceptedWorld) saveCommittedActionWorld(request.sessionId, request.exerciseId, currentStep.id, state.attempts, acceptedWorld);
 
@@ -412,7 +425,7 @@ function performActionEvaluation(request: ActionEvaluationRequest): ActionEvalua
     nextActionId: evaluation === "progress" ? nextPlan.currentActionId : undefined,
     phase,
     nextIndex,
-    ...(acceptedWorld ? { committedWorld: evaluation === "progress" ? nextPlan.world : acceptedWorld } : {}),
+    ...(acceptedWorld ? { committedWorld: acceptedWorld } : {}),
   };
   saveActionEvaluation(request, response);
   return response;

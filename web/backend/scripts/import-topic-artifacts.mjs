@@ -2,7 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
-import { authorTopicActionTemplates } from "./lib/topicActionTemplateAuthoring.ts";
+import topicActionAuthoring from "./lib/topicActionTemplateAuthoring.ts";
+
+const { authorTopicActionTemplates, authorTopicSolutionBoard } = topicActionAuthoring;
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "../../..");
@@ -929,6 +931,12 @@ function importBank(taskId, relativeBankRoot) {
       ...promptData,
       steps: contracts,
     });
+    promptData.solutionBoard = authorTopicSolutionBoard({
+      id,
+      taskId,
+      ...promptData,
+      steps: contracts,
+    }, promptData.actionTemplates);
     const record = {
       id,
       taskId,
