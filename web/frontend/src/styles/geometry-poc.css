@@ -70,29 +70,29 @@
 }
 
 /* Geometry canvas surface -------------------------------------------------- */
-
+/*
+ * Size contract (plan feedback — "外层分配空间、内层完整填满"):
+ *   host (.artifact-diagram-stage) → provides available space + centering
+ *   .geometry-canvas              → derives width + aspect-ratio from the model
+ *   .geometry-canvas__board       → position:absolute; inset:0 (fills the canvas)
+ * The component sets `aspect-ratio` inline from `model.boundingBox()`, so the
+ * canvas keeps the figure's proportions at any size. A host MAY override the
+ * width by setting `--geometry-canvas-max-width` (e.g. to fit a narrower rail).
+ */
 .geometry-canvas {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.geometry-canvas__prompt {
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium, 600);
-  color: var(--color-accent-text);
-  background: var(--color-accent-bg);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  position: relative;
+  width: min(var(--geometry-canvas-max-width, 640px), 100%);
+  min-width: 0;
 }
 
 .geometry-canvas__board {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: 420px;
+  height: 100%;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   background: var(--color-panel);
-  position: relative;
   overflow: hidden;
 }
 
@@ -121,13 +121,14 @@
   stroke-dasharray: 0.2 0.15;
 }
 
-.geometry-canvas__meta {
-  display: flex;
-  gap: var(--space-2);
-  justify-content: flex-end;
-}
-
+/* Invalid-target hint. Positioned over the board (bottom) so it doesn't push
+   layout and break the aspect-ratio-driven canvas height. */
 .geometry-canvas__invalid {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-2);
+  transform: translateX(-50%);
+  max-width: calc(100% - var(--space-4));
   font-size: var(--text-sm);
   color: var(--color-danger);
   background: #fdecea;

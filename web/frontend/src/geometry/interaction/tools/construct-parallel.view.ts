@@ -68,6 +68,21 @@ export function projectConstructParallel(snapshot: ParallelSnapshot, model: Geom
 
   if (snapshot.matches("selectCarrier1")) {
     const { pointId, lineId, carrierIds } = snapshot.context;
+    // Carrier preview (plan 第五阶段): the through point, reference line, and
+    // first carrier point are all chosen; the learner is now picking the second
+    // carrier. Show the carrier line from the fixed first carrier toward the
+    // hovered world point, the parallel line, and their intersection. The
+    // renderer computes the geometry from the pointer + model; the machine never
+    // sees the hovered coordinates. Only emitted when all three fixed ids exist.
+    const preview =
+      pointId && lineId && carrierIds[0]
+        ? {
+            type: "carrier-preview" as const,
+            throughPointId: pointId,
+            referenceLineId: lineId,
+            carrier0Id: carrierIds[0],
+          }
+        : undefined;
     return {
       prompt: "点第二个外点",
       entities: {
@@ -80,6 +95,7 @@ export function projectConstructParallel(snapshot: ParallelSnapshot, model: Geom
       },
       selected: selectedSoFar(pointId, lineId, carrierIds),
       cursor: "pointer",
+      preview,
       canCancel: true,
       canGoBack: true,
     };

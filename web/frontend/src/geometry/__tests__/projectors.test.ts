@@ -85,6 +85,30 @@ describe("projectConstructParallel", () => {
     expect(view.entities["B"]).toMatchObject({ enabled: false, visualState: "selected" });
   });
 
+  it("selectCarrier1 emits a carrier-preview so the renderer can draw the carrier + parallel + intersection", () => {
+    const actor = createActor(constructParallelMachine, { input: SPEC });
+    actor.start();
+    actor.send({ type: "POINT.CLICKED", pointId: "A" });
+    actor.send({ type: "LINE.CLICKED", lineId: "BC" });
+    actor.send({ type: "POINT.CLICKED", pointId: "B" });
+    const view = projectConstructParallel(actor.getSnapshot(), model);
+    expect(view.preview).toEqual({
+      type: "carrier-preview",
+      throughPointId: "A",
+      referenceLineId: "BC",
+      carrier0Id: "B",
+    });
+  });
+
+  it("selectCarrier0 does not yet emit a carrier-preview (only one carrier fixed)", () => {
+    const actor = createActor(constructParallelMachine, { input: SPEC });
+    actor.start();
+    actor.send({ type: "POINT.CLICKED", pointId: "A" });
+    actor.send({ type: "LINE.CLICKED", lineId: "BC" });
+    const view = projectConstructParallel(actor.getSnapshot(), model);
+    expect(view.preview).toBeUndefined();
+  });
+
   it("after a wrong point click, that point is marked wrong with feedback", () => {
     const actor = createActor(constructParallelMachine, { input: SPEC });
     actor.start();

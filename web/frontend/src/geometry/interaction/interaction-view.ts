@@ -29,7 +29,23 @@ export type PreviewSpec =
    * Show a circle centered on the selected center point, passing through the
    * current (hovered) world point.
    */
-  | { type: "circle-through-hover"; centerId?: string };
+  | { type: "circle-through-hover"; centerId?: string }
+  /**
+   * construct-parallel carrier preview (plan 第五阶段). Shown once the through
+   * point, reference line, and first carrier point are chosen and the learner is
+   * picking the second carrier. The renderer draws the carrier line from the
+   * fixed first carrier to the hovered world point, the parallel line (through
+   * `throughPointId`, parallel to `referenceLineId`), and their intersection —
+   * so the learner sees where the construction will land before clicking. All
+   * geometry is computed in the render layer from the pointer + model; the
+   * machine never sees the hovered coordinates.
+   */
+  | {
+      type: "carrier-preview";
+      throughPointId: string;
+      referenceLineId: string;
+      carrier0Id: string;
+    };
 
 /**
  * Per-entity interaction state for ONE step. `id` + `kind` identify the entity;
