@@ -4,6 +4,7 @@ import type { EntityAffordance } from "../interaction/interaction-view";
 import type { EntityKind } from "../interaction/events";
 import {
   hitTest,
+  hitTolerances,
   LINE_HIT_RADIUS,
   pointToSegmentDistance,
   POINT_HIT_RADIUS,
@@ -109,7 +110,8 @@ describe("hitTest — points", () => {
   });
 
   it("misses a point clicked just outside tolerance", () => {
-    const justOutside = POINT_HIT_RADIUS + 0.01;
+    // Tolerances scale with the board; read the actual value the model resolves to.
+    const justOutside = hitTolerances(model).point + 0.01;
     expect(hitTest(model, entities(model, ["point"]), 1 + justOutside, 4)).toBeNull();
   });
 
@@ -143,7 +145,7 @@ describe("hitTest — lines", () => {
   });
 
   it("misses a line clicked just outside tolerance", () => {
-    const justOutside = LINE_HIT_RADIUS + 0.01;
+    const justOutside = hitTolerances(model).line + 0.01;
     expect(hitTest(model, entities(model, ["line"]), 1, justOutside)).toBeNull();
   });
 
@@ -156,5 +158,56 @@ describe("hitTest — lines", () => {
   it("resolves a tie to the closest line", () => {
     // Click midway on BC; AB and AC are farther away.
     expect(hitTest(model, entities(model, ["line"]), 1.5, 0.05)).toEqual({ kind: "line", id: "BC" });
+  });
+});
+
+describe("hitTolerances — scale with the board (production viewBox)", () => {
+  // A production-sized board mirrors auxiliaryTwoRatios Q001: viewBox
+  // 159.46 × 121.07, points ~10-20 units apart. The POC's fixed 0.55/0.35 would
+  // be far too tight to touch-hit there; tolerances must grow with the board.
+  function productionModel(): GeometryModel {
+    return new GeometryModel({
+      points: [
+        { id: "A", x: 68, y: 18 },
+        { id: "B", x: 20, y: 102 },
+        { id: "C", x: 138, y: 102 },
+        { id: "D", x: 79, y: 102 },
+      ],
+      lines: [
+        { id: "AB", kind: "segment", from: "A", to: "B" },
+        { id: "BC", kind: "segment", from: "B", to: "C" },
+        { id: "AD", kind: "segment", from: "A", to: "D" },
+      ],
+    });
+  }
+
+  it("grows the point tolerance well above the POC floor on a large board", () => {
+    const t = hitTolerances(productionModel());
+    expect(t.point).toBeGreaterThan(POINT_HIT_RADIUS * 3);
+    expect(t.line).toBeGreaterThan(LINE_HIT_RADIUS * 3);
+  });
+
+  it("hits a production-scale point with a finger-sized offset that would miss under the POC tolerance", () => {
+    const model = productionModel();
+    // Click ~6 user units off C — comfortably inside the scaled tolerance, well
+    // outside the 0.55 POC floor. Simulates an imprecise touch.
+    const offset = 6;
+    expect(offset).toBeGreaterThan(POINT_HIT_RADIUS); // would miss under POC tolerance
+    expect(hitTest(model, entities(model, ["point"]), 138 + offset, 102)).toEqual({ kind: "point", id: "C" });
+  });
+
+  it("keeps the POC floor on a tiny board so small-boards tests stay stable", () => {
+    const tiny = new GeometryModel({ points: [{ id: "P", x: 0, y: 0 }, { id: "Q", x: 0.2, y: 0 }] });
+    // diagonal is tiny → fraction is below the floor → tolerance equals the floor.
+    expect(hitTolerances(tiny).point).toBe(POINT_HIT_RADIUS);
+    expect(hitTolerances(tiny).line).toBe(LINE_HIT_RADIUS);
+  });
+
+  it("respects the enabled filter at production scale (disabled point falls through)", () => {
+    const model = productionModel();
+    // C sits on segment BC; with points disabled the click on C resolves to BC.
+    const hit = hitTest(model, entities(model, ["line"]), 138, 102);
+    expect(hit?.kind).toBe("line");
+    expect(hit?.id).toBe("BC");
   });
 });

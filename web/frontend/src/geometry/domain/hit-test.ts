@@ -5,14 +5,53 @@
  * old "full chain" test bypassed, and where the coordinate bug hid) can be unit-
  * tested directly. The adapter imports these and calls them with the click's
  * user coordinates.
+ *
+ * Tolerances scale with the board so a click feels consistent across the small
+ * POC board (~10×10) and the much larger production boards
+ * (`TopicGeometryModel` viewBox 159.46 × 121.07). See {@link hitTolerances}.
  */
 import type { GeoLine, GeometryModel } from "./model";
 import type { EntityAffordance } from "../interaction/interaction-view";
 import type { EntityRef } from "../interaction/events";
 
-/** User-space click tolerance: how close a click must be to count as a hit. */
+/**
+ * Minimum (floor) hit tolerances in user units — the POC-scale baseline. Production
+ * boards are much larger, so {@link hitTolerances} grows these proportionally to the
+ * board diagonal. Kept exported so tests can assert the floor behavior directly.
+ */
 export const POINT_HIT_RADIUS = 0.55; // user units, roughly the visible point size
 export const LINE_HIT_RADIUS = 0.35; // user units, perpendicular distance to a segment
+
+/**
+ * Hit tolerances as a fraction of the board diagonal. A point's touch target is
+ * ~4.5% of the diagonal (comfortable on a phone), a line's ~3%. These dominate the
+ * floor constants on large boards; the floor dominates on tiny POC boards.
+ */
+const POINT_HIT_FRACTION = 0.045;
+const LINE_HIT_FRACTION = 0.03;
+
+export interface HitTolerances {
+  /** Max distance (user units) a click can be from a point to count as a hit. */
+  point: number;
+  /** Max perpendicular distance (user units) from a segment to count as a hit. */
+  line: number;
+}
+
+/**
+ * Scale-aware hit tolerances for a model. The board diagonal is derived from the
+ * bounding box (the same box JSXGraph mounts with), so the tolerances track the
+ * on-screen scale regardless of board size — a touch that hits a point on the POC
+ * board also hits a point on a 159×121 production board. Falls back to the floor
+ * constants when the model has no geometry.
+ */
+export function hitTolerances(model: GeometryModel): HitTolerances {
+  const [minX, maxY, maxX, minY] = model.boundingBox();
+  const diagonal = Math.hypot(maxX - minX, maxY - minY);
+  return {
+    point: Math.max(POINT_HIT_RADIUS, POINT_HIT_FRACTION * diagonal),
+    line: Math.max(LINE_HIT_RADIUS, LINE_HIT_FRACTION * diagonal),
+  };
+}
 
 /**
  * Perpendicular distance from (px,py) to the segment (ax,ay)-(bx,by). Clamped to
@@ -42,10 +81,10 @@ export function pointToSegmentDistance(
  *
  * Only entities whose affordance is `enabled` are candidates — that is the
  * Canvas's single filter. A wrong-but-relevant object stays enabled so its click
- * reaches the machine. Tolerances are in user units (not pixels), so the click
- * feels consistent regardless of board zoom/size. When both a point and a line
- * are near, the point wins (a vertex is picked, not a segment through it).
- * Returns null (→ onMiss) when nothing enabled is within tolerance.
+ * reaches the machine. Tolerances scale with the board (see {@link hitTolerances})
+ * so the click feels consistent regardless of board zoom/size. When both a point
+ * and a line are near, the point wins (a vertex is picked, not a segment through
+ * it). Returns null (→ onMiss) when nothing enabled is within tolerance.
  */
 export function hitTest(
   model: GeometryModel,
@@ -53,13 +92,14 @@ export function hitTest(
   ux: number,
   uy: number,
 ): EntityRef | null {
+  const { point: pointR, line: lineR } = hitTolerances(model);
   // Points take priority: a click on a vertex should pick the vertex, even if
   // several segments pass through it.
   let pointBest: { id: string; d: number } | null = null;
   for (const p of model.pointsList()) {
     if (!entities[p.id]?.enabled) continue;
     const d = Math.hypot(p.x - ux, p.y - uy);
-    if (d <= POINT_HIT_RADIUS && (!pointBest || d < pointBest.d)) pointBest = { id: p.id, d };
+    if (d <= pointR && (!pointBest || d < pointBest.d)) pointBest = { id: p.id, d };
   }
   if (pointBest) return { kind: "point", id: pointBest.id };
 
@@ -68,7 +108,7 @@ export function hitTest(
     if (!entities[l.id]?.enabled) continue;
     const d = distanceToLine(model, l, ux, uy);
     if (d === null) continue;
-    if (d <= LINE_HIT_RADIUS && (!lineBest || d < lineBest.d)) lineBest = { id: l.id, d };
+    if (d <= lineR && (!lineBest || d < lineBest.d)) lineBest = { id: l.id, d };
   }
   if (lineBest) return { kind: "line", id: lineBest.id };
 
