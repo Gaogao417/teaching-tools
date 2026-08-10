@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Action-Driven Topic"
+  short_description: "从教学材料编译并验收 Action 驱动 Topic"
+  default_prompt: "使用 $build-action-driven-topic 将审核讲解和 ready 题库编译为可验收的新 Topic。"
