@@ -172,8 +172,10 @@ export function mountGeometryBoard(
 
     for (const line of model.linesList()) {
       if (line.kind === "segment") {
-        const from = pointEls.get(line.from);
-        const to = pointEls.get(line.to);
+        const renderFromId = line.derived && line.extensionPoint ? line.to : line.from;
+        const renderToId = line.derived && line.extensionPoint ? line.extensionPoint : line.to;
+        const from = pointEls.get(renderFromId);
+        const to = pointEls.get(renderToId);
         if (!from || !to) continue;
         board.create("line", [from, to], {
           ...(line.derived ? LINE_ATTRS_DERIVED : LINE_ATTRS),
@@ -186,25 +188,24 @@ export function mountGeometryBoard(
         // display extent — a helper point offset from `through` along the
         // reference direction — purely for on-screen drawing. This geometry is
         // NOT stored in the model; the relation is the single source of truth.
-        const through = model.getPoint(line.through);
+        const through = pointEls.get(line.through);
         if (!through) continue;
+        const end = line.endPoint ? pointEls.get(line.endPoint) : undefined;
         const dir = model.lineDirection(line.id);
-        if (dir.dx === 0 && dir.dy === 0) continue;
-        const reach = 6; // display-only extent on each side
-        const ax = through.x - dir.dx * reach;
-        const ay = through.y - dir.dy * reach;
-        const bx = through.x + dir.dx * reach;
-        const by = through.y + dir.dy * reach;
-        board.create("line", [[ax, ay], [bx, by]], {
+        if (!end && dir.dx === 0 && dir.dy === 0) continue;
+        const helper = end || board.create("point", [
+          model.getPoint(line.through)!.x + dir.dx,
+          model.getPoint(line.through)!.y + dir.dy,
+        ], { visible: false, fixed: true, withLabel: false, name: "" }) as JXG.Point;
+        board.create("line", [through, helper], {
           ...LINE_ATTRS_DERIVED,
           ...entityStyle(entities[line.id]),
           layer: 7,
           name: line.id,
-          // Creating a line from raw coordinates makes JSXGraph auto-create two
-          // anchor points (line.js point1/point2). Hide them so the relation
-          // renders as a bare line — no phantom points enter the model or view.
-          point1: { visible: false, fixed: true, withLabel: false },
-          point2: { visible: false, fixed: true, withLabel: false },
+          // Before the intersection exists, show the complete mathematical
+          // helper line. Afterwards, C--F is a bounded construction segment.
+          straightFirst: !end,
+          straightLast: !end,
         }) as JXG.Line;
       }
     }

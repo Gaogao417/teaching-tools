@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed · 2026-08-10
+Accepted · 2026-08-10
 
 ## Context
 
@@ -27,14 +27,15 @@ ADR-001 确立了 runtime-first：backend `EnginePlugin` 持有真值、判题�
 
 1. frontend XState 是当前页面未提交交互的唯一事实来源。
 2. frontend 使用一个 page machine 编排 action list，同时只运行一个当前 child action machine。
-3. backend 返回领域级 `ExercisePlan`，不返回可执行 JavaScript/XState machine，也不以完整 UI projection 远程控制页面。
-4. frontend 通过本地、版本化 `ActionMachineRegistry` 将 `ActionContract.kind + version + input` 实例化为 machine。
+3. 离线 authoring 直接产出 action JSON list；backend 将 `kind + version + input` 视为不透明数据，只投影通用 envelope、mode、revision 与公开层，不按 action kind 重组 machine 参数。
+4. frontend 通过本地、版本化 `ActionMachineRegistry` 将 `ActionContract.kind + version + input` 校验并实例化为独立 machine；每个 registry entry 同时拥有自己的 input schema、machine factory 和 WorkspaceView 子投影。
 5. machine snapshot 经过纯 projector 生成包含 Canvas、answer、coach 与 controls 的 `WorkspaceView`。
 6. backend 保留 scenario/version、私有 answer key、权威判题、session、正式 world commit、AI coach 和结果统计。
 7. 前后端只在 bootstrap、AI 求助、checkpoint 和权威提交时通信；普通语义点击在 frontend 完成。
 8. Learn/Guided 可用公开目标在 frontend 本地判断；Assessment 的私有正确性只能由 backend 判断。
 9. frontend 将学生行为表示为 typed `StudentEvent`、`StudentTrace` 与 `ActionEvidence`；目标协议不再使用自由格式 `RuntimeActionEvent.value` 或 primitive answer string。
 10. AI 通过结构化 `CoachDirective` 和受限 `AgentCommand` 参与同一个 runtime，不直接操作 DOM、React state 或 JSXGraph。
+11. 旧题库的 `primitive + interaction` 只允许在明确标记的 legacy/offline compiler 中转换成 action JSON；正式 plan projector、PageMachine、Canvas 和 AnswerPanel 均不得出现 action-kind switch。
 
 该决策修订 ADR-001 的“backend 组装完整页面 runtime projection”边界，但保留其“backend
 持有私有真值与正式学习状态”原则；它扩大 ADR-003 的 XState 作用域，从 Canvas tool machine
@@ -146,6 +147,10 @@ type ActionCompletion = {
 
 `ActionInput` 与 `ActionEvidence` 是按 `kind + version` 识别的判别数据。跨网络进入的未知类型
 必须经过 runtime schema validation；不得在 `obj`/`Any` 边界直接强制转换。
+
+线上的 backend 只校验 action envelope；action-specific `input` schema 属于 frontend registry。为避免
+Assessment 泄露答案，authoring contract 将 `input`（始终公开）与 `teachingInput`（只在 Learn/Guided
+合并）分开；backend 按 mode 做通用合并，不理解其中字段含义。
 
 ### Frontend runtime contract
 
@@ -381,8 +386,10 @@ AI 不得发送：
 
 ## Unresolved Decisions
 
-- `ExercisePlan v2` 是新 endpoint，还是现有 start/restore response 的 versioned variant。
-- Guided Practice 的哪些 action 使用 LocalTeaching，哪些仍需 backend evaluator。
-- 浏览器 partial checkpoint 的存储介质、过期时间和跨设备预期。
-- AI Coach 使用请求/响应、SSE 还是 WebSocket；该选择不改变 Action Runtime 边界。
-- WorldDelta 首批是否只支持整份 world replacement，还是立即支持 typed patch。
+实施版本已作出以下选择：
+
+- `ExercisePlan v2` 使用独立 action-plan endpoint；session 通过持久化 `action_runtime_version` 固定协议。
+- Learn 使用 LocalTeaching；Guided/Assessment 当前使用 ServerAuthoritative，后续可按 authored action policy 细分。
+- 未完成 partial draft 默认写浏览器 `sessionStorage`；远程 checkpoint 默认只上传 completed evidence。
+- AI Coach 首版使用 request/response；失败有本地 fallback，不改变 action machine lifecycle。
+- frontend draft 使用 typed command batches；backend response 首版返回经 schema 验证的 committed `WorldProjection` replacement 与 revision。

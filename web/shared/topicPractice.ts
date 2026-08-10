@@ -1,4 +1,5 @@
 import type { AuthoringRun, ScenarioRecord, ScenarioValidationReport } from "./scenarios";
+import type { AuthoredActionTemplate } from "./actionRuntime";
 
 export type TopicPracticeTaskId =
   | "quadraticCompletion"
@@ -31,18 +32,37 @@ export interface TopicGeometryPoint {
   id: string;
   x: number;
   y: number;
+  derived?: boolean;
 }
 
 export interface TopicGeometrySegment {
   id: string;
   from: string;
   to: string;
+  derived?: boolean;
+  /**
+   * For a constructed carrier, render only the extension from `to` to this
+   * intersection point. The mathematical carrier still uses `from`/`to`.
+   */
+  extensionPoint?: string;
+}
+
+export interface TopicGeometryParallelLine {
+  id: string;
+  kind: "parallel-line";
+  through: string;
+  parallelTo: string;
+  derived: true;
+  /** Once an intersection exists, bound the visible helper line to it. */
+  endPoint?: string;
 }
 
 export interface TopicGeometryModel {
   viewBox: { width: number; height: number };
   points: TopicGeometryPoint[];
   segments: TopicGeometrySegment[];
+  /** Relations created by Action Runtime commands; never pre-authored answer truth. */
+  derivedLines?: TopicGeometryParallelLine[];
 }
 
 export interface TopicSegmentLabel {
@@ -170,6 +190,8 @@ export interface TopicScenarioPromptData {
     fallbackMove: string;
   };
   steps: TopicActionProjection[];
+  /** v2 authoring output; absent only in legacy scenario bundles. */
+  actionTemplates?: AuthoredActionTemplate[];
 }
 
 export interface TopicScenarioAnswerKey {
@@ -204,6 +226,7 @@ export type TopicResolvedScenario = Omit<TopicScenarioPromptData, "steps"> & {
   version: string;
   answerLatex: string;
   steps: TopicActionContract[];
+  actionTemplates?: AuthoredActionTemplate[];
 };
 
 export interface TopicLessonSideItem {

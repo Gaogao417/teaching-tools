@@ -388,6 +388,8 @@ export interface PracticeSessionSnapshot {
   elapsedMs: number;
   phase: SessionPhase;
   sessionKind: SessionKind;
+  /** Fixed at session creation. Version 1 is routed only to the complete legacy renderer. */
+  actionRuntimeVersion: 1 | 2;
   challengeId?: string;
   sourceSessionId?: string;
   resumeContext?: RemediationResumeContext;
@@ -454,6 +456,8 @@ export interface ResultAttemptReview {
   stepTitle?: string;
   targetId?: string;
   submittedValue?: string;
+  /** v2 sessions expose structured evidence; legacy submittedValue remains for old reviews. */
+  typedEvidence?: import("./actionRuntime").ActionEvidence[];
   evaluation: RuntimeEvaluation;
   createdAt: string;
 }

@@ -27,11 +27,13 @@ import type { EntityRef } from "../interaction/events";
 
 // Capture the callbacks the component registers, so we can drive onHit directly.
 let capturedCallbacks: BoardCallbacks | null = null;
+const mountedModels: unknown[] = [];
 const destroy = vi.fn();
 const render = vi.fn();
 
 vi.mock("../react/jsxgraph-board", () => ({
   mountGeometryBoard: vi.fn((_container: HTMLDivElement, _model: unknown, callbacks: BoardCallbacks): BoardHandles => {
+    mountedModels.push(_model);
     capturedCallbacks = callbacks;
     return {
       board: {} as never,
@@ -42,7 +44,7 @@ vi.mock("../react/jsxgraph-board", () => ({
   }),
 }));
 
-const { GeometryCanvas } = await import("../react/GeometryCanvas");
+const { GeometryCanvas, GeometryCanvasSurface } = await import("../react/GeometryCanvas");
 const { GeometryModel } = await import("../domain/model");
 const { createCommandExecutor } = await import("../domain/command-executor");
 const { createInteractionRuntime } = await import("../interaction/runtime");
@@ -66,6 +68,7 @@ function seededTriangle(): GeometryModel {
 describe("GeometryCanvas — stale-closure regression", () => {
   beforeEach(() => {
     capturedCallbacks = null;
+    mountedModels.length = 0;
     destroy.mockClear();
   });
 
@@ -143,6 +146,48 @@ describe("GeometryCanvas — stale-closure regression", () => {
     await act(async () => {
       root.unmount();
     });
+    document.body.removeChild(container);
+  });
+
+  it("renders ActionPresentation preview on the production Canvas without pointer or network state", async () => {
+    const model = seededTriangle();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<GeometryCanvasSurface
+        model={model}
+        modelVersion={0}
+        onClickEntity={() => undefined}
+        view={{
+          prompt: "preview",
+          entities: {},
+          selected: [],
+          cursor: "default",
+          canCancel: true,
+          canGoBack: false,
+          preview: { type: "parallel-fixed", throughPointId: "A", referenceLineId: "BC" },
+        }}
+      />);
+    });
+    expect(container.querySelector('[data-preview-type="parallel"]')).not.toBeNull();
+    await act(async () => root.unmount());
+    document.body.removeChild(container);
+  });
+
+  it("remounts production Canvas with the new GeometryModel after a draft DomainCommand", async () => {
+    const initial = seededTriangle();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const rendererView = { prompt: "world", entities: {}, selected: [], cursor: "default" as const, canCancel: true, canGoBack: false };
+    await act(async () => root.render(<GeometryCanvasSurface model={initial} modelVersion={0} view={rendererView} onClickEntity={() => undefined} />));
+    const next = seededTriangle();
+    next.addPoint({ id: "X", x: 2, y: 2, derived: true });
+    await act(async () => root.render(<GeometryCanvasSurface model={next} modelVersion={1} view={rendererView} onClickEntity={() => undefined} />));
+    expect(mountedModels).toEqual([initial, next]);
+    expect(destroy).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
     document.body.removeChild(container);
   });
 });

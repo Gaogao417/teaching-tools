@@ -12,6 +12,7 @@ export type SessionRow = {
   finished_at: string | null;
   finished: number;
   schema_version: number;
+  action_runtime_version: 1 | 2;
   session_kind: SessionKind;
   challenge_id: string | null;
   source_session_id: string | null;
@@ -24,10 +25,10 @@ export type SessionRow = {
 const getSessionByIdStatement = db.prepare(`SELECT * FROM practice_sessions WHERE id = ?`);
 const insertSessionStatement = db.prepare(
   `INSERT INTO practice_sessions
-    (id, task_id, student_name, phase, current_index, started_at, finished_at, finished, schema_version,
+    (id, task_id, student_name, phase, current_index, started_at, finished_at, finished, schema_version, action_runtime_version,
      session_kind, challenge_id, source_session_id, source_instance_id, source_step_id, return_mode,
      preserved_completed_step_ids_json)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 const updateSessionProgressStatement = db.prepare(
   `UPDATE practice_sessions
@@ -58,6 +59,7 @@ export function createSession(session: SessionRow) {
     session.finished_at,
     session.finished,
     session.schema_version,
+    session.action_runtime_version,
     session.session_kind,
     session.challenge_id,
     session.source_session_id,

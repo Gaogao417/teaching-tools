@@ -19,6 +19,8 @@
 import type { EntityKind, EntityRef } from "./events";
 
 export type PreviewSpec =
+  | { type: "parallel-fixed"; throughPointId: string; referenceLineId: string }
+  | { type: "intersection-fixed"; parallelLineId: string; carrierPointIds: string[] }
   /**
    * Show a line through the given (hovered) world point, parallel to the
    * reference entity already in `selected`. The renderer reads the hovered

@@ -82,7 +82,26 @@
 .geometry-canvas {
   position: relative;
   width: min(var(--geometry-canvas-max-width, 640px), 100%);
+  max-width: 100%;
+  max-height: 100%;
   min-width: 0;
+}
+
+/* The focused topic workbench has a height-constrained canvas row. Size from
+   that available height so the aspect-ratio box shrinks as a whole instead of
+   overflowing and being cropped when the answer panel grows. */
+.topic-runtime-frame .artifact-diagram-stage {
+  position: relative;
+}
+
+.topic-runtime-frame .artifact-diagram-stage .geometry-canvas {
+  position: absolute;
+  inset: var(--space-4);
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: auto !important;
 }
 
 .geometry-canvas__board {

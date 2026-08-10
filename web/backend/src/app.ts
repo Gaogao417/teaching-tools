@@ -5,18 +5,34 @@ import type { TaskId } from "../../shared/contracts";
 import { TASK_TREE } from "../../shared/tasks";
 import { getResult, getTaskHistory } from "./services/resultsService";
 import {
+  askActionRuntimeCoach,
+  checkpointActionRuntime,
   finishPractice,
+  getActionRuntimePlan,
   getChallengeDiagnosis,
   restorePractice,
   startChallenge,
   startPractice,
   startRemediation,
   submitRuntimeAction,
+  submitActionEvaluation,
 } from "./services/runtime/platform/sessionRuntimeService";
 import { hasTaskDefinition } from "./services/tasks/catalogService";
-import { getLearningProjection, submitLearningAction } from "./services/learningService";
+import { getLearningActionPlan, getLearningProjection, submitLearningAction } from "./services/learningService";
 import { getSimilarityLearningMap, recordSimilarityTopicProgress } from "./services/similarityProgressionService";
 import { topicNodeByTaskId } from "../../shared/similarityLearningMap";
+import {
+  isActionCheckpointRequest,
+  isActionCheckpointResponse,
+  isActionEvaluationRequest,
+  isActionEvaluationResponse,
+  isActionPlanResponse,
+  isCoachRequest,
+  isCoachResponse,
+  type ActionCheckpointRequest,
+  type ActionEvaluationRequest,
+  type CoachRequest,
+} from "../../shared/actionRuntime";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
   message: "Invalid taskId",
@@ -102,6 +118,14 @@ export function createApp() {
     }
   });
 
+  app.get("/api/learn/:taskId/action-plan", (req, res, next) => {
+    try {
+      res.json(getLearningActionPlan(taskIdSchema.parse(req.params.taskId)));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/learn/runtime-action", (req, res, next) => {
     try {
       const body = z.object({
@@ -168,6 +192,55 @@ export function createApp() {
   app.get("/api/practice/session/:sessionId", (req, res, next) => {
     try {
       res.json(restorePractice(req.params.sessionId));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/practice/session/:sessionId/action-plan", (req, res, next) => {
+    try {
+      const response = getActionRuntimePlan(req.params.sessionId);
+      if (!isActionPlanResponse(response)) throw new Error("Invalid Action Runtime plan projection");
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/practice/action-evaluation", (req, res, next) => {
+    try {
+      const body = z.custom<ActionEvaluationRequest>(isActionEvaluationRequest, {
+        message: "Invalid Action Runtime evaluation request",
+      }).parse(req.body);
+      const response = submitActionEvaluation(body);
+      if (!isActionEvaluationResponse(response)) throw new Error("Invalid Action Runtime evaluation projection");
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/practice/action-checkpoint", (req, res, next) => {
+    try {
+      const body = z.custom<ActionCheckpointRequest>(isActionCheckpointRequest, {
+        message: "Invalid Action Runtime checkpoint request",
+      }).parse(req.body);
+      const response = checkpointActionRuntime(body);
+      if (!isActionCheckpointResponse(response)) throw new Error("Invalid Action Runtime checkpoint projection");
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/practice/action-coach", (req, res, next) => {
+    try {
+      const body = z.custom<CoachRequest>(isCoachRequest, {
+        message: "Invalid Action Runtime coach request",
+      }).parse(req.body);
+      const response = askActionRuntimeCoach(body);
+      if (!isCoachResponse(response)) throw new Error("Invalid Action Runtime coach projection");
+      res.json(response);
     } catch (error) {
       next(error);
     }

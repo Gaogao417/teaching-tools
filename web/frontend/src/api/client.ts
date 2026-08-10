@@ -12,6 +12,17 @@ import {
   TaskTreeResponse,
 } from "../../../shared/contracts";
 import type { LearningMapResponse, RemediationDiagnosis } from "../../../shared/similarityLearningMap";
+import type {
+  ActionCheckpointRequest,
+  ActionCheckpointResponse,
+  ActionEvaluationRequest,
+  ActionEvaluationResponse,
+  ActionPlanResponse,
+  CoachRequest,
+  CoachResponse,
+  ExercisePlan,
+} from "../../../shared/actionRuntime";
+import { assertExercisePlan, isActionCheckpointResponse, isActionEvaluationResponse, isActionPlanResponse, isCoachResponse } from "../../../shared/actionRuntime";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
@@ -32,6 +43,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function requestActionPlan(path: string): Promise<ActionPlanResponse> {
+  const response = await request<unknown>(path);
+  if (!isActionPlanResponse(response)) throw new Error("Invalid Action Runtime plan response");
+  return response;
+}
+
+async function validated<T>(path: string, init: RequestInit, guard: (value: unknown) => value is T, label: string): Promise<T> {
+  const response = await request<unknown>(path, init);
+  if (!guard(response)) throw new Error(`Invalid Action Runtime ${label} response`);
+  return response;
+}
+
+async function requestLearningActionPlan(path: string): Promise<ExercisePlan> {
+  const plan = await request<ExercisePlan>(path);
+  assertExercisePlan(plan);
+  return plan;
+}
+
 export const api = {
   getTaskTree: () => request<TaskTreeResponse>("/api/task-tree"),
   getSimilarityLearningMap: (studentName: string) =>
@@ -43,6 +72,8 @@ export const api = {
     }),
   getLearningProjection: (taskId: TaskId) =>
     request<LearningProjectionSpec>(`/api/learn/${taskId}`),
+  getLearningActionPlan: (taskId: TaskId) =>
+    requestLearningActionPlan(`/api/learn/${taskId}/action-plan`),
   submitLearningAction: (taskId: TaskId, stepId: string, value: string) =>
     request<LearningActionResponse>("/api/learn/runtime-action", {
       method: "POST",
@@ -73,6 +104,23 @@ export const api = {
     }),
   restorePractice: (sessionId: string) =>
     request<RestorePracticeResponse>(`/api/practice/session/${sessionId}`),
+  getActionRuntimePlan: (sessionId: string) =>
+    requestActionPlan(`/api/practice/session/${sessionId}/action-plan`),
+  evaluateAction: (payload: ActionEvaluationRequest) =>
+    validated("/api/practice/action-evaluation", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }, isActionEvaluationResponse, "evaluation"),
+  checkpointAction: (payload: ActionCheckpointRequest) =>
+    validated("/api/practice/action-checkpoint", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }, isActionCheckpointResponse, "checkpoint"),
+  askActionCoach: (payload: CoachRequest) =>
+    validated("/api/practice/action-coach", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }, isCoachResponse, "coach"),
   finishPractice: (sessionId: string) =>
     request<FinishPracticeResponse>("/api/practice/finish", {
       method: "POST",

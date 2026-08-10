@@ -95,13 +95,13 @@ function feedbackPacket(evaluation: RuntimeEvaluation, finalStep: boolean): Runt
   return { global: [], workspace: [cue("correct", "workspace")], guide: [] };
 }
 
-function currentScenario(state: TopicPracticeEngineState): TopicResolvedScenario {
+export function currentScenario(state: TopicPracticeEngineState): TopicResolvedScenario {
   return state.pinnedScenario
     ? resolveTopicScenarioRecord(state.pinnedScenario)
     : getTopicScenario(state.taskId, state.scenarioId);
 }
 
-function runtimeStepEntries(state: TopicPracticeEngineState) {
+export function runtimeStepEntries(state: TopicPracticeEngineState) {
   const scenario = currentScenario(state);
   return scenario.steps
     .map((step, sourceIndex) => ({ step, sourceIndex }))

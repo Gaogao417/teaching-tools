@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { GeometryModel } from "../domain/model";
 import type { EntityRef } from "../interaction/events";
+import type { InteractionView } from "../interaction/interaction-view";
 import type { InteractionRuntime } from "../interaction/runtime";
 import { mountGeometryBoard, type BoardHandles } from "./jsxgraph-board";
 import { useGeometryInteraction } from "./use-geometry-interaction";
@@ -22,12 +23,24 @@ export interface GeometryCanvasProps {
 }
 
 export function GeometryCanvas({ model, runtime, modelVersion }: GeometryCanvasProps) {
+  const { view, onClickEntity } = useGeometryInteraction(runtime, model);
+  return <GeometryCanvasSurface model={model} view={view} onClickEntity={onClickEntity} modelVersion={modelVersion} />;
+}
+
+export interface GeometryCanvasSurfaceProps {
+  model: GeometryModel;
+  view: InteractionView;
+  onClickEntity: (hit: EntityRef) => void;
+  modelVersion: number;
+}
+
+/** Renderer-only entry used by the page Action Runtime. */
+export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion }: GeometryCanvasSurfaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const handlesRef = useRef<BoardHandles | null>(null);
   // Pointer world position lives in the render layer — never enters the machine.
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const [invalidHint, setInvalidHint] = useState<string | null>(null);
-  const { view, onClickEntity } = useGeometryInteraction(runtime, model);
 
   // Keep the latest per-entity affordances available to the board's hit-test,
   // which is set up once at mount but must read the CURRENT step's entities on
@@ -42,7 +55,9 @@ export function GeometryCanvas({ model, runtime, modelVersion }: GeometryCanvasP
   const onClickEntityRef = useRef(onClickEntity);
   onClickEntityRef.current = onClickEntity;
 
-  // Mount the board once; tear down on unmount.
+  // Mount for the current immutable model; Action Runtime replaces the model
+  // after a DomainCommand, so remounting here guarantees production Canvas
+  // consumes the new draft objects rather than a stale constructor closure.
   useEffect(() => {
     if (!containerRef.current) return;
     const handles = mountGeometryBoard(containerRef.current, model, {
@@ -70,8 +85,7 @@ export function GeometryCanvas({ model, runtime, modelVersion }: GeometryCanvasP
       handles.destroy();
       handlesRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [model]);
 
   // Clear the invalid hint as soon as the step changes (the machine advanced).
   useEffect(() => {
@@ -127,11 +141,11 @@ function PreviewLine({
   pointer,
   model,
 }: {
-  view: ReturnType<typeof useGeometryInteraction>["view"];
+  view: InteractionView;
   pointer: { x: number; y: number } | null;
   model: GeometryModel;
 }) {
-  if (!view.preview || !pointer) return null;
+  if (!view.preview) return null;
   const spec = view.preview;
 
   // JSXGraph convention: [minX, maxY, maxX, minY]. Build a standard SVG
@@ -141,6 +155,37 @@ function PreviewLine({
   const height = maxY - minY;
   const yExtent = minY + maxY; // svgY = yExtent - modelY
   const svgY = (my: number) => yExtent - my;
+
+  if (spec.type === "parallel-fixed") {
+    const through = model.getPoint(spec.throughPointId);
+    const direction = model.lineDirection(spec.referenceLineId);
+    if (!through || (direction.dx === 0 && direction.dy === 0)) return null;
+    const clipped = clipLineToBox(through.x, through.y, direction.dx, direction.dy, minX, minY, maxX, maxY);
+    if (!clipped) return null;
+    return (
+      <svg className="geometry-canvas__preview" data-preview-type="parallel" viewBox={`${minX} ${minY} ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
+        <line className="is-parallel" x1={clipped[0].x} y1={svgY(clipped[0].y)} x2={clipped[1].x} y2={svgY(clipped[1].y)} />
+      </svg>
+    );
+  }
+
+  if (spec.type === "intersection-fixed") {
+    const parallel = model.getLine(spec.parallelLineId);
+    const parallelPoint = parallel?.kind === "parallel-line" ? model.getPoint(parallel.through) : undefined;
+    const direction = model.lineDirection(spec.parallelLineId);
+    const first = spec.carrierPointIds[0] ? model.getPoint(spec.carrierPointIds[0]) : undefined;
+    const second = spec.carrierPointIds[1] ? model.getPoint(spec.carrierPointIds[1]) : pointer;
+    if (!parallelPoint || !first || !second || (direction.dx === 0 && direction.dy === 0)) return null;
+    const intersection = lineLineIntersection(first.x, first.y, second.x, second.y, parallelPoint.x, parallelPoint.y, direction.dx, direction.dy);
+    return (
+      <svg className="geometry-canvas__preview" data-preview-type="intersection" viewBox={`${minX} ${minY} ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
+        <line className="is-carrier" x1={first.x} y1={svgY(first.y)} x2={second.x} y2={svgY(second.y)} />
+        {intersection && <circle className="is-intersection" cx={intersection.x} cy={svgY(intersection.y)} r={Math.max(width, height) * 0.018} />}
+      </svg>
+    );
+  }
+
+  if (!pointer) return null;
 
   if (spec.type === "parallel-through-hover") {
     // Direction taken from the first selected line, if any; horizontal fallback.
@@ -157,7 +202,7 @@ function PreviewLine({
     const clipped = clipLineToBox(pointer.x, pointer.y, dir.dx, dir.dy, minX, minY, maxX, maxY);
     if (!clipped) return null;
     return (
-      <svg className="geometry-canvas__preview" viewBox={`${minX} ${minY} ${width} ${height}`} preserveAspectRatio="none">
+      <svg className="geometry-canvas__preview" viewBox={`${minX} ${minY} ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
         <line x1={clipped[0].x} y1={svgY(clipped[0].y)} x2={clipped[1].x} y2={svgY(clipped[1].y)} />
       </svg>
     );
@@ -168,7 +213,7 @@ function PreviewLine({
     if (!center) return null;
     const r = Math.hypot(pointer.x - center.x, pointer.y - center.y);
     return (
-      <svg className="geometry-canvas__preview" viewBox={`${minX} ${minY} ${width} ${height}`} preserveAspectRatio="none">
+      <svg className="geometry-canvas__preview" viewBox={`${minX} ${minY} ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
         <circle cx={center.x} cy={svgY(center.y)} r={r} />
       </svg>
     );
@@ -190,7 +235,7 @@ function PreviewLine({
       through.x, through.y, refDir.dx, refDir.dy,
     );
     return (
-      <svg className="geometry-canvas__preview" viewBox={`${minX} ${minY} ${width} ${height}`} preserveAspectRatio="none">
+      <svg className="geometry-canvas__preview" viewBox={`${minX} ${minY} ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
         {parallelClipped && (
           <line
             className="is-parallel"
@@ -281,4 +326,3 @@ function lineLineIntersection(
   const s = ((cx - ax) * cdy - (cy - ay) * cdx) / denom;
   return { x: ax + s * dx, y: ay + s * dy };
 }
-

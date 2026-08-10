@@ -71,10 +71,38 @@ describe("buildGeometryModel", () => {
     expect(lines.every((l) => l.kind === "segment")).toBe(true);
   });
 
+  it("converts SVG Y-down coordinates to JSXGraph's Y-up coordinates", () => {
+    const model = buildGeometryModel(GEOMETRY);
+    expect(model.getPoint("A")?.x).toBe(18);
+    expect(model.getPoint("A")?.y).toBeCloseTo(21.07);
+    expect(model.getPoint("B")?.x).toBe(9);
+    expect(model.getPoint("B")?.y).toBeCloseTo(103.07);
+  });
+
   it("preserves segment endpoints so the projector can resolve directions", () => {
     const model = buildGeometryModel(GEOMETRY);
     const ad = model.getLine("AD");
     expect(ad).toMatchObject({ kind: "segment", from: "A", to: "D" });
+  });
+
+  it("preserves a constructed carrier's visible extension point", () => {
+    const model = buildGeometryModel({
+      ...GEOMETRY,
+      points: [...GEOMETRY.points, { id: "F", x: 131, y: 46, derived: true }],
+      segments: [...GEOMETRY.segments, {
+        id: "carrier",
+        from: "B",
+        to: "E",
+        derived: true,
+        extensionPoint: "F",
+      }],
+    });
+    expect(model.getLine("carrier")).toMatchObject({
+      kind: "segment",
+      from: "B",
+      to: "E",
+      extensionPoint: "F",
+    });
   });
 });
 

@@ -44,6 +44,8 @@ export type GeoLine =
       from: PointId;
       /** Id of the other point the segment passes through. */
       to: PointId;
+      /** Optional constructed continuation rendered from `to` to this point. */
+      extensionPoint?: PointId;
     })
   | (GeoLineBase & {
       kind: "parallel-line";
@@ -51,6 +53,8 @@ export type GeoLine =
       through: PointId;
       /** Id of the line this line is parallel to. */
       parallelTo: LineId;
+      /** Optional visible endpoint after the helper line has intersected. */
+      endPoint?: PointId;
     });
 
 interface GeoLineBase {
@@ -153,7 +157,7 @@ export class GeometryModel {
    * right, bottom in user coordinates) that fits every point with padding.
    * Falls back to a small default viewport when there are no points.
    */
-  boundingBox(padding = 2): [number, number, number, number] {
+  boundingBox(padding = 4): [number, number, number, number] {
     const pts = this.pointsList();
     if (pts.length === 0) return [-6, 6, 8, -4];
     const xs = pts.map((p) => p.x);

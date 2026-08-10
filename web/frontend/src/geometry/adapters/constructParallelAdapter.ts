@@ -20,10 +20,10 @@
  *     backend's `isTopicAnswerAccepted` + `wrongObjectsForSubmission` keep
  *     working unchanged.
  */
-import { GeometryModel } from "../domain/model";
 import type { ParallelActionSpec } from "../interaction/tools/construct-parallel.machine";
 import type { ToolEvidence } from "../interaction/tool-registry";
-import type { TopicGeometryModel, TopicGeometryInteraction } from "../../../../shared/topicPractice";
+import type { TopicGeometryInteraction } from "../../../../shared/topicPractice";
+export { buildGeometryModel } from "./topicGeometryModel";
 
 /** The production `construction` sub-shape (narrowed for clarity). */
 type TopicConstruction = NonNullable<TopicGeometryInteraction["construction"]>;
@@ -51,13 +51,6 @@ export function buildParallelSpec(construction: TopicConstruction | undefined): 
  * relation until the learner constructs one), and points carry their raw
  * coordinates. The projector enumerates these to build per-entity affordances.
  */
-export function buildGeometryModel(geometry: TopicGeometryModel): GeometryModel {
-  return new GeometryModel({
-    points: geometry.points.map((p) => ({ id: p.id, x: p.x, y: p.y })),
-    lines: geometry.segments.map((s) => ({ id: s.id, kind: "segment", from: s.from, to: s.to })),
-  });
-}
-
 /**
  * The shape returned by {@link parseParallelAnswer}. All fields optional: the
  * draft string grows one field at a time as the learner advances.
