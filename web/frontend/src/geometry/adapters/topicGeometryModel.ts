@@ -17,5 +17,6 @@ export function buildGeometryModel(geometry: TopicGeometryModel): GeometryModel 
       derived: segment.derived,
       extensionPoint: segment.extensionPoint,
     })), ...(geometry.derivedLines || []).map((line) => ({ ...line }))],
+    teachingMarks: geometry.teachingMarks,
   });
 }

@@ -156,6 +156,8 @@ export function mountGeometryBoard(
     // Per-entity affordances drive styling (available/selected/wrong/correct).
     // Read fresh each render so the board reflects the current step's view.
     const entities = callbacks.getEntities();
+    const teachingMarks = model.teachingMarksList();
+    const emphasizedIds = new Set(teachingMarks.filter((mark) => mark.kind === "emphasis").flatMap((mark) => mark.entityIds));
 
     // Create point elements first so lines/circles can reference them by JSXGraph
     // element (the valid parent form), not by raw {x,y} objects. Points render on
@@ -179,6 +181,7 @@ export function mountGeometryBoard(
         if (!from || !to) continue;
         board.create("line", [from, to], {
           ...(line.derived ? LINE_ATTRS_DERIVED : LINE_ATTRS),
+          ...(emphasizedIds.has(line.id) ? { strokeColor: "#0f766e", strokeWidth: 4 } : {}),
           ...entityStyle(entities[line.id]),
           layer: 7,
           name: line.id,
@@ -199,6 +202,7 @@ export function mountGeometryBoard(
         ], { visible: false, fixed: true, withLabel: false, name: "" }) as JXG.Point;
         board.create("line", [through, helper], {
           ...LINE_ATTRS_DERIVED,
+          ...(emphasizedIds.has(line.id) ? { strokeColor: "#0f766e", strokeWidth: 4 } : {}),
           ...entityStyle(entities[line.id]),
           layer: 7,
           name: line.id,
@@ -215,6 +219,57 @@ export function mountGeometryBoard(
       const through = pointEls.get(circle.throughPointId);
       if (!center || !through) continue;
       board.create("circle", [center, through], { ...CIRCLE_ATTRS, layer: 7, name: circle.id }) as JXG.Circle;
+    }
+
+    const [minX, maxY, maxX, minY] = model.boundingBox();
+    const markScale = Math.max(maxX - minX, maxY - minY);
+    for (const mark of teachingMarks) {
+      if (mark.kind === "segment-label") {
+        const endpoints = displayLineEndpoints(model, mark.segmentId);
+        if (!endpoints) continue;
+        const dx = endpoints.to.x - endpoints.from.x;
+        const dy = endpoints.to.y - endpoints.from.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const offset = markScale * 0.022;
+        const x = (endpoints.from.x + endpoints.to.x) / 2 - (dy / length) * offset;
+        const y = (endpoints.from.y + endpoints.to.y) / 2 + (dx / length) * offset;
+        const value = displayTeachingLatex(mark.valueLatex);
+        const displayValue = mark.labelKind === "share" ? `${value} 份` : value;
+        board.create("text", [x, y, displayValue], {
+          fixed: true,
+          anchorX: "middle",
+          anchorY: "middle",
+          fontSize: 16,
+          color: mark.labelKind === "share" ? "#a16207" : "#0f766e",
+          cssClass: `geometry-teaching-label is-${mark.labelKind}`,
+          highlight: false,
+          layer: 10,
+        }) as JXG.Text;
+        continue;
+      }
+      if (mark.kind === "correspondence") {
+        for (const segmentId of mark.segmentIds) {
+          const endpoints = displayLineEndpoints(model, segmentId);
+          if (!endpoints) continue;
+          const dx = endpoints.to.x - endpoints.from.x;
+          const dy = endpoints.to.y - endpoints.from.y;
+          const length = Math.hypot(dx, dy) || 1;
+          const ux = dx / length;
+          const uy = dy / length;
+          const nx = -uy;
+          const ny = ux;
+          const midX = (endpoints.from.x + endpoints.to.x) / 2;
+          const midY = (endpoints.from.y + endpoints.to.y) / 2;
+          for (let tick = 0; tick < Math.max(1, mark.tickCount); tick += 1) {
+            const along = (tick - (mark.tickCount - 1) / 2) * markScale * 0.012;
+            const half = markScale * 0.012;
+            board.create("segment", [
+              [midX + ux * along - nx * half, midY + uy * along - ny * half],
+              [midX + ux * along + nx * half, midY + uy * along + ny * half],
+            ], { strokeColor: "#a16207", strokeWidth: 2, fixed: true, highlight: false, layer: 10 }) as JXG.Line;
+          }
+        }
+      }
     }
 
     board.unsuspendUpdate();
@@ -235,6 +290,29 @@ export function mountGeometryBoard(
       }
     },
   };
+}
+
+function displayLineEndpoints(model: GeometryModel, lineId: string): { from: { x: number; y: number }; to: { x: number; y: number } } | undefined {
+  const line = model.getLine(lineId);
+  if (!line) return undefined;
+  if (line.kind === "segment") {
+    const from = model.getPoint(line.from);
+    const to = model.getPoint(line.to);
+    return from && to ? { from, to } : undefined;
+  }
+  const from = model.getPoint(line.through);
+  const to = line.endPoint ? model.getPoint(line.endPoint) : undefined;
+  return from && to ? { from, to } : undefined;
+}
+
+function displayTeachingLatex(value: string): string {
+  return value
+    .replace(/^\$|\$$/g, "")
+    .replace(/\\d?frac\{([^{}]+)\}\{([^{}]+)\}/g, "$1/$2")
+    .replace(/\\sqrt\{([^{}]+)\}/g, "√$1")
+    .replace(/\\angle\s*/g, "∠")
+    .replace(/\\(?:left|right)/g, "")
+    .replace(/[{}]/g, "");
 }
 
 /**

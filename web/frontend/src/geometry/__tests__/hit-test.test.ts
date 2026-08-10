@@ -159,6 +159,19 @@ describe("hitTest — lines", () => {
     // Click midway on BC; AB and AC are farther away.
     expect(hitTest(model, entities(model, ["line"]), 1.5, 0.05)).toEqual({ kind: "line", id: "BC" });
   });
+
+  it("resolves overlapping whole and part segments by the nearest midpoint", () => {
+    const collinear = new GeometryModel({
+      points: [{ id: "A", x: 0, y: 0 }, { id: "P", x: 4, y: 0.001 }, { id: "D", x: 10, y: 0 }],
+      lines: [
+        { id: "AD", kind: "segment", from: "A", to: "D" },
+        { id: "AP", kind: "segment", from: "A", to: "P" },
+        { id: "DP", kind: "segment", from: "D", to: "P" },
+      ],
+    });
+    expect(hitTest(collinear, entities(collinear, ["line"]), 2.5, 0)).toEqual({ kind: "line", id: "AP" });
+    expect(hitTest(collinear, entities(collinear, ["line"]), 7, 0)).toEqual({ kind: "line", id: "DP" });
+  });
 });
 
 describe("hitTolerances — scale with the board (production viewBox)", () => {

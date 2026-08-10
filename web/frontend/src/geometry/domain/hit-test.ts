@@ -103,16 +103,65 @@ export function hitTest(
   }
   if (pointBest) return { kind: "point", id: pointBest.id };
 
-  let lineBest: { id: string; d: number } | null = null;
+  let lineBest: { id: string; d: number; centerDistance: number } | null = null;
   for (const l of model.linesList()) {
     if (!entities[l.id]?.enabled) continue;
     const d = distanceToLine(model, l, ux, uy);
     if (d === null) continue;
-    if (d <= lineR && (!lineBest || d < lineBest.d)) lineBest = { id: l.id, d };
+    const centerDistance = distanceToLineCenter(model, l, ux, uy);
+    const previous = lineBest ? model.getLine(lineBest.id) : undefined;
+    const overlapping = previous ? shareVisualCarrier(model, l, previous, lineR) : false;
+    const closer = !lineBest
+      || (overlapping && Math.abs(d - lineBest.d) <= lineR * 0.2
+        ? centerDistance < lineBest.centerDistance
+        : d < lineBest.d - 1e-8);
+    if (d <= lineR && closer) lineBest = { id: l.id, d, centerDistance };
   }
   if (lineBest) return { kind: "line", id: lineBest.id };
 
   return null;
+}
+
+/**
+ * Collinear whole/part segments have the same perpendicular distance. In that
+ * tie, the segment whose visual midpoint is nearest the click is the learner's
+ * intended target (for example AP instead of the overlapping whole AD).
+ */
+function distanceToLineCenter(model: GeometryModel, line: GeoLine, ux: number, uy: number): number {
+  if (line.kind === "segment") {
+    const a = model.getPoint(line.from);
+    const b = model.getPoint(line.to);
+    if (a && b) return Math.hypot(ux - (a.x + b.x) / 2, uy - (a.y + b.y) / 2);
+  }
+  const through = line.kind === "parallel-line" ? model.getPoint(line.through) : undefined;
+  return through ? Math.hypot(ux - through.x, uy - through.y) : Number.POSITIVE_INFINITY;
+}
+
+function shareVisualCarrier(model: GeometryModel, first: GeoLine, second: GeoLine, tolerance: number): boolean {
+  if (first.kind !== "segment" || second.kind !== "segment") return false;
+  const firstFrom = model.getPoint(first.from);
+  const firstTo = model.getPoint(first.to);
+  const secondFrom = model.getPoint(second.from);
+  const secondTo = model.getPoint(second.to);
+  if (!firstFrom || !firstTo || !secondFrom || !secondTo) return false;
+  const firstDirection = {
+    x: firstTo.x - firstFrom.x,
+    y: firstTo.y - firstFrom.y,
+  };
+  const secondDirection = {
+    x: secondTo.x - secondFrom.x,
+    y: secondTo.y - secondFrom.y,
+  };
+  const firstLength = Math.hypot(firstDirection.x, firstDirection.y);
+  const secondLength = Math.hypot(secondDirection.x, secondDirection.y);
+  if (!firstLength || !secondLength) return false;
+  const directionCross = Math.abs(firstDirection.x * secondDirection.y - firstDirection.y * secondDirection.x) / (firstLength * secondLength);
+  const offset = {
+    x: secondFrom.x - firstFrom.x,
+    y: secondFrom.y - firstFrom.y,
+  };
+  const carrierDistance = Math.abs(firstDirection.x * offset.y - firstDirection.y * offset.x) / firstLength;
+  return directionCross < 0.015 && carrierDistance <= tolerance * 0.2;
 }
 
 /**

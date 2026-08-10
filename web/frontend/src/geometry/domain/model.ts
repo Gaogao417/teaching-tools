@@ -10,6 +10,7 @@
  * UX state — is what keeps the model reusable across renderers and agents.
  */
 import type { LineId, PointId } from "./commands";
+import type { TopicGeometryTeachingMark } from "../../../../shared/topicPractice";
 
 export interface GeoPoint {
   id: PointId;
@@ -77,11 +78,15 @@ export class GeometryModel {
   private readonly points = new Map<PointId, GeoPoint>();
   private readonly lines = new Map<LineId, GeoLine>();
   private readonly circles = new Map<string, GeoCircle>();
+  private readonly teachingMarks: TopicGeometryTeachingMark[];
 
-  constructor(seed: { points?: GeoPoint[]; lines?: GeoLine[]; circles?: GeoCircle[] } = {}) {
+  constructor(seed: { points?: GeoPoint[]; lines?: GeoLine[]; circles?: GeoCircle[]; teachingMarks?: TopicGeometryTeachingMark[] } = {}) {
     for (const p of seed.points ?? []) this.points.set(p.id, { ...p });
     for (const l of seed.lines ?? []) this.lines.set(l.id, { ...l });
     for (const c of seed.circles ?? []) this.circles.set(c.id, { ...c });
+    this.teachingMarks = (seed.teachingMarks || []).map((mark) => mark.kind === "correspondence"
+      ? { ...mark, segmentIds: [...mark.segmentIds] as [string, string] }
+      : mark.kind === "emphasis" ? { ...mark, entityIds: [...mark.entityIds] } : { ...mark });
   }
 
   // ---- points ---------------------------------------------------------------
@@ -149,6 +154,12 @@ export class GeometryModel {
     }
     this.circles.set(circle.id, { ...circle });
     return { ...circle };
+  }
+
+  teachingMarksList(): readonly TopicGeometryTeachingMark[] {
+    return this.teachingMarks.map((mark) => mark.kind === "correspondence"
+      ? { ...mark, segmentIds: [...mark.segmentIds] as [string, string] }
+      : mark.kind === "emphasis" ? { ...mark, entityIds: [...mark.entityIds] } : { ...mark });
   }
 
   // ---- view box -------------------------------------------------------------
