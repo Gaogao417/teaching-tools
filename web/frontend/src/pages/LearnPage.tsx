@@ -12,8 +12,12 @@ import { FocusWorkspace } from "../components/layout/FocusWorkspace";
 import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
 import { TopicRuntimeFrame } from "../components/exercises/topicPractice/TopicRuntimeFrame";
 import { topicNodeByTaskId } from "../../../shared/similarityLearningMap";
+import type { ExercisePlan } from "../../../shared/actionRuntime";
+import { ActionRuntimeFrame } from "../action-runtime/react/ActionRuntimeFrame";
+import { actionMachineRegistry } from "../action-runtime/registry";
 
 const EMPTY_DRAFT: ClientDraftState = { selections: {}, inputs: {} };
+const ACTION_RUNTIME_V2_ENABLED = import.meta.env.VITE_ACTION_RUNTIME_V2 !== "false";
 
 function runtimeAtStep(projection: LearningProjectionSpec, stepIndex: number): ExerciseRuntimeSpec {
   const active = projection.steps[stepIndex];
@@ -61,6 +65,7 @@ export function LearnPage() {
   const navigate = useNavigate();
   const { focusedTask, setFocusedTaskId, studentName } = useOutletContext<WorkspaceOutletContext>();
   const [projection, setProjection] = useState<LearningProjectionSpec | null>(null);
+  const [actionPlan, setActionPlan] = useState<ExercisePlan | null>(null);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [draft, setDraft] = useState<ClientDraftState>(EMPTY_DRAFT);
   const [topicPhase, setTopicPhase] = useState<"answering" | "correct_pause" | "wrong_feedback">("answering");
@@ -77,6 +82,11 @@ export function LearnPage() {
     api.getLearningProjection(taskId)
       .then((result) => !cancelled && setProjection(result))
       .catch(() => !cancelled && setProjection(null));
+    if (ACTION_RUNTIME_V2_ENABLED) {
+      api.getLearningActionPlan(taskId)
+        .then((result) => !cancelled && setActionPlan(result))
+        .catch(() => !cancelled && setActionPlan(null));
+    }
     return () => { cancelled = true; };
   }, [setFocusedTaskId, taskId]);
 
@@ -113,6 +123,20 @@ export function LearnPage() {
   const isLast = activeStepIndex === projection.steps.length - 1;
 
   if (runtime.instance.engineKind === "topic-practice") {
+    if (actionPlan && actionPlan.actions.every((action) => actionMachineRegistry.supports(action.kind, action.version))) {
+      return (
+        <div className="ks-focus-page">
+          <ActionRuntimeFrame
+            response={{ sessionId: `learn:${projection.taskId}`, plan: actionPlan }}
+            local
+            onComplete={() => {
+              recordLearnCompleted(actionPlan.actions[actionPlan.actions.length - 1]?.sourceStepId);
+              navigate(`/practice/${projection.taskId}`);
+            }}
+          />
+        </div>
+      );
+    }
     const contract = runtime.instance.scene.topicWorkspace?.contracts[runtime.runtimeState.currentStepId];
     const submitTopicStep = async (submittedPayload?: string) => {
       let value = draft.inputs["topic-answer"] || "";

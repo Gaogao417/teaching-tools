@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
+import { authorTopicActionTemplates } from "./lib/topicActionTemplateAuthoring.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "../../..");
@@ -769,6 +770,8 @@ function findProblemBlock(assignment) {
 function validateImportedScenario(record) {
   const stepIds = record.promptData.steps.map((step) => step.id);
   const uniqueStepIds = new Set(stepIds);
+  const actionTemplates = record.promptData.actionTemplates || [];
+  const actionIds = new Set(actionTemplates.map((action) => action.actionId));
   const nextRefs = record.promptData.steps.map((step) => step.nextStepId).filter(Boolean);
   const assetUrls = [
     record.promptData.promptDiagramAsset,
@@ -801,6 +804,17 @@ function validateImportedScenario(record) {
       kind: "domain",
       passed: stepIds.every((stepId) => record.answerKey.steps[stepId]?.acceptedAnswers?.length > 0),
       message: "Every runtime step has at least one backend answer alias.",
+    },
+    {
+      name: "action-templates-complete",
+      kind: "schema",
+      passed: actionTemplates.length > 0
+        && actionIds.size === actionTemplates.length
+        && actionTemplates.every((action) => uniqueStepIds.has(action.sourceStepId)
+          && typeof action.kind === "string" && Number.isInteger(action.version) && action.version > 0
+          && action.input && typeof action.input === "object" && Array.isArray(action.capabilities)
+          && Array.isArray(action.answerSlots)),
+      message: "Every published v2 record contains unique, versioned actionTemplates with resolvable source steps.",
     },
     {
       name: "published-assets",
@@ -908,6 +922,13 @@ function importBank(taskId, relativeBankRoot) {
       },
       steps: promptSteps,
     };
+    // Action Runtime v2 authoring output. Runtime plan projection forwards this
+    // opaque JSON list; it never reconstructs machine inputs from primitives.
+    promptData.actionTemplates = authorTopicActionTemplates({
+      taskId,
+      ...promptData,
+      steps: contracts,
+    });
     const record = {
       id,
       taskId,

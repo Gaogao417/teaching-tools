@@ -6,21 +6,29 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@xstate/react": "^6.1.0",
     "jsxgraph": "^1.13.1",
     "katex": "^0.18.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.2.0"
+    "react-router-dom": "^7.2.0",
+    "xstate": "^5.32.5"
   },
   "devDependencies": {
     "@types/katex": "^0.16.8",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/ui": "^4.1.10",
+    "jsdom": "^29.1.1",
     "typescript": "^5.8.2",
-    "vite": "^6.2.2"
+    "vite": "^6.2.2",
+    "vitest": "^4.1.10"
   }
 }

@@ -6,7 +6,9 @@ import { TaskOverviewPanel } from "./pages/TaskOverviewPanel";
 import { ReviewPage } from "./pages/ReviewPage";
 import { LearnPage } from "./pages/LearnPage";
 import { SimilarityLearningMapPage } from "./pages/SimilarityLearningMapPage";
-import PocPage from "./poc/geometry-actions/PocPage";
+import GeometryActionsPocPage from "./poc/geometry-actions/PocPage";
+import GeometryCanvasPocPage from "./geometry/react/PocPage";
+import { PocErrorBoundary } from "./geometry/react/PocErrorBoundary";
 
 export default function App() {
   return (
@@ -19,9 +21,18 @@ export default function App() {
         <Route path="review/:taskId" element={<ReviewPage />} />
         <Route path="result/:sessionId" element={<ResultPage />} />
       </Route>
+      {/* Self-contained POC for the XState-driven geometry canvas. */}
+      <Route
+        path="/poc/geometry"
+        element={
+          <PocErrorBoundary>
+            <GeometryCanvasPocPage />
+          </PocErrorBoundary>
+        }
+      />
       <Route path="/tasks" element={<Navigate to="/" replace />} />
       {/* Isolated POC: functional geometry-actions architecture. No app shell. */}
-      <Route path="/poc/geometry-actions" element={<PocPage />} />
+      <Route path="/poc/geometry-actions" element={<GeometryActionsPocPage />} />
     </Routes>
   );
 }

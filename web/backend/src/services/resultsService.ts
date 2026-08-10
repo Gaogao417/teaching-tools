@@ -8,6 +8,7 @@ import { listActionEvents } from "../repositories/actionEventRepository";
 import { getEnginePlugin } from "./runtime/platform/engineRegistry";
 import type { RuntimeEngineState } from "./runtime/platform/engineTypes";
 import type { SessionKind } from "../../../shared/similarityLearningMap";
+import { listActionEvaluations } from "../repositories/actionRuntimeRepository";
 
 type ResultSessionRecord = {
   id: string;
@@ -70,19 +71,26 @@ export function finishAndPersistResult(
   const history = listResultHistory(session.task_id, session.student_name);
   const task = getTaskDefinition(session.task_id);
   const actionEvents = listActionEvents(session.id);
+  const typedEvaluations = listActionEvaluations(session.id);
   const problemReviews = instances.map((record) => {
     const instance = JSON.parse(record.row.instance_json) as ExerciseInstance;
     const attemptLog: ResultAttemptReview[] = actionEvents
       .filter((event) => event.instance_id === record.row.id)
-      .map((event) => ({
-        actionType: event.action_type,
-        stepId: event.step_id ?? undefined,
-        stepTitle: instance.flow.steps.find((step) => step.id === event.step_id)?.title,
-        targetId: event.target_id ?? undefined,
-        submittedValue: event.submitted_value ?? undefined,
-        evaluation: event.evaluation,
-        createdAt: event.created_at,
-      }));
+      .map((event) => {
+        const typedEvidence = typedEvaluations.find((evaluation) => evaluation.instanceId === record.row.id
+          && evaluation.request.sourceStepId === event.step_id
+          && evaluation.response.evaluation === event.evaluation)?.request.evidence;
+        return {
+          actionType: event.action_type,
+          stepId: event.step_id ?? undefined,
+          stepTitle: instance.flow.steps.find((step) => step.id === event.step_id)?.title,
+          targetId: event.target_id ?? undefined,
+          submittedValue: typedEvidence ? undefined : event.submitted_value ?? undefined,
+          typedEvidence,
+          evaluation: event.evaluation,
+          createdAt: event.created_at,
+        };
+      });
     const projection = getEnginePlugin(record.row.engine_kind).buildProblemReviewProjection(
       task,
       record.content,
@@ -90,6 +98,9 @@ export function finishAndPersistResult(
       instance,
       attemptLog,
     );
+    const typedSubmissions = attemptLog.filter((attempt) => attempt.typedEvidence?.length);
+    const typedWrong = typedSubmissions.find((attempt) => attempt.evaluation === "wrong");
+    const typedRepresentative = typedWrong || typedSubmissions[typedSubmissions.length - 1];
     return {
       instanceId: record.row.id,
       index: record.row.instance_index,
@@ -98,6 +109,15 @@ export function finishAndPersistResult(
       firstTryCorrect: Boolean(record.engineState.firstTryCorrect),
       attemptLog,
       ...projection,
+      ...(typedRepresentative?.typedEvidence ? {
+        actualAnswer: {
+          display: typedRepresentative.typedEvidence.map((evidence) => Object.entries(evidence)
+            .filter(([key]) => !["actionId", "sourceStepId", "kind", "version"].includes(key))
+            .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : typeof value === "object" ? JSON.stringify(value) : String(value)}`)
+            .join("；"))
+            .join("；"),
+        },
+      } : {}),
     };
   });
   const snapshot: ResultSnapshot = {

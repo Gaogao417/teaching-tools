@@ -10,7 +10,7 @@ import {
 import { listRuntimeInstancesBySessionId, insertRuntimeInstances, type RuntimeInstanceRow, updateRuntimeInstanceState } from "../../../repositories/instanceRepository";
 import { createSession, getSessionById, type SessionRow, updateSessionProgress } from "../../../repositories/sessionRepository";
 import { db } from "../../../db/database";
-import { insertActionEvent, listActionEvents } from "../../../repositories/actionEventRepository";
+import { insertActionEvent, insertTypedActionEvent, listActionEvents } from "../../../repositories/actionEventRepository";
 import { insertCapabilityEvidence, listSessionCapabilityIds } from "../../../repositories/progressionRepository";
 import { finishAndPersistResult } from "../../resultsService";
 import { getTaskDefinition } from "../../tasks/catalogService";
@@ -32,6 +32,28 @@ import {
 } from "../../../../../shared/similarityLearningMap";
 import type { TopicPracticeTaskId } from "../../../../../shared/topicPractice";
 import type { TopicPracticeEngineState } from "../engines/topicPractice/types";
+import type {
+  ActionCheckpointRequest,
+  ActionCheckpointResponse,
+  ActionEvaluationRequest,
+  ActionEvaluationResponse,
+  ActionEvidence,
+  ActionPlanResponse,
+  CoachRequest,
+  CoachResponse,
+} from "../../../../../shared/actionRuntime";
+import {
+  getActionCheckpoint,
+  getCachedActionEvaluation,
+  getCommittedActionWorld,
+  saveActionCheckpoint,
+  saveActionEvaluation,
+  saveCommittedActionWorld,
+} from "../../../repositories/actionRuntimeRepository";
+import { buildTopicExercisePlan } from "../../actionRuntime/topicPlanProjector";
+import { currentScenario, runtimeStepEntries } from "../engines/topicPractice";
+import { evaluateTopicEvidence } from "../../actionRuntime/topicTypedEvaluator";
+import { applyDomainCommands } from "../../../../../shared/actionWorld";
 
 type RuntimeInstanceRecord = {
   row: RuntimeInstanceRow;
@@ -148,6 +170,7 @@ function startSession(taskId: TaskId, studentName: string, options: StartSession
     finished_at: null,
     finished: 0,
     schema_version: 2,
+    action_runtime_version: task.engineKind === "topic-practice" && process.env.ACTION_RUNTIME_V2 !== "false" ? 2 : 1,
     session_kind: options.sessionKind || "practice",
     challenge_id: options.challengeId || null,
     source_session_id: options.sourceSessionId || null,
@@ -212,6 +235,229 @@ export function startChallenge(challengeId: string, studentName: string): StartP
 export function restorePractice(sessionId: string) {
   const session = requireRuntimeSession(sessionId);
   return toPracticeSessionSnapshot(session, loadRuntimeInstances(sessionId));
+}
+
+function activeTopicRecord(session: SessionRow): RuntimeInstanceRecord & { engineState: TopicPracticeEngineState } {
+  const records = loadRuntimeInstances(session.id);
+  const activeRecord = records[session.current_index];
+  if (!activeRecord) throw appError("INSTANCE_NOT_ACTIVE", "Current instance is not active", 409);
+  if (activeRecord.row.engine_kind !== "topic-practice") {
+    throw appError("ACTION_NOT_ALLOWED", "Action Runtime v2 is currently available for topic practice", 409);
+  }
+  return activeRecord as RuntimeInstanceRecord & { engineState: TopicPracticeEngineState };
+}
+
+export function getActionRuntimePlan(sessionId: string): ActionPlanResponse {
+  const session = requireRuntimeSession(sessionId);
+  if (session.action_runtime_version !== 2) throw appError("ACTION_NOT_ALLOWED", "Session is pinned to Action Runtime v1", 409);
+  const activeRecord = activeTopicRecord(session);
+  const checkpoint = getActionCheckpoint(sessionId, activeRecord.row.id);
+  const usableCheckpoint = checkpoint?.revision === activeRecord.engineState.attempts ? checkpoint : undefined;
+  const plan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind, usableCheckpoint?.current_action_id);
+  const activeSourceStepId = plan.actions.find((action) => action.actionId === plan.currentActionId)?.sourceStepId;
+  const storedWorld = getCommittedActionWorld(sessionId, activeRecord.row.id);
+  if (storedWorld && storedWorld.sourceStepId === activeSourceStepId) plan.world = storedWorld.world;
+  return {
+    sessionId,
+    plan,
+    ...(usableCheckpoint ? {
+      checkpoint: {
+        currentActionId: usableCheckpoint.current_action_id,
+        completedActionIds: JSON.parse(usableCheckpoint.completed_action_ids_json) as string[],
+        evidence: JSON.parse(usableCheckpoint.evidence_json) as ActionEvidence[],
+        currentDraft: usableCheckpoint.draft_json
+          ? JSON.parse(usableCheckpoint.draft_json) as NonNullable<ActionCheckpointRequest["currentDraft"]>
+          : undefined,
+        revision: usableCheckpoint.revision,
+        updatedAt: usableCheckpoint.updated_at,
+      },
+    } : {}),
+  };
+}
+
+export function checkpointActionRuntime(request: ActionCheckpointRequest): ActionCheckpointResponse {
+  const session = requireRuntimeSession(request.sessionId);
+  const activeRecord = activeTopicRecord(session);
+  if (activeRecord.row.id !== request.exerciseId) throw appError("INSTANCE_NOT_ACTIVE", "Exercise is not active", 409);
+  if (request.revision !== activeRecord.engineState.attempts) throw appError("ACTION_NOT_ALLOWED", "Action plan revision is stale", 409);
+  const plan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind);
+  const planActionIds = new Set(plan.actions.map((action) => action.actionId));
+  const activeSourceStepId = plan.actions.find((action) => action.actionId === plan.currentActionId)?.sourceStepId;
+  const checkpointAction = plan.actions.find((action) => action.actionId === request.currentActionId);
+  if (!planActionIds.has(request.currentActionId)
+    || checkpointAction?.sourceStepId !== activeSourceStepId
+    || request.completedActionIds.some((actionId) => !planActionIds.has(actionId))
+    || request.evidence.some((evidence) => !planActionIds.has(evidence.actionId)
+      || evidence.sourceStepId !== activeSourceStepId)) {
+    throw appError("ANSWER_INVALID", "Checkpoint contains unknown action data", 400);
+  }
+  const updatedAt = saveActionCheckpoint(request);
+  return { accepted: true, revision: request.revision, updatedAt };
+}
+
+function performActionEvaluation(request: ActionEvaluationRequest): ActionEvaluationResponse {
+  const cached = getCachedActionEvaluation(request.sessionId, request.idempotencyKey);
+  if (cached) {
+    if (JSON.stringify(cached.request) !== JSON.stringify(request)) {
+      throw appError("ANSWER_INVALID", "Idempotency key was already used for another request", 409);
+    }
+    return cached.response;
+  }
+
+  const session = requireRuntimeSession(request.sessionId);
+  if (session.action_runtime_version !== 2) throw appError("ACTION_NOT_ALLOWED", "Session is pinned to Action Runtime v1", 409);
+  const activeRecord = activeTopicRecord(session);
+  if (activeRecord.row.id !== request.exerciseId) throw appError("INSTANCE_NOT_ACTIVE", "Exercise is not active", 409);
+  const currentStep = runtimeStepEntries(activeRecord.engineState)[activeRecord.engineState.stepIndex]?.step;
+  if (!currentStep || currentStep.id !== request.sourceStepId) {
+    throw appError("ACTION_NOT_ALLOWED", `Step ${request.sourceStepId} is not active`, 409);
+  }
+  if (request.revision !== activeRecord.engineState.attempts) {
+    return {
+      outcome: "conflict",
+      evaluation: "progress",
+      revision: activeRecord.engineState.attempts,
+      plan: buildTopicExercisePlan(activeRecord.engineState, session.session_kind),
+      phase: session.phase,
+      nextIndex: session.current_index,
+    };
+  }
+
+  const expectedActionIds = new Set(
+    buildTopicExercisePlan(activeRecord.engineState, session.session_kind).actions
+      .filter((action) => action.sourceStepId === currentStep.id)
+      .map((action) => action.actionId),
+  );
+  if (request.evidence.length !== expectedActionIds.size
+    || request.evidence.some((item) => !expectedActionIds.has(item.actionId))) {
+    throw appError("ANSWER_INVALID", "Evidence does not exactly cover the active action group", 400);
+  }
+
+  const scenario = currentScenario(activeRecord.engineState);
+  const templates = (scenario.actionTemplates || []).filter((template) => template.sourceStepId === currentStep.id);
+  const diagnosis = evaluateTopicEvidence(templates, request.evidence);
+  const state = JSON.parse(JSON.stringify(activeRecord.engineState)) as TopicPracticeEngineState;
+  state.attempts += 1;
+  state.wrongObjectIds = diagnosis.wrongObjectIds;
+
+  let evaluation: ActionEvaluationResponse["evaluation"];
+  let nextIndex = session.current_index;
+  let phase: ActionEvaluationResponse["phase"];
+  if (!diagnosis.accepted) {
+    state.status = "wrong";
+    state.hadWrongAttempt = true;
+    evaluation = "wrong";
+    phase = "wrong_feedback";
+  } else {
+    if (!state.completedStepIds.includes(currentStep.id)) state.completedStepIds.push(currentStep.id);
+    state.wrongObjectIds = [];
+    const finalStep = state.stepIndex === runtimeStepEntries(state).length - 1;
+    if (finalStep) {
+      state.status = "correct";
+      state.firstTryCorrect = !state.hadWrongAttempt;
+      evaluation = "correct";
+      phase = session.current_index >= loadRuntimeInstances(request.sessionId).length - 1 ? "group_finished" : "correct_pause";
+      if (phase === "correct_pause") nextIndex += 1;
+    } else {
+      state.status = "pending";
+      state.stepIndex += 1;
+      evaluation = "progress";
+      phase = "answering";
+    }
+  }
+
+  const currentPlan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind);
+  const storedWorld = getCommittedActionWorld(request.sessionId, request.exerciseId);
+  const baseWorld = storedWorld?.sourceStepId === currentStep.id ? storedWorld.world : currentPlan.world;
+  const acceptedWorld = diagnosis.accepted
+    ? { ...applyDomainCommands(baseWorld, diagnosis.commands), revision: state.attempts }
+    : undefined;
+  if (acceptedWorld) saveCommittedActionWorld(request.sessionId, request.exerciseId, currentStep.id, state.attempts, acceptedWorld);
+
+  const runtimeState = JSON.parse(activeRecord.row.runtime_state_json) as Record<string, unknown>;
+  updateRuntimeInstanceState(
+    activeRecord.row.id,
+    activeRecord.row.instance_json,
+    JSON.stringify(state),
+    JSON.stringify({ ...runtimeState, attempts: state.attempts, status: state.status, currentStepId: currentStep.id, wrongObjectIds: state.wrongObjectIds }),
+  );
+  updateSessionProgress(request.sessionId, nextIndex, phase === "correct_pause" ? "answering" : phase);
+
+  const capabilityIds = templates.flatMap((template) => template.capabilities)
+    .filter((capability): capability is SimilarityCapabilityId => capability.startsWith("similarity."));
+  insertTypedActionEvent(request.sessionId, request.exerciseId, currentStep.id, evaluation, capabilityIds);
+  const hadPriorWrong = listActionEvents(request.sessionId).some((event) => event.instance_id === request.exerciseId
+    && event.step_id === currentStep.id && event.evaluation === "wrong");
+  if (diagnosis.accepted && !hadPriorWrong && CAPABILITY_MASTERY_RULE.allowedSessionKinds.includes(session.session_kind)) {
+    for (const capabilityId of capabilityIds) insertCapabilityEvidence({
+      studentName: session.student_name, capabilityId, sessionId: request.sessionId, instanceId: request.exerciseId,
+      stepId: currentStep.id, taskId: activeRecord.row.task_id, sessionKind: session.session_kind, ruleVersion: CAPABILITY_RULE_VERSION,
+    });
+  }
+
+  const nextPlan = buildTopicExercisePlan(state, session.session_kind);
+  const response: ActionEvaluationResponse = {
+    outcome: diagnosis.accepted ? "accepted" : "rejected",
+    evaluation,
+    revision: state.attempts,
+    ...(!diagnosis.accepted ? {
+      diagnosis: {
+        messageLatex: currentStep.errorDiagnosis,
+        wrongObjectIds: diagnosis.wrongObjectIds,
+        wrongActionIds: diagnosis.wrongActionIds,
+        wrongSlotIds: diagnosis.wrongSlotIds,
+        focusTargetId: diagnosis.wrongSlotIds[0] || diagnosis.wrongObjectIds[0],
+      },
+    } : {}),
+    nextActionId: evaluation === "progress" ? nextPlan.currentActionId : undefined,
+    phase,
+    nextIndex,
+    ...(acceptedWorld ? { committedWorld: evaluation === "progress" ? nextPlan.world : acceptedWorld } : {}),
+  };
+  saveActionEvaluation(request, response);
+  return response;
+}
+
+export function submitActionEvaluation(request: ActionEvaluationRequest): ActionEvaluationResponse {
+  return db.transaction(performActionEvaluation)(request);
+}
+
+export function askActionRuntimeCoach(request: CoachRequest): CoachResponse {
+  const session = requireRuntimeSession(request.sessionId);
+  const activeRecord = activeTopicRecord(session);
+  if (activeRecord.row.id !== request.exerciseId) throw appError("INSTANCE_NOT_ACTIVE", "Exercise is not active", 409);
+  if (request.trace.revision !== activeRecord.engineState.attempts) throw appError("ACTION_NOT_ALLOWED", "Student trace revision is stale", 409);
+  const plan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind);
+  const action = plan.actions.find((candidate) => candidate.actionId === request.trace.currentActionId);
+  if (!action) throw appError("ACTION_NOT_ALLOWED", "Student trace action is not active", 409);
+  const selected = request.trace.selectedObjectIds.at(-1);
+  const coach = action.coach;
+  const explicit = request.studentMessage?.trim();
+  const messageLatex = explicit
+    ? `${explicit}——先只完成当前动作：${action.instruction}`
+    : request.trace.wrongAttempts >= 2
+      ? coach?.objectCategoryHintLatex || coach?.invalidObjectLatex || `先检查当前选择的对象类型，再完成：${action.instruction}`
+      : coach?.entryLatex || `当前只做这一件事：${action.instruction}`;
+  const requestedCommand = explicit && plan.mode !== "assessment"
+    ? ([
+        { pattern: /清空|重来/, type: "clear" as const },
+        { pattern: /撤销|退回/, type: "back" as const },
+      ].find((candidate) => candidate.pattern.test(explicit)))
+    : undefined;
+  const agentCommand = requestedCommand && action.capabilities.includes(`agent:${requestedCommand.type}`)
+    ? { commandId: crypto.randomUUID(), actionId: action.actionId, type: requestedCommand.type }
+    : undefined;
+  return {
+    directive: {
+      directiveId: crypto.randomUUID(),
+      messageLatex,
+      tone: request.trace.wrongAttempts ? "wrong" : "prompt",
+      highlightObjectIds: selected ? [selected] : [],
+      focusTargetId: request.trace.wrongAttempts ? selected : undefined,
+      suggestedActionId: action.actionId,
+      ...(agentCommand ? { agentCommand } : {}),
+    },
+  };
 }
 
 export function submitRuntimeAction(

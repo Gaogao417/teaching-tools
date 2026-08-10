@@ -20,6 +20,7 @@ db.exec(`
     finished_at TEXT,
     finished INTEGER NOT NULL DEFAULT 0,
     schema_version INTEGER NOT NULL DEFAULT 2,
+    action_runtime_version INTEGER NOT NULL DEFAULT 1,
     session_kind TEXT NOT NULL DEFAULT 'practice',
     challenge_id TEXT,
     source_session_id TEXT,
@@ -91,6 +92,44 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_practice_action_events_session
     ON practice_action_events(session_id, id);
 
+  CREATE TABLE IF NOT EXISTS practice_action_checkpoints (
+    session_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    current_action_id TEXT NOT NULL,
+    completed_action_ids_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    draft_json TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, instance_id),
+    FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(instance_id) REFERENCES practice_instances(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS practice_action_evaluations_v2 (
+    session_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, idempotency_key),
+    FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(instance_id) REFERENCES practice_instances(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS practice_action_worlds_v2 (
+    session_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    source_step_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    world_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, instance_id),
+    FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(instance_id) REFERENCES practice_instances(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS capability_evidence (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_name TEXT NOT NULL,
@@ -125,6 +164,9 @@ const sessionColumns = db.prepare("PRAGMA table_info(practice_sessions)").all() 
 if (!sessionColumns.some((column) => column.name === "schema_version")) {
   db.exec("ALTER TABLE practice_sessions ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1");
 }
+if (!sessionColumns.some((column) => column.name === "action_runtime_version")) {
+  db.exec("ALTER TABLE practice_sessions ADD COLUMN action_runtime_version INTEGER NOT NULL DEFAULT 1");
+}
 
 for (const [name, definition] of [
   ["session_kind", "TEXT NOT NULL DEFAULT 'practice'"],
@@ -157,4 +199,14 @@ if (!instanceColumns.some((column) => column.name === "scenario_version")) {
 }
 if (!instanceColumns.some((column) => column.name === "scenario_json")) {
   db.exec("ALTER TABLE practice_instances ADD COLUMN scenario_json TEXT");
+}
+
+const checkpointColumns = db.prepare("PRAGMA table_info(practice_action_checkpoints)").all() as Array<{ name: string }>;
+if (!checkpointColumns.some((column) => column.name === "draft_json")) {
+  db.exec("ALTER TABLE practice_action_checkpoints ADD COLUMN draft_json TEXT");
+}
+
+const actionWorldColumns = db.prepare("PRAGMA table_info(practice_action_worlds_v2)").all() as Array<{ name: string }>;
+if (!actionWorldColumns.some((column) => column.name === "source_step_id")) {
+  db.exec("ALTER TABLE practice_action_worlds_v2 ADD COLUMN source_step_id TEXT NOT NULL DEFAULT ''");
 }

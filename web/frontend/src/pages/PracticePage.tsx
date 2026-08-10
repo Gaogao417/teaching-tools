@@ -9,6 +9,7 @@ import type {
   TaskId,
 } from "../../../shared/contracts";
 import type { RemediationDiagnosis } from "../../../shared/similarityLearningMap";
+import type { ActionEvaluationResponse, ActionPlanResponse } from "../../../shared/actionRuntime";
 import { api } from "../api/client";
 import { Chart } from "../components/Chart";
 import type { WorkspaceOutletContext } from "../components/layout/workspaceContext";
@@ -19,10 +20,13 @@ import { ExerciseRuntimeHost, GuideHUD, FeedbackController } from "./practice/Ex
 import { RuntimeActionDock } from "./practice/runtime/RuntimeActionDock";
 import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
 import { MathText } from "../components/math/MathText";
+import { ActionRuntimeFrame } from "../action-runtime/react/ActionRuntimeFrame";
+import { actionMachineRegistry } from "../action-runtime/registry";
 import { TopicRuntimeFrame } from "../components/exercises/topicPractice/TopicRuntimeFrame";
 
 const AUTO_ADVANCE_DELAY = 700;
 const CHART_LIMIT = 10;
+const ACTION_RUNTIME_V2_ENABLED = import.meta.env.VITE_ACTION_RUNTIME_V2 !== "false";
 
 type PracticeSession = PracticeSessionSnapshot;
 
@@ -64,6 +68,7 @@ export function PracticePage() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [diagnosis, setDiagnosis] = useState<RemediationDiagnosis | null>(null);
   const [draft, setDraft] = useState<ClientDraftState>(emptyDraft());
+  const [actionPlan, setActionPlan] = useState<ActionPlanResponse | null>(null);
   const advanceTimer = useRef<number | null>(null);
   const sessionRef = useRef<PracticeSession | null>(null);
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -170,6 +175,18 @@ export function PracticePage() {
   useEffect(() => {
     setDraft(emptyDraft());
   }, [runtime?.instance.instanceId, runtime?.runtimeState.currentStepId]);
+
+  useEffect(() => {
+    if (!ACTION_RUNTIME_V2_ENABLED || !session || session.actionRuntimeVersion !== 2 || runtime?.instance.engineKind !== "topic-practice" || session.phase === "group_finished") {
+      setActionPlan(null);
+      return;
+    }
+    let cancelled = false;
+    void api.getActionRuntimePlan(session.sessionId)
+      .then((response) => { if (!cancelled) setActionPlan(response); })
+      .catch(() => { if (!cancelled) setActionPlan(null); });
+    return () => { cancelled = true; };
+  }, [session?.sessionId, session?.phase, runtime?.instance.instanceId, runtime?.runtimeState.currentStepId]);
 
   const refreshHistory = async (nextTaskId: TaskId, nextStudentName: string) => {
     const historyResponse = await api.getTaskHistory(nextTaskId, nextStudentName, CHART_LIMIT).catch(() => null);
@@ -286,6 +303,29 @@ export function PracticePage() {
     const restored = await api.restorePractice(currentSession.sessionId);
     setSession(restored);
     setDraft(emptyDraft());
+  };
+
+  const handleActionEvaluation = async (response: ActionEvaluationResponse) => {
+    const currentSession = sessionRef.current;
+    if (!currentSession) return;
+    const restored = await api.restorePractice(currentSession.sessionId);
+    setSession(restored);
+    if (response.evaluation === "wrong") {
+      if (currentSession.sessionKind === "challenge") {
+        setDiagnosis(await api.getChallengeDiagnosis(currentSession.sessionId).catch(() => null));
+      }
+      triggerFeedback("wrong");
+      return;
+    }
+    setDiagnosis(null);
+    triggerFeedback(feedbackKind(restored.runtime));
+    if (response.phase === "correct_pause") {
+      scheduleAdvance(currentSession.sessionId);
+    } else if (response.phase === "group_finished") {
+      await finishPractice(restored);
+    } else {
+      setActionPlan(await api.getActionRuntimePlan(currentSession.sessionId).catch(() => null));
+    }
   };
 
   const beginRemediation = async () => {
@@ -420,7 +460,14 @@ export function PracticePage() {
           </div>
         </header>
 
-        {runtime.instance.engineKind === "topic-practice" ? (
+        {runtime.instance.engineKind === "topic-practice" && actionPlan
+          && actionPlan.plan.actions.every((action) => actionMachineRegistry.supports(action.kind, action.version)) ? (
+          <ActionRuntimeFrame
+            response={actionPlan}
+            disabled={session.phase === "correct_pause" || session.phase === "group_finished"}
+            onEvaluation={handleActionEvaluation}
+          />
+        ) : runtime.instance.engineKind === "topic-practice" ? (
           <TopicRuntimeFrame
             runtime={runtime}
             phase={session.phase}

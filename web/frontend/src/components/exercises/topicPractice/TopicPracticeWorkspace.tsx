@@ -3,6 +3,7 @@ import { assertNeverPrimitive, type TopicActionPrimitive, type TopicGeometryMode
 import { MathText } from "../../math/MathText";
 import { currentStep } from "../../../pages/practice/runtime/sceneUtils";
 import type { WorkspaceRendererProps } from "../../../pages/practice/runtime/workspaceRenderers";
+import { TopicGeometryWorkspace } from "../../../geometry/production/TopicGeometryWorkspace";
 
 function playErrorBeep() {
   const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -98,7 +99,6 @@ function GeometryCanvas({
   wrongObjectIds,
   availableSegmentIds,
   availablePointIds,
-  constructionPreview,
   allowPoints,
   allowSegments,
   onPoint,
@@ -116,7 +116,6 @@ function GeometryCanvas({
   wrongObjectIds: string[];
   availableSegmentIds?: string[];
   availablePointIds?: string[];
-  constructionPreview?: { throughPoint?: string; parallelSegment?: string; carrierPoints: string[]; resultPoint?: string };
   allowPoints: boolean;
   allowSegments: boolean;
   onPoint: (id: string) => void;
@@ -154,26 +153,6 @@ function GeometryCanvas({
             </g>
           );
         })}
-        {constructionPreview?.throughPoint && constructionPreview.parallelSegment ? (() => {
-          const through = pointById(geometry, constructionPreview.throughPoint!);
-          const reference = geometry.segments.find((item) => item.id === constructionPreview.parallelSegment);
-          const from = reference ? pointById(geometry, reference.from) : undefined;
-          const to = reference ? pointById(geometry, reference.to) : undefined;
-          if (!through || !from || !to) return null;
-          const dx = to.x - from.x;
-          const dy = to.y - from.y;
-          const scale = Math.max(geometry.viewBox.width, geometry.viewBox.height) / Math.max(Math.hypot(dx, dy), 1);
-          return <line className="topic-construction-preview is-parallel" x1={through.x - dx * scale} y1={through.y - dy * scale} x2={through.x + dx * scale} y2={through.y + dy * scale} />;
-        })() : null}
-        {constructionPreview?.carrierPoints.length === 2 ? (() => {
-          const from = pointById(geometry, constructionPreview.carrierPoints[0]);
-          const to = pointById(geometry, constructionPreview.carrierPoints[1]);
-          return from && to ? <line className="topic-construction-preview is-carrier" x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null;
-        })() : null}
-        {constructionPreview?.carrierPoints.length === 2 && constructionPreview.resultPoint ? (() => {
-          const point = pointById(geometry, constructionPreview.resultPoint!);
-          return point ? <circle className="topic-construction-intersection" cx={point.x} cy={point.y} r="3.5" /> : null;
-        })() : null}
         {geometry.points.map((point) => {
           const interactive = allowPoints && (!availablePointIds || availablePointIds.includes(point.id));
           return (
@@ -312,6 +291,28 @@ export function TopicPracticeWorkspaceRenderer({
     inputs: { ...current.inputs, [inputAction.target]: value },
   }));
 
+  // construct-parallel routes to the JSXGraph-backed TopicGeometryWorkspace,
+  // which consumes the machine's InteractionView directly (no mapInteractionView
+  // translation). All other primitives fall through to the legacy SVG Canvas +
+  // per-primitive switch below.
+  if (contract.primitive === "construct-parallel" && geometry) {
+    return (
+      <TopicGeometryWorkspace
+        contract={contract}
+        geometry={geometry}
+        draftValue={selected}
+        readOnly={readOnly}
+        onDraftChange={setValue}
+      />
+    );
+  }
+
+  // NOTE: construct-parallel is handled entirely by <TopicGeometryWorkspace>
+  // above (XState machine + JSXGraph Canvas). The code below only runs for the
+  // other primitives (mark-segments / mark-ratio / ratio-scratch /
+  // convert-collinear / equation / select / input), which keep their legacy
+  // SVG-over-image Canvas + per-primitive switch.
+
   const labels = contract.primitive === "mark-segments" ? parseLabels(selected) : {};
   const ratioSegments = contract.primitive === "mark-ratio" ? selected.split(",").filter(Boolean) : [];
   const ratioScratchParts = contract.primitive === "ratio-scratch" ? selected.split("|") : [];
@@ -325,11 +326,6 @@ export function TopicPracticeWorkspaceRenderer({
     ? [equationRawSegments[0] || "", equationRawSegments[1] || "", equationRawSegments[2] || ""]
     : equationRawSegments.filter(Boolean);
   const equationResult = equationParts[1] || "";
-  const constructParts = Object.fromEntries(selected.split("|").filter(Boolean).map((part) => {
-    const index = part.indexOf(":");
-    return [part.slice(0, index), part.slice(index + 1)];
-  }));
-  const carrierPoints = constructParts.carrier?.split(",").filter(Boolean) || [];
   const retainedLabels = Object.values(model.contracts)
     .filter((item) => model.completedStepIds.includes(item.id) && item.primitive === "mark-segments")
     .reduce((all, item) => ({
@@ -455,12 +451,10 @@ export function TopicPracticeWorkspaceRenderer({
         setDraft((current) => ({ ...current, focusTarget: segmentId }));
         return;
       }
-      case "construct-parallel": {
-        if (constructParts.point && !constructParts.parallel) {
-          setValue(`point:${constructParts.point}|parallel:${segmentId}`);
-        }
+      case "construct-parallel":
+        // Unreachable: construct-parallel short-circuits to TopicGeometryWorkspace
+        // above. Kept only to satisfy the exhaustive switch over TopicActionPrimitive.
         return;
-      }
       case "select":
       case "input":
         // These primitives own no segment-click interaction.
@@ -470,17 +464,11 @@ export function TopicPracticeWorkspaceRenderer({
     }
   };
 
-  const handlePoint = (pointId: string) => {
-    if (readOnly || contract.primitive !== "construct-parallel") return;
-    if (!constructParts.point) {
-      setValue(`point:${pointId}`);
-      setDraft((current) => ({ ...current, focusTarget: pointId }));
-      return;
-    }
-    if (!constructParts.parallel || pointId === constructParts.point || carrierPoints.includes(pointId) || carrierPoints.length >= 2) return;
-    const nextCarrier = [...carrierPoints, pointId];
-    setValue(`point:${constructParts.point}|parallel:${constructParts.parallel}|carrier:${nextCarrier.join(",")}`);
-    setDraft((current) => ({ ...current, focusTarget: pointId }));
+  const handlePoint = (_pointId: string) => {
+    // construct-parallel owned the only point-click interaction and is now handled
+    // by TopicGeometryWorkspace. The legacy Canvas below is rendered only for the
+    // other primitives, none of which act on point clicks, so this is a no-op kept
+    // to satisfy the Canvas's `onPoint` prop shape.
   };
 
   const undoLast = () => {
@@ -509,9 +497,8 @@ export function TopicPracticeWorkspaceRenderer({
         setValue(`${[...contract.interaction!.equation!.targetLatex].sort().join("")}=${equationSegments.slice(0, -1).join("*")}|${equationResult}`);
         break;
       case "construct-parallel":
-        if (carrierPoints.length) setValue(`point:${constructParts.point}|parallel:${constructParts.parallel}|carrier:${carrierPoints.slice(0, -1).join(",")}`);
-        else if (constructParts.parallel) setValue(`point:${constructParts.point}`);
-        else setValue("");
+        // Unreachable: construct-parallel short-circuits to TopicGeometryWorkspace
+        // above. Kept only to satisfy the exhaustive switch over TopicActionPrimitive.
         break;
       case "select":
       case "input":
@@ -523,6 +510,10 @@ export function TopicPracticeWorkspaceRenderer({
     setDraft((current) => ({ ...current, focusTarget: undefined }));
   };
 
+  // The legacy Canvas below is rendered only for non-construct-parallel
+  // primitives, so the per-primitive switches no longer need construct-parallel
+  // branches (kept only where the exhaustive switch over TopicActionPrimitive
+  // requires them).
   const selectedSegments = (() => {
     switch (contract.primitive) {
       case "mark-segments": return Object.keys(labels);
@@ -530,35 +521,15 @@ export function TopicPracticeWorkspaceRenderer({
       case "ratio-scratch": return ratioScratchSegments;
       case "convert-collinear": return collinearSegments;
       case "equation": return equationSegments.filter(Boolean);
-      case "construct-parallel": return constructParts.parallel ? [constructParts.parallel] : [];
+      case "construct-parallel": return [];
       case "select":
       case "input": return [];
       default: return assertNeverPrimitive(contract.primitive);
     }
   })();
-  const selectedPoints = contract.primitive === "construct-parallel"
-    ? [constructParts.point, ...carrierPoints].filter(Boolean)
-    : [];
-  const construction = contract.interaction?.construction;
-  const availablePointIds = contract.primitive === "construct-parallel"
-    ? !constructParts.point
-      ? construction ? [construction.throughPoint] : undefined
-      : constructParts.parallel
-        ? construction?.carrierPoints
-        : []
-    : undefined;
-  const availableSegmentIds = contract.primitive === "construct-parallel" && constructParts.point && !constructParts.parallel
-    ? construction ? [construction.parallelSegment] : contract.interaction?.availableSegments
-    : contract.interaction?.availableSegments;
-  const constructionPrompt = !constructParts.point
-    ? "点过线点"
-    : !constructParts.parallel
-      ? "点平行参照边"
-      : carrierPoints.length === 0
-        ? "点第一个外点"
-        : carrierPoints.length === 1
-          ? "点第二个外点"
-          : "辅助线构造完成，可以提交";
+  const selectedPoints: string[] = [];
+  const availablePointIds = undefined;
+  const availableSegmentIds = contract.interaction?.availableSegments;
 
   return (
     <div className={`practice-canvas-zone topic-practice-canvas artifact-topic-canvas ${model.guidedMode && contract.primitive === "mark-segments" && contract.presentation?.autoFocusSequence ? "is-guided-auto-label" : ""}`}>
@@ -575,13 +546,7 @@ export function TopicPracticeWorkspaceRenderer({
             wrongObjectIds={[...new Set([...wrongObjectIds, ...(draft.topicCoach?.highlightedObjectIds || [])])]}
             availableSegmentIds={availableSegmentIds}
             availablePointIds={availablePointIds}
-            constructionPreview={contract.primitive === "construct-parallel" ? {
-              throughPoint: constructParts.point,
-              parallelSegment: constructParts.parallel,
-              carrierPoints,
-              resultPoint: construction?.resultPoint,
-            } : undefined}
-            allowPoints={contract.primitive === "construct-parallel"}
+            allowPoints={false}
             allowSegments={allowsSegmentCanvas(contract.primitive)
               && !(model.guidedMode && contract.primitive === "mark-segments" && contract.presentation?.autoFocusSequence)
               && !(model.guidedMode && contract.primitive === "equation" && contract.presentation?.prefillKnownFactor)}
@@ -638,10 +603,6 @@ export function TopicPracticeWorkspaceRenderer({
           <h3>{contract.title}</h3>
           <MathText value={contract.promptLatex} block />
         </div>
-
-        {contract.primitive === "construct-parallel" ? (
-          <p className="topic-next-object"><span className="material-symbols-outlined">ads_click</span>{constructionPrompt}</p>
-        ) : null}
 
         {contract.primitive === "mark-ratio" ? (
           <p className="topic-next-object"><span className="material-symbols-outlined">link</span>{ratioSegments.length % 2 === 0 ? "先点第一条边" : "现在点它的对应边"} · 已完成 {Math.floor(ratioSegments.length / 2)}/2 组</p>

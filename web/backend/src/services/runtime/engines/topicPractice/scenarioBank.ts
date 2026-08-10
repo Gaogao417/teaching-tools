@@ -80,7 +80,7 @@ export function resolveTopicScenarioRecord(record: TopicScenarioRecord): TopicRe
     if (!answer?.acceptedAnswers.length) throw new Error(`Scenario ${record.id} has no answer key for ${step.id}`);
     return { ...step, acceptedAnswers: answer.acceptedAnswers, expectedLatex: answer.expectedLatex };
   });
-  return withRuntimeInteractionSteps({
+  const resolved = withRuntimeInteractionSteps({
     id: record.id,
     taskId: record.taskId,
     contentId: record.contentId,
@@ -89,6 +89,10 @@ export function resolveTopicScenarioRecord(record: TopicScenarioRecord): TopicRe
     answerLatex: record.answerKey.answerLatex,
     steps,
   });
+  return {
+    ...resolved,
+    actionTemplates: record.promptData.actionTemplates,
+  };
 }
 
 export function pickTopicScenarioRecord(taskId: TopicPracticeTaskId, index: number): TopicScenarioRecord {

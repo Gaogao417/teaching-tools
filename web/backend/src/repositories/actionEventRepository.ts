@@ -51,6 +51,30 @@ export function insertActionEvent(
   );
 }
 
+/** v2 audit row: typed evidence lives in practice_action_evaluations_v2, never in submitted_value. */
+export function insertTypedActionEvent(
+  sessionId: string,
+  instanceId: string,
+  stepId: string,
+  evaluation: RuntimeEvaluation,
+  capabilityIds: SimilarityCapabilityId[] = [],
+  createdAt = new Date().toISOString(),
+) {
+  insertActionEventStatement.run(
+    sessionId,
+    instanceId,
+    "submit",
+    null,
+    null,
+    "action-runtime-v2",
+    stepId,
+    capabilityIds[0] ?? null,
+    capabilityIds.length ? JSON.stringify(capabilityIds) : null,
+    evaluation,
+    createdAt,
+  );
+}
+
 export function listActionEvents(sessionId: string): ActionEventRow[] {
   return listActionEventsStatement.all(sessionId) as ActionEventRow[];
 }

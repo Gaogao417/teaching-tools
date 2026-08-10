@@ -1,5 +1,6 @@
 import type {
   AngleEquationScenario,
+  AngleEquationScenarioRecord,
   AngleEquationStepKey,
   UnknownType,
 } from "../../../../../../shared/angleEquation";
@@ -12,6 +13,9 @@ export type AngleEquationEngineState = RuntimeEngineState & {
   taskId: "trigEquationRange";
   unknownType: UnknownType;
   scenarioId: string;
+  scenarioVersion?: string;
+  /** Backend-only immutable bundle snapshot; never included in ExerciseRuntimeSpec. */
+  pinnedScenario?: AngleEquationScenarioRecord;
   stepState: Record<AngleEquationStepKey, { done: boolean; value: string }>;
   answerKey: AngleEquationScenario["answerKey"];
   scenarioParams: {

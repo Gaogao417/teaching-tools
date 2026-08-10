@@ -19,6 +19,7 @@ type SessionProjectionRow = {
   source_step_id: string | null;
   return_mode: "resume-step" | "restart-instance" | null;
   preserved_completed_step_ids_json: string | null;
+  action_runtime_version: 1 | 2;
 };
 
 type RuntimeInstanceProjectionRecord = {
@@ -66,6 +67,7 @@ export function toPracticeSessionSnapshot(
     elapsedMs: Math.max(0, elapsedMs),
     phase: session.phase,
     sessionKind: session.session_kind,
+    actionRuntimeVersion: session.action_runtime_version,
     challengeId: session.challenge_id ?? undefined,
     sourceSessionId: session.source_session_id ?? undefined,
     resumeContext: session.session_kind === "remediation" && session.source_session_id && session.source_instance_id && session.source_step_id
