@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed · POC 已落地（2026-08-08）· 已演进为任务驱动 + 对象级 affordance（2026-08-09，见下方"演进"）· construct-parallel 已接入生产 `TopicPracticeWorkspace`（2026-08-09，见下方"生产接线"）
+Proposed · POC 已落地（2026-08-08）· 已演进为任务驱动 + 对象级 affordance（2026-08-09，见下方"演进"）· construct-parallel 已接入生产 `TopicPracticeWorkspace`（2026-08-09，见下方"生产接线"）· construct-parallel 已由 JSXGraph 新 Canvas 完整接管，旧桥拆除（2026-08-09，见下方"Canvas 接管"）
 
 ## Background
 
@@ -156,3 +156,38 @@ construct-parallel 已作为第一条最窄生产纵向切片接入 `TopicPracti
 **测试**：原 55 条全绿；新增 26 条适配器测试覆盖序列化与答案键逐字节一致、InteractionView→Canvas props 映射；runtime 集成测试补 evidence 断言。前端 `tsc --noEmit` 干净。
 
 **仍未完成（逐条迁移其它 primitive 的前置）**：mark-segments / mark-ratio / ratio-scratch / convert-collinear / equation / select / input 仍各自需要一个 machine + projector + 输入 spec + evidence serializer。Canvas、事件协议、交通灯、runtime 不需要重写。
+
+## Canvas 接管（2026-08-09）
+
+construct-parallel 从"机器驱动旧 SVG Canvas（经 `mapInteractionView` 翻译）"升级为"机器驱动工具无关的 JSXGraph `GeometryCanvas`（直接消费 `{model, runtime}`）"，并拆除迁移桥。这是 ADR 目标结构的真正落地：
+
+```
+TopicPracticeWorkspace
+    │
+    ├─ construct-parallel ─→ TopicGeometryWorkspace
+    │                            ├─ InteractionRuntime / XState
+    │                            ├─ GeometryModel
+    │                            └─ JSXGraph GeometryCanvas（POC 那个，工具无关）
+    │
+    └─ 其它 primitive ─────→ Legacy SVG GeometryCanvas（保持不变）
+```
+
+**关键决策**：偏离"复用 JSXGraph"的字面风险——生产 `TopicGeometryModel` 是 Y-down 图像坐标、411 张 `.preview.svg` 背景图也是 Y-down 像素资产（`import-topic-artifacts.mjs` 从外部 `teaching_skills` 仓库拷贝；SVG 规范本身 Y 向下）。但本轮**坐标系非重点**：`buildGeometryModel` 从 Tikz 坐标建 Y-up `GeometryModel`，JSXGraph 原生渲染，**不存在翻转**。背景图本轮不渲染（最窄切片），JSXGraph 原生点/线作为唯一可命中层；背景层留待后续。
+
+**新增生产入口**（`web/frontend/src/geometry/production/`）：
+- `TopicGeometryWorkspace.tsx`：construct-parallel 生产入口。内建 `useConstructParallelRuntime` hook（每步一个 runtime + machine，**用真实 `createCommandExecutor`** 而非 no-op），三段 draft 同步（注水 / in-progress 回写 / onDone evidence 序列化），渲染 POC `<GeometryCanvas model runtime modelVersion />` + 答案面板 + 撤销按钮 + 无障碍实体按钮行。React 不再推断"当前该选点还是选线"；`BACK` 只发 machine event。
+- `topicAnswerSerializer.ts`：`parallelAnswerFromView`（从 `InteractionView` 推导 partial 答案串，迁出独立纯函数 + 单测）。
+
+**Executor 接通（第六阶段，本轮做；组合命令拆分按计划延后）**：完成时 `machine done → construct-parallel command → createCommandExecutor → model.addLine(parallel-line relation) → modelVersion bump → Canvas 重绘`。carrier 仍走 `ToolEvidence` 旁路序列化进 `topic-answer`；executor 只产平行线关系。未新增 `CompleteParallelConstructionCommand` / `intersect-lines` 拆分（计划明确延后）。
+
+**命中测试与预览达生产质量（第二/四/五阶段）**：
+- `hitTest` 容差改为按 board 对角线比例化（`hitTolerances`：点 ≈4.5%、线 ≈3%，floor 0.55/0.35）——POC 小板与 159×121 生产板都手感一致；新增 4 条生产尺度单测。
+- `PreviewSpec` 新增 `carrier-preview` 变体：selectCarrier1 阶段 projector 发出 `{throughPointId, referenceLineId, carrier0Id}`，`PreviewLine` 在渲染层算载体线 + 平行线（按 viewport 裁剪，Liang–Barsky）+ 交点（线线求交）——pointer 坐标不进 machine。
+- `PreviewLine` 的 SVG 叠层 viewBox 改为从 `model.boundingBox()` 推导（取代硬编码 `-10 10 20 -20`），任意尺度都对齐 board；Y 处理改为 `svgY = yExtent − modelY`（取代旧的负高度 + 二次取负）。
+- 无障碍实体按钮行：据 `InteractionView.entities` 中 `enabled` 实体生成按钮，发送与 board 命中相同的语义事件，不依赖像素命中。
+
+**旧桥拆除（第七阶段）**：删除 `mapInteractionView.ts` + 其测试、`NOOP_EXECUTOR`、`useConstructParallel` hook、三段 draft effect、`parallelAnswerFromView` 局部函数、`parallelRuntime`/`parallelMapped`/`parallelWrongIds` 推导、`handlePoint`/`handleSegment`/`undoLast` 的 construct-parallel 分支、`constructionPrompt` 渲染、legacy SVG Canvas 的 `constructionPreview` prop 与三段预览拼装。`grep -rn "NOOP_EXECUTOR\|mapConstructParallelView\|parallelRuntime" web/frontend/src` 仅剩注释。**保留** `constructParallelAdapter.ts`（contract→spec/model + serialize/parse）、`topicAnswerSerializer.ts`、runtime `onDone` evidence 通道、后端兼容提交格式。
+
+**测试**：80 条全绿（删 13 条 `mapInteractionView` 测试，新增 12 条：6 serializer + 4 hit-tolerance + 2 projector）。前端 `tsc --noEmit`、`vitest`、`vite build` 全绿。
+
+**仍未完成**：背景图层（411 张 `.preview.svg` 与 JSXGraph board 的对齐）；其余 primitive 的 machine 化；`construct-parallel` / `intersect-lines` 组合命令拆分。

@@ -443,6 +443,19 @@ Agent                    <- domain/commands + executor
 - **运行验证**：浏览器实测全四阶段（过线点 → 参照边 → 第一外点 → 第二外点 → 完成），wrong/correct 反馈正确，command 写入 `parallel-line` 关系；construct-parallel 与 construct-circle 均通过同一无分支分发完成。
 - **诚实说明**：POC 现为**任务驱动** Action（machine 强制 `ParallelActionSpec`，覆盖 PRD-03 §5.3 全四阶段），对应生产 `auxiliaryTwoRatios` 的 construct-parallel 步骤；但**尚未接线生产 session runtime**——步骤推进与判题仍归后端，前端 machine 只跑当前 Action。`GeoLine` 已建模为关系（`segment | parallel-line`），平行线只存 `through + parallelTo`，显示范围由渲染层推导。生产接线（machine 接进 `TopicPracticeWorkspace` 的 construct-parallel 分支，产出同一 `point:T|parallel:S|carrier:C0,C1` 字符串）作为后续工作。
 
+## 附录 D / 生产 Canvas 接管（2026-08-09）
+
+construct-parallel 已由工具无关的 JSXGraph `GeometryCanvas` **完整接管**，迁移桥（`mapInteractionView`、`NOOP_EXECUTOR`、`useConstructParallel`）拆除。详见 [ADR-003 "Canvas 接管"](../adr/ADR-003-xstate-geometry-canvas.md#canvas-接管2026-08-09)。
+
+- **生产入口**：`web/frontend/src/geometry/production/TopicGeometryWorkspace.tsx`。construct-parallel 在 `TopicPracticeWorkspace` 内短路到这里；其余 primitive 继续走 legacy SVG Canvas + per-primitive switch。
+- **直接消费 `{model, runtime}`**：新版 Canvas 不再经 `mapInteractionView` 翻译成旧 Canvas props（`availablePointIds`/`selectedSegments`/`constructionPreview`/`handlePoint`/`handleSegment`）。机器 snapshot 是唯一事实来源。
+- **真实 executor**：完成时 `createCommandExecutor` 写入 `parallel-line` 关系，`modelVersion` bump 触发 Canvas 重绘最终构造（取代 no-op）。
+- **坐标系**：`buildGeometryModel` 从 Tikz 坐标建 Y-up `GeometryModel`，JSXGraph 原生渲染——不存在翻转。背景图（411 张预渲染 Y-down `.preview.svg`）本轮不渲染；JSXGraph 原生点/线是唯一可命中层。
+- **命中测试比例化**：`hitTolerances` 按 board 对角线取比例（点 ≈4.5%、线 ≈3%，floor 0.55/0.35），POC 小板与生产大板手感一致。
+- **预览**：`PreviewSpec` 新增 `carrier-preview`；`PreviewLine` 的叠层 viewBox 从 `model.boundingBox()` 推导，平行线按 viewport 裁剪（Liang–Barsky），载体线 + 平行线 + 交点在渲染层计算。
+- **无障碍**：`EntityButtonRow` 据 `InteractionView.entities` 中 `enabled` 实体生成按钮，不依赖像素命中。
+- **测试**：80 条全绿；`tsc --noEmit` / `vitest` / `vite build` 全绿。
+
 ## 附录 C / 技术依据（XState v5 官方文档）
 
 | 主题 | 说明 |

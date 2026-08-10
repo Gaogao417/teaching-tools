@@ -1,21 +1,9 @@
-import { useEffect, useMemo, useSyncExternalStore, type ChangeEvent } from "react";
-import { assertNeverPrimitive, type TopicActionProjection, type TopicActionPrimitive, type TopicGeometryModel, type TopicGeometryPoint, type TopicGeometrySegment } from "../../../../../shared/topicPractice";
+import { useEffect, type ChangeEvent } from "react";
+import { assertNeverPrimitive, type TopicActionPrimitive, type TopicGeometryModel, type TopicGeometryPoint, type TopicGeometrySegment } from "../../../../../shared/topicPractice";
 import { MathText } from "../../math/MathText";
 import { currentStep } from "../../../pages/practice/runtime/sceneUtils";
 import type { WorkspaceRendererProps } from "../../../pages/practice/runtime/workspaceRenderers";
-import { createCommandExecutor } from "../../../geometry/domain/command-executor";
-import type { CommandExecutor, CommandResult } from "../../../geometry/domain/command-executor";
-import { GeometryModel } from "../../../geometry/domain/model";
-import type { InteractionRuntime } from "../../../geometry/interaction/runtime";
-import { createInteractionRuntime } from "../../../geometry/interaction/runtime";
-import { idleView, type InteractionView } from "../../../geometry/interaction/interaction-view";
-import {
-  buildGeometryModel,
-  buildParallelSpec,
-  parseParallelAnswer,
-  serializeParallelEvidence,
-} from "../../../geometry/adapters/constructParallelAdapter";
-import { mapConstructParallelView } from "../../../geometry/adapters/mapInteractionView";
+import { TopicGeometryWorkspace } from "../../../geometry/production/TopicGeometryWorkspace";
 
 function playErrorBeep() {
   const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -111,7 +99,6 @@ function GeometryCanvas({
   wrongObjectIds,
   availableSegmentIds,
   availablePointIds,
-  constructionPreview,
   allowPoints,
   allowSegments,
   onPoint,
@@ -129,7 +116,6 @@ function GeometryCanvas({
   wrongObjectIds: string[];
   availableSegmentIds?: string[];
   availablePointIds?: string[];
-  constructionPreview?: { throughPoint?: string; parallelSegment?: string; carrierPoints: string[]; resultPoint?: string };
   allowPoints: boolean;
   allowSegments: boolean;
   onPoint: (id: string) => void;
@@ -167,26 +153,6 @@ function GeometryCanvas({
             </g>
           );
         })}
-        {constructionPreview?.throughPoint && constructionPreview.parallelSegment ? (() => {
-          const through = pointById(geometry, constructionPreview.throughPoint!);
-          const reference = geometry.segments.find((item) => item.id === constructionPreview.parallelSegment);
-          const from = reference ? pointById(geometry, reference.from) : undefined;
-          const to = reference ? pointById(geometry, reference.to) : undefined;
-          if (!through || !from || !to) return null;
-          const dx = to.x - from.x;
-          const dy = to.y - from.y;
-          const scale = Math.max(geometry.viewBox.width, geometry.viewBox.height) / Math.max(Math.hypot(dx, dy), 1);
-          return <line className="topic-construction-preview is-parallel" x1={through.x - dx * scale} y1={through.y - dy * scale} x2={through.x + dx * scale} y2={through.y + dy * scale} />;
-        })() : null}
-        {constructionPreview?.carrierPoints.length === 2 ? (() => {
-          const from = pointById(geometry, constructionPreview.carrierPoints[0]);
-          const to = pointById(geometry, constructionPreview.carrierPoints[1]);
-          return from && to ? <line className="topic-construction-preview is-carrier" x1={from.x} y1={from.y} x2={to.x} y2={to.y} /> : null;
-        })() : null}
-        {constructionPreview?.carrierPoints.length === 2 && constructionPreview.resultPoint ? (() => {
-          const point = pointById(geometry, constructionPreview.resultPoint!);
-          return point ? <circle className="topic-construction-intersection" cx={point.x} cy={point.y} r="3.5" /> : null;
-        })() : null}
         {geometry.points.map((point) => {
           const interactive = allowPoints && (!availablePointIds || availablePointIds.includes(point.id));
           return (
@@ -272,120 +238,6 @@ function GeometryCanvas({
   );
 }
 
-/**
- * Rebuild the legacy partial `topic-answer` string from the machine's current
- * view, so the draft stays in lockstep with the machine as the learner
- * advances / undoes. The projector places `selected` in stage order: the
- * through-point first, then the reference line, then the carrier points. We
- * rebuild the same `point:T|parallel:S|carrier:C0,C1` form the legacy handlers
- * produced at each stage (and return null when the machine has nothing chosen
- * yet, so the draft isn't touched on a fresh start).
- */
-function parallelAnswerFromView(view: InteractionView): string | null {
-  const points: string[] = [];
-  const lines: string[] = [];
-  for (const ref of view.selected) {
-    if (ref.kind === "point") points.push(ref.id);
-    else if (ref.kind === "line") lines.push(ref.id);
-  }
-  if (points.length === 0 && lines.length === 0) return null;
-  const parts: string[] = [];
-  if (points[0]) parts.push(`point:${points[0]}`);
-  if (lines[0]) parts.push(`parallel:${lines[0]}`);
-  const carriers = points.slice(1);
-  if (carriers.length > 0) parts.push(`carrier:${carriers.join(",")}`);
-  return parts.join("|");
-}
-
-/**
- * No-op executor for the construct-parallel machine in production. The legacy
- * Canvas renders its own preview from `constructionPreview` and never expected a
- * derived geometry object to appear mid-step — so the machine running the
- * executor's normal "add a parallel-line relation" would be redundant (and would
- * diverge from the production rendering model). We still need AN executor to
- * satisfy {@link createInteractionRuntime}; this one accepts the command and
- * reports success without mutating anything. The teaching value rides on
- * `ToolCompleted.evidence`, serialized into the `topic-answer` string.
- */
-const NOOP_EXECUTOR: CommandExecutor = {
-  execute: (command) => {
-    const summary = command.type === "construct-parallel"
-      ? `过 ${command.throughPointId} 作 ${command.referenceLineId} 的平行线`
-      : command.type === "construct-circle"
-        ? `以 ${command.centerId} 为圆心过 ${command.throughPointId} 作圆`
-        : "几何操作";
-    const ok: CommandResult = { ok: true, summary, createdIds: [] };
-    return ok;
-  },
-};
-
-/**
- * Drives the XState construct-parallel machine behind the existing SVG Canvas.
- *
- * The machine owns step flow + collected ids (point → line → two carriers); the
- * production Canvas keeps its image + SVG overlay and is fed the same prop
- * shapes it always read (`availablePointIds`, `selectedSegments`, …), now
- * derived from the machine's projected view instead of the old hand-written
- * stage switches. On completion the evidence is serialized into the legacy
- * `point:T|parallel:S|carrier:C0,C1` draft string; submission + backend grading
- * are unchanged.
- *
- * `isActive` is false for non-construct-parallel steps or when the construction
- * spec is missing — callers fall back to the original per-primitive logic.
- */
-interface UseConstructParallel {
-  isActive: boolean;
-  runtime?: InteractionRuntime;
-  view: InteractionView;
-}
-
-function useConstructParallel(
-  contract: TopicActionProjection | undefined,
-  geometry: TopicGeometryModel | undefined,
-): UseConstructParallel {
-  // Only build a runtime when this step is construct-parallel AND a construction
-  // spec is available. `buildParallelSpec` returning null (missing construction)
-  // means we keep the legacy hand-written branch as a fallback.
-  const spec = useMemo(
-    () => (contract?.primitive === "construct-parallel" ? buildParallelSpec(contract.interaction?.construction) : null),
-    [contract?.primitive, contract?.interaction?.construction],
-  );
-  const isActive = contract?.primitive === "construct-parallel" && spec !== null && !!geometry;
-
-  // A domain model is only needed to enumerate which points/lines exist so the
-  // projector can build affordances. Rebuild it per geometry change.
-  const model = useMemo(() => (geometry ? buildGeometryModel(geometry) : null), [geometry]);
-
-  // The runtime is per-step (keyed by contract id + model identity): a new
-  // construct-parallel step gets a fresh machine. Built via useMemo so the same
-  // instance is reused across renders within one step (avoiding render-phase
-  // ref mutation), and torn down implicitly when the step changes by producing
-  // a new instance here and stopping the old one in the effect below.
-  const runtime = useMemo<InteractionRuntime | undefined>(() => {
-    if (!isActive || !model) return undefined;
-    return createInteractionRuntime(NOOP_EXECUTOR, model);
-    // contract.id + geometry identity are the keys; model is derived from geometry.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive, contract?.id, model]);
-
-  // Start the tool whenever a fresh runtime appears. startTool tears down any
-  // prior tool on the same runtime, so this is safe to re-run.
-  useEffect(() => {
-    if (!isActive || !runtime || !spec) return;
-    runtime.startTool("construct-parallel", spec);
-  }, [runtime, isActive, spec]);
-
-  // Subscribe for re-render via the cached view (referentially stable between
-  // notifications — required by useSyncExternalStore).
-  const view = useSyncExternalStore(
-    (cb) => (runtime ? runtime.subscribe(cb) : () => {}),
-    () => runtime?.getView() ?? idleView,
-    () => idleView,
-  );
-
-  return { isActive, runtime, view };
-}
-
 export function TopicPracticeWorkspaceRenderer({
   runtime,
   draft,
@@ -426,11 +278,6 @@ export function TopicPracticeWorkspaceRenderer({
     });
   }, [runtime.runtimeState.currentStepId]);
 
-  // Compute geometry before early-returns so the construct-parallel hook (which
-  // must be called unconditionally) can receive it.
-  const contractGeometry = contract?.interaction?.geometry || model?.promptGeometry;
-  const parallelRuntime = useConstructParallel(contract, contractGeometry);
-
   if (!model || inputAction?.type !== "input") return <div className="practice-canvas-zone" />;
   if (!contract) return <div className="practice-canvas-zone" />;
   const ordered = Object.values(model.contracts);
@@ -444,53 +291,27 @@ export function TopicPracticeWorkspaceRenderer({
     inputs: { ...current.inputs, [inputAction.target]: value },
   }));
 
-  // Hydrate the machine from an existing draft whenever a (re)started tool
-  // begins. We replay only the confirmed-correct prefix — point, then parallel,
-  // then carriers — by sending the matching semantic events; the machine's
-  // guards accept each and advance, so the learner returns to a half-finished
-  // step exactly where they left it. This runs once per tool start (keyed on
-  // the runtime, which is recreated per step), NOT on every draft change, so it
-  // cannot loop against the in-progress write-back effect below.
-  useEffect(() => {
-    if (!parallelRuntime.isActive || !parallelRuntime.runtime) return;
-    const draftValue = draft.inputs[inputAction.target] || "";
-    if (!draftValue) return;
-    const rt = parallelRuntime.runtime;
-    if (rt.activeToolId() !== "construct-parallel") return;
-    const parsed = parseParallelAnswer(draftValue);
-    if (parsed.throughPointId) rt.send({ type: "POINT.CLICKED", pointId: parsed.throughPointId });
-    if (parsed.referenceLineId) rt.send({ type: "LINE.CLICKED", lineId: parsed.referenceLineId });
-    for (const carrierId of parsed.carrierPointIds) rt.send({ type: "POINT.CLICKED", pointId: carrierId });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on the per-step runtime only; reading the current draft once on tool start is the point.
-  }, [parallelRuntime.isActive, parallelRuntime.runtime]);
+  // construct-parallel routes to the JSXGraph-backed TopicGeometryWorkspace,
+  // which consumes the machine's InteractionView directly (no mapInteractionView
+  // translation). All other primitives fall through to the legacy SVG Canvas +
+  // per-primitive switch below.
+  if (contract.primitive === "construct-parallel" && geometry) {
+    return (
+      <TopicGeometryWorkspace
+        contract={contract}
+        geometry={geometry}
+        draftValue={selected}
+        readOnly={readOnly}
+        onDraftChange={setValue}
+      />
+    );
+  }
 
-  // Reflect the machine's in-progress selection into the draft string on every
-  // view change. This keeps the draft (which `constructionPreview`, hydration,
-  // and the backend's eventual submission all read) in lockstep with the
-  // machine as the learner advances, undoes (BACK), or gets a wrong-click
-  // cleared. The serialized partial form is byte-identical to what the legacy
-  // handlers produced at each stage (`point:T`, `point:T|parallel:S`, …), so
-  // the backend grading path is unaffected.
-  useEffect(() => {
-    if (!parallelRuntime.isActive) return;
-    const value = parallelAnswerFromView(parallelRuntime.view);
-    if (value !== null) setValue(value);
-  }, [parallelRuntime.isActive, parallelRuntime.view]);
-
-  // On completion, write the final serialized evidence. (The in-progress effect
-  // above also writes the complete string at the final click, but doing it
-  // explicitly from `onDone` makes the contract obvious and survives any future
-  // change to how "done" maps onto the view.)
-  useEffect(() => {
-    if (!parallelRuntime.isActive || !parallelRuntime.runtime) return;
-    return parallelRuntime.runtime.onDone((completed) => {
-      if (completed.toolId !== "construct-parallel") return;
-      // `evidence` is a per-tool discriminated union; narrow to the
-      // construct-parallel variant before serializing into the draft.
-      if (!completed.evidence || !("selectedPointId" in completed.evidence)) return;
-      setValue(serializeParallelEvidence(completed.evidence));
-    });
-  }, [parallelRuntime.isActive, parallelRuntime.runtime, inputAction.target]);
+  // NOTE: construct-parallel is handled entirely by <TopicGeometryWorkspace>
+  // above (XState machine + JSXGraph Canvas). The code below only runs for the
+  // other primitives (mark-segments / mark-ratio / ratio-scratch /
+  // convert-collinear / equation / select / input), which keep their legacy
+  // SVG-over-image Canvas + per-primitive switch.
 
   const labels = contract.primitive === "mark-segments" ? parseLabels(selected) : {};
   const ratioSegments = contract.primitive === "mark-ratio" ? selected.split(",").filter(Boolean) : [];
@@ -505,11 +326,6 @@ export function TopicPracticeWorkspaceRenderer({
     ? [equationRawSegments[0] || "", equationRawSegments[1] || "", equationRawSegments[2] || ""]
     : equationRawSegments.filter(Boolean);
   const equationResult = equationParts[1] || "";
-  const constructParts = Object.fromEntries(selected.split("|").filter(Boolean).map((part) => {
-    const index = part.indexOf(":");
-    return [part.slice(0, index), part.slice(index + 1)];
-  }));
-  const carrierPoints = constructParts.carrier?.split(",").filter(Boolean) || [];
   const retainedLabels = Object.values(model.contracts)
     .filter((item) => model.completedStepIds.includes(item.id) && item.primitive === "mark-segments")
     .reduce((all, item) => ({
@@ -561,13 +377,6 @@ export function TopicPracticeWorkspaceRenderer({
 
   const handleSegment = (segmentId: string) => {
     if (readOnly) return;
-    // construct-parallel is driven by the XState machine: a segment click is a
-    // LINE.CLICKED event. The machine's guards accept the expected reference
-    // segment and otherwise record a wrong target (surfaced red via the view).
-    if (parallelRuntime.isActive && parallelRuntime.runtime) {
-      parallelRuntime.runtime.send({ type: "LINE.CLICKED", lineId: segmentId });
-      return;
-    }
     switch (contract.primitive) {
       case "mark-segments": {
         if (model.guidedMode && contract.presentation?.autoFocusSequence) return;
@@ -642,12 +451,10 @@ export function TopicPracticeWorkspaceRenderer({
         setDraft((current) => ({ ...current, focusTarget: segmentId }));
         return;
       }
-      case "construct-parallel": {
-        // Reached only when the machine is inactive (missing construction spec).
-        // The legacy branch would set the `parallel` slot; with no spec there is
-        // nothing to validate against, so no-op.
+      case "construct-parallel":
+        // Unreachable: construct-parallel short-circuits to TopicGeometryWorkspace
+        // above. Kept only to satisfy the exhaustive switch over TopicActionPrimitive.
         return;
-      }
       case "select":
       case "input":
         // These primitives own no segment-click interaction.
@@ -657,20 +464,11 @@ export function TopicPracticeWorkspaceRenderer({
     }
   };
 
-  const handlePoint = (pointId: string) => {
-    if (readOnly || contract.primitive !== "construct-parallel") return;
-    // construct-parallel is driven by the XState machine: a point click is a
-    // POINT.CLICKED event (through-point, then the two carriers).
-    if (parallelRuntime.isActive && parallelRuntime.runtime) {
-      parallelRuntime.runtime.send({ type: "POINT.CLICKED", pointId });
-      return;
-    }
-    // Legacy fallback (no construction spec): keep the old single-stage behavior
-    // so the step is still minimally usable, though it cannot validate.
-    if (!constructParts.point) {
-      setValue(`point:${pointId}`);
-      setDraft((current) => ({ ...current, focusTarget: pointId }));
-    }
+  const handlePoint = (_pointId: string) => {
+    // construct-parallel owned the only point-click interaction and is now handled
+    // by TopicGeometryWorkspace. The legacy Canvas below is rendered only for the
+    // other primitives, none of which act on point clicks, so this is a no-op kept
+    // to satisfy the Canvas's `onPoint` prop shape.
   };
 
   const undoLast = () => {
@@ -699,13 +497,8 @@ export function TopicPracticeWorkspaceRenderer({
         setValue(`${[...contract.interaction!.equation!.targetLatex].sort().join("")}=${equationSegments.slice(0, -1).join("*")}|${equationResult}`);
         break;
       case "construct-parallel":
-        // The machine's BACK chain (carrier1 → carrier0 → line → point) mirrors
-        // the legacy three-stage undo. The in-progress write-back effect then
-        // reflects the popped selection in the draft. We only break out of the
-        // switch here; the post-switch focusTarget clear still runs.
-        if (parallelRuntime.isActive && parallelRuntime.runtime) {
-          parallelRuntime.runtime.send({ type: "BACK" });
-        }
+        // Unreachable: construct-parallel short-circuits to TopicGeometryWorkspace
+        // above. Kept only to satisfy the exhaustive switch over TopicActionPrimitive.
         break;
       case "select":
       case "input":
@@ -717,63 +510,26 @@ export function TopicPracticeWorkspaceRenderer({
     setDraft((current) => ({ ...current, focusTarget: undefined }));
   };
 
-  // When the XState machine is active, the construct-parallel view is the
-  // single source for affordances, selection, wrong ids, and the preview —
-  // replacing the inline stage switches below. Otherwise fall back to the
-  // legacy hand-derived values.
-  const construction = contract.interaction?.construction;
-  const parallelMapped = parallelRuntime.isActive
-    ? mapConstructParallelView(parallelRuntime.view, { resultPoint: construction?.resultPoint })
-    : undefined;
-  const parallelWrongIds = parallelMapped?.wrongObjectIds ?? [];
-
-  const selectedSegments = parallelMapped
-    ? parallelMapped.selectedSegments
-    : (() => {
-        switch (contract.primitive) {
-          case "mark-segments": return Object.keys(labels);
-          case "mark-ratio": return ratioSegments;
-          case "ratio-scratch": return ratioScratchSegments;
-          case "convert-collinear": return collinearSegments;
-          case "equation": return equationSegments.filter(Boolean);
-          case "construct-parallel": return constructParts.parallel ? [constructParts.parallel] : [];
-          case "select":
-          case "input": return [];
-          default: return assertNeverPrimitive(contract.primitive);
-        }
-      })();
-  const selectedPoints = parallelMapped
-    ? parallelMapped.selectedPoints
-    : contract.primitive === "construct-parallel"
-      ? [constructParts.point, ...carrierPoints].filter(Boolean)
-      : [];
-  const availablePointIds = parallelMapped
-    ? parallelMapped.availablePointIds
-    : contract.primitive === "construct-parallel"
-      ? !constructParts.point
-        ? construction ? [construction.throughPoint] : undefined
-        : constructParts.parallel
-          ? construction?.carrierPoints
-          : []
-      : undefined;
-  const availableSegmentIds = parallelMapped
-    ? parallelMapped.availableSegmentIds
-    : contract.primitive === "construct-parallel" && constructParts.point && !constructParts.parallel
-      ? construction ? [construction.parallelSegment] : contract.interaction?.availableSegments
-      : contract.interaction?.availableSegments;
-  // Prompt: the projector already produces the per-stage Chinese instruction.
-  // When the machine is inactive, keep the legacy derived prompt as a fallback.
-  const constructionPrompt = parallelMapped
-    ? parallelMapped.prompt
-    : !constructParts.point
-      ? "点过线点"
-      : !constructParts.parallel
-        ? "点平行参照边"
-        : carrierPoints.length === 0
-          ? "点第一个外点"
-          : carrierPoints.length === 1
-            ? "点第二个外点"
-            : "辅助线构造完成，可以提交";
+  // The legacy Canvas below is rendered only for non-construct-parallel
+  // primitives, so the per-primitive switches no longer need construct-parallel
+  // branches (kept only where the exhaustive switch over TopicActionPrimitive
+  // requires them).
+  const selectedSegments = (() => {
+    switch (contract.primitive) {
+      case "mark-segments": return Object.keys(labels);
+      case "mark-ratio": return ratioSegments;
+      case "ratio-scratch": return ratioScratchSegments;
+      case "convert-collinear": return collinearSegments;
+      case "equation": return equationSegments.filter(Boolean);
+      case "construct-parallel": return [];
+      case "select":
+      case "input": return [];
+      default: return assertNeverPrimitive(contract.primitive);
+    }
+  })();
+  const selectedPoints: string[] = [];
+  const availablePointIds = undefined;
+  const availableSegmentIds = contract.interaction?.availableSegments;
 
   return (
     <div className={`practice-canvas-zone topic-practice-canvas artifact-topic-canvas ${model.guidedMode && contract.primitive === "mark-segments" && contract.presentation?.autoFocusSequence ? "is-guided-auto-label" : ""}`}>
@@ -787,16 +543,10 @@ export function TopicPracticeWorkspaceRenderer({
             labels={{ ...retainedLabels, ...labels }}
             ratioSegments={[...retainedRatioSegments, ...ratioSegments, ...ratioScratchSegments]}
             activeLabelId={contract.primitive === "mark-segments" ? draft.focusTarget : undefined}
-            wrongObjectIds={[...new Set([...wrongObjectIds, ...(draft.topicCoach?.highlightedObjectIds || []), ...parallelWrongIds])]}
+            wrongObjectIds={[...new Set([...wrongObjectIds, ...(draft.topicCoach?.highlightedObjectIds || [])])]}
             availableSegmentIds={availableSegmentIds}
             availablePointIds={availablePointIds}
-            constructionPreview={parallelMapped ? parallelMapped.constructionPreview : contract.primitive === "construct-parallel" ? {
-              throughPoint: constructParts.point,
-              parallelSegment: constructParts.parallel,
-              carrierPoints,
-              resultPoint: construction?.resultPoint,
-            } : undefined}
-            allowPoints={contract.primitive === "construct-parallel"}
+            allowPoints={false}
             allowSegments={allowsSegmentCanvas(contract.primitive)
               && !(model.guidedMode && contract.primitive === "mark-segments" && contract.presentation?.autoFocusSequence)
               && !(model.guidedMode && contract.primitive === "equation" && contract.presentation?.prefillKnownFactor)}
@@ -853,10 +603,6 @@ export function TopicPracticeWorkspaceRenderer({
           <h3>{contract.title}</h3>
           <MathText value={contract.promptLatex} block />
         </div>
-
-        {contract.primitive === "construct-parallel" ? (
-          <p className="topic-next-object"><span className="material-symbols-outlined">ads_click</span>{constructionPrompt}</p>
-        ) : null}
 
         {contract.primitive === "mark-ratio" ? (
           <p className="topic-next-object"><span className="material-symbols-outlined">link</span>{ratioSegments.length % 2 === 0 ? "先点第一条边" : "现在点它的对应边"} · 已完成 {Math.floor(ratioSegments.length / 2)}/2 组</p>
