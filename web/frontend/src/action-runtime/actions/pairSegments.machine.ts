@@ -1,6 +1,23 @@
 import type { PairSegmentsAction } from "../../../../shared/actionRuntime";
-import { createActorFromDefinition } from "./actionDefinition";
+import type { DomainCommand } from "../../../../shared/actionWorld";
+import { createActorFromDefinition, projectBoardSlotValues } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
+
+function pairCommands(contract: PairSegmentsAction, segmentIds: string[]): DomainCommand[] {
+  const commands: DomainCommand[] = [];
+  for (let index = 0; index + 1 < segmentIds.length; index += 2) {
+    const pairIndex = index / 2;
+    commands.push({
+      commandId: `${contract.actionId}/correspondence/${pairIndex}`,
+      actionId: contract.actionId,
+      type: "set-correspondence-mark",
+      markId: `${contract.actionId}/correspondence/${pairIndex}`,
+      segmentIds: [segmentIds[index], segmentIds[index + 1]],
+      tickCount: pairIndex + 1,
+    });
+  }
+  return commands;
+}
 
 export const pairSegmentsDefinition = createFormMachineDefinition<PairSegmentsAction>("pair-segments", {
   availableLineIds: (contract) => contract.input.availableSegmentIds,
@@ -10,7 +27,11 @@ export const pairSegmentsDefinition = createFormMachineDefinition<PairSegmentsAc
   structurallyReady: (context) => context.lines.length >= context.contract.input.pairCount * 2,
   locallyCorrect: (context) => !context.contract.input.expectedOrder || context.contract.input.expectedOrder.every((id, index) => context.lines[index] === id),
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "pair-segments", version: 1, segmentIds: [...context.lines] }),
-  projectStepRecord: (_contract, { evidence }) => ({ summary: evidence?.segmentIds.join("、") }),
+  commands: (contract, evidence) => evidence.kind === "pair-segments" ? pairCommands(contract, evidence.segmentIds) : [],
+  previewCommands: (context) => pairCommands(context.contract, context.lines),
+  boardPreview: (context) => projectBoardSlotValues(context.contract, {
+    correspondence: context.lines.length ? context.lines.join("\\leftrightarrow ") : undefined,
+  }),
 });
 
 export const createPairSegmentsActor = (contract: PairSegmentsAction) => createActorFromDefinition(pairSegmentsDefinition, contract);

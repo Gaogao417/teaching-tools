@@ -8,14 +8,16 @@ import type {
   ExercisePlan,
   StudentEvent,
 } from "../../../shared/actionRuntime";
-import { applyDomainCommands, replayCommandBatches, type DomainCommand } from "../../../shared/actionWorld";
+import type { DomainCommand } from "../../../shared/actionWorld";
+import { applyActionEffectBatch, boardEffects, diagramEffects, replayActionEffectBatches } from "../../../shared/actionEffects";
+import { createSolutionBoardBase, type BoardCommand } from "../../../shared/solutionBoard";
 import type { ActionRuntimeEvent } from "./events";
 import { projectWorkspaceView } from "./projectWorkspaceView";
 import { actionMachineRegistry, type ActionMachineRegistry } from "./registry";
 import type { ActionActor, ActionPageRuntime, PageRuntimeSnapshot } from "./types";
 
 type PageEvent =
-  | { type: "ACTION_DONE"; evidence: ActionEvidence; commands: DomainCommand[]; submit: boolean; nextActionId?: string }
+  | { type: "ACTION_DONE"; evidence: ActionEvidence; commands: DomainCommand[]; boardCommands: BoardCommand[]; submit: boolean; nextActionId?: string }
   | { type: "MARK_SUBMITTING" }
   | { type: "TRANSPORT_FAILURE"; message: string }
   | { type: "UNDO_LAST_ACTION" }
@@ -23,6 +25,23 @@ type PageEvent =
   | { type: "EVALUATION"; result: ActionEvaluationResponse }
   | { type: "COACH"; directive: CoachDirective }
   | { type: "RESET"; plan: ExercisePlan; checkpoint?: ActionCheckpointSnapshot };
+
+function initialWorld(plan: ExercisePlan) {
+  if (plan.world.solutionBoard || !plan.solutionBoardScript || plan.mode === "assessment") return plan.world;
+  return { ...plan.world, solutionBoard: createSolutionBoardBase(plan.solutionBoardScript, plan.mode) };
+}
+
+function boardExpressionForAction(plan: ExercisePlan, actionId: string) {
+  return plan.solutionBoardScript?.expressions.find((expression) => expression.ownerActionIds.includes(actionId));
+}
+
+function completionBoardCommands(plan: ExercisePlan, actionId: string, fills: BoardCommand[]): BoardCommand[] {
+  const expression = boardExpressionForAction(plan, actionId);
+  if (!expression) return [];
+  const commands: BoardCommand[] = [{ type: "reveal-expression", expressionId: expression.expressionId }, ...fills];
+  if (expression.ownerActionIds[expression.ownerActionIds.length - 1] === actionId) commands.push({ type: "complete-expression", expressionId: expression.expressionId });
+  return commands;
+}
 
 const pageMachine = setup({
   types: {
@@ -38,9 +57,14 @@ const pageMachine = setup({
         ? context.completedActionIds
         : [...context.completedActionIds, event.evidence.actionId];
       let draft = context.world.draft;
-      let applicableCommands = event.commands;
+      let applicableCommands = [...diagramEffects(event.commands), ...boardEffects(completionBoardCommands(context.plan, event.evidence.actionId, event.boardCommands))];
       try {
-        draft = applyDomainCommands(context.world.draft, event.commands);
+        draft = applyActionEffectBatch(context.world.draft, {
+          actionId: event.evidence.actionId,
+          sourceStepId: event.evidence.sourceStepId,
+          commands: applicableCommands,
+          committed: false,
+        });
       } catch {
         // A ServerAuthoritative action may be structurally complete yet
         // mathematically invalid. Keep its typed evidence for backend diagnosis
@@ -70,7 +94,7 @@ const pageMachine = setup({
         currentActionId: removed.actionId,
         completedActionIds: context.completedActionIds.filter((id) => id !== removed.actionId),
         evidence: context.evidence.filter((item) => item.actionId !== removed.actionId),
-        world: { ...context.world, commandBatches, draft: replayCommandBatches(context.world.committed, commandBatches) },
+        world: { ...context.world, commandBatches, draft: replayActionEffectBatches(context.world.committed, commandBatches) },
         status: "active" as const,
       };
     }),
@@ -86,7 +110,7 @@ const pageMachine = setup({
         currentActionId: first?.actionId || context.currentActionId,
         completedActionIds: context.completedActionIds.filter((id) => !affectedIds.has(id)),
         evidence: context.evidence.filter((item) => !affectedIds.has(item.actionId)),
-        world: { ...context.world, commandBatches, draft: replayCommandBatches(context.world.committed, commandBatches) },
+        world: { ...context.world, commandBatches, draft: replayActionEffectBatches(context.world.committed, commandBatches) },
         status: "active" as const,
       };
     }),
@@ -118,7 +142,7 @@ const pageMachine = setup({
           currentActionId: first?.actionId || context.currentActionId,
           completedActionIds: context.completedActionIds.filter((id) => !wrongActionIds.has(id)),
           evidence: context.evidence.filter((item) => !wrongActionIds.has(item.actionId)),
-          world: { ...context.world, commandBatches, draft: replayCommandBatches(context.world.committed, commandBatches) },
+          world: { ...context.world, commandBatches, draft: replayActionEffectBatches(context.world.committed, commandBatches) },
           revision: result.revision,
           status: "wrong" as const,
           wrongObjectIds: result.diagnosis?.wrongObjectIds || [],
@@ -169,7 +193,7 @@ const pageMachine = setup({
         wrongObjectIds: [],
         wrongMessage: undefined,
         transportMessage: undefined,
-        world: { committed: event.plan.world, draft: event.plan.world, revision: event.plan.revision, commandBatches: [] },
+        world: { committed: initialWorld(event.plan), draft: initialWorld(event.plan), revision: event.plan.revision, commandBatches: [] },
       };
     }),
   },
@@ -184,7 +208,7 @@ const pageMachine = setup({
     revision: input.plan.revision,
     status: "active",
     wrongObjectIds: [],
-    world: { committed: input.plan.world, draft: input.plan.world, revision: input.plan.revision, commandBatches: [] },
+    world: { committed: initialWorld(input.plan), draft: initialWorld(input.plan), revision: input.plan.revision, commandBatches: [] },
   }),
   states: {
     running: {
@@ -262,6 +286,7 @@ export function createActionPageRuntime(
           type: "ACTION_DONE",
           evidence: snapshot.evidence,
           commands: snapshot.commands,
+          boardCommands: snapshot.boardPreview,
           submit: contract.submitOnComplete && contract.validationPolicy === "server-authoritative",
           nextActionId: nextActionId(contract.actionId),
         });
@@ -314,7 +339,7 @@ export function createActionPageRuntime(
       child.send(event);
     },
     getView() {
-      return projectWorkspaceView(pageActor.getSnapshot().context, child.getSnapshot(), registry);
+      return projectWorkspaceView(pageActor.getSnapshot().context, child.getSnapshot());
     },
     getSnapshot() {
       return cachedPageSnapshot;
@@ -349,7 +374,7 @@ export function createActionPageRuntime(
       if (!contract.capabilities.includes(`agent:${command.type}`)) return false;
       switch (command.type) {
         case "select-object": {
-          const entity = projectWorkspaceView(page, child.getSnapshot(), registry).canvas.entities[command.objectId!];
+          const entity = projectWorkspaceView(page, child.getSnapshot()).canvas.entities[command.objectId!];
           if (!entity?.enabled) return false;
           child.send({ type: "OBJECT.SELECTED", objectKind: entity.kind, objectId: entity.id });
           return true;

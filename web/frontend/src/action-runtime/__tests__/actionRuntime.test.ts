@@ -7,7 +7,7 @@ import { actionMachineRegistry, UnsupportedActionError } from "../registry";
 
 function plan(validationPolicy: "local-teaching" | "server-authoritative" = "server-authoritative"): ExercisePlan {
   return {
-    planVersion: 2,
+    planVersion: 3,
     exerciseId: "exercise-1",
     revision: 0,
     mode: validationPolicy === "local-teaching" ? "learn" : "guided-practice",
@@ -20,17 +20,31 @@ function plan(validationPolicy: "local-teaching" | "server-authoritative" = "ser
         segments: [{ id: "S", from: "R0", to: "R1" }],
       },
     },
+    solutionBoardScript: {
+      schemaVersion: 1,
+      documentId: "solution",
+      headingLatex: "\\text{解：}",
+      expressions: [{
+        expressionId: "construction",
+        sourceStepId: "step",
+        ownerActionIds: ["step/make", "step/intersect"],
+        latexTemplate: "\\text{过 }{{through}}\\text{ 作 }{{helper}}\\parallel {{reference}}\\text{，交 }{{carrier}}\\text{ 于 }{{intersection}}",
+        modes: ["learn", "guided-practice"],
+      }],
+    },
     coach: { profileId: "coach", displayName: "老师", avatarId: "school", tone: "supportive" },
     actions: [
       {
         actionId: "step/make", sourceStepId: "step", kind: "make-parallel", version: 1,
         title: "作平行线", instruction: "选点和线", input: { throughPointId: "T", referenceLineId: "S", availablePointIds: ["T", "C0", "C1"], availableLineIds: ["S"], outputLineId: "P", outputLineLabel: "TP" },
         capabilities: ["agent:select-object", "agent:back", "agent:clear"], answerSlots: [], validationPolicy, submitOnComplete: false,
+        boardTargets: { throughPoint: "through", helperLine: "helper", referenceLine: "reference" },
       },
       {
         actionId: "step/intersect", sourceStepId: "step", kind: "intersect-carriers", version: 1,
         title: "求交", instruction: "选两个点", input: { carrierPointIds: ["C0", "C1"], availablePointIds: ["T", "C0", "C1"], parallelLineId: "P", outputCarrierLineId: "C", outputPointId: "X" },
         capabilities: ["agent:select-object", "agent:back", "agent:clear"], answerSlots: [], validationPolicy, submitOnComplete: true,
+        boardTargets: { carrierLine: "carrier", intersectionPoint: "intersection" },
       },
     ],
     currentActionId: "step/make",
@@ -135,7 +149,7 @@ describe("Action Runtime v2", () => {
       const pick = (id: string) => actor.send({ type: "OBJECT.SELECTED", objectKind: "line", objectId: id });
       const answer = (slotId: string, value: string) => actor.send({ type: "ANSWER.CHANGED", slotId, value });
       switch (actor.contract.kind) {
-        case "mark-segment-values": answer("AB", correct ? "2" : "9"); break;
+        case "mark-segment-values": pick("AB"); answer("AB", correct ? "2" : "9"); break;
         case "pair-segments": (correct ? ["AB", "CD"] : ["CD", "AB"]).forEach(pick); break;
         case "ratio-scratch":
           (correct ? ["AB", "CD"] : ["CD", "AB"]).forEach(pick);
@@ -163,6 +177,37 @@ describe("Action Runtime v2", () => {
       expect(actor.getSnapshot().evidence?.kind).toBe(contract.kind);
       actor.stop();
     }
+  });
+
+  it("previews a selected segment value on the diagram and commits the teaching mark", () => {
+    const contract = remainingContracts("local-teaching")[0];
+    const markedPlan: ExercisePlan = {
+      ...plan("local-teaching"),
+      solutionBoardScript: undefined,
+      world: {
+        revision: 0,
+        geometry: {
+          viewBox: { width: 10, height: 10 },
+          points: [{ id: "A", x: 0, y: 0 }, { id: "B", x: 4, y: 0 }],
+          segments: [{ id: "AB", from: "A", to: "B" }],
+        },
+      },
+      actions: [contract],
+      currentActionId: contract.actionId,
+    };
+    const runtime = createActionPageRuntime(markedPlan);
+    runtime.send({ type: "OBJECT.SELECTED", objectKind: "line", objectId: "AB" });
+    runtime.send({ type: "ANSWER.CHANGED", slotId: "AB", value: "2" });
+    expect(runtime.getView().canvas.geometry?.teachingMarks).toEqual([
+      expect.objectContaining({ kind: "segment-label", segmentId: "AB", valueLatex: "2" }),
+    ]);
+    expect(runtime.getSnapshot().world.draft.geometry?.teachingMarks).toBeUndefined();
+
+    runtime.send({ type: "SUBMIT" });
+    expect(runtime.getSnapshot().world.draft.geometry?.teachingMarks).toEqual([
+      expect.objectContaining({ kind: "segment-label", segmentId: "AB", valueLatex: "2" }),
+    ]);
+    runtime.stop();
   });
 
   it("restores a matching checkpoint without replaying network clicks", () => {
@@ -203,6 +248,7 @@ describe("Action Runtime v2", () => {
     const runtime = createActionPageRuntime(plan("local-teaching"));
     runtime.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "T" });
     expect(runtime.getView().canvas.preview).toMatchObject({ type: "parallel", throughPointId: "T" });
+    expect(runtime.getView().solutionBoard?.visibleExpressions[0].latex).toContain("T");
     runtime.send({ type: "OBJECT.SELECTED", objectKind: "line", objectId: "S" });
     expect(runtime.getSnapshot().world.draft.geometry?.derivedLines?.map((line) => line.id)).toContain("P");
     expect(runtime.getView().canvas.entities.P).toBeDefined();
@@ -220,12 +266,14 @@ describe("Action Runtime v2", () => {
       endPoint: "X",
     });
     expect(runtime.getSnapshot().world.draft.geometry?.points.some((point) => point.id === "X" && point.derived)).toBe(true);
+    expect(runtime.getSnapshot().world.draft.solutionBoard?.expressions[0]).toMatchObject({ phase: "complete" });
 
     runtime.send({ type: "CLEAR" });
     expect(runtime.getSnapshot().currentActionId).toBe("step/make");
     expect(runtime.getSnapshot().world.draft.geometry?.derivedLines || []).toEqual([]);
     expect(runtime.getSnapshot().world.draft.geometry?.segments.some((line) => line.id === "C")).toBe(false);
     expect(runtime.getSnapshot().world.draft.geometry?.points.some((point) => point.id === "X")).toBe(false);
+    expect(runtime.getSnapshot().world.draft.solutionBoard?.expressions[0].phase).toBe("hidden");
     runtime.stop();
   });
 
@@ -234,6 +282,7 @@ describe("Action Runtime v2", () => {
     runtime.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "T" });
     runtime.send({ type: "OBJECT.SELECTED", objectKind: "line", objectId: "S" });
     expect(runtime.getSnapshot().currentActionId).toBe("step/intersect");
+    expect(runtime.getView().controls.canBack).toBe(true);
     runtime.send({ type: "BACK" });
     expect(runtime.getSnapshot().currentActionId).toBe("step/make");
     expect(runtime.getSnapshot().evidence).toEqual([]);
@@ -298,7 +347,6 @@ describe("Action Runtime v2", () => {
     let stopped = 0;
     const countingRegistry = {
       supports: actionMachineRegistry.supports,
-      projectStepRecord: actionMachineRegistry.projectStepRecord,
       create(contract: ExercisePlan["actions"][number]) {
         created += 1;
         const actor = actionMachineRegistry.create(contract);

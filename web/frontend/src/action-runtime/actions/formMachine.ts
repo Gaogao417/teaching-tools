@@ -1,7 +1,9 @@
 import { assign, setup, type AnyStateMachine, type SnapshotFrom } from "xstate";
 import type { ActionContract, ActionEvidence } from "../../../../shared/actionRuntime";
+import type { DomainCommand } from "../../../../shared/actionWorld";
+import type { BoardCommand } from "../../../../shared/solutionBoard";
 import type { ActionRuntimeEvent } from "../events";
-import { projectStandardSnapshot, type ActionMachineDefinition, type ActionStepRecordInput, type ActionStepRecordProjection, type StandardActionContext } from "./actionDefinition";
+import { projectStandardSnapshot, type ActionMachineDefinition, type StandardActionContext } from "./actionDefinition";
 
 interface HistoryFrame {
   lines: string[];
@@ -23,7 +25,10 @@ export interface FormMachineBehavior<Contract extends ActionContract> {
   evidence(context: FormMachineContext<Contract>): ActionEvidence;
   answerSlots?(context: FormMachineContext<Contract>): Contract["answerSlots"];
   slotValue?(context: FormMachineContext<Contract>, slotId: string): string;
-  projectStepRecord?(contract: Contract, input: ActionStepRecordInput<Contract>): ActionStepRecordProjection;
+  commands?(contract: Contract, evidence: ActionEvidence): DomainCommand[];
+  previewCommands?(context: FormMachineContext<Contract>): DomainCommand[];
+  boardPreview?(context: FormMachineContext<Contract>): BoardCommand[];
+  boardCommands?(contract: Contract, evidence: ActionEvidence): BoardCommand[];
 }
 
 function frame<Contract extends ActionContract>(context: FormMachineContext<Contract>): HistoryFrame {
@@ -41,7 +46,9 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
       type Context = FormMachineContext<Contract>;
       const validLine = (context: Context, event: ActionRuntimeEvent) => {
         if (event.type !== "OBJECT.SELECTED" || event.objectKind !== "line") return false;
-        if (!behavior.availableLineIds(contract).includes(event.objectId) || context.lines.length >= behavior.maxLines(contract)) return false;
+        if (!behavior.availableLineIds(contract).includes(event.objectId)
+          || context.lines.includes(event.objectId)
+          || context.lines.length >= behavior.maxLines(contract)) return false;
         const expected = behavior.expectedLineAt?.(contract, context.lines.length);
         return contract.validationPolicy !== "local-teaching" || !expected || expected === event.objectId;
       };
@@ -61,10 +68,16 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
             wrongObjectId: undefined,
             wrongMessage: undefined,
           } : {}),
-          rejectObject: assign(({ event }) => event.type === "OBJECT.SELECTED" ? {
-            wrongObjectId: event.objectId,
-            wrongMessage: "这个对象不符合当前 action 的选择约束。",
-          } : {}),
+          rejectObject: assign(({ context, event }) => {
+            if (event.type !== "OBJECT.SELECTED") return {};
+            const expected = behavior.expectedLineAt?.(contract, context.lines.length);
+            return {
+              wrongObjectId: event.objectId,
+              wrongMessage: expected
+                ? `你点到了 ${event.objectId}，当前请先选择 ${expected}。`
+                : `你点到了 ${event.objectId}，它不符合当前动作的选择要求。`,
+            };
+          }),
           changeAnswer: assign(({ context, event }) => event.type === "ANSWER.CHANGED" ? {
             answers: { ...context.answers, [event.slotId]: event.value },
             activeSlotId: event.slotId,
@@ -110,7 +123,9 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
           return {
             enabledByKind: {
               points: [],
-              lines: context.lines.length < behavior.maxLines(context.contract) ? behavior.availableLineIds(context.contract) : [],
+              lines: context.lines.length < behavior.maxLines(context.contract)
+                ? behavior.availableLineIds(context.contract).filter((id) => !context.lines.includes(id))
+                : [],
               angles: [],
             },
             answerSlots: specs.map((slot) => {
@@ -122,12 +137,15 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
                 status: value ? "filled" as const : "empty" as const,
               };
             }),
+            diagramPreviewCommands: behavior.previewCommands?.(context),
+            boardPreview: behavior.boardPreview?.(context),
           };
         },
+        behavior.commands,
       );
     },
-    commands: () => [],
-    projectStepRecord: behavior.projectStepRecord,
+    commands: behavior.commands || (() => []),
+    boardCommands: behavior.boardCommands,
   };
   return definition;
 }

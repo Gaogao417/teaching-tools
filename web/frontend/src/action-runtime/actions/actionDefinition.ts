@@ -1,7 +1,8 @@
 import { createActor, type AnyStateMachine, type SnapshotFrom } from "xstate";
 import type { ActionContract, ActionEvidence, ActionKind } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
-import type { ActionActor, ActionSnapshotView, AnswerSlotView, CanvasSlice, StepRecordTokenView } from "../types";
+import type { BoardCommand } from "../../../../shared/solutionBoard";
+import type { ActionActor, ActionSnapshotView, AnswerSlotView, CanvasSlice } from "../types";
 
 export interface StandardActionContext<Contract extends ActionContract = ActionContract> {
   contract: Contract;
@@ -20,37 +21,33 @@ export interface ActionMachineDefinition<Contract extends ActionContract = Actio
   createMachine(contract: Contract): AnyStateMachine;
   project(snapshot: SnapshotFrom<AnyStateMachine>): ActionSnapshotView;
   commands(contract: Contract, evidence: ActionEvidence): DomainCommand[];
-  projectStepRecord?(contract: Contract, input: ActionStepRecordInput<Contract>): ActionStepRecordProjection;
-}
-
-export type EvidenceFor<Contract extends ActionContract> = Extract<ActionEvidence, { kind: Contract["kind"] }>;
-
-export interface ActionStepRecordInput<Contract extends ActionContract = ActionContract> {
-  evidence?: EvidenceFor<Contract>;
-  current?: ActionSnapshotView;
-}
-
-export interface ActionStepRecordProjection {
-  template?: StepRecordTokenView[];
-  values?: Record<string, string>;
-  summary?: string;
+  boardCommands?(contract: Contract, evidence: ActionEvidence): BoardCommand[];
 }
 
 export interface ActionPresentationProjection {
   enabledByKind: { points: string[]; lines: string[]; angles: string[] };
   answerSlots: AnswerSlotView[];
   preview?: CanvasSlice["preview"];
+  diagramPreviewCommands?: DomainCommand[];
+  boardPreview?: BoardCommand[];
+}
+
+export function projectBoardSlotValues(contract: ActionContract, values: Record<string, string | undefined>): BoardCommand[] {
+  return Object.entries(values).flatMap(([role, latex]) => {
+    const slotId = contract.boardTargets?.[role];
+    return slotId && latex ? [{ type: "fill-slot" as const, slotId, latex }] : [];
+  });
 }
 
 export type RegisteredActionDefinition = ActionMachineDefinition & { kind: ActionKind; version: 1 };
 
-export function projectStandardSnapshot(
+export function projectStandardSnapshot<Contract extends ActionContract = ActionContract>(
   snapshot: SnapshotFrom<AnyStateMachine>,
-  isReady: (context: StandardActionContext) => boolean,
-  present: (context: StandardActionContext) => ActionPresentationProjection,
-  commands: (contract: ActionContract, evidence: ActionEvidence) => DomainCommand[] = () => [],
+  isReady: (context: StandardActionContext<Contract>) => boolean,
+  present: (context: StandardActionContext<Contract>) => ActionPresentationProjection,
+  commands: (contract: Contract, evidence: ActionEvidence) => DomainCommand[] = () => [],
 ): ActionSnapshotView {
-  const context = snapshot.context as StandardActionContext;
+  const context = snapshot.context as StandardActionContext<Contract>;
   const done = snapshot.status === "done";
   const output = done ? snapshot.output as ActionEvidence | { type: "cancelled" } | undefined : undefined;
   const evidence = output && !("type" in output && output.type === "cancelled")
@@ -69,6 +66,8 @@ export function projectStandardSnapshot(
     done,
     evidence,
     commands: evidence ? commands(context.contract, evidence) : [],
+    diagramPreviewCommands: presentation.diagramPreviewCommands || [],
+    boardPreview: presentation.boardPreview || [],
     enabledByKind: presentation.enabledByKind,
     projectedAnswerSlots: presentation.answerSlots,
     preview: presentation.preview,

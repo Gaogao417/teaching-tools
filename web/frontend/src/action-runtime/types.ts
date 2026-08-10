@@ -8,6 +8,7 @@ import type {
 } from "../../../shared/actionRuntime";
 import type { TopicGeometryModel } from "../../../shared/topicPractice";
 import type { DomainCommand, WorkspaceWorld } from "../../../shared/actionWorld";
+import type { BoardCommand } from "../../../shared/solutionBoard";
 import type { ActionRuntimeEvent } from "./events";
 
 export interface RuntimeEntityView {
@@ -41,26 +42,24 @@ export interface AnswerSlotView {
   options?: import("../../../shared/topicPractice").TopicChoiceOption[];
 }
 
-export type StepRecordTokenView =
-  | { kind: "text"; text: string }
-  | { kind: "slot"; slotId: string; label: string; value?: string };
-
-export type ExerciseStepStatus = "pending" | "active" | "complete";
-
-export interface ExerciseStepView {
-  sourceStepId: string;
-  title: string;
-  instruction: string;
-  actionIds: string[];
-  status: ExerciseStepStatus;
-  record?: StepRecordTokenView[];
-  summary?: string;
-}
-
 export interface AnswerSlice {
   slots: AnswerSlotView[];
   activeSlotId?: string;
-  steps: ExerciseStepView[];
+}
+
+export interface BoardExpressionView {
+  expressionId: string;
+  sourceStepId: string;
+  latex: string;
+  isCurrent: boolean;
+  isComplete: boolean;
+}
+
+export interface SolutionBoardView {
+  headingLatex: string;
+  visibleExpressions: BoardExpressionView[];
+  currentExpressionId?: string;
+  announcement?: string;
 }
 
 export interface CoachSlice {
@@ -92,6 +91,7 @@ export interface WorkspaceView {
   progress: { current: number; total: number };
   canvas: CanvasSlice;
   answer: AnswerSlice;
+  solutionBoard?: SolutionBoardView;
   coach: CoachSlice;
   controls: ControlSlice;
 }
@@ -112,6 +112,8 @@ export interface ActionSnapshotView {
   done: boolean;
   evidence?: ActionEvidence;
   commands: DomainCommand[];
+  diagramPreviewCommands: DomainCommand[];
+  boardPreview: BoardCommand[];
   enabledByKind: { points: string[]; lines: string[]; angles: string[] };
   projectedAnswerSlots: AnswerSlotView[];
   preview?: CanvasSlice["preview"];

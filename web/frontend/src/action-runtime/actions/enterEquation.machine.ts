@@ -1,6 +1,18 @@
 import type { EnterEquationAction } from "../../../../shared/actionRuntime";
-import { createActorFromDefinition } from "./actionDefinition";
+import type { DomainCommand } from "../../../../shared/actionWorld";
+import { createActorFromDefinition, projectBoardSlotValues } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
+
+function emphasisCommands(contract: EnterEquationAction, factors: string[]): DomainCommand[] {
+  const entityIds = factors.filter((factor) => contract.input.availableSegmentIds.includes(factor));
+  return entityIds.length ? [{
+    commandId: `${contract.actionId}/emphasis`,
+    actionId: contract.actionId,
+    type: "set-emphasis",
+    markId: `${contract.actionId}/emphasis`,
+    entityIds,
+  }] : [];
+}
 
 export const enterEquationDefinition = createFormMachineDefinition<EnterEquationAction>("enter-equation", {
   availableLineIds: (contract) => contract.input.availableSegmentIds,
@@ -30,7 +42,12 @@ export const enterEquationDefinition = createFormMachineDefinition<EnterEquation
       : [...context.lines],
     result: context.answers.result,
   }),
-  projectStepRecord: (_contract, { evidence }) => ({ summary: evidence?.result ? `结果 ${evidence.result}` : undefined }),
+  commands: (contract, evidence) => evidence.kind === "enter-equation" ? emphasisCommands(contract, evidence.factors) : [],
+  previewCommands: (context) => emphasisCommands(context.contract, context.lines),
+  boardPreview: (context) => projectBoardSlotValues(context.contract, {
+    knownFactor: context.lines[0], numerator: context.answers.numerator,
+    denominator: context.answers.denominator, result: context.answers.result,
+  }),
 });
 
 export const createEnterEquationActor = (contract: EnterEquationAction) => createActorFromDefinition(enterEquationDefinition, contract);

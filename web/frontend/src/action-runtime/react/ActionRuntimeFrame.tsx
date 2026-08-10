@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ActionCheckpointSnapshot, ActionEvaluationResponse, ActionPlanResponse } from "../../../../shared/actionRuntime";
 import { api } from "../../api/client";
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
@@ -8,7 +8,7 @@ import type { EntityRef } from "../../geometry/interaction/events";
 import type { InteractionView } from "../../geometry/interaction/interaction-view";
 import { GeometryCanvasSurface } from "../../geometry/react/GeometryCanvas";
 import type { ActionRuntimeEvent } from "../events";
-import type { ExerciseStepView, StepRecordTokenView } from "../types";
+import type { SolutionBoardView } from "../types";
 import { useActionPageRuntime } from "./useActionPageRuntime";
 
 interface ActionRuntimeFrameProps {
@@ -20,7 +20,7 @@ interface ActionRuntimeFrameProps {
 }
 
 export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete }: ActionRuntimeFrameProps) {
-  const storageKey = `action-runtime-v2:${response.sessionId}:${response.plan.exerciseId}`;
+  const storageKey = `action-runtime-v3:${response.sessionId}:${response.plan.exerciseId}`;
   const localCheckpoint = useMemo(() => {
     try {
       const stored = window.sessionStorage.getItem(storageKey);
@@ -166,7 +166,6 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   };
 
   const clickEntity = (entity: EntityRef) => send({ type: "OBJECT.SELECTED", objectKind: entity.kind, objectId: entity.id });
-  const enabledEntities = Object.values(view.canvas.entities).filter((entity) => entity.enabled);
   return (
     <FocusWorkspace
       ariaLabel="Action 驱动学习工作台"
@@ -184,6 +183,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
           {view.coach.agentCommand && snapshot.plan.mode === "guided-practice" ? <button type="button" className="btn btn-secondary" onClick={() => runtime.applyAgentCommand(view.coach.agentCommand!, true)}>确认执行老师建议</button> : null}
         </aside>
       }
+      actionBarLeft={<ActionAnswerFields runtimeSend={send} disabled={disabled} view={view} />}
       actionEnd={
         <div className="action-row">
           <button type="button" className="btn btn-ghost" disabled={!view.controls.canBack || disabled} onClick={() => send({ type: "BACK" })}>撤销</button>
@@ -195,7 +195,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
       }
     >
       <div
-        className="practice-canvas-zone topic-practice-canvas action-runtime-workspace"
+        className={`practice-canvas-zone topic-practice-canvas action-runtime-workspace ${view.solutionBoard ? "" : "has-no-board"}`}
         data-testid="action-runtime-workspace"
         data-action-id={snapshot.currentActionId}
         data-action-state={runtime.getTrace().actionState}
@@ -206,62 +206,47 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
             {model ? <GeometryCanvasSurface model={model} view={canvasView} onClickEntity={clickEntity} modelVersion={snapshot.revision + snapshot.world.commandBatches.length} /> : view.canvas.diagramAsset ? <img src={view.canvas.diagramAsset} alt="题目图形" /> : null}
           </section>
         </div>
-        <ExerciseStepsPanel
-          steps={view.answer.steps}
-          activeControls={(
-            <div className="exercise-step-active-controls">
-              {enabledEntities.length ? (
-                <div className="topic-geometry-entity-row" role="group" aria-label="当前可选对象">
-                  {enabledEntities.map((entity) => <button key={entity.id} type="button" className="topic-geometry-entity-chip" disabled={disabled} onClick={() => clickEntity({ kind: entity.kind, id: entity.id })}>{entity.id}</button>)}
-                </div>
-              ) : null}
-              <ActionAnswerFields runtimeSend={send} disabled={disabled} view={view} />
-            </div>
-          )}
-        />
+        {view.solutionBoard ? <SolutionBoardPanel board={view.solutionBoard} /> : null}
       </div>
     </FocusWorkspace>
   );
 }
 
-function StepRecordSlot({ label, value }: { label: string; value?: string }) {
+export function SolutionBoardPanel({ board }: { board: SolutionBoardView }) {
+  const currentRef = useRef<HTMLDivElement | null>(null);
+  const userScrolled = useRef(false);
+  const previousCount = useRef(board.visibleExpressions.length);
+  const heading = board.headingLatex.startsWith("\\") && !board.headingLatex.includes("$")
+    ? `$${board.headingLatex}$`
+    : board.headingLatex;
+  useEffect(() => {
+    if (board.visibleExpressions.length !== previousCount.current && !userScrolled.current) {
+      currentRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    previousCount.current = board.visibleExpressions.length;
+  }, [board.visibleExpressions.length, board.currentExpressionId]);
   return (
-    <span className={`step-record-slot ${value ? "is-filled" : ""}`} aria-label={`${label}${value ? `：${value}` : "，待填写"}`}>
-      {value || "\u00a0"}
-    </span>
-  );
-}
-
-function StepRecord({ tokens }: { tokens: StepRecordTokenView[] }) {
-  return (
-    <p className="step-record">
-      {tokens.map((token, index) => token.kind === "text"
-        ? <span key={`${index}:${token.text}`}>{token.text}</span>
-        : <StepRecordSlot key={token.slotId} label={token.label} value={token.value} />)}
-    </p>
-  );
-}
-
-function ExerciseStepsPanel({ steps, activeControls }: { steps: ExerciseStepView[]; activeControls: ReactNode }) {
-  return (
-    <section className="topic-answer-panel exercise-steps-panel" aria-labelledby="exercise-steps-title">
-      <header className="exercise-steps-header">
-        <div><small>整题过程</small><h2 id="exercise-steps-title">解题步骤</h2></div>
-        <span>{steps.filter((step) => step.status === "complete").length}/{steps.length}</span>
-      </header>
-      <ol className="exercise-steps-list">
-        {steps.map((step, index) => (
-          <li key={step.sourceStepId} className={`exercise-step is-${step.status}`} aria-current={step.status === "active" ? "step" : undefined}>
-            <div className="exercise-step-marker">{step.status === "complete" ? "✓" : index + 1}</div>
-            <div className="exercise-step-content">
-              <header><strong>{step.title}</strong><small>{step.status === "complete" ? "已完成" : step.status === "active" ? "进行中" : "待完成"}</small></header>
-              {step.record ? <StepRecord tokens={step.record} /> : <MathText value={step.instruction} block />}
-              {step.summary ? <div className="exercise-step-summary">{step.summary}</div> : null}
-              {step.status === "active" ? activeControls : null}
-            </div>
-          </li>
+    <section
+      className="topic-answer-panel solution-board-panel"
+      aria-labelledby="solution-board-title"
+      onWheel={() => { userScrolled.current = true; }}
+      onTouchMove={() => { userScrolled.current = true; }}
+    >
+      <h2 id="solution-board-title"><MathText value={heading} /></h2>
+      <div className="solution-board-document">
+        {board.visibleExpressions.map((expression) => (
+          <div
+            key={expression.expressionId}
+            ref={expression.isCurrent ? currentRef : undefined}
+            className={`solution-board-line${expression.isCurrent ? " is-current" : ""}${expression.isComplete ? " is-complete" : ""}`}
+            data-expression-id={expression.expressionId}
+            data-source-step-id={expression.sourceStepId}
+          >
+            <MathText value={expression.latex} block />
+          </div>
         ))}
-      </ol>
+      </div>
+      <span className="sr-only" aria-live="polite">{board.announcement}</span>
     </section>
   );
 }
@@ -273,8 +258,10 @@ export function ActionAnswerFields({ runtimeSend, disabled, view }: {
 }) {
   const refs = useRef<Record<string, HTMLInputElement | null>>({});
   useEffect(() => {
-    if (view.coach.focusTargetId) refs.current[view.coach.focusTargetId]?.focus();
-  }, [view.coach.focusTargetId]);
+    const targetId = view.coach.focusTargetId || view.answer.activeSlotId
+      || view.answer.slots.find((slot) => slot.kind !== "object")?.id;
+    if (targetId) refs.current[targetId]?.focus();
+  }, [view.coach.focusTargetId, view.answer.activeSlotId, view.actionId]);
   return <div className="topic-answer-inputs">{view.answer.slots.map((slot) => slot.options?.length ? (
     <div className="topic-choice-grid" key={slot.id}>{slot.options.map((option) => (
       <button key={option.value} type="button" className="btn btn-ghost" disabled={disabled} onClick={() => runtimeSend({ type: "ANSWER.CHANGED", slotId: slot.id, value: option.value })}><MathText value={option.labelLatex} /></button>

@@ -15,7 +15,10 @@ vi.mock("../../api/client", () => ({
   },
 }));
 vi.mock("../../geometry/react/GeometryCanvas", () => ({
-  GeometryCanvasSurface: ({ view }: { view: { preview?: { type: string } } }) => <div data-testid="production-canvas" data-preview={view.preview?.type || "none"} />,
+  GeometryCanvasSurface: ({ view, onClickEntity }: {
+    view: { preview?: { type: string } };
+    onClickEntity: (entity: { kind: "point"; id: string }) => void;
+  }) => <button type="button" data-testid="production-canvas" data-preview={view.preview?.type || "none"} onClick={() => onClickEntity({ kind: "point", id: "T" })}>T</button>,
 }));
 
 const { ActionRuntimeFrame } = await import("../react/ActionRuntimeFrame");
@@ -24,7 +27,7 @@ function response(): ActionPlanResponse {
   return {
     sessionId: "browser-session",
     plan: {
-      planVersion: 2, exerciseId: "browser-exercise", revision: 0, mode: "guided-practice",
+      planVersion: 3, exerciseId: "browser-exercise", revision: 0, mode: "guided-practice",
       metadata: { taskId: "auxiliaryTwoRatios", title: "辅助线", promptLatex: "prompt", skillTags: [] },
       world: {
         revision: 0,
@@ -34,11 +37,24 @@ function response(): ActionPlanResponse {
           segments: [{ id: "AB", from: "A", to: "B" }],
         },
       },
+      solutionBoardScript: {
+        schemaVersion: 1,
+        documentId: "browser-solution",
+        headingLatex: "\\text{解：}",
+        expressions: [{
+          expressionId: "construction",
+          sourceStepId: "step",
+          ownerActionIds: ["make"],
+          latexTemplate: "\\text{过 }{{through}}\\text{ 作 }{{helper}}\\parallel {{reference}}",
+          modes: ["guided-practice"],
+        }],
+      },
       coach: { profileId: "coach", displayName: "老师", avatarId: "school", tone: "supportive" },
       actions: [{
         actionId: "make", sourceStepId: "step", kind: "make-parallel", version: 1,
         title: "作平行线", instruction: "选择点和线", input: { availablePointIds: ["T"], availableLineIds: ["AB"], outputLineId: "P", outputLineLabel: "TP" },
         capabilities: ["agent:select-object", "agent:back", "agent:clear"], answerSlots: [], validationPolicy: "server-authoritative", submitOnComplete: true,
+        boardTargets: { throughPoint: "through", helperLine: "helper", referenceLine: "reference" },
       }],
       currentActionId: "make", completedActionIds: [],
     },
@@ -55,6 +71,10 @@ describe("ActionRuntimeFrame browser/accessibility contract", () => {
     await act(async () => root.render(<ActionRuntimeFrame response={response()} />));
 
     expect(container.querySelector('[aria-live="polite"]')).not.toBeNull();
+    expect(container.querySelector(".solution-board-panel")).not.toBeNull();
+    expect(container.querySelector(".exercise-step")).toBeNull();
+    expect(container.querySelector(".action-interaction-panel")).toBeNull();
+    expect(container.querySelector(".topic-geometry-entity-chip")).toBeNull();
     const point = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "T")!;
     point.focus();
     expect(document.activeElement).toBe(point);

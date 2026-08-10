@@ -1,5 +1,5 @@
-import type { ActionContract, ActionEvidence, ActionKind } from "../../../shared/actionRuntime";
-import { createActorFromDefinition, type ActionMachineDefinition, type ActionStepRecordProjection, type EvidenceFor } from "./actions/actionDefinition";
+import type { ActionContract, ActionKind } from "../../../shared/actionRuntime";
+import { createActorFromDefinition, type ActionMachineDefinition } from "./actions/actionDefinition";
 import { makeParallelDefinition } from "./actions/makeParallel.machine";
 import { intersectCarriersDefinition } from "./actions/intersectCarriers.machine";
 import { markSegmentValuesDefinition } from "./actions/markSegmentValues.machine";
@@ -9,7 +9,7 @@ import { convertCollinearDefinition } from "./actions/convertCollinear.machine";
 import { enterEquationDefinition } from "./actions/enterEquation.machine";
 import { selectOptionDefinition } from "./actions/selectOption.machine";
 import { enterTextDefinition } from "./actions/enterText.machine";
-import type { ActionActor, ActionSnapshotView } from "./types";
+import type { ActionActor } from "./types";
 
 export class UnsupportedActionError extends Error {
   constructor(readonly kind: string, readonly version: number) {
@@ -26,12 +26,6 @@ export class InvalidActionInputError extends Error {
 interface RegistryEntry {
   validate(contract: ActionContract): boolean;
   create(contract: ActionContract): ActionActor;
-  projectStepRecord(contract: ActionContract, input: StepRecordProjectionInput): ActionStepRecordProjection;
-}
-
-export interface StepRecordProjectionInput {
-  evidence?: ActionEvidence;
-  current?: ActionSnapshotView;
 }
 
 function register<Contract extends ActionContract>(
@@ -41,12 +35,6 @@ function register<Contract extends ActionContract>(
   return {
     validate,
     create: (contract) => createActorFromDefinition(definition, contract as Contract),
-    projectStepRecord(contract, input) {
-      return definition.projectStepRecord?.(contract as Contract, {
-        evidence: input.evidence as EvidenceFor<Contract> | undefined,
-        current: input.current,
-      }) || {};
-    },
   };
 }
 
@@ -92,7 +80,6 @@ const ACTION_REGISTRY: Record<string, RegistryEntry> = {
 export interface ActionMachineRegistry {
   supports(kind: ActionKind | string, version: number): boolean;
   create(contract: ActionContract): ActionActor;
-  projectStepRecord(contract: ActionContract, input: StepRecordProjectionInput): ActionStepRecordProjection;
 }
 
 export const actionMachineRegistry: ActionMachineRegistry = {
@@ -102,11 +89,5 @@ export const actionMachineRegistry: ActionMachineRegistry = {
     if (!entry) throw new UnsupportedActionError(contract.kind, contract.version);
     if (!entry.validate(contract)) throw new InvalidActionInputError(contract.actionId);
     return entry.create(contract);
-  },
-  projectStepRecord(contract, input) {
-    const entry = ACTION_REGISTRY[`${contract.kind}@${contract.version}`];
-    if (!entry) throw new UnsupportedActionError(contract.kind, contract.version);
-    if (!entry.validate(contract)) throw new InvalidActionInputError(contract.actionId);
-    return entry.projectStepRecord(contract, input);
   },
 };

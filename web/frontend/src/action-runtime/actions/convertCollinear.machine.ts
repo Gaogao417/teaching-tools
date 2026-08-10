@@ -1,6 +1,17 @@
 import type { ConvertCollinearAction } from "../../../../shared/actionRuntime";
-import { createActorFromDefinition } from "./actionDefinition";
+import type { DomainCommand } from "../../../../shared/actionWorld";
+import { createActorFromDefinition, projectBoardSlotValues } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
+
+function emphasisCommands(contract: ConvertCollinearAction, entityIds: string[]): DomainCommand[] {
+  return entityIds.length ? [{
+    commandId: `${contract.actionId}/emphasis`,
+    actionId: contract.actionId,
+    type: "set-emphasis",
+    markId: `${contract.actionId}/emphasis`,
+    entityIds,
+  }] : [];
+}
 
 export const convertCollinearDefinition = createFormMachineDefinition<ConvertCollinearAction>("convert-collinear", {
   availableLineIds: (contract) => contract.input.availableSegmentIds,
@@ -14,7 +25,12 @@ export const convertCollinearDefinition = createFormMachineDefinition<ConvertCol
   structurallyReady: (context) => context.lines.length === 3,
   locallyCorrect: (context) => !context.contract.input.expectedOrder || context.contract.input.expectedOrder.every((id, index) => context.lines[index] === id),
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "convert-collinear", version: 1, segmentIds: [...context.lines] }),
-  projectStepRecord: (_contract, { evidence }) => ({ summary: evidence?.segmentIds.join("、") }),
+  commands: (contract, evidence) => evidence.kind === "convert-collinear" ? emphasisCommands(contract, evidence.segmentIds) : [],
+  previewCommands: (context) => emphasisCommands(context.contract, context.lines),
+  boardPreview: (context) => projectBoardSlotValues(context.contract, {
+    wholeSegment: context.lines[0], targetSegment: context.lines[1], knownSegment: context.lines[2],
+    relation: context.lines.length === 3 ? context.contract.input.relationLatex : undefined,
+  }),
 });
 
 export const createConvertCollinearActor = (contract: ConvertCollinearAction) => createActorFromDefinition(convertCollinearDefinition, contract);

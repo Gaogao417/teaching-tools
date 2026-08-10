@@ -1,6 +1,19 @@
 import type { RatioScratchAction } from "../../../../shared/actionRuntime";
-import { createActorFromDefinition } from "./actionDefinition";
+import type { DomainCommand } from "../../../../shared/actionWorld";
+import { createActorFromDefinition, projectBoardSlotValues } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
+
+function ratioCommands(contract: RatioScratchAction, segmentIds: string[], ratio: Array<string | undefined>): DomainCommand[] {
+  return segmentIds.slice(0, 2).flatMap((segmentId, index) => ratio[index]?.trim() ? [{
+    commandId: `${contract.actionId}/ratio/${segmentId}`,
+    actionId: contract.actionId,
+    type: "set-segment-label" as const,
+    markId: `${contract.actionId}/ratio/${segmentId}`,
+    segmentId,
+    valueLatex: ratio[index]!.trim(),
+    labelKind: "share" as const,
+  }] : []);
+}
 
 export const ratioScratchDefinition = createFormMachineDefinition<RatioScratchAction>("ratio-scratch", {
   availableLineIds: (contract) => contract.input.availableSegmentIds,
@@ -10,8 +23,11 @@ export const ratioScratchDefinition = createFormMachineDefinition<RatioScratchAc
   locallyCorrect: (context) => (!context.contract.input.expectedOrder || context.contract.input.expectedOrder.every((id, index) => context.lines[index] === id))
     && (!context.contract.input.simplifiedRatio || (context.answers["ratio-first"] === context.contract.input.simplifiedRatio[0] && context.answers["ratio-second"] === context.contract.input.simplifiedRatio[1])),
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "ratio-scratch", version: 1, segmentIds: [...context.lines], ratio: [context.answers["ratio-first"], context.answers["ratio-second"]] }),
-  projectStepRecord: (_contract, { evidence }) => ({
-    summary: evidence ? `${evidence.segmentIds.join("、")} → ${evidence.ratio.join(":")}` : undefined,
+  commands: (contract, evidence) => evidence.kind === "ratio-scratch" ? ratioCommands(contract, evidence.segmentIds, evidence.ratio) : [],
+  previewCommands: (context) => ratioCommands(context.contract, context.lines, [context.answers["ratio-first"], context.answers["ratio-second"]]),
+  boardPreview: (context) => projectBoardSlotValues(context.contract, {
+    firstSegment: context.lines[0], secondSegment: context.lines[1],
+    ratioFirst: context.answers["ratio-first"], ratioSecond: context.answers["ratio-second"],
   }),
 });
 

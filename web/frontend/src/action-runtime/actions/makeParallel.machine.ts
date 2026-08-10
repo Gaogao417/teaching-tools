@@ -1,7 +1,7 @@
 import { assign, setup, type AnyStateMachine } from "xstate";
 import type { ActionEvidence, MakeParallelAction } from "../../../../shared/actionRuntime";
 import type { ActionRuntimeEvent } from "../events";
-import { createActorFromDefinition, projectStandardSnapshot, type ActionMachineDefinition, type StandardActionContext } from "./actionDefinition";
+import { createActorFromDefinition, projectBoardSlotValues, projectStandardSnapshot, type ActionMachineDefinition, type StandardActionContext } from "./actionDefinition";
 
 type Context = StandardActionContext<MakeParallelAction>;
 
@@ -69,6 +69,11 @@ export const makeParallelDefinition: ActionMachineDefinition<MakeParallelAction>
         return { ...slot, value, active: false, status: value ? "filled" : "empty" };
       }),
       preview: { type: "parallel", throughPointId: context.points[0], referenceLineId: context.lines[0] },
+      boardPreview: projectBoardSlotValues(context.contract, {
+        throughPoint: context.points[0],
+        helperLine: context.points[0] && context.lines[0] ? (context.contract as MakeParallelAction).input.outputLineLabel || (context.contract as MakeParallelAction).input.outputLineId : undefined,
+        referenceLine: context.lines[0],
+      }),
     }), (contract, evidence) => evidence.kind === "make-parallel" ? [{
       commandId: `${contract.actionId}/construct-parallel`,
       actionId: contract.actionId,
@@ -83,28 +88,6 @@ export const makeParallelDefinition: ActionMachineDefinition<MakeParallelAction>
       commandId: `${contract.actionId}/construct-parallel`, actionId: contract.actionId, type: "construct-parallel",
       throughPointId: evidence.throughPointId, referenceLineId: evidence.referenceLineId, outputLineId: contract.input.outputLineId,
     }] : [];
-  },
-  projectStepRecord(contract, { evidence, current }) {
-    return {
-      template: [
-        { kind: "text", text: "过" },
-        { kind: "slot", slotId: "through-point", label: "所过点" },
-        { kind: "text", text: "作" },
-        { kind: "slot", slotId: "helper-line", label: "辅助线" },
-        { kind: "text", text: "∥" },
-        { kind: "slot", slotId: "reference-line", label: "平行参照线" },
-        { kind: "text", text: "，并与" },
-        { kind: "slot", slotId: "carrier-line", label: "延长线" },
-        { kind: "text", text: "延长线相交于" },
-        { kind: "slot", slotId: "intersection-point", label: "交点" },
-        { kind: "text", text: "。" },
-      ],
-      values: {
-        "through-point": evidence?.throughPointId || current?.selectedByKind.points[0] || "",
-        "helper-line": evidence ? contract.input.outputLineLabel || "" : "",
-        "reference-line": evidence?.referenceLineId || current?.selectedByKind.lines[0] || "",
-      },
-    };
   },
 };
 
