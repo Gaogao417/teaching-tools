@@ -1,5 +1,6 @@
 import type { WorldProjection } from "./actionRuntime";
 import type { TopicGeometryModel } from "./topicPractice";
+import type { ActionEffectBatch } from "./actionEffects";
 
 interface CommandBase<Type extends string> {
   commandId: string;
@@ -22,20 +23,28 @@ export type DomainCommand =
       firstLineId: string;
       secondLineId: string;
       outputPointId: string;
+    })
+  | (CommandBase<"set-segment-label"> & {
+      segmentId: string;
+      markId: string;
+      valueLatex: string;
+      labelKind: "length" | "share";
+    })
+  | (CommandBase<"set-correspondence-mark"> & {
+      segmentIds: [string, string];
+      markId: string;
+      tickCount: number;
+    })
+  | (CommandBase<"set-emphasis"> & {
+      entityIds: string[];
+      markId: string;
     });
-
-export interface CommandBatch {
-  actionId: string;
-  sourceStepId: string;
-  commands: DomainCommand[];
-  committed: boolean;
-}
 
 export interface WorkspaceWorld {
   committed: WorldProjection;
   draft: WorldProjection;
   revision: number;
-  commandBatches: CommandBatch[];
+  commandBatches: ActionEffectBatch[];
 }
 
 export type WorldCommandErrorCode =
@@ -57,6 +66,9 @@ function cloneGeometry(geometry: TopicGeometryModel): TopicGeometryModel {
     points: geometry.points.map((point) => ({ ...point })),
     segments: geometry.segments.map((segment) => ({ ...segment })),
     derivedLines: geometry.derivedLines?.map((line) => ({ ...line })) || [],
+    teachingMarks: geometry.teachingMarks?.map((mark) => mark.kind === "correspondence"
+      ? { ...mark, segmentIds: [...mark.segmentIds] as [string, string] }
+      : mark.kind === "emphasis" ? { ...mark, entityIds: [...mark.entityIds] } : { ...mark }) || [],
   };
 }
 
@@ -136,6 +148,36 @@ function applyOne(geometry: TopicGeometryModel, command: DomainCommand): void {
       if (carrier) carrier.extensionPoint = command.outputPointId;
       return;
     }
+    case "set-segment-label": {
+      if (!hasLine(command.segmentId)) throw new WorldCommandError("missing-reference", `Unknown segment ${command.segmentId}`);
+      if (!command.valueLatex.trim()) throw new WorldCommandError("degenerate", "Segment label cannot be empty");
+      const marks = (geometry.teachingMarks ||= []);
+      const existing = marks.findIndex((mark) => mark.id === command.markId);
+      const mark = { id: command.markId, kind: "segment-label" as const, segmentId: command.segmentId, valueLatex: command.valueLatex, labelKind: command.labelKind };
+      if (existing >= 0) marks[existing] = mark;
+      else marks.push(mark);
+      return;
+    }
+    case "set-correspondence-mark": {
+      if (command.segmentIds.some((id) => !hasLine(id))) throw new WorldCommandError("missing-reference", `Unknown correspondence segment for ${command.markId}`);
+      const marks = (geometry.teachingMarks ||= []);
+      const existing = marks.findIndex((mark) => mark.id === command.markId);
+      const mark = { id: command.markId, kind: "correspondence" as const, segmentIds: [...command.segmentIds] as [string, string], tickCount: command.tickCount };
+      if (existing >= 0) marks[existing] = mark;
+      else marks.push(mark);
+      return;
+    }
+    case "set-emphasis": {
+      if (command.entityIds.some((id) => !hasLine(id) && !geometry.points.some((point) => point.id === id))) {
+        throw new WorldCommandError("missing-reference", `Unknown emphasis entity for ${command.markId}`);
+      }
+      const marks = (geometry.teachingMarks ||= []);
+      const existing = marks.findIndex((mark) => mark.id === command.markId);
+      const mark = { id: command.markId, kind: "emphasis" as const, entityIds: [...command.entityIds] };
+      if (existing >= 0) marks[existing] = mark;
+      else marks.push(mark);
+      return;
+    }
   }
 }
 
@@ -146,10 +188,6 @@ export function applyDomainCommands(world: WorldProjection, commands: readonly D
   const geometry = cloneGeometry(world.geometry);
   for (const command of commands) applyOne(geometry, command);
   return { ...world, geometry };
-}
-
-export function replayCommandBatches(committed: WorldProjection, batches: readonly CommandBatch[]): WorldProjection {
-  return batches.reduce((world, batch) => applyDomainCommands(world, batch.commands), committed);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -167,5 +205,19 @@ export function isDomainCommand(value: unknown): value is DomainCommand {
   if (value.type === "intersect-lines") {
     return typeof value.firstLineId === "string" && typeof value.secondLineId === "string" && typeof value.outputPointId === "string";
   }
+  if (value.type === "set-segment-label") {
+    return typeof value.segmentId === "string" && typeof value.markId === "string" && typeof value.valueLatex === "string"
+      && ["length", "share"].includes(String(value.labelKind));
+  }
+  if (value.type === "set-correspondence-mark") {
+    return hasStringTuple(value.segmentIds) && typeof value.markId === "string" && typeof value.tickCount === "number";
+  }
+  if (value.type === "set-emphasis") {
+    return Array.isArray(value.entityIds) && value.entityIds.every((id) => typeof id === "string") && typeof value.markId === "string";
+  }
   return false;
+}
+
+function hasStringTuple(value: unknown): value is [string, string] {
+  return Array.isArray(value) && value.length === 2 && value.every((item) => typeof item === "string");
 }

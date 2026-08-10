@@ -6,8 +6,9 @@ import type {
   TopicSegmentLabel,
 } from "./topicPractice";
 import type { DomainCommand } from "./actionWorld";
+import { isSolutionBoardProjection, isSolutionBoardScript, type SolutionBoardProjection, type SolutionBoardScript } from "./solutionBoard";
 
-export const ACTION_RUNTIME_PLAN_VERSION = 2 as const;
+export const ACTION_RUNTIME_PLAN_VERSION = 3 as const;
 
 export type LearningMode = "learn" | "guided-practice" | "assessment";
 export type ValidationPolicy = "local-teaching" | "server-authoritative";
@@ -32,6 +33,7 @@ export interface ExerciseMetadata {
 export interface WorldProjection {
   geometry?: TopicGeometryModel;
   diagramAsset?: string;
+  solutionBoard?: SolutionBoardProjection;
   revision: number;
 }
 
@@ -64,6 +66,8 @@ export interface AuthoredActionTemplate {
   submitOnComplete: boolean;
   presentation?: TopicInteractionPresentation;
   coach?: TopicCoachScript;
+  /** Semantic role to stable SolutionBoard slot id. */
+  boardTargets?: Record<string, string>;
 }
 
 interface ActionContractBase<Kind extends string, Input> {
@@ -80,6 +84,7 @@ interface ActionContractBase<Kind extends string, Input> {
   submitOnComplete: boolean;
   presentation?: TopicInteractionPresentation;
   coach?: TopicCoachScript;
+  boardTargets?: Record<string, string>;
 }
 
 export type MakeParallelAction = ActionContractBase<"make-parallel", {
@@ -104,6 +109,7 @@ export type IntersectCarriersAction = ActionContractBase<"intersect-carriers", {
 export type MarkSegmentValuesAction = ActionContractBase<"mark-segment-values", {
   labels: TopicSegmentLabel[];
   availableSegmentIds: string[];
+  requiredCount?: number;
   autoFocusSequence: boolean;
 }>;
 
@@ -172,6 +178,8 @@ export interface ExercisePlan {
   mode: LearningMode;
   metadata: ExerciseMetadata;
   world: WorldProjection;
+  /** Omitted when the mode is not allowed to receive teacher solution content. */
+  solutionBoardScript?: SolutionBoardScript;
   coach: CoachProfile;
   actions: ActionContract[];
   currentActionId: string;
@@ -464,9 +472,24 @@ function isAnswerSlot(value: unknown): value is AnswerSlotSpec {
   return ["object", "text", "number", "equation"].includes(String(value.kind));
 }
 
+function isTeachingMark(value: unknown): boolean {
+  if (!isRecord(value) || !hasString(value, "id") || !hasString(value, "kind")) return false;
+  if (value.kind === "segment-label") {
+    return hasString(value, "segmentId") && hasString(value, "valueLatex")
+      && ["length", "share"].includes(String(value.labelKind));
+  }
+  if (value.kind === "correspondence") {
+    return Array.isArray(value.segmentIds) && value.segmentIds.length === 2
+      && value.segmentIds.every((id) => typeof id === "string")
+      && Number.isInteger(value.tickCount) && Number(value.tickCount) > 0;
+  }
+  return value.kind === "emphasis" && hasStringArray(value, "entityIds");
+}
+
 function isWorldProjection(value: unknown): value is WorldProjection {
   if (!isRecord(value) || typeof value.revision !== "number") return false;
   if (value.diagramAsset !== undefined && typeof value.diagramAsset !== "string") return false;
+  if (value.solutionBoard !== undefined && !isSolutionBoardProjection(value.solutionBoard)) return false;
   if (value.geometry === undefined) return true;
   if (!isRecord(value.geometry) || !isRecord(value.geometry.viewBox)
     || typeof value.geometry.viewBox.width !== "number" || typeof value.geometry.viewBox.height !== "number"
@@ -474,7 +497,9 @@ function isWorldProjection(value: unknown): value is WorldProjection {
   return value.geometry.points.every((point) => isRecord(point) && hasString(point, "id") && typeof point.x === "number" && typeof point.y === "number")
     && value.geometry.segments.every((line) => isRecord(line) && hasString(line, "id") && hasString(line, "from") && hasString(line, "to"))
     && (value.geometry.derivedLines === undefined || (Array.isArray(value.geometry.derivedLines)
-      && value.geometry.derivedLines.every((line) => isRecord(line) && hasString(line, "id") && line.kind === "parallel-line" && hasString(line, "through") && hasString(line, "parallelTo"))));
+      && value.geometry.derivedLines.every((line) => isRecord(line) && hasString(line, "id") && line.kind === "parallel-line" && hasString(line, "through") && hasString(line, "parallelTo"))))
+    && (value.geometry.teachingMarks === undefined || (Array.isArray(value.geometry.teachingMarks)
+      && value.geometry.teachingMarks.every(isTeachingMark)));
 }
 
 export function isExercisePlan(value: unknown): value is ExercisePlan {
@@ -482,7 +507,8 @@ export function isExercisePlan(value: unknown): value is ExercisePlan {
     || !hasString(value, "exerciseId") || typeof value.revision !== "number"
     || !["learn", "guided-practice", "assessment"].includes(String(value.mode))
     || !hasString(value, "currentActionId") || !hasStringArray(value, "completedActionIds")
-    || !isWorldProjection(value.world) || !isRecord(value.metadata) || !isRecord(value.coach)) return false;
+    || !isWorldProjection(value.world) || !isRecord(value.metadata) || !isRecord(value.coach)
+    || (value.solutionBoardScript !== undefined && !isSolutionBoardScript(value.solutionBoardScript))) return false;
   if (!Array.isArray(value.actions) || !value.actions.length) return false;
   const ids = new Set<string>();
   return value.actions.every((action) => {
@@ -492,7 +518,9 @@ export function isExercisePlan(value: unknown): value is ExercisePlan {
       && hasString(action, "title") && hasString(action, "instruction") && isRecord(action.input)
       && hasStringArray(action, "capabilities") && Array.isArray(action.answerSlots) && action.answerSlots.every(isAnswerSlot)
       && ["local-teaching", "server-authoritative"].includes(String(action.validationPolicy))
-      && typeof action.submitOnComplete === "boolean";
+      && typeof action.submitOnComplete === "boolean"
+      && (action.boardTargets === undefined || (isRecord(action.boardTargets)
+        && Object.values(action.boardTargets).every((slot) => typeof slot === "string")));
   }) && ids.has(value.currentActionId as string);
 }
 

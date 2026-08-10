@@ -1,5 +1,6 @@
 import type { AuthoringRun, ScenarioRecord, ScenarioValidationReport } from "./scenarios";
 import type { AuthoredActionTemplate } from "./actionRuntime";
+import type { SolutionBoardScript } from "./solutionBoard";
 
 export type TopicPracticeTaskId =
   | "quadraticCompletion"
@@ -57,12 +58,34 @@ export interface TopicGeometryParallelLine {
   endPoint?: string;
 }
 
+export type TopicGeometryTeachingMark =
+  | {
+      id: string;
+      kind: "segment-label";
+      segmentId: string;
+      valueLatex: string;
+      labelKind: "length" | "share";
+    }
+  | {
+      id: string;
+      kind: "correspondence";
+      segmentIds: [string, string];
+      tickCount: number;
+    }
+  | {
+      id: string;
+      kind: "emphasis";
+      entityIds: string[];
+    };
+
 export interface TopicGeometryModel {
   viewBox: { width: number; height: number };
   points: TopicGeometryPoint[];
   segments: TopicGeometrySegment[];
   /** Relations created by Action Runtime commands; never pre-authored answer truth. */
   derivedLines?: TopicGeometryParallelLine[];
+  /** Persistent teaching annotations projected by accepted Actions. */
+  teachingMarks?: TopicGeometryTeachingMark[];
 }
 
 export interface TopicSegmentLabel {
@@ -192,6 +215,8 @@ export interface TopicScenarioPromptData {
   steps: TopicActionProjection[];
   /** v2 authoring output; absent only in legacy scenario bundles. */
   actionTemplates?: AuthoredActionTemplate[];
+  /** Reviewed teacher solution document. Assessment payloads never receive it. */
+  solutionBoard?: SolutionBoardScript;
 }
 
 export interface TopicScenarioAnswerKey {
