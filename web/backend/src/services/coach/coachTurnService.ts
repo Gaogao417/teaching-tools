@@ -6,21 +6,26 @@ import type {
   ExercisePlan,
 } from "../../../../shared/actionRuntime";
 import { renderBoardExpression } from "../../../../shared/solutionBoard";
+import { latexToSpokenChinese } from "../../../../shared/speechText";
 import { getLearningActionPlan } from "../learningService";
 import { askActionRuntimeCoach, getActionRuntimePlan } from "../runtime/platform/sessionRuntimeService";
 import { askClaudeCodeCoach } from "./claudeCodeCoachService";
 import { synthesizeCoachSpeech, transcribeStudentAudio } from "./qwenSpeechService";
+import { conductOmniCoach } from "./omniCoachService";
 
-function plainSpeech(value: string): string {
-  return value
-    .replace(/\$+/g, "")
-    .replace(/\\text\{([^}]*)\}/g, "$1")
-    .replace(/\\(?:frac|sqrt)\{([^}]*)\}(?:\{([^}]*)\})?/g, (_match, first, second) => second ? `${first} 除以 ${second}` : first)
-    .replace(/\\[a-zA-Z]+/g, "")
-    .replace(/[{}]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+/**
+ * Normalize display LaTeX into plain spoken Chinese for TTS. Delegates to the
+ * shared speech transform so the direct TTS endpoint and the coach turn path
+ * share one canonical normalization.
+ */
+const plainSpeech = latexToSpokenChinese;
+
+/**
+ * Selects the answer backend: "claude-code" (default, ASR→LLM→TTS triplet) or
+ * "omni" (a single Qwen3.5-Omni call that listens to the student and replies
+ * with natural speech, replacing all three legs).
+ */
+const ANSWER_PROVIDER = (process.env.COACH_ANSWER_PROVIDER || "claude-code").trim();
 
 function learningFallback(plan: ExercisePlan, question: string): CoachDirective {
   const action = plan.actions.find((candidate) => candidate.actionId === plan.currentActionId)!;
@@ -74,6 +79,69 @@ function modelInput(plan: ExercisePlan, request: CoachTurnRequest, studentQuesti
   };
 }
 
+/**
+ * Omni path: one Qwen3.5-Omni call understands the student's audio (or text)
+ * in the same teaching context and emits both the display copy and a spoken
+ * reply. The deterministic fallback still supplies every canvas-affecting
+ * field (highlights, suggested action, tone); only the message copy and speech
+ * come from the omni model. Multi-turn continuity keeps flowing through the
+ * replayed `conversation` field inside the context payload.
+ */
+async function conductCoachTurnOmni(
+  request: CoachTurnRequest,
+  plan: ExercisePlan,
+  fallback: CoachDirective,
+): Promise<CoachTurnResponse> {
+  const hasAudio = Boolean(request.studentAudio);
+  const hasText = Boolean(request.studentMessage?.trim());
+  if (!hasAudio && !hasText) throw new Error("Student question is empty");
+  // The omni model hears the audio directly, so the question slot carries a
+  // marker instead of a transcript; for typed questions we pass the raw text.
+  const studentQuestion = hasText
+    ? request.studentMessage!.trim()
+    : "(学生通过语音提问，内容见附带音频)";
+  const input = modelInput(plan, request, studentQuestion);
+
+  let directive: CoachDirective = {
+    ...fallback,
+    spokenText: fallback.spokenText || plainSpeech(fallback.messageLatex),
+  };
+  let answerProvider: CoachTurnResponse["providers"]["answer"] = "deterministic-fallback";
+  let speech: CoachTurnResponse["speech"] | undefined;
+  let speechProvider: string | undefined;
+
+  try {
+    const omni = await conductOmniCoach(input, request.studentAudio);
+    directive = {
+      ...fallback,
+      directiveId: crypto.randomUUID(),
+      messageLatex: omni.messageLatex,
+      spokenText: plainSpeech(omni.messageLatex),
+      tone: fallback.tone,
+    };
+    answerProvider = "qwen3.5-omni-plus";
+    if (request.synthesizeSpeech !== false && omni.audioWavBase64) {
+      speech = {
+        audioUrl: `data:audio/wav;base64,${omni.audioWavBase64}`,
+        model: omni.model,
+        voice: omni.voice,
+      };
+      speechProvider = omni.model;
+    }
+  } catch {
+    // keep the deterministic fallback; speech simply stays unavailable
+  }
+
+  return {
+    directive,
+    ...(speech ? { speech } : {}),
+    providers: {
+      answer: answerProvider,
+      ...(speechProvider ? { speech: speechProvider } : {}),
+    },
+  };
+}
+
 export async function conductCoachTurn(request: CoachTurnRequest): Promise<CoachTurnResponse> {
   let plan: ExercisePlan;
   let fallback: CoachDirective;
@@ -90,6 +158,10 @@ export async function conductCoachTurn(request: CoachTurnRequest): Promise<Coach
     plan = getLearningActionPlan(request.context.taskId as TaskId);
     validateLearningTrace(plan, request);
     fallback = learningFallback(plan, request.studentMessage || "");
+  }
+
+  if (ANSWER_PROVIDER === "omni") {
+    return conductCoachTurnOmni(request, plan, fallback);
   }
 
   let transcript: string | undefined;

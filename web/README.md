@@ -60,7 +60,9 @@ VITE_API_BASE_URL=http://localhost:3001 npm run dev
 - `DASHSCOPE_API_KEY`（Qwen ASR 与 TTS，仅后端）
 - `COACH_CLAUDE_MODEL`（默认 `glm-5.2`，由 Claude Code 调用）
 - `COACH_ASR_MODEL`（默认 `qwen3-asr-flash`）
-- `COACH_TTS_MODEL` / `COACH_TTS_VOICE`（默认 `qwen3-tts-instruct-flash` / `Cherry`）
+- `COACH_TTS_MODEL` / `COACH_TTS_VOICE`（默认 `qwen3-tts-instruct-flash` / `Cherry`，仅 `COACH_ANSWER_PROVIDER=claude-code` 时生效）
+- `COACH_ANSWER_PROVIDER`（默认 `claude-code`，即 ASR→LLM→TTS 三段；设为 `omni` 改用单次 `qwen3.5-omni-plus` 调用,直接听学生语音并用自然语音作答）
+- `COACH_OMNI_MODEL` / `COACH_OMNI_VOICE` / `COACH_OMNI_TIMEOUT_MS`（omni 链路参数，默认 `qwen3.5-omni-plus` / `Cherry` / `45000`；复用同一个 `DASHSCOPE_API_KEY`,限北京区域）
 
 前端常用：
 

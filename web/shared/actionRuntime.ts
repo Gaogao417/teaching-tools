@@ -332,11 +332,23 @@ export interface CoachSpeech {
   expiresAt?: number;
 }
 
+/**
+ * Direct, deterministic teacher-text TTS request. The frontend normalizes
+ * display LaTeX into plain spoken copy before calling, but the endpoint
+ * re-applies the shared normalization so LaTeX input is also safe. This is a
+ * stateless text→audio port: it never invokes the AI coach.
+ */
+export interface DirectSpeechRequest {
+  text: string;
+}
+
+export type DirectSpeechResponse = CoachSpeech;
+
 export interface CoachTurnResponse extends CoachResponse {
   transcript?: string;
   speech?: CoachSpeech;
   providers: {
-    answer: "claude-code-glm-5.2" | "deterministic-fallback";
+    answer: "claude-code-glm-5.2" | "qwen3.5-omni-plus" | "deterministic-fallback";
     transcription?: string;
     speech?: string;
   };
@@ -525,7 +537,7 @@ export function isCoachTurnRequest(value: unknown): value is CoachTurnRequest {
 
 export function isCoachTurnResponse(value: unknown): value is CoachTurnResponse {
   if (!isCoachResponse(value) || !isRecord(value) || !isRecord(value.providers)) return false;
-  if (!["claude-code-glm-5.2", "deterministic-fallback"].includes(String(value.providers.answer))) return false;
+  if (!["claude-code-glm-5.2", "qwen3.5-omni-plus", "deterministic-fallback"].includes(String(value.providers.answer))) return false;
   if (value.transcript !== undefined && typeof value.transcript !== "string") return false;
   if (value.providers.transcription !== undefined && typeof value.providers.transcription !== "string") return false;
   if (value.providers.speech !== undefined && typeof value.providers.speech !== "string") return false;
@@ -539,6 +551,15 @@ export function isCoachTurnResponse(value: unknown): value is CoachTurnResponse 
 
 export function isActionCheckpointResponse(value: unknown): value is ActionCheckpointResponse {
   return isRecord(value) && value.accepted === true && typeof value.revision === "number" && hasString(value, "updatedAt");
+}
+
+export function isDirectSpeechRequest(value: unknown): value is DirectSpeechRequest {
+  return isRecord(value) && typeof value.text === "string" && value.text.trim().length > 0;
+}
+
+export function isDirectSpeechResponse(value: unknown): value is DirectSpeechResponse {
+  if (!isRecord(value) || !hasString(value, "audioUrl") || !hasString(value, "model") || !hasString(value, "voice")) return false;
+  return value.expiresAt === undefined || typeof value.expiresAt === "number";
 }
 
 export function isActionEvaluationResponse(value: unknown): value is ActionEvaluationResponse {

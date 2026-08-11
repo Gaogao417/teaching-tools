@@ -28,7 +28,7 @@ const OUTPUT_SCHEMA = JSON.stringify({
   required: ["messageLatex", "spokenText", "tone"],
 });
 
-const SYSTEM_PROMPT = `你是中学数学课堂里的答疑老师。你会收到题目、当前教学动作、学生当前操作痕迹、已授权展示的规范解答，以及学生问题。
+export const SYSTEM_PROMPT = `你是中学数学课堂里的答疑老师。你会收到题目、当前教学动作、学生当前操作痕迹、已授权展示的规范解答，以及学生问题。
 
 规则：
 1. 只回答学生此刻的问题，先回应疑惑，再给一个能继续听课的短解释；通常 2 到 5 句。
