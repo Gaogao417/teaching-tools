@@ -10,8 +10,18 @@ from pathlib import Path
 
 
 VALID_STATUSES = {"draft", "approved", "implemented", "verified"}
-REQUIRED_FRONTMATTER = ("topic_id", "content_id", "status", "source_explanation", "bank_sources")
+REQUIRED_FRONTMATTER = (
+    "topic_id",
+    "content_id",
+    "runtime_model",
+    "bundle_schema",
+    "solution_board_contract",
+    "status",
+    "source_explanation",
+    "bank_sources",
+)
 REQUIRED_HEADINGS = (
+    "Runtime model binding",
     "Source mapping",
     "Teaching intent",
     "Topic registration",
@@ -22,6 +32,7 @@ REQUIRED_HEADINGS = (
     "Mode boundaries",
     "Question-bank compilation",
     "Verification plan",
+    "Complete solution review",
     "Decisions requiring approval",
     "Verification evidence",
 )
@@ -90,6 +101,16 @@ def validate(path: Path, expected_status: str | None) -> list[str]:
     if expected_status and status != expected_status:
         errors.append(f"Status is {status!r}, expected {expected_status!r}")
 
+    required_bindings = {
+        "runtime_model": "action-runtime-v2",
+        "bundle_schema": "teaching-tools/topic-scenario-bundle/v2",
+        "solution_board_contract": "required",
+    }
+    for key, expected in required_bindings.items():
+        actual = frontmatter.get(key, "")
+        if actual and actual != expected:
+            errors.append(f"Invalid {key} {actual!r}; expected {expected!r}")
+
     headings = set(re.findall(r"^##\s+(.+?)\s*$", body, flags=re.MULTILINE))
     for heading in REQUIRED_HEADINGS:
         if heading not in headings:
@@ -115,6 +136,29 @@ def validate(path: Path, expected_status: str | None) -> list[str]:
             errors.append("Action blueprint must contain at least one action row")
 
     if status in {"implemented", "verified"}:
+        solution_review = re.search(
+            r"^## Complete solution review\s*$([\s\S]*?)(?=^##\s|\Z)",
+            body,
+            flags=re.MULTILINE,
+        )
+        review_text = solution_review.group(1).strip() if solution_review else ""
+        if len(review_text) < 400 or "Complete this at the end of Phase 2" in review_text:
+            errors.append("Implemented/verified blueprint requires a concrete Complete solution review")
+        if "**Review verdict:** pass" not in review_text:
+            errors.append("Complete solution review must record '**Review verdict:** pass'")
+        if "**Blocking issues remaining:** 0" not in review_text:
+            errors.append("Complete solution review must record '**Blocking issues remaining:** 0'")
+        for label in ("#### First", "#### Middle", "#### Last"):
+            if label not in review_text:
+                errors.append(f"Complete solution review is missing representative sample: {label}")
+        for column in ("Original fragment", "Review dimension", "Finding", "Suggested revision", "Disposition"):
+            if column not in review_text:
+                errors.append(f"Formality review table is missing column: {column}")
+        if "### Final revised solution" not in review_text:
+            errors.append("Complete solution review is missing: ### Final revised solution")
+        if re.search(r"\{\{[a-zA-Z0-9._-]+\}\}", review_text):
+            errors.append("Complete solution review contains unresolved SolutionBoard slots")
+
         evidence = re.search(
             r"^## Verification evidence\s*$([\s\S]*?)(?=^##\s|\Z)",
             body,

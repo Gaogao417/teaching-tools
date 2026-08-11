@@ -1,6 +1,6 @@
 import type { ExercisePlan } from "../../../shared/actionRuntime";
 import { applyDomainCommands } from "../../../shared/actionWorld";
-import { applyBoardCommands, renderBoardExpression } from "../../../shared/solutionBoard";
+import { renderBoardExpression } from "../../../shared/solutionBoard";
 import type { ActionSnapshotView, PageRuntimeSnapshot, RuntimeEntityView, WorkspaceView } from "./types";
 
 function entitiesFor(plan: ExercisePlan, child: ActionSnapshotView, geometry = plan.world.geometry, highlights: string[] = []): Record<string, RuntimeEntityView> {
@@ -41,19 +41,13 @@ export function projectWorkspaceView(
     }
   }
   const entities = entitiesFor(page.plan, child, previewWorld.geometry, directive?.highlightObjectIds || []);
-  const currentExpression = page.plan.solutionBoardScript?.expressions.find((expression) => expression.ownerActionIds.includes(action.actionId));
-  let board = page.world.draft.solutionBoard;
-  if (board && currentExpression) {
-    try {
-      board = applyBoardCommands(board, [
-        { type: "reveal-expression", expressionId: currentExpression.expressionId },
-        ...child.boardPreview,
-      ]);
-    } catch {
-      // A malformed preview must not replace the last valid committed document.
-    }
-  }
-  const latestBoardFill = [...child.boardPreview].reverse().find((command) => command.type === "fill-slot");
+  const boardContext = page.plan.mode === "assessment"
+    ? undefined
+    : page.plan.solutionBoardContexts?.find((candidate) => candidate.actionId === action.actionId);
+  const board = boardContext?.board;
+  const currentExpression = [...(board?.expressions || [])].reverse()
+    .find((expression) => expression.sourceStepId === action.sourceStepId)
+    || (board?.expressions.length ? board.expressions[board.expressions.length - 1] : undefined);
   return {
     actionId: action.actionId,
     actionKind: action.kind,
@@ -82,7 +76,7 @@ export function projectWorkspaceView(
         isComplete: expression.phase === "complete",
       })),
       currentExpressionId: currentExpression?.expressionId,
-      announcement: latestBoardFill?.type === "fill-slot" ? `板书已填写 ${latestBoardFill.latex}` : undefined,
+      announcement: boardContext?.stage === "accepted" ? "规范解答已更新" : undefined,
     } : undefined,
     coach: {
       profileName: page.plan.coach.displayName,

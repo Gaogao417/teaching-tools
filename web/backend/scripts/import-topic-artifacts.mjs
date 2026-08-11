@@ -637,7 +637,9 @@ function buildThreeKnownParallelContracts(itemId, block, assignmentFile) {
 
   const third = contractBase(itemId, 2, "按份数列式", "equation", "根据陪练说明，填出：未知边 = 已知边 × 未知边份数 / 已知边份数，再求值。", undefined);
   if (target && known && targetShare && knownShare) {
-    const factorSlots = [known, targetShare.valueLatex, knownShare.valueLatex];
+    // Public factorSlots expose only slot SHAPE (known segment id + two role labels);
+    // the actual share values are private truth via expectedOrder / shareValues below.
+    const factorSlots = [known, "未知份数", "已知份数"];
     const result = answerAliases(answer).at(-1);
     third.acceptedAnswers = [
       `${canonicalSegment(target)}=${canonicalSegment(known)}*${targetShare.valueLatex}*${knownShare.valueLatex}|${result}`,
@@ -804,8 +806,10 @@ function validateImportedScenario(record) {
     {
       name: "answer-key-complete",
       kind: "domain",
-      passed: stepIds.every((stepId) => record.answerKey.steps[stepId]?.acceptedAnswers?.length > 0),
-      message: "Every runtime step has at least one backend answer alias.",
+      passed: stepIds.every((stepId) => record.answerKey.steps[stepId]?.acceptedAnswers?.length > 0)
+        && Array.isArray(record.promptData.solutionBoard?.expressions)
+        && record.promptData.solutionBoard.expressions.length > 0,
+      message: "Every runtime step has a backend answer alias and the question carries a reviewed SolutionBoard document.",
     },
     {
       name: "action-templates-complete",
@@ -931,12 +935,13 @@ function importBank(taskId, relativeBankRoot) {
       ...promptData,
       steps: contracts,
     });
-    promptData.solutionBoard = authorTopicSolutionBoard({
+    const authoredSolutionBoard = authorTopicSolutionBoard({
       id,
       taskId,
       ...promptData,
       steps: contracts,
-    }, promptData.actionTemplates);
+    }, promptData.actionTemplates, block.solution_steps || []);
+    promptData.solutionBoard = authoredSolutionBoard.script;
     const record = {
       id,
       taskId,

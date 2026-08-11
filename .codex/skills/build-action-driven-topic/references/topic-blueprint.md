@@ -12,7 +12,7 @@ Preserve the approved teaching sequence. Analyze how each step becomes an operat
 
 For each teaching step, first search the current registry and a similar Topic.
 
-Use `Reuse kind@version` when the difference can be expressed through input data, private truth, presentation metadata, coach text, board targets, or diagram entities.
+Use `Reuse kind@version` when the difference can be expressed through input data, private truth, presentation metadata, coach text, reviewed solution context, or diagram entities.
 
 Use `ExtendRuntime capability-name` only when the learner must perform a distinct operation or the runtime lacks a required persistent effect. Describe the missing capability without preselecting an implementation.
 
@@ -27,11 +27,11 @@ Each row must make these fields reviewable:
 | Source step | Exact explanation step or source fragment |
 | Disposition | `Reuse kind@version` or `ExtendRuntime capability-name` |
 | Goal | One learner-observable outcome |
-| Public input | Available objects, counts, slot shape, public labels |
+| Public input | Available objects, counts, input shape, public labels |
 | Private truth | Expected objects/order/values/result |
 | Evidence | Exact typed evidence payload |
 | Diagram effect | Preview and persistent world effect |
-| Board effect | Expression and semantic slot roles |
+| Solution visibility | Reviewed proof rows visible after acceptance |
 | Submit boundary | Local advance, source-step submit, or group boundary |
 | Mode behavior | Learn, Practice, Assessment differences |
 
@@ -52,16 +52,28 @@ Do not approve a blueprint that asks the learner to select an entity absent from
 
 ## SolutionBoard contract
 
-Write the teacher document as ordered expression templates. For each expression record:
+Write the teacher document as ordered, complete expressions sourced from the reviewed question-bank solution. For each expression record:
 
 - owner source step and owner action IDs;
-- learner-visible prose/math template;
-- unique slot IDs;
-- action semantic role to slot mapping;
+- learner-visible complete prose/math;
 - allowed modes;
 - completion boundary.
 
-The template must remain incomplete until the learner provides the corresponding evidence. A static final `expectedLatex` row is not a substitute for a slot-based expression.
+The Action does not fill, concatenate, or own these expressions. Publishing materializes complete per-Action `enter`/`accepted` snapshots in the database, and the backend sends only the authorized snapshot as Action context. A generated action-log sentence is not a substitute for a reviewed proof row.
+
+## Complete solution review contract
+
+At the end of implementation, concatenate the reviewed expressions in document order and verify their stored per-Action snapshots. Review first, middle, and last generated records as complete mathematical solutions, not as action fragments.
+
+Record in the blueprint:
+
+- scenario ID, stem, answer-key result, and assembled solution for each sample;
+- one review row for every detected defect or polish opportunity;
+- a concrete revision and disposition for each row;
+- the final revised continuous solution;
+- `Review verdict: pass` and `Blocking issues remaining: 0` only after regeneration confirms the fixes.
+
+Do not approve a solution containing unresolved placeholders, UI or coach language, unexplained symbols, invalid implications, missing conditions, raw LaTeX controls, malformed punctuation, or a final value that does not name the requested object.
 
 ## Question-bank compilation
 

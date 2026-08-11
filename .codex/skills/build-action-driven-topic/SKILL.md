@@ -1,6 +1,6 @@
 ---
 name: build-action-driven-topic
-description: Compile or revise a teaching-tools Topic from an approved teaching explanation, ready teaching-skills question banks, and diagram assets into the shared Action Runtime. Use when Codex is asked to create or 录入 a new Topic, connect a bank, map teaching steps to reusable ActionTemplates, add a genuinely missing reusable Action capability, or verify and repair a Topic across Learn, Practice, Assessment, and Review. Require a reviewable TopicBlueprint before implementation and prevent topic-specific pages, generated-bundle edits, and answer leakage.
+description: Compile or revise a teaching-tools Topic from an approved teaching explanation, ready teaching-skills question banks, and diagram assets into the Action Runtime v2 architecture with authored ActionTemplates and a database-backed, formally reviewed SolutionBoard. Use when Codex is asked to create or 录入 a new Topic, connect a bank, map teaching steps to reusable ActionTemplates, request a genuinely missing reusable Action capability, or verify and repair a Topic across Learn, Practice, Assessment, and Review. Require a reviewable TopicBlueprint, explicit v2 model binding, generated-bundle/runtime gates, and a fully assembled formally reviewed solution write-up before implementation can be accepted; prevent legacy v1 runtime fallback, topic-specific pages, generated-bundle edits, answer leakage, and action-log prose masquerading as a solution.
 ---
 
 # Build Action-Driven Topic
@@ -17,6 +17,18 @@ Use one evolving handoff artifact:
 ```text
 docs/topics/<topic-id>/topic-blueprint.md
 ```
+
+## Bind the runtime model first
+
+Treat these as independent versions:
+
+- Product architecture: **Action Runtime v2**.
+- Generated bundle schema: exactly `teaching-tools/topic-scenario-bundle/v2`.
+- Exercise plan schema: read `ACTION_RUNTIME_PLAN_VERSION` from `web/shared/actionRuntime.ts`; do not hardcode an older numeric plan version.
+- Action contract version: the registered `kind@version`, which may legitimately be `@1`.
+- Content and scenario IDs: suffixes such as `.v1` are content identity, not permission to use the legacy runtime.
+
+Every new or revised Topic must materialize authored `actionTemplates` and one reviewed continuous `solutionBoard` from the question bank's teacher solution steps. Publishing must store complete per-Action `enter`/`accepted` snapshots in the question-solution database. Learn/Guided plans project only authorized `solutionBoardContexts`; Actions and `WorldProjection` do not own board prose or board commands. Assessment omits every SolutionBoard context. Do not use `ExerciseRuntimeSpec`, `RuntimeActionEvent.value`, primitive switches, legacy Topic frames, or string-answer reducers as the Topic implementation path.
 
 ## Route by blueprint state
 
@@ -38,20 +50,21 @@ Treat only explicit user language such as “确认”, “通过”, or “按�
 2. Read [references/topic-blueprint.md](references/topic-blueprint.md) completely.
 3. Inspect the exact approved explanation, ready bank, diagram assets, enabled assignments, and one structurally similar existing Topic. Resolve `TEACHING_SKILLS_ROOT` instead of assuming the importer default is correct.
 4. Copy [assets/topic-blueprint.template.md](assets/topic-blueprint.template.md) to `docs/topics/<topic-id>/topic-blueprint.md` and preserve source identifiers verbatim.
-5. Map each source teaching step to one or more actions. Mark every action as:
+5. Keep the template's exact v2 binding values. Do not reinterpret a `.v1` content ID as the runtime model.
+6. Map each source teaching step to one or more actions. Mark every action as:
    - `Reuse kind@version`; or
    - `ExtendRuntime capability-name`.
-6. For every action specify all four outcomes: learner interaction, typed evidence, diagram effect, and SolutionBoard effect.
-7. Separate public structure in `input` from teaching or assessment truth in `teachingInput`. Keep counts and interaction shape public; keep expected objects, values, ordering, and results private.
-8. Specify stable geometry IDs, derived outputs, overlapping whole/part segments, SolutionBoard slots, submit boundaries, mode behavior, registration points, and first/middle/last bank samples.
-9. Keep status `draft` and validate it:
+7. For every action specify learner interaction, typed evidence, diagram effect, and which reviewed proof rows become visible after acceptance. Do not make the Action author or assemble those rows.
+8. Separate public structure in `input` from teaching or assessment truth in `teachingInput`. Keep counts and interaction shape public; keep expected objects, values, ordering, and results private.
+9. Specify stable geometry IDs, derived outputs, overlapping whole/part segments, reviewed SolutionBoard rows and their Action visibility boundaries, submit boundaries, mode behavior, registration points, and first/middle/last bank samples.
+10. Keep status `draft` and validate it:
 
 ```bash
 python3 .codex/skills/build-action-driven-topic/scripts/validate_topic_blueprint.py \
   docs/topics/<topic-id>/topic-blueprint.md --expect-status draft
 ```
 
-10. Present the blueprint for review and stop. Do not edit frontend, backend, shared contracts, registries, tests, or generated bundles in this phase.
+11. Present the blueprint for review and stop. Do not edit frontend, backend, shared contracts, registries, tests, or generated bundles in this phase.
 
 ## Approve the blueprint
 
@@ -68,13 +81,31 @@ If implementation would materially change the action sequence, interaction contr
 
 1. Validate that the blueprint is `approved`.
 2. Reuse registered actions whenever possible. Do not create a new machine for different wording or different Topic data.
-3. If any row is `ExtendRuntime`, read [references/new-action-capability.md](references/new-action-capability.md) completely and implement the capability as a shared vertical slice before authoring Topic records.
+3. If any row is `ExtendRuntime`, read [references/new-action-capability.md](references/new-action-capability.md) completely and invoke `$build-action-runtime-capability`. Do not resume Topic authoring until the independent capability spec is `verified`.
 4. Update the current registration seams recorded in the blueprint. Do not create a topic-specific Learn, Practice, or Review page.
-5. Author lesson, scenario, geometry, ActionTemplates, private truth, board targets, and source tracking at the authoring source. Never hand-edit `topicScenarioBundle.json`.
+5. Author lesson, scenario, geometry, ActionTemplates, private truth, reviewed teacher solution rows, and source tracking at the authoring source. Never hand-edit `topicScenarioBundle.json`, and never generate proof prose by dispatching on Action kind.
 6. Generate the bundle from `web/backend` with `npm run import:topics`.
-7. Inspect generated first, middle, and last records. Confirm action IDs, geometry references, board slots, source IDs, and answer-key redaction.
+7. Run the generated-artifact gate, then inspect its reported first, middle, and last records:
+
+```bash
+python3 .codex/skills/build-action-driven-topic/scripts/validate_generated_topic_v2.py \
+  web/backend/src/content/topicScenarioBundle.json --task-id <topic-id>
+```
+
+   Require bundle schema v2, non-empty `actionTemplates`, a complete static `solutionBoard`, no Action-owned board targets or placeholders, geometry references, source IDs, and answer-key redaction.
 8. Restart the backend after regenerating the bundle before browser verification; do not trust stale in-memory content.
-9. Run focused tests, preserve unrelated worktree changes, and set status `implemented` only after behavior matches the approved blueprint.
+9. Run focused tests and preserve unrelated worktree changes.
+10. Read [references/solution-writeup-review.md](references/solution-writeup-review.md) completely. At the end of Phase 2, assemble the complete canonical solution for the generated first, middle, and last records directly from the reviewed static SolutionBoard expressions. The assembler must reject placeholders and must not dispatch on Action kind or infer proof prose from parameter position. Use the helper to expose the generated documents:
+
+```bash
+python3 .codex/skills/build-action-driven-topic/scripts/assemble_topic_solutions.py \
+  web/backend/src/content/topicScenarioBundle.json --task-id <topic-id>
+```
+
+11. Review each assembled solution against the stem, approved explanation, and answer key. Record the original complete solution, every finding, a concrete suggested revision, its disposition, and the final revised solution under `Complete solution review` in the TopicBlueprint.
+12. Fix blocking correctness, reasoning, notation, placeholder, raw-LaTeX, punctuation, or UI/action-language defects at the question-bank authoring source; regenerate and repeat steps 6–11. Apply non-semantic formal-writing fixes directly. Return the blueprint to `draft` before changing approved pedagogy, action order, or mathematical strategy.
+13. Set status `implemented` only when behavior matches the approved blueprint, every representative solution is complete and placeholder-free, the formal review verdict is `pass`, blocking issues remaining is `0`, and all suggested revisions have an explicit disposition.
+14. In the Phase 2 handoff to the user, show the final complete solution and the modification table. Separate already-applied fixes, optional polish suggestions, and changes that require renewed approval; do not hide the review only inside the blueprint.
 
 ## Phase 3: Verify the Topic
 
@@ -90,20 +121,28 @@ If implementation would materially change the action sequence, interaction contr
 - Preserve the approved explanation as teaching truth; analyze action decomposition without inventing new pedagogy.
 - Prefer `Reuse`; add a new reusable capability only when no registered `kind@version` can express the interaction.
 - Never add a Topic-specific page or duplicate the shared Action Runtime.
+- Never implement a new Topic through `ExerciseRuntimeSpec`, a primitive switch, `RuntimeActionEvent.value`, a legacy Topic frame, or a fallback that reconstructs actions from `steps`.
+- Do not confuse Action Runtime v2 with action `version: 2`: reuse the registered `kind@version`, often `@1`, inside the v2 runtime model.
 - Never put expected objects, order, values, results, coach truth, or completed SolutionBoard content into Assessment payloads.
-- Require frontend preview commands and backend canonical commands to project equivalent persistent effects.
+- Require frontend preview commands and backend canonical commands to project equivalent persistent diagram effects.
 - Put segment values, shares, correspondence marks, and emphasis on the diagram through domain commands, not in an abstract interaction panel.
 - Keep entity IDs stable across actions. Explicitly test overlapping whole/part segments and shared endpoints.
-- Use slot-based SolutionBoard expressions. Do not reveal static `expectedLatex` before the learner supplies the relevant evidence.
+- Store complete reviewed SolutionBoard snapshots as backend-owned question context. Never let an Action concatenate proof prose, carry `boardTargets`, or emit board commands.
+- Never treat a list of action captions or generated per-Action phrases as a complete solution. Assemble the reviewed teacher document in order and review it as one continuous mathematical write-up.
+- Never mark a Topic `implemented` while the complete solution contains UI verbs, coach language, unexplained symbols, logical gaps, raw control text, unresolved placeholders, malformed delimiters, or a bare final value that does not answer the requested object.
 - Require structural readiness to include required object selection and required answers; do not infer completion from arbitrary filled fields.
 - Never edit generated bundles as the source of truth.
+- Never accept a generated Topic record without authored `actionTemplates` and a reviewed `solutionBoard`; absence means legacy/incomplete authoring, not an optional shortcut.
 - Never mark a Topic verified when a required mode, action, persistence path, or visual gate fails.
 
 ## Resources
 
 - [references/architecture-contract.md](references/architecture-contract.md): current repository seams, action catalog, truth boundaries, and generated artifacts.
 - [references/topic-blueprint.md](references/topic-blueprint.md): how to fill the blueprint and make reuse/extension decisions.
-- [references/new-action-capability.md](references/new-action-capability.md): mandatory vertical-slice contract for a new `kind@version`.
+- [references/new-action-capability.md](references/new-action-capability.md): handoff contract to the dedicated new-Action skill.
 - [references/acceptance-checklist.md](references/acceptance-checklist.md): release gates and browser walkthrough.
+- [references/solution-writeup-review.md](references/solution-writeup-review.md): complete-solution assembly, formal mathematical writing rubric, and required review output.
 - [assets/topic-blueprint.template.md](assets/topic-blueprint.template.md): blueprint handoff template.
 - `scripts/validate_topic_blueprint.py`: deterministic blueprint structure and state validator.
+- `scripts/validate_generated_topic_v2.py`: deterministic generated bundle, ActionTemplate, and SolutionBoard binding gate.
+- `scripts/assemble_topic_solutions.py`: deterministic first/middle/last complete SolutionBoard assembly for semantic review.

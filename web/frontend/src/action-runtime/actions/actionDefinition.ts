@@ -1,7 +1,6 @@
 import { createActor, type AnyStateMachine, type SnapshotFrom } from "xstate";
 import type { ActionContract, ActionEvidence, ActionKind } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
-import type { BoardCommand } from "../../../../shared/solutionBoard";
 import type { ActionActor, ActionSnapshotView, AnswerSlotView, CanvasSlice } from "../types";
 
 export interface StandardActionContext<Contract extends ActionContract = ActionContract> {
@@ -21,7 +20,6 @@ export interface ActionMachineDefinition<Contract extends ActionContract = Actio
   createMachine(contract: Contract): AnyStateMachine;
   project(snapshot: SnapshotFrom<AnyStateMachine>): ActionSnapshotView;
   commands(contract: Contract, evidence: ActionEvidence): DomainCommand[];
-  boardCommands?(contract: Contract, evidence: ActionEvidence): BoardCommand[];
 }
 
 export interface ActionPresentationProjection {
@@ -29,14 +27,6 @@ export interface ActionPresentationProjection {
   answerSlots: AnswerSlotView[];
   preview?: CanvasSlice["preview"];
   diagramPreviewCommands?: DomainCommand[];
-  boardPreview?: BoardCommand[];
-}
-
-export function projectBoardSlotValues(contract: ActionContract, values: Record<string, string | undefined>): BoardCommand[] {
-  return Object.entries(values).flatMap(([role, latex]) => {
-    const slotId = contract.boardTargets?.[role];
-    return slotId && latex ? [{ type: "fill-slot" as const, slotId, latex }] : [];
-  });
 }
 
 export type RegisteredActionDefinition = ActionMachineDefinition & { kind: ActionKind; version: 1 };
@@ -67,7 +57,6 @@ export function projectStandardSnapshot<Contract extends ActionContract = Action
     evidence,
     commands: evidence ? commands(context.contract, evidence) : [],
     diagramPreviewCommands: presentation.diagramPreviewCommands || [],
-    boardPreview: presentation.boardPreview || [],
     enabledByKind: presentation.enabledByKind,
     projectedAnswerSlots: presentation.answerSlots,
     preview: presentation.preview,

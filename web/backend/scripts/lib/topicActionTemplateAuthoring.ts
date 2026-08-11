@@ -185,85 +185,51 @@ export function authorTopicActionTemplates(scenario: TopicResolvedScenario): Aut
   });
 }
 
-/**
- * Compiles reviewed expectedLatex into an ordered teacher document. These rows
- * are Learn-only until an author supplies public, slot-based Guided templates.
- */
+/** Compiles reviewed question-bank solution steps into one ordered teacher document. */
+export interface AuthoredTopicSolutionBoard {
+  script: SolutionBoardScript;
+}
+
+export interface ReviewedSolutionStep {
+  title?: string;
+  content?: string;
+  content_latex?: string;
+}
+
 export function authorTopicSolutionBoard(
   scenario: TopicResolvedScenario,
   actions: AuthoredActionTemplate[],
-): SolutionBoardScript {
-  const placeholder = (slotId: string) => `{{${slotId}}}`;
-  const slot = (stepId: string, role: string) => `${stepId}.${role}`;
-  const setTargets = (action: AuthoredActionTemplate | undefined, stepId: string, roles: string[]) => {
-    if (!action) return;
-    action.boardTargets = Object.fromEntries(roles.map((role) => [role, slot(stepId, role)]));
-  };
+  reviewedSolutionSteps: ReviewedSolutionStep[] = [],
+): AuthoredTopicSolutionBoard {
+  if (!actions.length) throw new Error(`Scenario ${scenario.id || scenario.sourceQuestionId} has no ActionTemplates`);
+  const sourceRows = reviewedSolutionSteps
+    .map((step) => String(step.content_latex || step.content || "").trim())
+    .filter(Boolean);
+  const rows = sourceRows;
+  if (!rows.length) throw new Error(`Scenario ${scenario.id || scenario.sourceQuestionId} has no reviewed solution content`);
 
-  const expressionTemplate = (step: TopicResolvedScenario["steps"][number]) => {
-    const owned = actions.filter((action) => action.sourceStepId === step.id);
-    const action = owned[0];
-    const make = owned.find((candidate) => candidate.kind === "make-parallel");
-    const intersect = owned.find((candidate) => candidate.kind === "intersect-carriers");
-
-    if (make && intersect) {
-      setTargets(make, step.id, ["throughPoint", "helperLine", "referenceLine"]);
-      setTargets(intersect, step.id, ["carrierLine", "intersectionPoint"]);
-      return `过 $${placeholder(slot(step.id, "throughPoint"))}$ 作 $${placeholder(slot(step.id, "helperLine"))}\\parallel ${placeholder(slot(step.id, "referenceLine"))}$，交直线 $${placeholder(slot(step.id, "carrierLine"))}$ 于点 $${placeholder(slot(step.id, "intersectionPoint"))}$。`;
-    }
-
-    if (action?.kind === "mark-segment-values") {
-      const labels = (action.teachingInput?.labels as Array<{ segmentId: string; displayName: string; valueLatex: string }> | undefined) || [];
-      const roles = labels.map((label) => `segment.${label.segmentId}`);
-      setTargets(action, step.id, roles);
-      const suffix = /份/.test(step.title) || /份/.test(step.expectedLatex || "") ? "\\text{ 份}" : "";
-      const statements = labels.map((label) => `$${label.displayName}=${placeholder(slot(step.id, `segment.${label.segmentId}`))}${suffix}$`);
-      return statements.length ? `由题意，在图中标出 ${statements.join("，")}。` : step.expectedLatex;
-    }
-
-    if (action?.kind === "pair-segments") {
-      setTargets(action, step.id, ["correspondence"]);
-      return `由相似关系，对应边为 $${placeholder(slot(step.id, "correspondence"))}$。`;
-    }
-
-    if (action?.kind === "ratio-scratch") {
-      setTargets(action, step.id, ["firstSegment", "secondSegment", "ratioFirst", "ratioSecond"]);
-      return `约分得 $${placeholder(slot(step.id, "firstSegment"))}:${placeholder(slot(step.id, "secondSegment"))}=${placeholder(slot(step.id, "ratioFirst"))}:${placeholder(slot(step.id, "ratioSecond"))}$。`;
-    }
-
-    if (action?.kind === "convert-collinear") {
-      setTargets(action, step.id, ["wholeSegment", "targetSegment", "knownSegment"]);
-      return `由三点共线，$${placeholder(slot(step.id, "wholeSegment"))}=${placeholder(slot(step.id, "targetSegment"))}+${placeholder(slot(step.id, "knownSegment"))}$。`;
-    }
-
-    if (action?.kind === "enter-equation") {
-      setTargets(action, step.id, ["knownFactor", "numerator", "denominator", "result"]);
-      const target = String(action.input.targetLatex || "x");
-      return `代入比例关系，$${target}=${placeholder(slot(step.id, "knownFactor"))}\\times\\dfrac{${placeholder(slot(step.id, "numerator"))}}{${placeholder(slot(step.id, "denominator"))}}=${placeholder(slot(step.id, "result"))}$。`;
-    }
-
-    if (action?.kind === "select-option") {
-      setTargets(action, step.id, ["value"]);
-      return `选择 ${placeholder(slot(step.id, "value"))}。`;
-    }
-
-    if (action?.kind === "enter-text") {
-      setTargets(action, step.id, ["value"]);
-      return `因此，${placeholder(slot(step.id, "value"))}`;
-    }
-
-    return step.expectedLatex;
-  };
+  const expressions = rows.map((latexTemplate, index) => {
+    // Distribute reviewed proof rows across Action stages without inspecting
+    // Action kinds or evidence. A stage may own multiple mathematical rows.
+    const ownerIndex = Math.min(
+      actions.length - 1,
+      Math.max(0, Math.ceil(((index + 1) * actions.length) / rows.length) - 1),
+    );
+    const owner = actions[ownerIndex];
+    return {
+      expressionId: `${owner.actionId}/solution-${index + 1}`,
+      sourceStepId: owner.sourceStepId,
+      ownerActionIds: [owner.actionId],
+      latexTemplate,
+      modes: ["learn" as const, "guided-practice" as const],
+    };
+  });
   return {
-    schemaVersion: SOLUTION_BOARD_SCHEMA_VERSION,
-    documentId: `${scenario.id || scenario.sourceQuestionId}/solution`,
-    headingLatex: "解：",
-    expressions: scenario.steps.map((step) => ({
-      expressionId: `${step.id}/expression`,
-      sourceStepId: step.id,
-      ownerActionIds: actions.filter((action) => action.sourceStepId === step.id).map((action) => action.actionId),
-      latexTemplate: expressionTemplate(step),
-      modes: ["learn"],
-    })),
+    script: {
+      schemaVersion: SOLUTION_BOARD_SCHEMA_VERSION,
+      documentId: `${scenario.id || scenario.sourceQuestionId}/solution`,
+      headingLatex: "解：",
+      expressions,
+    },
   };
 }

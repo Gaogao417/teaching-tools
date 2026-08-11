@@ -34,20 +34,25 @@ export interface SolutionBoardProjection {
   expressions: BoardExpression[];
 }
 
-export type BoardCommand =
-  | { type: "reveal-expression"; expressionId: string }
-  | { type: "fill-slot"; slotId: string; latex: string }
-  | { type: "complete-expression"; expressionId: string };
+export type ActionSolutionBoardStage = "enter" | "accepted";
 
-export type BoardCommandErrorCode =
+/**
+ * Server-projected, immutable board context for one Action stage.
+ * Action machines never inspect or mutate this value.
+ */
+export interface ActionSolutionBoardContext {
+  actionId: string;
+  stage: ActionSolutionBoardStage;
+  solutionRevision: string;
+  board: SolutionBoardProjection;
+}
+
+export type SolutionBoardErrorCode =
   | "invalid-script"
-  | "unknown-expression"
-  | "unknown-slot"
-  | "invalid-transition"
-  | "invalid-latex";
+  | "missing-canonical-slot";
 
-export class BoardCommandError extends Error {
-  constructor(readonly code: BoardCommandErrorCode, message: string) {
+export class SolutionBoardError extends Error {
+  constructor(readonly code: SolutionBoardErrorCode, message: string) {
     super(message);
   }
 }
@@ -65,15 +70,6 @@ function validLatex(value: string): boolean {
 
 export function expressionSlotIds(latexTemplate: string): string[] {
   return [...latexTemplate.matchAll(SLOT_PATTERN)].map((match) => match[1]);
-}
-
-export function isBoardCommand(value: unknown): value is BoardCommand {
-  if (!isRecord(value) || typeof value.type !== "string") return false;
-  if (value.type === "reveal-expression" || value.type === "complete-expression") return typeof value.expressionId === "string";
-  return value.type === "fill-slot"
-    && typeof value.slotId === "string"
-    && typeof value.latex === "string"
-    && validLatex(value.latex);
 }
 
 export function isSolutionBoardScript(value: unknown): value is SolutionBoardScript {
@@ -114,57 +110,52 @@ export function isSolutionBoardProjection(value: unknown): value is SolutionBoar
   });
 }
 
-export function createSolutionBoardBase(script: SolutionBoardScript, mode: LearningMode): SolutionBoardProjection {
-  if (!isSolutionBoardScript(script)) throw new BoardCommandError("invalid-script", "Invalid SolutionBoard script");
+export function isActionSolutionBoardContext(value: unknown): value is ActionSolutionBoardContext {
+  return isRecord(value)
+    && typeof value.actionId === "string"
+    && ["enter", "accepted"].includes(String(value.stage))
+    && typeof value.solutionRevision === "string"
+    && Boolean(value.solutionRevision)
+    && isSolutionBoardProjection(value.board);
+}
+
+/**
+ * Materializes a complete read-only projection from reviewed question content.
+ * This is a content projection boundary, not an Action effect: it does not
+ * inspect Action kinds, evidence shapes, semantic roles, or parameter order.
+ */
+export function materializeSolutionBoard(
+  script: SolutionBoardScript,
+  mode: LearningMode,
+  slotValues: Readonly<Record<string, string>>,
+  expressionIds?: ReadonlySet<string>,
+): SolutionBoardProjection {
+  if (!isSolutionBoardScript(script)) throw new SolutionBoardError("invalid-script", "Invalid SolutionBoard script");
+  const expressions = script.expressions
+    .filter((expression) => expression.modes.includes(mode) && (!expressionIds || expressionIds.has(expression.expressionId)))
+    .map((expression) => {
+      const declaredSlots = expressionSlotIds(expression.latexTemplate);
+      const resolved = Object.fromEntries(declaredSlots.map((slotId) => {
+        const latex = slotValues[slotId];
+        if (!latex || !validLatex(latex)) {
+          throw new SolutionBoardError("missing-canonical-slot", `Missing canonical SolutionBoard value for ${slotId}`);
+        }
+        return [slotId, latex];
+      }));
+      return {
+        expressionId: expression.expressionId,
+        sourceStepId: expression.sourceStepId,
+        latexTemplate: expression.latexTemplate,
+        slotValues: resolved,
+        phase: "complete" as const,
+      };
+    });
   return {
     schemaVersion: SOLUTION_BOARD_SCHEMA_VERSION,
     documentId: script.documentId,
     headingLatex: script.headingLatex,
-    expressions: script.expressions.filter((expression) => expression.modes.includes(mode)).map((expression) => ({
-      expressionId: expression.expressionId,
-      sourceStepId: expression.sourceStepId,
-      latexTemplate: expression.latexTemplate,
-      slotValues: {},
-      phase: "hidden",
-    })),
+    expressions,
   };
-}
-
-function cloneBoard(board: SolutionBoardProjection): SolutionBoardProjection {
-  return { ...board, expressions: board.expressions.map((expression) => ({ ...expression, slotValues: { ...expression.slotValues } })) };
-}
-
-export function applyBoardCommands(board: SolutionBoardProjection, commands: readonly BoardCommand[]): SolutionBoardProjection {
-  const next = cloneBoard(board);
-  for (const command of commands) {
-    const expression = command.type === "fill-slot"
-      ? next.expressions.find((item) => expressionSlotIds(item.latexTemplate).includes(command.slotId))
-      : next.expressions.find((item) => item.expressionId === command.expressionId);
-    if (!expression) throw new BoardCommandError(command.type === "fill-slot" ? "unknown-slot" : "unknown-expression", `Unknown board target`);
-    switch (command.type) {
-      case "reveal-expression":
-        if (expression.phase === "hidden") expression.phase = "writing";
-        break;
-      case "fill-slot": {
-        if (expression.phase === "hidden") throw new BoardCommandError("invalid-transition", `Expression ${expression.expressionId} is hidden`);
-        if (expression.phase === "complete") throw new BoardCommandError("invalid-transition", `Expression ${expression.expressionId} is complete`);
-        if (!expressionSlotIds(expression.latexTemplate).includes(command.slotId)) {
-          throw new BoardCommandError("unknown-slot", `Unknown board slot ${command.slotId}`);
-        }
-        if (!validLatex(command.latex)) throw new BoardCommandError("invalid-latex", `Invalid LaTeX for ${command.slotId}`);
-        expression.slotValues[command.slotId] = command.latex;
-        break;
-      }
-      case "complete-expression":
-        if (expression.phase === "hidden") throw new BoardCommandError("invalid-transition", `Expression ${expression.expressionId} is hidden`);
-        if (expressionSlotIds(expression.latexTemplate).some((slotId) => !expression.slotValues[slotId])) {
-          throw new BoardCommandError("invalid-transition", `Expression ${command.expressionId} has unfilled slots`);
-        }
-        expression.phase = "complete";
-        break;
-    }
-  }
-  return next;
 }
 
 export function renderBoardExpression(expression: BoardExpression, placeholder = "$\\underline{\\qquad}$"): string {

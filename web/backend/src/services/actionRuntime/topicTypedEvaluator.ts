@@ -1,6 +1,5 @@
 import type { ActionEvidence, AuthoredActionTemplate } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
-import type { BoardCommand } from "../../../../shared/solutionBoard";
 
 export interface TypedActionDiagnosis {
   accepted: boolean;
@@ -8,7 +7,6 @@ export interface TypedActionDiagnosis {
   wrongObjectIds: string[];
   wrongSlotIds: string[];
   commands: DomainCommand[];
-  boardCommands: BoardCommand[];
 }
 
 const equal = (left: readonly string[] | undefined, right: readonly string[] | undefined) => Boolean(left && right)
@@ -18,41 +16,17 @@ function expected(template: AuthoredActionTemplate): Record<string, unknown> {
   return { ...template.input, ...template.teachingInput };
 }
 
-function boardValues(template: AuthoredActionTemplate, evidence: ActionEvidence): Record<string, string | undefined> {
-  const target = expected(template);
-  switch (evidence.kind) {
-    case "make-parallel": return { throughPoint: evidence.throughPointId, helperLine: String(target.outputLineLabel || template.input.outputLineId), referenceLine: evidence.referenceLineId };
-    case "intersect-carriers": return { carrierLine: evidence.carrierPointIds.join(""), intersectionPoint: String(template.input.outputPointId) };
-    case "mark-segment-values": return Object.fromEntries(Object.entries(evidence.values).map(([id, value]) => [`segment.${id}`, value]));
-    case "pair-segments": return { correspondence: evidence.segmentIds.join("\\leftrightarrow ") };
-    case "ratio-scratch": return { firstSegment: evidence.segmentIds[0], secondSegment: evidence.segmentIds[1], ratioFirst: evidence.ratio[0], ratioSecond: evidence.ratio[1] };
-    case "convert-collinear": return { wholeSegment: evidence.segmentIds[0], targetSegment: evidence.segmentIds[1], knownSegment: evidence.segmentIds[2], relation: String(target.relationLatex || "") };
-    case "enter-equation": return { knownFactor: evidence.factors[0], numerator: evidence.factors[1], denominator: evidence.factors[2], result: evidence.result };
-    case "select-option": return { value: evidence.value };
-    case "enter-text": {
-      const canonical = Array.isArray(target.expectedValues) ? String(target.expectedValues[0] || evidence.value) : evidence.value;
-      return { value: canonical };
-    }
-  }
-}
-
-export function projectCanonicalBoardCommands(template: AuthoredActionTemplate, evidence: ActionEvidence): BoardCommand[] {
-  const values = boardValues(template, evidence);
-  return Object.entries(values).flatMap(([role, latex]) => {
-    const slotId = template.boardTargets?.[role];
-    return slotId && latex ? [{ type: "fill-slot" as const, slotId, latex }] : [];
-  });
-}
-
-function diagnoseOne(template: AuthoredActionTemplate, evidence: ActionEvidence): Omit<TypedActionDiagnosis, "wrongActionIds"> {
+function diagnoseOne(
+  template: AuthoredActionTemplate,
+  evidence: ActionEvidence,
+): Omit<TypedActionDiagnosis, "wrongActionIds"> {
   const target = expected(template);
   const wrongObjectIds: string[] = [];
   const wrongSlotIds: string[] = [];
   const commands: DomainCommand[] = [];
-  const boardCommands: BoardCommand[] = [];
   let accepted = evidence.actionId === template.actionId && evidence.sourceStepId === template.sourceStepId
     && evidence.kind === template.kind && evidence.version === template.version;
-  if (!accepted) return { accepted: false, wrongObjectIds, wrongSlotIds, commands, boardCommands };
+  if (!accepted) return { accepted: false, wrongObjectIds, wrongSlotIds, commands };
 
   switch (evidence.kind) {
     case "make-parallel": {
@@ -172,16 +146,18 @@ function diagnoseOne(template: AuthoredActionTemplate, evidence: ActionEvidence)
       if (!accepted) wrongSlotIds.push("value");
       break;
   }
-  if (accepted) boardCommands.push(...projectCanonicalBoardCommands(template, evidence));
-  return { accepted, wrongObjectIds: [...new Set(wrongObjectIds)], wrongSlotIds: [...new Set(wrongSlotIds)], commands, boardCommands };
+  return { accepted, wrongObjectIds: [...new Set(wrongObjectIds)], wrongSlotIds: [...new Set(wrongSlotIds)], commands };
 }
 
 /** Typed private evaluator: no primitive, topic-answer string, RuntimeActionEvent or v1 reducer. */
-export function evaluateTopicEvidence(templates: AuthoredActionTemplate[], evidence: ActionEvidence[]): TypedActionDiagnosis {
+export function evaluateTopicEvidence(
+  templates: AuthoredActionTemplate[],
+  evidence: ActionEvidence[],
+): TypedActionDiagnosis {
   const results = templates.map((template) => {
     const item = evidence.find((candidate) => candidate.actionId === template.actionId);
     return item ? { actionId: template.actionId, ...diagnoseOne(template, item) } : {
-      actionId: template.actionId, accepted: false, wrongObjectIds: [], wrongSlotIds: [], commands: [], boardCommands: [],
+      actionId: template.actionId, accepted: false, wrongObjectIds: [], wrongSlotIds: [], commands: [],
     };
   });
   return {
@@ -190,6 +166,5 @@ export function evaluateTopicEvidence(templates: AuthoredActionTemplate[], evide
     wrongObjectIds: [...new Set(results.flatMap((result) => result.wrongObjectIds))],
     wrongSlotIds: [...new Set(results.flatMap((result) => result.wrongSlotIds))],
     commands: results.filter((result) => result.accepted).flatMap((result) => result.commands),
-    boardCommands: results.filter((result) => result.accepted).flatMap((result) => result.boardCommands),
   };
 }

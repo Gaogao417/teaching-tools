@@ -2,13 +2,15 @@
 
 ## 文档状态
 
-- 状态：Proposed
+- 状态：Superseded（历史方案）
 - 日期：2026-08-11
 - 决策范围：Action Runtime v3、Topic Learn / Guided Practice / Assessment、Review
 - 关联文档：
   - [ADR-004：前端 Action Runtime 与后端教学计划边界](../../adr/ADR-004-frontend-action-runtime.md)
   - [PRD-01：Action 驱动的学习与练习工作台](./PRD-01-action-driven-workspace.md)
   - [Action Runtime 迁移计划](../../execution/action-driven-workspace-migration-plan.md)
+
+> **2026-08-11 架构更正：** 本文后续描述的 `BoardCommand`、`boardTargets`、slot 填充以及 `world.solutionBoard` 已不再是当前实现。现行契约由问题库持有完整、审核过的 SolutionBoard；发布时将每个 Action/mode/stage 对应的完整只读投影写入 `question_solution_revisions` 与 `question_action_solution_boards`，后端通过 `solutionBoardContext` 下发。Action 只提交 typed evidence 和 diagram commands，不拼接或持久化板书正文；Assessment 不接收任何 SolutionBoard context。本文其余内容仅保留为历史设计记录。
 
 ## 1. Executive summary
 

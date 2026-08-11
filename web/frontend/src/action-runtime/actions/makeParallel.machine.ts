@@ -1,7 +1,7 @@
 import { assign, setup, type AnyStateMachine } from "xstate";
 import type { ActionEvidence, MakeParallelAction } from "../../../../shared/actionRuntime";
 import type { ActionRuntimeEvent } from "../events";
-import { createActorFromDefinition, projectBoardSlotValues, projectStandardSnapshot, type ActionMachineDefinition, type StandardActionContext } from "./actionDefinition";
+import { createActorFromDefinition, projectStandardSnapshot, type ActionMachineDefinition, type StandardActionContext } from "./actionDefinition";
 
 type Context = StandardActionContext<MakeParallelAction>;
 
@@ -69,11 +69,6 @@ export const makeParallelDefinition: ActionMachineDefinition<MakeParallelAction>
         return { ...slot, value, active: false, status: value ? "filled" : "empty" };
       }),
       preview: { type: "parallel", throughPointId: context.points[0], referenceLineId: context.lines[0] },
-      boardPreview: projectBoardSlotValues(context.contract, {
-        throughPoint: context.points[0],
-        helperLine: context.points[0] && context.lines[0] ? (context.contract as MakeParallelAction).input.outputLineLabel || (context.contract as MakeParallelAction).input.outputLineId : undefined,
-        referenceLine: context.lines[0],
-      }),
     }), (contract, evidence) => evidence.kind === "make-parallel" ? [{
       commandId: `${contract.actionId}/construct-parallel`,
       actionId: contract.actionId,

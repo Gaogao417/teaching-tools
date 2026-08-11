@@ -130,6 +130,34 @@ db.exec(`
     FOREIGN KEY(instance_id) REFERENCES practice_instances(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS question_solution_revisions (
+    question_id TEXT NOT NULL,
+    question_version TEXT NOT NULL,
+    solution_revision TEXT NOT NULL,
+    document_json TEXT NOT NULL,
+    review_status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(question_id, question_version, solution_revision)
+  );
+
+  CREATE TABLE IF NOT EXISTS question_action_solution_boards (
+    question_id TEXT NOT NULL,
+    question_version TEXT NOT NULL,
+    solution_revision TEXT NOT NULL,
+    action_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    board_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(question_id, question_version, solution_revision, action_id, mode, stage),
+    FOREIGN KEY(question_id, question_version, solution_revision)
+      REFERENCES question_solution_revisions(question_id, question_version, solution_revision)
+      ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_question_action_solution_boards_lookup
+    ON question_action_solution_boards(question_id, question_version, solution_revision, action_id, mode, stage);
+
   CREATE TABLE IF NOT EXISTS capability_evidence (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_name TEXT NOT NULL,

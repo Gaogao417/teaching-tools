@@ -1,6 +1,6 @@
 import type { RatioScratchAction } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
-import { createActorFromDefinition, projectBoardSlotValues } from "./actionDefinition";
+import { createActorFromDefinition } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
 
 function ratioCommands(contract: RatioScratchAction, segmentIds: string[], ratio: Array<string | undefined>): DomainCommand[] {
@@ -25,10 +25,6 @@ export const ratioScratchDefinition = createFormMachineDefinition<RatioScratchAc
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "ratio-scratch", version: 1, segmentIds: [...context.lines], ratio: [context.answers["ratio-first"], context.answers["ratio-second"]] }),
   commands: (contract, evidence) => evidence.kind === "ratio-scratch" ? ratioCommands(contract, evidence.segmentIds, evidence.ratio) : [],
   previewCommands: (context) => ratioCommands(context.contract, context.lines, [context.answers["ratio-first"], context.answers["ratio-second"]]),
-  boardPreview: (context) => projectBoardSlotValues(context.contract, {
-    firstSegment: context.lines[0], secondSegment: context.lines[1],
-    ratioFirst: context.answers["ratio-first"], ratioSecond: context.answers["ratio-second"],
-  }),
 });
 
 export const createRatioScratchActor = (contract: RatioScratchAction) => createActorFromDefinition(ratioScratchDefinition, contract);

@@ -8,7 +8,6 @@ import type {
 } from "../../../shared/actionRuntime";
 import type { TopicGeometryModel } from "../../../shared/topicPractice";
 import type { DomainCommand, WorkspaceWorld } from "../../../shared/actionWorld";
-import type { BoardCommand } from "../../../shared/solutionBoard";
 import type { ActionRuntimeEvent } from "./events";
 
 export interface RuntimeEntityView {
@@ -113,7 +112,6 @@ export interface ActionSnapshotView {
   evidence?: ActionEvidence;
   commands: DomainCommand[];
   diagramPreviewCommands: DomainCommand[];
-  boardPreview: BoardCommand[];
   enabledByKind: { points: string[]; lines: string[]; angles: string[] };
   projectedAnswerSlots: AnswerSlotView[];
   preview?: CanvasSlice["preview"];

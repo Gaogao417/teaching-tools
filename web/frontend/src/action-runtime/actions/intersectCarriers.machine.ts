@@ -1,7 +1,7 @@
 import { assign, setup, type AnyStateMachine } from "xstate";
 import type { ActionEvidence, IntersectCarriersAction } from "../../../../shared/actionRuntime";
 import type { ActionRuntimeEvent } from "../events";
-import { createActorFromDefinition, projectBoardSlotValues, projectStandardSnapshot, type ActionMachineDefinition, type StandardActionContext } from "./actionDefinition";
+import { createActorFromDefinition, projectStandardSnapshot, type ActionMachineDefinition, type StandardActionContext } from "./actionDefinition";
 
 type Context = StandardActionContext<IntersectCarriersAction>;
 
@@ -44,10 +44,6 @@ export const intersectCarriersDefinition: ActionMachineDefinition<IntersectCarri
         return { ...slot, value, active: false, status: value ? "filled" : "empty" };
       }),
       preview: { type: "intersection", parallelLineId: (context.contract as IntersectCarriersAction).input.parallelLineId, carrierPointIds: context.points },
-      boardPreview: projectBoardSlotValues(context.contract, {
-        carrierLine: context.points.length === 2 ? context.points.join("") : undefined,
-        intersectionPoint: context.points.length === 2 ? (context.contract as IntersectCarriersAction).input.outputPointId : undefined,
-      }),
     }), (contract, evidence) => evidence.kind === "intersect-carriers" ? [{
       commandId: `${contract.actionId}/construct-carrier`, actionId: contract.actionId, type: "construct-carrier",
       fromPointId: evidence.carrierPointIds[0], toPointId: evidence.carrierPointIds[1],

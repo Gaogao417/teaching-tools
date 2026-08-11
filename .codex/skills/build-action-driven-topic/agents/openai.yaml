@@ -1,4 +1,4 @@
 interface:
   display_name: "Build Action-Driven Topic"
-  short_description: "从教学材料编译并验收 Action 驱动 Topic"
-  default_prompt: "使用 $build-action-driven-topic 将审核讲解和 ready 题库编译为可验收的新 Topic。"
+  short_description: "编译 v2 Action Topic 并审校完整规范解答"
+  default_prompt: "使用 $build-action-driven-topic 将审核讲解和 ready 题库编译为 Action Runtime v2 Topic，并从问题库完整解答生成数据库板书快照。"

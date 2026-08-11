@@ -1,7 +1,6 @@
 import { assign, setup, type AnyStateMachine, type SnapshotFrom } from "xstate";
 import type { ActionContract, ActionEvidence } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
-import type { BoardCommand } from "../../../../shared/solutionBoard";
 import type { ActionRuntimeEvent } from "../events";
 import { projectStandardSnapshot, type ActionMachineDefinition, type StandardActionContext } from "./actionDefinition";
 
@@ -27,8 +26,6 @@ export interface FormMachineBehavior<Contract extends ActionContract> {
   slotValue?(context: FormMachineContext<Contract>, slotId: string): string;
   commands?(contract: Contract, evidence: ActionEvidence): DomainCommand[];
   previewCommands?(context: FormMachineContext<Contract>): DomainCommand[];
-  boardPreview?(context: FormMachineContext<Contract>): BoardCommand[];
-  boardCommands?(contract: Contract, evidence: ActionEvidence): BoardCommand[];
 }
 
 function frame<Contract extends ActionContract>(context: FormMachineContext<Contract>): HistoryFrame {
@@ -138,14 +135,12 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
               };
             }),
             diagramPreviewCommands: behavior.previewCommands?.(context),
-            boardPreview: behavior.boardPreview?.(context),
           };
         },
         behavior.commands,
       );
     },
     commands: behavior.commands || (() => []),
-    boardCommands: behavior.boardCommands,
   };
   return definition;
 }

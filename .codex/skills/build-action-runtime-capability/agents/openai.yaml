@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Action Runtime Capability"
+  short_description: "设计、实现并验收可复用的 Action Runtime v2 能力"
+  default_prompt: "给定一道或一类题目，在创建新 Topic 且确实缺少可复用操作时，使用 $build-action-runtime-capability 设计并实现 Action Runtime v2 能力。"

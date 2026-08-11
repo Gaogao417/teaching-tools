@@ -18,7 +18,7 @@ const {
 } = require("../platform/sessionRuntimeService") as typeof import("../platform/sessionRuntimeService");
 const { materializeActionTemplate } = require("../../actionRuntime/topicPlanProjector") as typeof import("../../actionRuntime/topicPlanProjector");
 const { evaluateTopicEvidence } = require("../../actionRuntime/topicTypedEvaluator") as typeof import("../../actionRuntime/topicTypedEvaluator");
-const { expressionSlotIds, isSolutionBoardScript } = require("../../../../../shared/solutionBoard") as typeof import("../../../../../shared/solutionBoard");
+const { expressionSlotIds, isSolutionBoardScript, renderBoardExpression } = require("../../../../../shared/solutionBoard") as typeof import("../../../../../shared/solutionBoard");
 const { getCommittedActionWorld, listActionEvaluations } = require("../../../repositories/actionRuntimeRepository") as typeof import("../../../repositories/actionRuntimeRepository");
 const { getLearningActionPlan } = require("../../learningService") as typeof import("../../learningService");
 
@@ -58,15 +58,20 @@ async function main() {
   for (const record of allRecords) {
     assert.ok(isSolutionBoardScript(record.promptData.solutionBoard), `${record.id} must have a valid SolutionBoard script`);
     const slots = new Set(record.promptData.solutionBoard!.expressions.flatMap((expression) => expressionSlotIds(expression.latexTemplate)));
-    for (const action of record.promptData.actionTemplates || []) {
-      const boardTargets = (action as { boardTargets?: Record<string, string> }).boardTargets;
-      for (const slotId of Object.values(boardTargets || {})) assert.ok(slots.has(slotId), `${action.actionId} targets missing board slot ${slotId}`);
-    }
+    assert.equal(slots.size, 0, `${record.id} must store complete board text rather than runtime slots`);
   }
   const projectorSource = readFileSync(path.resolve(process.cwd(), "src/services/actionRuntime/topicPlanProjector.ts"), "utf8");
   const scenarioBankSource = readFileSync(path.resolve(process.cwd(), "src/services/runtime/engines/topicPractice/scenarioBank.ts"), "utf8");
+  const authoringSource = readFileSync(path.resolve(process.cwd(), "scripts/lib/topicActionTemplateAuthoring.ts"), "utf8");
   assert.equal(projectorSource.includes("primitiveActionCompiler"), false);
   assert.equal(scenarioBankSource.includes("primitiveActionCompiler"), false);
+  const solutionAuthoringSource = authoringSource.split("export function authorTopicSolutionBoard")[1] || "";
+  assert.equal(/\.kind\s*===|switch\s*\([^)]*kind/.test(solutionAuthoringSource), false, "SolutionBoard authoring must not dispatch on Action kind");
+  const reverseFirst = bundle.scenarios.reverseASimilarity[0];
+  const reverseSolution = reverseFirst.promptData.solutionBoard?.expressions.map((expression) => expression.latexTemplate).join(" ") || "";
+  assert.match(reverseSolution, /\\triangle PAB\\sim\\triangle PDC/, "formal solution must state the similarity conclusion");
+  assert.match(reverseSolution, /\\dfrac\{AB\}\{DC\}=\\dfrac\{PA\}\{PD\}/, "formal solution must state the corresponding-side proportion");
+  assert.equal(reverseSolution.includes("在图中标出"), false, "formal solution must not contain Action instructions");
   const frontendRoot = path.resolve(process.cwd(), "../frontend/src/action-runtime");
   const sourceFiles = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const target = path.join(directory, entry.name);
@@ -74,6 +79,7 @@ async function main() {
   });
   const frontendProduction = sourceFiles(frontendRoot).filter((file) => !file.includes("__tests__")).map((file) => readFileSync(file, "utf8")).join("\n");
   assert.equal(/topicAnswerSerializer|TopicRuntimeFrame|primitiveActionCompiler|reduceTopicPracticeAction|RuntimeActionEvent/.test(frontendProduction), false);
+  assert.equal(/projectBoardSlotValues|boardPreview|boardCommands|boardTargets/.test(frontendProduction), false, "Action implementations must not assemble SolutionBoard content");
   const opaqueTemplate = {
     actionId: "future/1",
     sourceStepId: "future",
@@ -95,34 +101,76 @@ async function main() {
   assert.equal(assessmentOpaque.input.expectedValue, undefined);
   assert.deepEqual(assessmentOpaque.input.nested, { untouched: true });
 
-  const allActionTemplates = (allRecords as unknown as Array<{ promptData: { actionTemplates?: AuthoredActionTemplate[] } }>)
-    .flatMap((record) => record.promptData.actionTemplates || []);
+  const actionFixtures = (allRecords as unknown as Array<{
+    promptData: { actionTemplates?: AuthoredActionTemplate[] };
+  }>).flatMap((record) => record.promptData.actionTemplates || []);
   for (const kind of ["mark-segment-values", "pair-segments", "ratio-scratch", "convert-collinear", "enter-equation"] as const) {
-    const template = allActionTemplates.find((candidate) => candidate.kind === kind)!;
+    const template = actionFixtures.find((candidate) => candidate.kind === kind)!;
     const contract = materializeActionTemplate(template, "learn") as ActionContract;
     const diagnosis = evaluateTopicEvidence([template], [evidenceFor(contract)]);
     assert.equal(diagnosis.accepted, true, `${kind} canonical evidence must be accepted`);
     assert.ok(diagnosis.commands.length > 0, `${kind} must project a diagram teaching command`);
+    assert.equal(JSON.stringify(contract).includes("boardTargets"), false, `${kind} must be board-neutral at runtime`);
   }
 
   const learningPlan = getLearningActionPlan("auxiliaryTwoRatios");
-  assert.equal(learningPlan.planVersion, 3);
+  assert.equal(learningPlan.planVersion, 4);
   assert.equal(learningPlan.mode, "learn");
-  assert.ok(learningPlan.solutionBoardScript?.expressions.length);
-  assert.ok(learningPlan.world.solutionBoard?.expressions.every((expression) => expression.phase === "hidden"));
-  assert.ok(learningPlan.actions.some((action) => Object.keys(action.boardTargets || {}).length));
+  assert.ok(learningPlan.solutionBoardContexts?.length);
+  assert.ok(learningPlan.solutionBoardContexts?.every((context) => context.board.expressions.every((expression) => expression.phase === "complete")));
+  assert.ok(learningPlan.solutionBoardContexts?.every((context) => context.board.expressions.every((expression) => !renderBoardExpression(expression).includes("{{"))));
+  assert.equal(JSON.stringify(learningPlan.actions).includes("boardTargets"), false);
+  const firstLearningContext = learningPlan.solutionBoardContexts![0];
+  const storedBoardRow = db.prepare(`
+    SELECT question_id, question_version, board_json
+    FROM question_action_solution_boards
+    WHERE solution_revision = ? AND action_id = ? AND mode = 'learn' AND stage = 'enter'
+    LIMIT 1
+  `).get(firstLearningContext.solutionRevision, firstLearningContext.actionId) as {
+    question_id: string;
+    question_version: string;
+    board_json: string;
+  };
+  const storedBoard = JSON.parse(storedBoardRow.board_json) as typeof firstLearningContext.board;
+  db.prepare(`
+    UPDATE question_action_solution_boards SET board_json = ?
+    WHERE question_id = ? AND question_version = ? AND solution_revision = ?
+      AND action_id = ? AND mode = 'learn' AND stage = 'enter'
+  `).run(
+    JSON.stringify({ ...storedBoard, headingLatex: "数据库解：" }),
+    storedBoardRow.question_id,
+    storedBoardRow.question_version,
+    firstLearningContext.solutionRevision,
+    firstLearningContext.actionId,
+  );
+  assert.equal(
+    getLearningActionPlan("auxiliaryTwoRatios").solutionBoardContexts?.find((context) => context.actionId === firstLearningContext.actionId)?.board.headingLatex,
+    "数据库解：",
+    "runtime must read the complete Action board from the question database",
+  );
+  db.prepare(`
+    UPDATE question_action_solution_boards SET board_json = ?
+    WHERE question_id = ? AND question_version = ? AND solution_revision = ?
+      AND action_id = ? AND mode = 'learn' AND stage = 'enter'
+  `).run(
+    storedBoardRow.board_json,
+    storedBoardRow.question_id,
+    storedBoardRow.question_version,
+    firstLearningContext.solutionRevision,
+    firstLearningContext.actionId,
+  );
 
   const started = startPractice("auxiliaryTwoRatios", "Action Runtime Test");
   const bootstrap = getActionRuntimePlan(started.sessionId);
-  assert.equal(bootstrap.plan.planVersion, 3);
+  assert.equal(bootstrap.plan.planVersion, 4);
   assert.ok(bootstrap.plan.actions.some((action) => action.kind === "make-parallel"));
   assert.ok(bootstrap.plan.actions.some((action) => action.kind === "intersect-carriers"));
   assert.equal(JSON.stringify(bootstrap.plan).includes("acceptedAnswers"), false);
+  assert.equal(JSON.stringify(bootstrap.plan).includes("solutionBoardSlots"), false, "private canonical slot values must stay backend-only");
   assert.equal(started.actionRuntimeVersion, 2);
-  if (bootstrap.plan.mode === "learn") {
-    assert.ok(bootstrap.plan.solutionBoardScript?.expressions.length);
-    assert.ok(bootstrap.plan.world.solutionBoard);
-  }
+  assert.equal(JSON.stringify(bootstrap.plan.world).includes("solutionBoard"), false, "SolutionBoard is context, not World state");
+  const storedSnapshots = db.prepare("SELECT COUNT(*) AS count FROM question_action_solution_boards").get() as { count: number };
+  assert.ok(storedSnapshots.count > 0, "question-bank Action snapshots must be materialized in the database");
   const parallelOutputIds = bootstrap.plan.actions.flatMap((action) => action.kind === "make-parallel" ? [action.input.outputLineId] : []);
   const intersectionOutputIds = bootstrap.plan.actions.flatMap((action) => action.kind === "intersect-carriers" ? [action.input.outputPointId] : []);
   assert.ok(parallelOutputIds.every((id) => !bootstrap.plan.world.geometry?.derivedLines?.some((line) => line.id === id)));
@@ -164,9 +212,7 @@ async function main() {
     const storedWorld = getCommittedActionWorld(started.sessionId, bootstrap.plan.exerciseId);
     assert.ok(storedWorld?.world.geometry?.derivedLines?.some((line) => line.derived));
     assert.ok(storedWorld?.world.geometry?.points.some((point) => point.derived));
-    if (bootstrap.plan.solutionBoardScript) {
-      assert.ok(storedWorld?.world.solutionBoard?.expressions.some((expression) => expression.phase === "complete"));
-    }
+    assert.equal(JSON.stringify(storedWorld?.world).includes("solutionBoard"), false);
   }
   const auditRow = db.prepare("SELECT submitted_value, source_id FROM practice_action_events WHERE session_id = ? ORDER BY id LIMIT 1").get(started.sessionId) as { submitted_value: string | null; source_id: string };
   assert.equal(auditRow.submitted_value, null);
@@ -197,7 +243,7 @@ async function main() {
     idempotencyKey: crypto.randomUUID(),
   });
   assert.equal(conflict.outcome, "conflict");
-  assert.equal(conflict.plan?.planVersion, 3);
+  assert.equal(conflict.plan?.planVersion, 4);
 
   const coach = askActionRuntimeCoach({
     sessionId: started.sessionId,
@@ -226,8 +272,8 @@ async function main() {
   const challenge = startChallenge("challenge-auxiliary-comprehensive", "Assessment Runtime Test");
   const assessment = getActionRuntimePlan(challenge.sessionId).plan;
   assert.equal(assessment.mode, "assessment");
-  assert.equal(assessment.solutionBoardScript, undefined);
-  assert.equal(assessment.world.solutionBoard, undefined);
+  assert.equal(assessment.solutionBoardContexts, undefined);
+  assert.equal(JSON.stringify(assessment.world).includes("solutionBoard"), false);
   for (const action of assessment.actions) {
     assert.equal(action.validationPolicy, "server-authoritative");
     if (action.kind === "make-parallel") assert.equal(action.input.throughPointId, undefined);
@@ -250,11 +296,11 @@ async function main() {
 
   db.close();
   rmSync(sqlitePath, { force: true });
-  console.log("PASS Action Runtime v3 plan/evaluation/checkpoint/coach");
+  console.log("PASS Action Runtime v4 server-projected SolutionBoard context");
 }
 
 void main().catch((error) => {
-  console.error("FAIL Action Runtime v3", error);
+  console.error("FAIL Action Runtime v4", error);
   db.close();
   throw error;
 });

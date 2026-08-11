@@ -41,6 +41,7 @@ import type {
   ActionPlanResponse,
   CoachRequest,
   CoachResponse,
+  WorldProjection,
 } from "../../../../../shared/actionRuntime";
 import {
   getActionCheckpoint,
@@ -53,13 +54,22 @@ import {
 import { buildTopicExercisePlan } from "../../actionRuntime/topicPlanProjector";
 import { currentScenario, runtimeStepEntries } from "../engines/topicPractice";
 import { evaluateTopicEvidence } from "../../actionRuntime/topicTypedEvaluator";
-import { applyActionEffectBatch, boardEffects, diagramEffects } from "../../../../../shared/actionEffects";
+import { applyActionEffectBatch, diagramEffects } from "../../../../../shared/actionEffects";
+import { loadAcceptedSolutionBoardContext } from "../../../repositories/questionSolutionRepository";
 
 type RuntimeInstanceRecord = {
   row: RuntimeInstanceRow;
   content: ContentDefinition;
   engineState: RuntimeEngineState;
 };
+
+function diagramWorld(world: WorldProjection): WorldProjection {
+  return {
+    ...(world.geometry ? { geometry: world.geometry } : {}),
+    ...(world.diagramAsset ? { diagramAsset: world.diagramAsset } : {}),
+    revision: world.revision,
+  };
+}
 
 function requireRuntimeSession(sessionId: string): SessionRow {
   const session = getSessionById(sessionId);
@@ -255,7 +265,7 @@ export function getActionRuntimePlan(sessionId: string): ActionPlanResponse {
   const usableCheckpoint = checkpoint?.revision === activeRecord.engineState.attempts ? checkpoint : undefined;
   const plan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind, usableCheckpoint?.current_action_id);
   const storedWorld = getCommittedActionWorld(sessionId, activeRecord.row.id);
-  if (storedWorld) plan.world = storedWorld.world;
+  if (storedWorld) plan.world = diagramWorld(storedWorld.world);
   return {
     sessionId,
     plan,
@@ -314,7 +324,7 @@ function performActionEvaluation(request: ActionEvaluationRequest): ActionEvalua
   if (request.revision !== activeRecord.engineState.attempts) {
     const plan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind);
     const storedWorld = getCommittedActionWorld(request.sessionId, request.exerciseId);
-    if (storedWorld) plan.world = storedWorld.world;
+    if (storedWorld) plan.world = diagramWorld(storedWorld.world);
     return {
       outcome: "conflict",
       evaluation: "progress",
@@ -370,18 +380,12 @@ function performActionEvaluation(request: ActionEvaluationRequest): ActionEvalua
 
   const currentPlan = buildTopicExercisePlan(activeRecord.engineState, session.session_kind);
   const storedWorld = getCommittedActionWorld(request.sessionId, request.exerciseId);
-  const baseWorld = storedWorld?.world || currentPlan.world;
-  const boardExpressions = currentPlan.solutionBoardScript?.expressions.filter((expression) => expression.sourceStepId === currentStep.id) || [];
-  const boardCommands = boardExpressions.length ? [
-    ...boardExpressions.map((expression) => ({ type: "reveal-expression" as const, expressionId: expression.expressionId })),
-    ...diagnosis.boardCommands,
-    ...boardExpressions.map((expression) => ({ type: "complete-expression" as const, expressionId: expression.expressionId })),
-  ] : [];
+  const baseWorld = storedWorld ? diagramWorld(storedWorld.world) : currentPlan.world;
   const acceptedWorld = diagnosis.accepted
     ? { ...applyActionEffectBatch(baseWorld, {
         actionId: currentStep.id,
         sourceStepId: currentStep.id,
-        commands: [...diagramEffects(diagnosis.commands), ...boardEffects(boardCommands)],
+        commands: [...diagramEffects(diagnosis.commands)],
         committed: true,
       }), revision: state.attempts }
     : undefined;
@@ -409,6 +413,14 @@ function performActionEvaluation(request: ActionEvaluationRequest): ActionEvalua
   }
 
   const nextPlan = buildTopicExercisePlan(state, session.session_kind);
+  const acceptedActionId = templates.at(-1)?.actionId;
+  const solutionBoardContext = diagnosis.accepted
+    ? evaluation === "progress"
+      ? nextPlan.solutionBoardContexts?.find((context) => context.actionId === nextPlan.currentActionId)
+      : acceptedActionId
+        ? loadAcceptedSolutionBoardContext(scenario, currentPlan.actions, currentPlan.mode, acceptedActionId)
+        : undefined
+    : undefined;
   const response: ActionEvaluationResponse = {
     outcome: diagnosis.accepted ? "accepted" : "rejected",
     evaluation,
@@ -426,6 +438,7 @@ function performActionEvaluation(request: ActionEvaluationRequest): ActionEvalua
     phase,
     nextIndex,
     ...(acceptedWorld ? { committedWorld: acceptedWorld } : {}),
+    ...(solutionBoardContext ? { solutionBoardContext } : {}),
   };
   saveActionEvaluation(request, response);
   return response;

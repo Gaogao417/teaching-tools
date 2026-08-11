@@ -1,6 +1,6 @@
 import type { MarkSegmentValuesAction } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
-import { createActorFromDefinition, projectBoardSlotValues } from "./actionDefinition";
+import { createActorFromDefinition } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
 
 const labelKind = (contract: MarkSegmentValuesAction): "length" | "share" => /份/.test(contract.title) ? "share" : "length";
@@ -38,9 +38,6 @@ export const markSegmentValuesDefinition = createFormMachineDefinition<MarkSegme
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "mark-segment-values", version: 1, values: { ...context.answers } }),
   commands: (contract, evidence) => evidence.kind === "mark-segment-values" ? labelCommands(contract, evidence.values) : [],
   previewCommands: (context) => labelCommands(context.contract, context.answers),
-  boardPreview: (context) => projectBoardSlotValues(context.contract, Object.fromEntries(
-    Object.entries(context.answers).map(([segmentId, value]) => [`segment.${segmentId}`, value]),
-  )),
 });
 
 export const createMarkSegmentValuesActor = (contract: MarkSegmentValuesAction) => createActorFromDefinition(markSegmentValuesDefinition, contract);

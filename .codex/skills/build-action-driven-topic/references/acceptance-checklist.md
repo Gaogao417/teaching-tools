@@ -4,19 +4,24 @@ Read this only after implementation reaches `implemented`.
 
 ## Source and generated structure
 
+- Blueprint binds `runtime_model: action-runtime-v2`, bundle schema v2, and required SolutionBoard.
+- Generated bundle root schema is exactly `teaching-tools/topic-scenario-bundle/v2`.
+- First, middle, and last records each contain non-empty authored `actionTemplates` and a complete reviewed static `solutionBoard`.
+- Projected plans use the current `ACTION_RUNTIME_PLAN_VERSION`; no fixture or endpoint pins an obsolete plan number.
+- No new Topic path uses `ExerciseRuntimeSpec`, primitive dispatch, `RuntimeActionEvent.value`, or action reconstruction from legacy steps.
 - Every teaching step maps to the recorded approved explanation.
 - Every enabled bank record preserves source bank, assignment, question ID, stem, diagram, accepted answer, and diagnosis.
 - First, middle, and last records materialize successfully.
 - All `kind@version` values exist in the frontend registry.
-- Every geometry, board slot, board target, source step, and action owner reference resolves.
+- Every geometry, source step, SolutionBoard owner action, and expression reference resolves; no Action contains a board target.
 - Generated counts and IDs are stable across a second importer run, apart from approved generation metadata.
 - `topicScenarioBundle.json` was generated, not hand-edited.
 
 ## Truth and mode boundaries
 
-- Learn may receive teaching truth and SolutionBoard.
+- Learn may receive authorized database-backed SolutionBoard contexts.
 - Practice sends typed evidence to backend evaluation and preserves correct prior work after a rejected action.
-- Assessment contains no expected values, expected objects/order, accepted answers, coach truth, board targets, or SolutionBoard.
+- Assessment contains no expected values, expected objects/order, accepted answers, coach truth, or SolutionBoard context.
 - Public counts and interaction shape remain sufficient for Assessment completion.
 - Review reads persisted evaluation rather than recomputing truth in the frontend.
 
@@ -47,13 +52,17 @@ For every action, verify:
 
 ## SolutionBoard quality
 
+- The TopicBlueprint contains assembled first, middle, and last canonical solutions, a finding/revision/disposition table, and final revised solution text.
+- Each assembled solution comes from reviewed question-bank solution steps, not Action-kind prose generation or disconnected `expectedLatex` fragments.
+- The formal review verdict is `pass`, blocking issues remaining is `0`, and every suggested revision has an explicit disposition.
 - The board reads as one formal solution beginning with `解：`, not an action log.
 - Chinese prose uses document typography; mathematical notation renders correctly.
-- The current expression is incomplete before learner evidence.
-- Inputs fill only their mapped slots and never expose a later result.
-- Completed expressions remain stable across actions and restore.
+- Each Action context is a complete immutable board projection authorized for its mode and stage.
+- Guided Practice advances from the stored `enter` projection to the stored `accepted` projection only after backend acceptance and never exposes a later result.
+- Restoring a session reproduces the same diagram world and authorized board context.
 - No nested math delimiters, raw LaTeX control text, duplicate punctuation, or action jargon is visible.
 - The final result includes the requested mathematical object, not only a bare number or ratio.
+- The reasoning is mathematically sufficient: constructions are introduced, premises precede conclusions, theorem/relation use is identifiable, symbols keep one meaning, and no essential inference is skipped.
 
 ## Browser walkthrough
 
@@ -76,6 +85,8 @@ Run commands with the stated working directory; do not combine them into one opa
 
 | Working directory | Command |
 | --- | --- |
+| repository root | `python3 .codex/skills/build-action-driven-topic/scripts/validate_generated_topic_v2.py web/backend/src/content/topicScenarioBundle.json --task-id <topic-id>` |
+| repository root | `python3 .codex/skills/build-action-driven-topic/scripts/assemble_topic_solutions.py web/backend/src/content/topicScenarioBundle.json --task-id <topic-id>` |
 | `web/backend` | `npm run import:topics` |
 | `web/backend` | `npm test` |
 | `web/frontend` | `npm test` |
@@ -92,6 +103,7 @@ Record:
 - actions exercised;
 - modes exercised;
 - screenshots or browser states inspected;
+- assembled first/middle/last solutions, formal review findings, suggested revisions, and dispositions;
 - intentionally deferred non-required checks and why.
 
 Keep status `implemented` if any required check fails. Set `verified` only when all gates pass.

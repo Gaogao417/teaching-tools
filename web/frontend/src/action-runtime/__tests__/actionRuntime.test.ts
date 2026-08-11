@@ -7,7 +7,7 @@ import { actionMachineRegistry, UnsupportedActionError } from "../registry";
 
 function plan(validationPolicy: "local-teaching" | "server-authoritative" = "server-authoritative"): ExercisePlan {
   return {
-    planVersion: 3,
+    planVersion: 4,
     exerciseId: "exercise-1",
     revision: 0,
     mode: validationPolicy === "local-teaching" ? "learn" : "guided-practice",
@@ -20,31 +20,34 @@ function plan(validationPolicy: "local-teaching" | "server-authoritative" = "ser
         segments: [{ id: "S", from: "R0", to: "R1" }],
       },
     },
-    solutionBoardScript: {
-      schemaVersion: 1,
-      documentId: "solution",
-      headingLatex: "\\text{解：}",
-      expressions: [{
-        expressionId: "construction",
-        sourceStepId: "step",
-        ownerActionIds: ["step/make", "step/intersect"],
-        latexTemplate: "\\text{过 }{{through}}\\text{ 作 }{{helper}}\\parallel {{reference}}\\text{，交 }{{carrier}}\\text{ 于 }{{intersection}}",
-        modes: ["learn", "guided-practice"],
-      }],
-    },
+    solutionBoardContexts: ["step/make", "step/intersect"].map((actionId) => ({
+      actionId,
+      stage: "enter" as const,
+      solutionRevision: "fixture-v1",
+      board: {
+        schemaVersion: 1,
+        documentId: "solution",
+        headingLatex: "\\text{解：}",
+        expressions: [{
+          expressionId: "construction",
+          sourceStepId: "step",
+          latexTemplate: "\\text{过 }{{through}}\\text{ 作 }{{helper}}\\parallel {{reference}}\\text{，交 }{{carrier}}\\text{ 于 }{{intersection}}",
+          slotValues: { through: "T", helper: "TP", reference: "S", carrier: "C0C1", intersection: "X" },
+          phase: "complete" as const,
+        }],
+      },
+    })),
     coach: { profileId: "coach", displayName: "老师", avatarId: "school", tone: "supportive" },
     actions: [
       {
         actionId: "step/make", sourceStepId: "step", kind: "make-parallel", version: 1,
         title: "作平行线", instruction: "选点和线", input: { throughPointId: "T", referenceLineId: "S", availablePointIds: ["T", "C0", "C1"], availableLineIds: ["S"], outputLineId: "P", outputLineLabel: "TP" },
         capabilities: ["agent:select-object", "agent:back", "agent:clear"], answerSlots: [], validationPolicy, submitOnComplete: false,
-        boardTargets: { throughPoint: "through", helperLine: "helper", referenceLine: "reference" },
       },
       {
         actionId: "step/intersect", sourceStepId: "step", kind: "intersect-carriers", version: 1,
         title: "求交", instruction: "选两个点", input: { carrierPointIds: ["C0", "C1"], availablePointIds: ["T", "C0", "C1"], parallelLineId: "P", outputCarrierLineId: "C", outputPointId: "X" },
         capabilities: ["agent:select-object", "agent:back", "agent:clear"], answerSlots: [], validationPolicy, submitOnComplete: true,
-        boardTargets: { carrierLine: "carrier", intersectionPoint: "intersection" },
       },
     ],
     currentActionId: "step/make",
@@ -75,7 +78,11 @@ describe("Action Runtime v2", () => {
     expect(isAgentCommand({ commandId: "c", actionId: "a", type: "run-script", value: "alert(1)" })).toBe(false);
     expect(isCoachDirective({ directiveId: "d", messageLatex: "hint", tone: "prompt", highlightObjectIds: [], agentCommand: { commandId: "c", actionId: "a", type: "clear" } })).toBe(true);
     expect(isCoachDirective({ directiveId: "d", messageLatex: "hint", tone: "prompt", highlightObjectIds: [], agentCommand: { commandId: "c", actionId: "a", type: "dom-selector", value: "#answer" } })).toBe(false);
-    const futurePlan = { ...plan(), actions: [{ ...plan().actions[0], kind: "future-tool", version: 9, input: { opaque: true } }] };
+    const futurePlan = {
+      ...plan(),
+      solutionBoardContexts: undefined,
+      actions: [{ ...plan().actions[0], kind: "future-tool", version: 9, input: { opaque: true } }],
+    };
     expect(() => assertExercisePlan(futurePlan)).not.toThrow();
     expect(actionMachineRegistry.supports("future-tool", 9)).toBe(false);
   });
@@ -183,7 +190,7 @@ describe("Action Runtime v2", () => {
     const contract = remainingContracts("local-teaching")[0];
     const markedPlan: ExercisePlan = {
       ...plan("local-teaching"),
-      solutionBoardScript: undefined,
+      solutionBoardContexts: undefined,
       world: {
         revision: 0,
         geometry: {
@@ -266,14 +273,14 @@ describe("Action Runtime v2", () => {
       endPoint: "X",
     });
     expect(runtime.getSnapshot().world.draft.geometry?.points.some((point) => point.id === "X" && point.derived)).toBe(true);
-    expect(runtime.getSnapshot().world.draft.solutionBoard?.expressions[0]).toMatchObject({ phase: "complete" });
+    expect(runtime.getView().solutionBoard?.visibleExpressions[0]).toMatchObject({ isComplete: true });
 
     runtime.send({ type: "CLEAR" });
     expect(runtime.getSnapshot().currentActionId).toBe("step/make");
     expect(runtime.getSnapshot().world.draft.geometry?.derivedLines || []).toEqual([]);
     expect(runtime.getSnapshot().world.draft.geometry?.segments.some((line) => line.id === "C")).toBe(false);
     expect(runtime.getSnapshot().world.draft.geometry?.points.some((point) => point.id === "X")).toBe(false);
-    expect(runtime.getSnapshot().world.draft.solutionBoard?.expressions[0].phase).toBe("hidden");
+    expect(runtime.getView().solutionBoard?.visibleExpressions[0]).toMatchObject({ isComplete: true });
     runtime.stop();
   });
 

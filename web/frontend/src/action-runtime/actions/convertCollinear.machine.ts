@@ -1,6 +1,6 @@
 import type { ConvertCollinearAction } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
-import { createActorFromDefinition, projectBoardSlotValues } from "./actionDefinition";
+import { createActorFromDefinition } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
 
 function emphasisCommands(contract: ConvertCollinearAction, entityIds: string[]): DomainCommand[] {
@@ -27,10 +27,6 @@ export const convertCollinearDefinition = createFormMachineDefinition<ConvertCol
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "convert-collinear", version: 1, segmentIds: [...context.lines] }),
   commands: (contract, evidence) => evidence.kind === "convert-collinear" ? emphasisCommands(contract, evidence.segmentIds) : [],
   previewCommands: (context) => emphasisCommands(context.contract, context.lines),
-  boardPreview: (context) => projectBoardSlotValues(context.contract, {
-    wholeSegment: context.lines[0], targetSegment: context.lines[1], knownSegment: context.lines[2],
-    relation: context.lines.length === 3 ? context.contract.input.relationLatex : undefined,
-  }),
 });
 
 export const createConvertCollinearActor = (contract: ConvertCollinearAction) => createActorFromDefinition(convertCollinearDefinition, contract);

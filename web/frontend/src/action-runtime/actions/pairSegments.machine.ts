@@ -1,6 +1,6 @@
 import type { PairSegmentsAction } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
-import { createActorFromDefinition, projectBoardSlotValues } from "./actionDefinition";
+import { createActorFromDefinition } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
 
 function pairCommands(contract: PairSegmentsAction, segmentIds: string[]): DomainCommand[] {
@@ -29,9 +29,6 @@ export const pairSegmentsDefinition = createFormMachineDefinition<PairSegmentsAc
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "pair-segments", version: 1, segmentIds: [...context.lines] }),
   commands: (contract, evidence) => evidence.kind === "pair-segments" ? pairCommands(contract, evidence.segmentIds) : [],
   previewCommands: (context) => pairCommands(context.contract, context.lines),
-  boardPreview: (context) => projectBoardSlotValues(context.contract, {
-    correspondence: context.lines.length ? context.lines.join("\\leftrightarrow ") : undefined,
-  }),
 });
 
 export const createPairSegmentsActor = (contract: PairSegmentsAction) => createActorFromDefinition(pairSegmentsDefinition, contract);

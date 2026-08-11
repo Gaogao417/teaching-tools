@@ -27,7 +27,7 @@ function response(): ActionPlanResponse {
   return {
     sessionId: "browser-session",
     plan: {
-      planVersion: 3, exerciseId: "browser-exercise", revision: 0, mode: "guided-practice",
+      planVersion: 4, exerciseId: "browser-exercise", revision: 0, mode: "guided-practice",
       metadata: { taskId: "auxiliaryTwoRatios", title: "辅助线", promptLatex: "prompt", skillTags: [] },
       world: {
         revision: 0,
@@ -37,24 +37,28 @@ function response(): ActionPlanResponse {
           segments: [{ id: "AB", from: "A", to: "B" }],
         },
       },
-      solutionBoardScript: {
-        schemaVersion: 1,
-        documentId: "browser-solution",
-        headingLatex: "\\text{解：}",
-        expressions: [{
-          expressionId: "construction",
-          sourceStepId: "step",
-          ownerActionIds: ["make"],
-          latexTemplate: "\\text{过 }{{through}}\\text{ 作 }{{helper}}\\parallel {{reference}}",
-          modes: ["guided-practice"],
-        }],
-      },
+      solutionBoardContexts: [{
+        actionId: "make",
+        stage: "enter",
+        solutionRevision: "browser-v1",
+        board: {
+          schemaVersion: 1,
+          documentId: "browser-solution",
+          headingLatex: "\\text{解：}",
+          expressions: [{
+            expressionId: "construction",
+            sourceStepId: "step",
+            latexTemplate: "\\text{过 }{{through}}\\text{ 作 }{{helper}}\\parallel {{reference}}",
+            slotValues: { through: "T", helper: "TP", reference: "AB" },
+            phase: "complete",
+          }],
+        },
+      }],
       coach: { profileId: "coach", displayName: "老师", avatarId: "school", tone: "supportive" },
       actions: [{
         actionId: "make", sourceStepId: "step", kind: "make-parallel", version: 1,
         title: "作平行线", instruction: "选择点和线", input: { availablePointIds: ["T"], availableLineIds: ["AB"], outputLineId: "P", outputLineLabel: "TP" },
         capabilities: ["agent:select-object", "agent:back", "agent:clear"], answerSlots: [], validationPolicy: "server-authoritative", submitOnComplete: true,
-        boardTargets: { throughPoint: "through", helperLine: "helper", referenceLine: "reference" },
       }],
       currentActionId: "make", completedActionIds: [],
     },

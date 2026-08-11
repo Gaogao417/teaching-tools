@@ -9,15 +9,15 @@ import type {
   StudentEvent,
 } from "../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../shared/actionWorld";
-import { applyActionEffectBatch, boardEffects, diagramEffects, replayActionEffectBatches } from "../../../shared/actionEffects";
-import { createSolutionBoardBase, type BoardCommand } from "../../../shared/solutionBoard";
+import { applyActionEffectBatch, diagramEffects, replayActionEffectBatches } from "../../../shared/actionEffects";
+import type { ActionSolutionBoardContext } from "../../../shared/solutionBoard";
 import type { ActionRuntimeEvent } from "./events";
 import { projectWorkspaceView } from "./projectWorkspaceView";
 import { actionMachineRegistry, type ActionMachineRegistry } from "./registry";
 import type { ActionActor, ActionPageRuntime, PageRuntimeSnapshot } from "./types";
 
 type PageEvent =
-  | { type: "ACTION_DONE"; evidence: ActionEvidence; commands: DomainCommand[]; boardCommands: BoardCommand[]; submit: boolean; nextActionId?: string }
+  | { type: "ACTION_DONE"; evidence: ActionEvidence; commands: DomainCommand[]; submit: boolean; nextActionId?: string }
   | { type: "MARK_SUBMITTING" }
   | { type: "TRANSPORT_FAILURE"; message: string }
   | { type: "UNDO_LAST_ACTION" }
@@ -27,20 +27,18 @@ type PageEvent =
   | { type: "RESET"; plan: ExercisePlan; checkpoint?: ActionCheckpointSnapshot };
 
 function initialWorld(plan: ExercisePlan) {
-  if (plan.world.solutionBoard || !plan.solutionBoardScript || plan.mode === "assessment") return plan.world;
-  return { ...plan.world, solutionBoard: createSolutionBoardBase(plan.solutionBoardScript, plan.mode) };
+  return plan.world;
 }
 
-function boardExpressionForAction(plan: ExercisePlan, actionId: string) {
-  return plan.solutionBoardScript?.expressions.find((expression) => expression.ownerActionIds.includes(actionId));
-}
-
-function completionBoardCommands(plan: ExercisePlan, actionId: string, fills: BoardCommand[]): BoardCommand[] {
-  const expression = boardExpressionForAction(plan, actionId);
-  if (!expression) return [];
-  const commands: BoardCommand[] = [{ type: "reveal-expression", expressionId: expression.expressionId }, ...fills];
-  if (expression.ownerActionIds[expression.ownerActionIds.length - 1] === actionId) commands.push({ type: "complete-expression", expressionId: expression.expressionId });
-  return commands;
+function withSolutionBoardContext(plan: ExercisePlan, boardContext?: ActionSolutionBoardContext): ExercisePlan {
+  if (!boardContext) return plan;
+  return {
+    ...plan,
+    solutionBoardContexts: [
+      ...(plan.solutionBoardContexts || []).filter((candidate) => candidate.actionId !== boardContext.actionId),
+      boardContext,
+    ],
+  };
 }
 
 const pageMachine = setup({
@@ -57,7 +55,7 @@ const pageMachine = setup({
         ? context.completedActionIds
         : [...context.completedActionIds, event.evidence.actionId];
       let draft = context.world.draft;
-      let applicableCommands = [...diagramEffects(event.commands), ...boardEffects(completionBoardCommands(context.plan, event.evidence.actionId, event.boardCommands))];
+      let applicableCommands = [...diagramEffects(event.commands)];
       try {
         draft = applyActionEffectBatch(context.world.draft, {
           actionId: event.evidence.actionId,
@@ -152,7 +150,7 @@ const pageMachine = setup({
       if (result.phase === "correct_pause" || result.phase === "group_finished") {
         const committed = result.committedWorld || { ...context.world.draft, revision: result.revision };
         return {
-          plan: { ...context.plan, world: committed, revision: result.revision },
+          plan: withSolutionBoardContext({ ...context.plan, world: committed, revision: result.revision }, result.solutionBoardContext),
           revision: result.revision,
           world: { committed, draft: committed, revision: result.revision, commandBatches: [] },
           status: "complete" as const, wrongObjectIds: [], wrongMessage: undefined,
@@ -160,7 +158,7 @@ const pageMachine = setup({
       }
       const nextActionId = result.nextActionId || context.plan.currentActionId;
       return {
-        plan: { ...context.plan, world: result.committedWorld || context.world.draft, revision: result.revision },
+        plan: withSolutionBoardContext({ ...context.plan, world: result.committedWorld || context.world.draft, revision: result.revision }, result.solutionBoardContext),
         revision: result.revision,
         currentActionId: nextActionId,
         status: "active" as const,
@@ -286,7 +284,6 @@ export function createActionPageRuntime(
           type: "ACTION_DONE",
           evidence: snapshot.evidence,
           commands: snapshot.commands,
-          boardCommands: snapshot.boardPreview,
           submit: contract.submitOnComplete && contract.validationPolicy === "server-authoritative",
           nextActionId: nextActionId(contract.actionId),
         });

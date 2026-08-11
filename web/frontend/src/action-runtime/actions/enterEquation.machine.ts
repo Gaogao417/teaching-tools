@@ -1,6 +1,6 @@
 import type { EnterEquationAction } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
-import { createActorFromDefinition, projectBoardSlotValues } from "./actionDefinition";
+import { createActorFromDefinition } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
 
 function emphasisCommands(contract: EnterEquationAction, factors: string[]): DomainCommand[] {
@@ -44,10 +44,6 @@ export const enterEquationDefinition = createFormMachineDefinition<EnterEquation
   }),
   commands: (contract, evidence) => evidence.kind === "enter-equation" ? emphasisCommands(contract, evidence.factors) : [],
   previewCommands: (context) => emphasisCommands(context.contract, context.lines),
-  boardPreview: (context) => projectBoardSlotValues(context.contract, {
-    knownFactor: context.lines[0], numerator: context.answers.numerator,
-    denominator: context.answers.denominator, result: context.answers.result,
-  }),
 });
 
 export const createEnterEquationActor = (contract: EnterEquationAction) => createActorFromDefinition(enterEquationDefinition, contract);

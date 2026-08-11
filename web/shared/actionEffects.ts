@@ -1,10 +1,7 @@
 import type { WorldProjection } from "./actionRuntime";
 import { applyDomainCommands, type DomainCommand } from "./actionWorld";
-import { applyBoardCommands, type BoardCommand } from "./solutionBoard";
 
-export type WorkspaceCommand =
-  | { target: "diagram"; command: DomainCommand }
-  | { target: "solution-board"; command: BoardCommand };
+export type WorkspaceCommand = { target: "diagram"; command: DomainCommand };
 
 export interface ActionEffectBatch {
   actionId: string;
@@ -28,15 +25,6 @@ export function applyActionEffectBatch(world: WorldProjection, batch: ActionEffe
   } catch (cause) {
     throw new WorkspaceCommandError("diagram", `Diagram effect failed for ${batch.actionId}`, cause);
   }
-  try {
-    const board = batch.commands.filter((item) => item.target === "solution-board").map((item) => item.command as BoardCommand);
-    if (board.length) {
-      if (!next.solutionBoard) throw new Error("Workspace has no SolutionBoard projection");
-      next = { ...next, solutionBoard: applyBoardCommands(next.solutionBoard, board) };
-    }
-  } catch (cause) {
-    throw new WorkspaceCommandError("solution-board", `SolutionBoard effect failed for ${batch.actionId}`, cause);
-  }
   return next;
 }
 
@@ -46,10 +34,5 @@ export function replayActionEffectBatches(committed: WorldProjection, batches: r
 
 export const diagramEffects = (commands: readonly DomainCommand[]): WorkspaceCommand[] => commands.map((command) => ({
   target: "diagram" as const,
-  command,
-}));
-
-export const boardEffects = (commands: readonly BoardCommand[]): WorkspaceCommand[] => commands.map((command) => ({
-  target: "solution-board" as const,
   command,
 }));

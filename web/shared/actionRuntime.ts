@@ -6,9 +6,12 @@ import type {
   TopicSegmentLabel,
 } from "./topicPractice";
 import type { DomainCommand } from "./actionWorld";
-import { isSolutionBoardProjection, isSolutionBoardScript, type SolutionBoardProjection, type SolutionBoardScript } from "./solutionBoard";
+import {
+  isActionSolutionBoardContext,
+  type ActionSolutionBoardContext,
+} from "./solutionBoard";
 
-export const ACTION_RUNTIME_PLAN_VERSION = 3 as const;
+export const ACTION_RUNTIME_PLAN_VERSION = 4 as const;
 
 export type LearningMode = "learn" | "guided-practice" | "assessment";
 export type ValidationPolicy = "local-teaching" | "server-authoritative";
@@ -33,7 +36,6 @@ export interface ExerciseMetadata {
 export interface WorldProjection {
   geometry?: TopicGeometryModel;
   diagramAsset?: string;
-  solutionBoard?: SolutionBoardProjection;
   revision: number;
 }
 
@@ -66,8 +68,6 @@ export interface AuthoredActionTemplate {
   submitOnComplete: boolean;
   presentation?: TopicInteractionPresentation;
   coach?: TopicCoachScript;
-  /** Semantic role to stable SolutionBoard slot id. */
-  boardTargets?: Record<string, string>;
 }
 
 interface ActionContractBase<Kind extends string, Input> {
@@ -84,7 +84,6 @@ interface ActionContractBase<Kind extends string, Input> {
   submitOnComplete: boolean;
   presentation?: TopicInteractionPresentation;
   coach?: TopicCoachScript;
-  boardTargets?: Record<string, string>;
 }
 
 export type MakeParallelAction = ActionContractBase<"make-parallel", {
@@ -178,8 +177,11 @@ export interface ExercisePlan {
   mode: LearningMode;
   metadata: ExerciseMetadata;
   world: WorldProjection;
-  /** Omitted when the mode is not allowed to receive teacher solution content. */
-  solutionBoardScript?: SolutionBoardScript;
+  /**
+   * Complete server-projected board snapshots for Actions currently authorized
+   * in this plan. Assessment always omits them.
+   */
+  solutionBoardContexts?: ActionSolutionBoardContext[];
   coach: CoachProfile;
   actions: ActionContract[];
   currentActionId: string;
@@ -316,6 +318,8 @@ export interface ActionEvaluationResponse {
   phase: "answering" | "correct_pause" | "wrong_feedback" | "group_finished";
   nextIndex: number;
   committedWorld?: WorldProjection;
+  /** Complete snapshot for the Action that is current after this response. */
+  solutionBoardContext?: ActionSolutionBoardContext;
 }
 
 export interface ActionCheckpointResponse {
@@ -460,7 +464,8 @@ export function isActionEvaluationResponse(value: unknown): value is ActionEvalu
     if (value.diagnosis.wrongSlotIds !== undefined && !hasStringArray(value.diagnosis, "wrongSlotIds")) return false;
   }
   return (value.plan === undefined || isExercisePlan(value.plan))
-    && (value.committedWorld === undefined || isWorldProjection(value.committedWorld));
+    && (value.committedWorld === undefined || isWorldProjection(value.committedWorld))
+    && (value.solutionBoardContext === undefined || isActionSolutionBoardContext(value.solutionBoardContext));
 }
 
 export function isActionPlanResponse(value: unknown): value is ActionPlanResponse {
@@ -489,7 +494,6 @@ function isTeachingMark(value: unknown): boolean {
 function isWorldProjection(value: unknown): value is WorldProjection {
   if (!isRecord(value) || typeof value.revision !== "number") return false;
   if (value.diagramAsset !== undefined && typeof value.diagramAsset !== "string") return false;
-  if (value.solutionBoard !== undefined && !isSolutionBoardProjection(value.solutionBoard)) return false;
   if (value.geometry === undefined) return true;
   if (!isRecord(value.geometry) || !isRecord(value.geometry.viewBox)
     || typeof value.geometry.viewBox.width !== "number" || typeof value.geometry.viewBox.height !== "number"
@@ -508,7 +512,8 @@ export function isExercisePlan(value: unknown): value is ExercisePlan {
     || !["learn", "guided-practice", "assessment"].includes(String(value.mode))
     || !hasString(value, "currentActionId") || !hasStringArray(value, "completedActionIds")
     || !isWorldProjection(value.world) || !isRecord(value.metadata) || !isRecord(value.coach)
-    || (value.solutionBoardScript !== undefined && !isSolutionBoardScript(value.solutionBoardScript))) return false;
+    || (value.solutionBoardContexts !== undefined && (!Array.isArray(value.solutionBoardContexts)
+      || !value.solutionBoardContexts.every(isActionSolutionBoardContext)))) return false;
   if (!Array.isArray(value.actions) || !value.actions.length) return false;
   const ids = new Set<string>();
   return value.actions.every((action) => {
@@ -518,10 +523,11 @@ export function isExercisePlan(value: unknown): value is ExercisePlan {
       && hasString(action, "title") && hasString(action, "instruction") && isRecord(action.input)
       && hasStringArray(action, "capabilities") && Array.isArray(action.answerSlots) && action.answerSlots.every(isAnswerSlot)
       && ["local-teaching", "server-authoritative"].includes(String(action.validationPolicy))
-      && typeof action.submitOnComplete === "boolean"
-      && (action.boardTargets === undefined || (isRecord(action.boardTargets)
-        && Object.values(action.boardTargets).every((slot) => typeof slot === "string")));
-  }) && ids.has(value.currentActionId as string);
+      && typeof action.submitOnComplete === "boolean";
+  }) && ids.has(value.currentActionId as string)
+    && (value.solutionBoardContexts === undefined
+      || (value.mode !== "assessment"
+        && value.solutionBoardContexts.every((context) => ids.has(context.actionId))));
 }
 
 export function assertExercisePlan(value: unknown): asserts value is ExercisePlan {
