@@ -25,3 +25,15 @@ export function setStoredSessionId(taskId: TaskId, sessionId: string) {
 export function clearStoredSessionId(taskId: TaskId) {
   localStorage.removeItem(getSessionKey(taskId));
 }
+
+const VOICE_MODEL_KEY = "trig-web-voice-model";
+
+export type VoiceModelOption = "omni" | "cosyvoice";
+
+export function getVoiceModel(): VoiceModelOption {
+  return localStorage.getItem(VOICE_MODEL_KEY) === "cosyvoice" ? "cosyvoice" : "omni";
+}
+
+export function setVoiceModel(model: VoiceModelOption) {
+  localStorage.setItem(VOICE_MODEL_KEY, model);
+}

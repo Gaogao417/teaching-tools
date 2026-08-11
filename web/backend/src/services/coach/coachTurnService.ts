@@ -12,6 +12,7 @@ import { askActionRuntimeCoach, getActionRuntimePlan } from "../runtime/platform
 import { askClaudeCodeCoach } from "./claudeCodeCoachService";
 import { synthesizeCoachSpeech, transcribeStudentAudio } from "./qwenSpeechService";
 import { conductOmniCoach } from "./omniCoachService";
+import { synthesizeCosyVoice } from "./cosyVoiceService";
 
 /**
  * Normalize display LaTeX into plain spoken Chinese for TTS. Delegates to the
@@ -21,11 +22,23 @@ import { conductOmniCoach } from "./omniCoachService";
 const plainSpeech = latexToSpokenChinese;
 
 /**
- * Selects the answer backend: "claude-code" (default, ASR→LLM→TTS triplet) or
- * "omni" (a single Qwen3.5-Omni call that listens to the student and replies
- * with natural speech, replacing all three legs).
+ * Server default for the speech backend, used when a request omits voiceModel.
+ * "claude-code" = ASR→LLM→qwen3-tts-flash triplet; "omni" = single Qwen3.5-Omni
+ * call; "cosyvoice" = Claude answer spoken by CosyVoice-v3-plus.
  */
 const ANSWER_PROVIDER = (process.env.COACH_ANSWER_PROVIDER || "claude-code").trim();
+
+/**
+ * Resolve the speech backend for a turn. An explicit per-request choice wins;
+ * otherwise the server's COACH_ANSWER_PROVIDER default applies (back-compat
+ * for callers that don't send voiceModel).
+ */
+function resolveVoiceModel(requested?: "omni" | "cosyvoice"): "omni" | "cosyvoice" | "default" {
+  if (requested === "omni" || requested === "cosyvoice") return requested;
+  if (ANSWER_PROVIDER === "omni") return "omni";
+  if (ANSWER_PROVIDER === "cosyvoice") return "cosyvoice";
+  return "default";
+}
 
 function learningFallback(plan: ExercisePlan, question: string): CoachDirective {
   const action = plan.actions.find((candidate) => candidate.actionId === plan.currentActionId)!;
@@ -160,7 +173,8 @@ export async function conductCoachTurn(request: CoachTurnRequest): Promise<Coach
     fallback = learningFallback(plan, request.studentMessage || "");
   }
 
-  if (ANSWER_PROVIDER === "omni") {
+  const effectiveVoice = resolveVoiceModel(request.voiceModel);
+  if (effectiveVoice === "omni") {
     return conductCoachTurnOmni(request, plan, fallback);
   }
 
@@ -194,8 +208,12 @@ export async function conductCoachTurn(request: CoachTurnRequest): Promise<Coach
   let speechProvider: string | undefined;
   if (request.synthesizeSpeech !== false) {
     try {
-      speech = await synthesizeCoachSpeech(directive.spokenText || plainSpeech(directive.messageLatex));
-      speechProvider = speech.model;
+      const spoken = directive.spokenText || plainSpeech(directive.messageLatex);
+      const synthesized = effectiveVoice === "cosyvoice"
+        ? await synthesizeCosyVoice(spoken)
+        : await synthesizeCoachSpeech(spoken);
+      speech = synthesized;
+      speechProvider = synthesized.model;
     } catch {
       speech = undefined;
     }

@@ -11,9 +11,11 @@
     "start": "node dist/backend/src/index.js"
   },
   "dependencies": {
+    "@types/ws": "^8.18.1",
     "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "ws": "^8.21.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {

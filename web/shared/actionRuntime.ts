@@ -323,7 +323,16 @@ export interface CoachTurnRequest {
   studentAudio?: CoachAudioInput;
   conversation?: CoachConversationTurn[];
   synthesizeSpeech?: boolean;
+  /**
+   * Per-request speech backend for the coach reply. "omni" = single
+   * Qwen3.5-Omni call (listens + replies with speech); "cosyvoice" = Claude
+   * answer spoken by CosyVoice-v3-plus. Omitted falls back to the backend's
+   * COACH_ANSWER_PROVIDER setting (the legacy ASR→LLM→TTS chain).
+   */
+  voiceModel?: CoachVoiceModel;
 }
+
+export type CoachVoiceModel = "omni" | "cosyvoice";
 
 export interface CoachSpeech {
   audioUrl: string;
@@ -532,6 +541,7 @@ export function isCoachTurnRequest(value: unknown): value is CoachTurnRequest {
     && conversationValid
     && (value.studentMessage === undefined || typeof value.studentMessage === "string")
     && (value.synthesizeSpeech === undefined || typeof value.synthesizeSpeech === "boolean")
+    && (value.voiceModel === undefined || ["omni", "cosyvoice"].includes(String(value.voiceModel)))
     && ((typeof value.studentMessage === "string" && value.studentMessage.trim().length > 0) || audio !== undefined);
 }
 
