@@ -26,6 +26,9 @@ export function getLearningActionPlan(taskId: TaskId): ExercisePlan {
   const content = resolveContentDefinition(task.contentId);
   const plugin = getEnginePlugin(task.engineKind);
   const state = plugin.createState(task, content, 0, selectApprovedScenario(task, content, 0)) as TopicPracticeEngineState;
+  // Learn has no persisted practice session. Give its plan a stable identity so
+  // stateless multimodal coach turns can reconstruct and validate the context.
+  state.instanceId = `learn-${task.id}`;
   state.isLearningProjection = true;
   return buildTopicExercisePlan(state, "practice");
 }

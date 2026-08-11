@@ -7,11 +7,13 @@ import type { ActionPlanResponse } from "../../../../shared/actionRuntime";
 
 const checkpointAction = vi.fn();
 const evaluateAction = vi.fn();
+const conductActionCoach = vi.fn();
 vi.mock("../../api/client", () => ({
   api: {
     checkpointAction,
     evaluateAction,
     askActionCoach: vi.fn(),
+    conductActionCoach,
   },
 }));
 vi.mock("../../geometry/react/GeometryCanvas", () => ({
@@ -90,6 +92,59 @@ describe("ActionRuntimeFrame browser/accessibility contract", () => {
     await act(async () => undo.click());
     expect(checkpointAction).not.toHaveBeenCalled();
     expect(evaluateAction).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    document.body.removeChild(container);
+  });
+
+  it("keeps Learn paused for student feedback, answers text questions, then demonstrates on confirmation", async () => {
+    conductActionCoach.mockResolvedValue({
+      directive: {
+        directiveId: "coach-turn-1",
+        messageLatex: "因为要构造平行关系，所以先过点作平行线。",
+        spokenText: "因为要构造平行关系，所以先过点作平行线。",
+        tone: "explain",
+        highlightObjectIds: [],
+        suggestedActionId: "make",
+      },
+      providers: { answer: "claude-code-glm-5.2" },
+    });
+    const learnResponse = response();
+    learnResponse.sessionId = "learn:auxiliaryTwoRatios";
+    learnResponse.plan.mode = "learn";
+    const firstLearnAction = learnResponse.plan.actions[0];
+    if (firstLearnAction.kind !== "make-parallel") throw new Error("fixture must start with make-parallel");
+    learnResponse.plan.actions[0] = {
+      ...firstLearnAction,
+      validationPolicy: "local-teaching",
+      input: {
+        ...firstLearnAction.input,
+        throughPointId: "T",
+        referenceLineId: "AB",
+      },
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<ActionRuntimeFrame response={learnResponse} local />));
+
+    expect(container.textContent).toContain("已暂停，等待学生回应后继续演示");
+    const input = container.querySelector<HTMLInputElement>('.topic-coach-question input')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "为什么要作平行线？");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const send = container.querySelector<HTMLButtonElement>('[aria-label="发送问题"]')!;
+    await act(async () => send.click());
+    expect(conductActionCoach).toHaveBeenCalledWith(expect.objectContaining({
+      context: { kind: "learn", taskId: "auxiliaryTwoRatios" },
+      studentMessage: "为什么要作平行线？",
+    }));
+    expect(container.textContent).toContain("因为要构造平行关系");
+
+    const next = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "明白，继续")!;
+    await act(async () => next.click());
+    expect(container.textContent).toContain("本题讲解完成");
 
     await act(async () => root.unmount());
     document.body.removeChild(container);

@@ -363,6 +363,12 @@ export function createActionPageRuntime(
     applyCoach(directive) {
       pageActor.send({ type: "COACH", directive });
     },
+    advanceTeaching() {
+      const page = pageActor.getSnapshot().context;
+      if (page.plan.mode !== "learn" || page.status === "submitting" || page.status === "complete") return false;
+      child.send({ type: "CLEAR" });
+      return child.demonstrate();
+    },
     applyAgentCommand(command: AgentCommand, confirmed = false) {
       const page = pageActor.getSnapshot().context;
       if (command.actionId !== page.currentActionId || page.plan.mode === "assessment") return false;

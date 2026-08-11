@@ -29,10 +29,14 @@ import {
   isActionPlanResponse,
   isCoachRequest,
   isCoachResponse,
+  isCoachTurnRequest,
+  isCoachTurnResponse,
   type ActionCheckpointRequest,
   type ActionEvaluationRequest,
   type CoachRequest,
+  type CoachTurnRequest,
 } from "../../shared/actionRuntime";
+import { conductCoachTurn } from "./services/coach/coachTurnService";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
   message: "Invalid taskId",
@@ -46,7 +50,9 @@ export function createApp() {
       origin: process.env.FRONTEND_ORIGIN?.split(",").map((item) => item.trim()) || true,
     }),
   );
-  app.use(express.json());
+  // Short browser recordings are base64 data URLs. Qwen ASR caps source audio
+  // at 10 MB; the request guard applies the same boundary after JSON decoding.
+  app.use(express.json({ limit: "14mb" }));
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
@@ -240,6 +246,19 @@ export function createApp() {
       }).parse(req.body);
       const response = askActionRuntimeCoach(body);
       if (!isCoachResponse(response)) throw new Error("Invalid Action Runtime coach projection");
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/action-coach", async (req, res, next) => {
+    try {
+      const body = z.custom<CoachTurnRequest>(isCoachTurnRequest, {
+        message: "Invalid multimodal coach request",
+      }).parse(req.body);
+      const response = await conductCoachTurn(body);
+      if (!isCoachTurnResponse(response)) throw new Error("Invalid multimodal coach response");
       res.json(response);
     } catch (error) {
       next(error);

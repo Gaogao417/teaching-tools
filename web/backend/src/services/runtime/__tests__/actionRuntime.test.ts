@@ -21,6 +21,7 @@ const { evaluateTopicEvidence } = require("../../actionRuntime/topicTypedEvaluat
 const { expressionSlotIds, isSolutionBoardScript, renderBoardExpression } = require("../../../../../shared/solutionBoard") as typeof import("../../../../../shared/solutionBoard");
 const { getCommittedActionWorld, listActionEvaluations } = require("../../../repositories/actionRuntimeRepository") as typeof import("../../../repositories/actionRuntimeRepository");
 const { getLearningActionPlan } = require("../../learningService") as typeof import("../../learningService");
+const { __test__: claudeCoachTest } = require("../../coach/claudeCodeCoachService") as typeof import("../../coach/claudeCodeCoachService");
 
 type ActionContract = import("../../../../../shared/actionRuntime").ActionContract;
 type ActionEvidence = import("../../../../../shared/actionRuntime").ActionEvidence;
@@ -70,7 +71,7 @@ async function main() {
   const reverseFirst = bundle.scenarios.reverseASimilarity[0];
   const reverseSolution = reverseFirst.promptData.solutionBoard?.expressions.map((expression) => expression.latexTemplate).join(" ") || "";
   assert.match(reverseSolution, /\\triangle PAB\\sim\\triangle PDC/, "formal solution must state the similarity conclusion");
-  assert.match(reverseSolution, /\\dfrac\{AB\}\{DC\}=\\dfrac\{PA\}\{PD\}/, "formal solution must state the corresponding-side proportion");
+  assert.match(reverseSolution, /\\dfrac\{AB\}\{DC\}=\\dfrac\{PA\}\{PD\}|\\dfrac\{PA\}\{PD\}=\\dfrac\{AB\}\{DC\}/, "formal solution must state the corresponding-side proportion");
   assert.equal(reverseSolution.includes("在图中标出"), false, "formal solution must not contain Action instructions");
   const frontendRoot = path.resolve(process.cwd(), "../frontend/src/action-runtime");
   const sourceFiles = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -116,6 +117,8 @@ async function main() {
   const learningPlan = getLearningActionPlan("auxiliaryTwoRatios");
   assert.equal(learningPlan.planVersion, 4);
   assert.equal(learningPlan.mode, "learn");
+  assert.equal(learningPlan.exerciseId, "learn-auxiliaryTwoRatios", "Learn identity must stay stable across stateless coach requests");
+  assert.equal(getLearningActionPlan("auxiliaryTwoRatios").exerciseId, learningPlan.exerciseId);
   assert.ok(learningPlan.solutionBoardContexts?.length);
   assert.ok(learningPlan.solutionBoardContexts?.every((context) => context.board.expressions.every((expression) => expression.phase === "complete")));
   assert.ok(learningPlan.solutionBoardContexts?.every((context) => context.board.expressions.every((expression) => !renderBoardExpression(expression).includes("{{"))));
@@ -268,6 +271,18 @@ async function main() {
     studentMessage: "请帮我撤销",
   });
   assert.equal(commandCoach.directive.agentCommand?.type, "back");
+  assert.deepEqual(claudeCoachTest.parseEnvelope(JSON.stringify({
+    type: "result",
+    structured_output: {
+      messageLatex: "先看当前这一步。",
+      spokenText: "先看当前这一步。",
+      tone: "explain",
+    },
+  })), {
+    messageLatex: "先看当前这一步。",
+    spokenText: "先看当前这一步。",
+    tone: "explain",
+  });
 
   const challenge = startChallenge("challenge-auxiliary-comprehensive", "Assessment Runtime Test");
   const assessment = getActionRuntimePlan(challenge.sessionId).plan;

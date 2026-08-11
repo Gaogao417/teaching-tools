@@ -122,6 +122,7 @@ export interface ActionActor {
   send(event: ActionRuntimeEvent): void;
   getSnapshot(): ActionSnapshotView;
   subscribe(listener: () => void): () => void;
+  demonstrate(): boolean;
   stop(): void;
 }
 
@@ -146,6 +147,8 @@ export interface ActionPageRuntime {
   getTrace(studentMessage?: string): StudentTrace;
   subscribe(listener: () => void): () => void;
   applyCoach(directive: CoachDirective): void;
+  /** Apply the reviewed teaching targets and advance exactly one Learn beat. */
+  advanceTeaching(): boolean;
   /** Learn allows direct execution; Guided requires explicit confirmation; Assessment rejects it. */
   applyAgentCommand(command: AgentCommand, confirmed?: boolean): boolean;
   markSubmitting(): void;

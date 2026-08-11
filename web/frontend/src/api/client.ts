@@ -20,9 +20,11 @@ import type {
   ActionPlanResponse,
   CoachRequest,
   CoachResponse,
+  CoachTurnRequest,
+  CoachTurnResponse,
   ExercisePlan,
 } from "../../../shared/actionRuntime";
-import { assertExercisePlan, isActionCheckpointResponse, isActionEvaluationResponse, isActionPlanResponse, isCoachResponse } from "../../../shared/actionRuntime";
+import { assertExercisePlan, isActionCheckpointResponse, isActionEvaluationResponse, isActionPlanResponse, isCoachResponse, isCoachTurnResponse } from "../../../shared/actionRuntime";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
@@ -121,6 +123,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }, isCoachResponse, "coach"),
+  conductActionCoach: (payload: CoachTurnRequest) =>
+    validated<CoachTurnResponse>("/api/action-coach", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }, isCoachTurnResponse, "multimodal coach"),
   finishPractice: (sessionId: string) =>
     request<FinishPracticeResponse>("/api/practice/finish", {
       method: "POST",

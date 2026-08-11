@@ -1,6 +1,7 @@
 import { createActor, type AnyStateMachine, type SnapshotFrom } from "xstate";
 import type { ActionContract, ActionEvidence, ActionKind } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
+import type { ActionRuntimeEvent } from "../events";
 import type { ActionActor, ActionSnapshotView, AnswerSlotView, CanvasSlice } from "../types";
 
 export interface StandardActionContext<Contract extends ActionContract = ActionContract> {
@@ -20,6 +21,8 @@ export interface ActionMachineDefinition<Contract extends ActionContract = Actio
   createMachine(contract: Contract): AnyStateMachine;
   project(snapshot: SnapshotFrom<AnyStateMachine>): ActionSnapshotView;
   commands(contract: Contract, evidence: ActionEvidence): DomainCommand[];
+  /** Deterministic reviewed-input demonstration used only by Learn mode. */
+  teachingEvents?(contract: Contract): ActionRuntimeEvent[];
 }
 
 export interface ActionPresentationProjection {
@@ -83,6 +86,12 @@ export function createActorFromDefinition<Contract extends ActionContract>(
     send(event) { actor.send(event); },
     getSnapshot() { return cached; },
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    demonstrate() {
+      const events = definition.teachingEvents?.(contract) || [];
+      if (!events.length || contract.validationPolicy !== "local-teaching") return false;
+      for (const event of events) actor.send(event);
+      return true;
+    },
     stop() { listeners.clear(); actor.stop(); },
   };
 }

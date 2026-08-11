@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ActionCheckpointSnapshot, ActionEvaluationResponse, ActionPlanResponse } from "../../../../shared/actionRuntime";
+import type {
+  ActionCheckpointSnapshot,
+  ActionEvaluationResponse,
+  ActionPlanResponse,
+  CoachAudioInput,
+  CoachConversationTurn,
+  CoachDirective,
+} from "../../../../shared/actionRuntime";
 import { api } from "../../api/client";
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
 import { MathText } from "../../components/math/MathText";
@@ -17,6 +24,28 @@ interface ActionRuntimeFrameProps {
   local?: boolean;
   onEvaluation?: (result: ActionEvaluationResponse) => void | Promise<void>;
   onComplete?: () => void;
+}
+
+interface CoachThreadMessage extends CoachConversationTurn {
+  id: string;
+  pending?: boolean;
+  error?: boolean;
+}
+
+const MAX_RECORDING_MS = 45_000;
+
+function blobDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Audio conversion failed"));
+    reader.onerror = () => reject(reader.error || new Error("Audio conversion failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function recordingMimeType(): string | undefined {
+  return ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"]
+    .find((mimeType) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mimeType));
 }
 
 export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete }: ActionRuntimeFrameProps) {
@@ -41,8 +70,18 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     [view.canvas.geometry],
   );
   const submissionKeys = useRef(new Map<string, string>());
+  const recorder = useRef<MediaRecorder | null>(null);
+  const recorderChunks = useRef<Blob[]>([]);
+  const recorderStream = useRef<MediaStream | null>(null);
+  const recordingStartedAt = useRef(0);
+  const recordingTimer = useRef<number | undefined>(undefined);
+  const speechPlayer = useRef<HTMLAudioElement | null>(null);
+  const completionNotified = useRef(false);
   const [coachBusy, setCoachBusy] = useState(false);
   const [studentMessage, setStudentMessage] = useState("");
+  const [coachThread, setCoachThread] = useState<CoachThreadMessage[]>([]);
+  const [recording, setRecording] = useState(false);
+  const [speechUrl, setSpeechUrl] = useState<string>();
 
   useEffect(() => {
     if (local) return;
@@ -103,45 +142,134 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   }, [storageKey, snapshot.currentActionId, snapshot.completedActionIds, snapshot.evidence, snapshot.revision, view.canvas.selectedObjectIds, view.answer.activeSlotId, runtime]);
 
   useEffect(() => {
-    if (local && snapshot.status === "complete") onComplete?.();
+    if (local && snapshot.status === "complete" && !completionNotified.current) {
+      completionNotified.current = true;
+      onComplete?.();
+    }
   }, [local, snapshot.status, onComplete]);
+
+  useEffect(() => () => {
+    if (recordingTimer.current !== undefined) window.clearTimeout(recordingTimer.current);
+    if (recorder.current) recorder.current.onstop = null;
+    if (recorder.current?.state === "recording") recorder.current.stop();
+    recorderStream.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   const send = (event: ActionRuntimeEvent) => {
     if (!disabled) runtime.send(event);
   };
-  const askCoach = async () => {
+  const playSpeech = (url = speechUrl) => {
+    if (!url || !speechPlayer.current) return;
+    speechPlayer.current.src = url;
+    void speechPlayer.current.play().catch(() => undefined);
+  };
+
+  const askCoach = async (input?: { message?: string; audio?: CoachAudioInput }) => {
     if (coachBusy || !view.controls.canHelp) return;
+    const message = input?.message?.trim() || studentMessage.trim();
+    if (!message && !input?.audio) return;
+    const studentTurnId = crypto.randomUUID();
+    const previousConversation = coachThread
+      .filter((turn) => !turn.pending && !turn.error)
+      .map(({ role, text }) => ({ role, text }));
+    setCoachThread((current) => [...current, {
+      id: studentTurnId,
+      role: "student",
+      text: message || "正在识别语音…",
+      pending: Boolean(input?.audio),
+    }]);
+    setStudentMessage("");
     setCoachBusy(true);
     try {
-      if (local) {
-        runtime.applyCoach({
-          directiveId: crypto.randomUUID(),
-          messageLatex: action.coach?.nextActionLatex || action.coach?.entryLatex || `先只完成当前动作：${action.instruction}`,
-          tone: "explain",
-          highlightObjectIds: runtime.getTrace().selectedObjectIds,
-          suggestedActionId: action.actionId,
-        });
-        return;
-      }
-      const result = await api.askActionCoach({
-        sessionId: response.sessionId,
+      const result = await api.conductActionCoach({
+        context: local
+          ? { kind: "learn", taskId: snapshot.plan.metadata.taskId }
+          : { kind: "practice", sessionId: response.sessionId },
         exerciseId: snapshot.plan.exerciseId,
-        trace: runtime.getTrace(studentMessage),
-        studentMessage: studentMessage.trim() || undefined,
+        trace: runtime.getTrace(message || undefined),
+        ...(message ? { studentMessage: message } : {}),
+        ...(input?.audio ? { studentAudio: input.audio } : {}),
+        conversation: previousConversation,
+        synthesizeSpeech: true,
       });
       runtime.applyCoach(result.directive);
-      if (result.directive.agentCommand && snapshot.plan.mode === "learn") runtime.applyAgentCommand(result.directive.agentCommand);
-      setStudentMessage("");
+      setCoachThread((current) => [
+        ...current.map((turn) => turn.id === studentTurnId
+          ? { ...turn, text: result.transcript || message || "语音提问", pending: false }
+          : turn),
+        {
+          id: result.directive.directiveId,
+          role: "coach",
+          text: result.directive.messageLatex,
+        },
+      ]);
+      if (result.speech?.audioUrl) {
+        setSpeechUrl(result.speech.audioUrl);
+        window.setTimeout(() => playSpeech(result.speech!.audioUrl), 0);
+      }
     } catch {
-      runtime.applyCoach({
+      const failure: CoachDirective = {
         directiveId: crypto.randomUUID(),
-        messageLatex: "老师暂时没有连上，你可以继续完成当前动作。",
+        messageLatex: "老师暂时没有连上。我们先停在这一步，稍后可以再问一次。",
+        spokenText: "老师暂时没有连上。我们先停在这一步，稍后可以再问一次。",
         tone: "prompt",
         highlightObjectIds: [],
         suggestedActionId: action.actionId,
-      });
+      };
+      runtime.applyCoach(failure);
+      setCoachThread((current) => [
+        ...current.map((turn) => turn.id === studentTurnId ? { ...turn, pending: false, error: Boolean(input?.audio) } : turn),
+        { id: failure.directiveId, role: "coach", text: failure.messageLatex, error: true },
+      ]);
     } finally {
       setCoachBusy(false);
+    }
+  };
+
+  const toggleRecording = async () => {
+    if (recording) {
+      recorder.current?.stop();
+      return;
+    }
+    if (coachBusy || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setCoachThread((current) => [...current, {
+        id: crypto.randomUUID(), role: "coach", text: "这个浏览器暂不支持录音，请先用文字提问。", error: true,
+      }]);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = recordingMimeType();
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorder.current = mediaRecorder;
+      recorderStream.current = stream;
+      recorderChunks.current = [];
+      recordingStartedAt.current = Date.now();
+      mediaRecorder.ondataavailable = (event) => { if (event.data.size) recorderChunks.current.push(event.data); };
+      mediaRecorder.onstop = () => {
+        const durationMs = Date.now() - recordingStartedAt.current;
+        if (recordingTimer.current !== undefined) window.clearTimeout(recordingTimer.current);
+        recordingTimer.current = undefined;
+        setRecording(false);
+        stream.getTracks().forEach((track) => track.stop());
+        recorderStream.current = null;
+        recorder.current = null;
+        const blob = new Blob(recorderChunks.current, { type: mediaRecorder.mimeType || "audio/webm" });
+        void blobDataUrl(blob)
+          .then((dataUrl) => askCoach({ audio: { dataUrl, durationMs } }))
+          .catch(() => setCoachThread((current) => [...current, {
+            id: crypto.randomUUID(), role: "coach", text: "录音没有保存成功，请再试一次。", error: true,
+          }]));
+      };
+      mediaRecorder.start(250);
+      setRecording(true);
+      recordingTimer.current = window.setTimeout(() => {
+        if (mediaRecorder.state === "recording") mediaRecorder.stop();
+      }, MAX_RECORDING_MS);
+    } catch {
+      setCoachThread((current) => [...current, {
+        id: crypto.randomUUID(), role: "coach", text: "没有获得麦克风权限，请允许录音或改用文字提问。", error: true,
+      }]);
     }
   };
 
@@ -165,7 +293,10 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
         : undefined,
   };
 
-  const clickEntity = (entity: EntityRef) => send({ type: "OBJECT.SELECTED", objectKind: entity.kind, objectId: entity.id });
+  const isTeaching = snapshot.plan.mode === "learn";
+  const clickEntity = (entity: EntityRef) => {
+    if (!isTeaching) send({ type: "OBJECT.SELECTED", objectKind: entity.kind, objectId: entity.id });
+  };
   return (
     <FocusWorkspace
       ariaLabel="Action 驱动学习工作台"
@@ -175,17 +306,35 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
         <aside className={`topic-coach-panel tone-${view.coach.tone}`} aria-label="陪练老师" aria-live="polite">
           <div className="topic-coach-header">
             <span className="topic-coach-avatar material-symbols-outlined">{view.coach.avatarId}</span>
-            <div><small>当前动作 {view.progress.current}/{view.progress.total}</small><strong>{view.title}</strong></div>
+            <div><small>{isTeaching ? "教学拍点" : "当前动作"} {view.progress.current}/{view.progress.total}</small><strong>{snapshot.status === "complete" ? "本题讲解完成" : view.title}</strong></div>
+            <button type="button" className="topic-coach-sound" aria-label="重播老师语音" disabled={!speechUrl} onClick={() => playSpeech()}><span className="material-symbols-outlined">volume_up</span></button>
           </div>
           <div className="topic-coach-bubble"><MathText value={view.coach.messageLatex} block /></div>
-          {view.controls.canHelp ? <label className="topic-coach-question"><span className="sr-only">向老师提问</span><input value={studentMessage} placeholder="告诉老师你卡在哪里" onChange={(event) => setStudentMessage(event.target.value)} /></label> : null}
-          {view.controls.canHelp ? <button type="button" className="btn btn-ghost" disabled={coachBusy} onClick={() => void askCoach()}>{coachBusy ? "老师思考中…" : "我需要提示"}</button> : null}
+          {coachThread.length ? <div className="topic-coach-thread" aria-label="答疑对话">{coachThread.map((turn) => (
+            <div key={turn.id} className={`topic-coach-turn is-${turn.role}${turn.pending ? " is-pending" : ""}${turn.error ? " is-error" : ""}`}>
+              <small>{turn.role === "student" ? "学生" : "老师"}</small>
+              {turn.role === "coach" ? <MathText value={turn.text} /> : <p>{turn.text}</p>}
+            </div>
+          ))}</div> : null}
+          {view.controls.canHelp ? <div className="topic-coach-composer">
+            <label className="topic-coach-question"><span className="sr-only">向老师提问</span><input value={studentMessage} placeholder="文字或语音问老师" disabled={coachBusy || recording} onKeyDown={(event) => { if (event.key === "Enter") void askCoach(); }} onChange={(event) => setStudentMessage(event.target.value)} /></label>
+            <button type="button" className={`topic-coach-mic${recording ? " is-recording" : ""}`} aria-label={recording ? "结束录音" : "语音提问"} disabled={coachBusy} onClick={() => void toggleRecording()}><span className="material-symbols-outlined">{recording ? "stop_circle" : "mic"}</span></button>
+            <button type="button" className="topic-coach-send" aria-label="发送问题" disabled={coachBusy || recording || !studentMessage.trim()} onClick={() => void askCoach()}><span className="material-symbols-outlined">send</span></button>
+          </div> : null}
+          {recording ? <p className="topic-coach-recording" role="status"><span />正在听，点停止后发送（最长 45 秒）</p> : null}
+          {coachBusy ? <p className="topic-coach-thinking" role="status">老师正在结合当前解题状态回答…</p> : null}
           {view.coach.agentCommand && snapshot.plan.mode === "guided-practice" ? <button type="button" className="btn btn-secondary" onClick={() => runtime.applyAgentCommand(view.coach.agentCommand!, true)}>确认执行老师建议</button> : null}
+          <audio ref={speechPlayer} preload="none" />
         </aside>
       }
-      actionBarLeft={<ActionAnswerFields runtimeSend={send} disabled={disabled} view={view} />}
+      actionBarLeft={isTeaching
+        ? <span className="topic-teaching-pause"><span className="material-symbols-outlined">pause_circle</span>{snapshot.status === "complete" ? "讲解已完成，仍可继续向老师提问" : "已暂停，等待学生回应后继续演示"}</span>
+        : <ActionAnswerFields runtimeSend={send} disabled={disabled} view={view} />}
       actionEnd={
-        <div className="action-row">
+        isTeaching ? <div className="action-row topic-teaching-controls">
+          <button type="button" className="btn btn-ghost" disabled={coachBusy || snapshot.status === "complete"} onClick={() => void askCoach({ message: "我没听懂这一步，请换一种说法，并说明为什么这样做。" })}>这步没懂</button>
+          <button type="button" className="btn btn-primary" disabled={coachBusy || disabled || snapshot.status === "complete"} onClick={() => runtime.advanceTeaching()}>{snapshot.status === "complete" ? "讲解完成" : "明白，继续"}</button>
+        </div> : <div className="action-row">
           <button type="button" className="btn btn-ghost" disabled={!view.controls.canBack || disabled} onClick={() => send({ type: "BACK" })}>撤销</button>
           <button type="button" className="btn btn-ghost" disabled={!view.controls.canClear || disabled} onClick={() => send({ type: "CLEAR" })}>清空</button>
           {snapshot.status === "transport-error"

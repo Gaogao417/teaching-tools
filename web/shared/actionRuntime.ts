@@ -233,6 +233,8 @@ export interface StudentTrace {
 export interface CoachDirective {
   directiveId: string;
   messageLatex: string;
+  /** Plain spoken copy. Keep display LaTeX out of the TTS input. */
+  spokenText?: string;
   tone: "prompt" | "correct" | "wrong" | "explain";
   highlightObjectIds: string[];
   focusTargetId?: string;
@@ -298,6 +300,46 @@ export interface CoachRequest {
 
 export interface CoachResponse {
   directive: CoachDirective;
+}
+
+export interface CoachConversationTurn {
+  role: "student" | "coach";
+  text: string;
+}
+
+export interface CoachAudioInput {
+  /** Browser-recorded audio encoded as a data URL; limited and validated by the backend. */
+  dataUrl: string;
+  durationMs?: number;
+}
+
+export interface CoachTurnRequest {
+  context:
+    | { kind: "practice"; sessionId: string }
+    | { kind: "learn"; taskId: string };
+  exerciseId: string;
+  trace: StudentTrace;
+  studentMessage?: string;
+  studentAudio?: CoachAudioInput;
+  conversation?: CoachConversationTurn[];
+  synthesizeSpeech?: boolean;
+}
+
+export interface CoachSpeech {
+  audioUrl: string;
+  model: string;
+  voice: string;
+  expiresAt?: number;
+}
+
+export interface CoachTurnResponse extends CoachResponse {
+  transcript?: string;
+  speech?: CoachSpeech;
+  providers: {
+    answer: "claude-code-glm-5.2" | "deterministic-fallback";
+    transcription?: string;
+    speech?: string;
+  };
 }
 
 export type EvaluationOutcome = "accepted" | "rejected" | "conflict";
@@ -439,13 +481,60 @@ export function isCoachDirective(value: unknown): value is CoachDirective {
     || !hasString(value, "messageLatex")
     || !["prompt", "correct", "wrong", "explain"].includes(String(value.tone))
     || !hasStringArray(value, "highlightObjectIds")) return false;
-  return (value.focusTargetId === undefined || typeof value.focusTargetId === "string")
+  return (value.spokenText === undefined || typeof value.spokenText === "string")
+    && (value.focusTargetId === undefined || typeof value.focusTargetId === "string")
     && (value.suggestedActionId === undefined || typeof value.suggestedActionId === "string")
     && (value.agentCommand === undefined || isAgentCommand(value.agentCommand));
 }
 
 export function isCoachResponse(value: unknown): value is CoachResponse {
   return isRecord(value) && isCoachDirective(value.directive);
+}
+
+function isCoachConversationTurn(value: unknown): value is CoachConversationTurn {
+  return isRecord(value)
+    && ["student", "coach"].includes(String(value.role))
+    && hasString(value, "text");
+}
+
+export function isCoachTurnRequest(value: unknown): value is CoachTurnRequest {
+  if (!isRecord(value) || !isRecord(value.context) || !hasString(value.context, "kind")
+    || !hasString(value, "exerciseId") || !isRecord(value.trace)) return false;
+  const contextValid = value.context.kind === "practice"
+    ? hasString(value.context, "sessionId")
+    : value.context.kind === "learn" && hasString(value.context, "taskId");
+  const audio = value.studentAudio;
+  const audioValid = audio === undefined || (isRecord(audio)
+    && hasString(audio, "dataUrl")
+    && (audio.durationMs === undefined || (typeof audio.durationMs === "number" && audio.durationMs >= 0)));
+  const conversationValid = value.conversation === undefined || (Array.isArray(value.conversation)
+    && value.conversation.every(isCoachConversationTurn));
+  return contextValid
+    && isCoachRequest({
+      sessionId: value.context.kind === "practice" ? value.context.sessionId : `learn:${value.context.taskId}`,
+      exerciseId: value.exerciseId,
+      trace: value.trace,
+      studentMessage: value.studentMessage,
+    })
+    && audioValid
+    && conversationValid
+    && (value.studentMessage === undefined || typeof value.studentMessage === "string")
+    && (value.synthesizeSpeech === undefined || typeof value.synthesizeSpeech === "boolean")
+    && ((typeof value.studentMessage === "string" && value.studentMessage.trim().length > 0) || audio !== undefined);
+}
+
+export function isCoachTurnResponse(value: unknown): value is CoachTurnResponse {
+  if (!isCoachResponse(value) || !isRecord(value) || !isRecord(value.providers)) return false;
+  if (!["claude-code-glm-5.2", "deterministic-fallback"].includes(String(value.providers.answer))) return false;
+  if (value.transcript !== undefined && typeof value.transcript !== "string") return false;
+  if (value.providers.transcription !== undefined && typeof value.providers.transcription !== "string") return false;
+  if (value.providers.speech !== undefined && typeof value.providers.speech !== "string") return false;
+  if (value.speech === undefined) return true;
+  return isRecord(value.speech)
+    && hasString(value.speech, "audioUrl")
+    && hasString(value.speech, "model")
+    && hasString(value.speech, "voice")
+    && (value.speech.expiresAt === undefined || typeof value.speech.expiresAt === "number");
 }
 
 export function isActionCheckpointResponse(value: unknown): value is ActionCheckpointResponse {

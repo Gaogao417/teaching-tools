@@ -118,6 +118,28 @@ describe("Action Runtime v2", () => {
     }
   });
 
+  it("advances Learn one reviewed teaching beat at a time without learner input", () => {
+    const runtime = createActionPageRuntime(plan("local-teaching"));
+    expect(runtime.getSnapshot().currentActionId).toBe("step/make");
+    expect(runtime.advanceTeaching()).toBe(true);
+    expect(runtime.getSnapshot().currentActionId).toBe("step/intersect");
+    expect(runtime.getSnapshot().world.draft.geometry?.derivedLines?.map((line) => line.id)).toContain("P");
+
+    expect(runtime.advanceTeaching()).toBe(true);
+    expect(runtime.getSnapshot().status).toBe("complete");
+    expect(runtime.getSnapshot().world.draft.geometry?.points.some((point) => point.id === "X")).toBe(true);
+    runtime.stop();
+  });
+
+  it("every registered form action can demonstrate its reviewed teaching targets", () => {
+    for (const contract of remainingContracts("local-teaching")) {
+      const actor = actionMachineRegistry.create(contract);
+      expect(actor.demonstrate(), contract.kind).toBe(true);
+      expect(actor.getSnapshot().done, contract.kind).toBe(true);
+      actor.stop();
+    }
+  });
+
   it("keeps local wrong input editable and completes only after correction", () => {
     const contract = {
       actionId: "choice", sourceStepId: "choice", kind: "select-option" as const, version: 1 as const,

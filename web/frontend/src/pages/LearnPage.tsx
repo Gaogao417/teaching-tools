@@ -131,7 +131,6 @@ export function LearnPage() {
             local
             onComplete={() => {
               recordLearnCompleted(actionPlan.actions[actionPlan.actions.length - 1]?.sourceStepId);
-              navigate(`/practice/${projection.taskId}`);
             }}
           />
         </div>
