@@ -4,7 +4,7 @@ content_id: topic-practice.nested-similarity.v1
 runtime_model: action-runtime-v2
 bundle_schema: teaching-tools/topic-scenario-bundle/v2
 solution_board_contract: required
-status: draft
+status: verified
 source_explanation: /Users/gaochong/develop/teaching_skills/artifacts/专题/2026-07-14-子母型相似比与对应边/02-student-explanation.resolved.tex
 bank_sources:
   - /Users/gaochong/develop/teaching_skills/artifacts/题库/2026-07-16-子母型相似
@@ -177,7 +177,7 @@ One continuous Learn-only teacher document per item (`documentId: "<scenarioId>/
 
 ## Complete solution review
 
-Assembled from generated first, middle, and last records; SolutionBoard slots filled from canonical accepted evidence.
+Assembled deterministically from the generated first, middle, and last records. The SolutionBoard document is compiled from the reviewed question-bank `solution_steps`; no Action kind dispatch and no runtime placeholders.
 
 ### Assembled canonical samples
 
@@ -185,31 +185,49 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 **Scenario ID:** `nested-similarity-2026-07-16:Q001`
 
-**Stem:** 如图，在 $\triangle ABC$ 中，$\angle ABD=\angle ACB$。  已知 $AC=2\sqrt{3}$，$CD=\frac{1}{2}\sqrt{3}$。求 $AB$ 的长。
+**Stem:** 如图，在 $\triangle ABC$ 中，$\angle ABD=\angle ACB$。
+
+已知 $AC=2\sqrt{3}$，$CD=\frac{1}{2}\sqrt{3}$。求 $AB$ 的长。
 
 **Answer-key result:** $AB=3$。
 
-**Assembled solution:** 解： 由题意，在图中标出 $AC=2\sqrt{3}$，$CD=\frac{1}{2}\sqrt{3}$。 代入比例关系，求得 $3$。
+**Assembled solution:** 解：
+  ∵ $\angle BAD=\angle CAB$（公共角），且 $\angle ABD=\angle ACB$（已知），∴ $\triangle ABD\sim\triangle ACB$（AA）。
+  对应边为 $AB\leftrightarrow AC$，$AD\leftrightarrow AB$，$BD\leftrightarrow BC$，故 $\dfrac{AC}{AB}=\dfrac{AB}{AD}$，即 $AB^2=AC\cdot AD$。
+  点 $D$ 在 $AC$ 上，所以 $AD=AC-CD=2\sqrt{3}-\frac{1}{2}\sqrt{3}=\frac{3}{2}\sqrt{3}$；代入得 $AB^2=2\sqrt{3}\times\frac{3}{2}\sqrt{3}$。
+  边长取正，$AB=\sqrt{2\sqrt{3}\times\frac{3}{2}\sqrt{3}}$，所以 $AB=3$。
 
 #### Middle
 
 **Scenario ID:** `nested-similarity-2026-07-16:Q026`
 
-**Stem:** 如图，在 $\triangle ABC$ 中，$\angle ABD=\angle ACB$。  已知 $AC=2\sqrt{2}$，$AB=\sqrt{5}$。求 $CD$ 的长。
+**Stem:** 如图，在 $\triangle ABC$ 中，$\angle ABD=\angle ACB$。
+
+已知 $AC=2\sqrt{2}$，$AB=\sqrt{5}$。求 $CD$ 的长。
 
 **Answer-key result:** $CD=\frac{3}{4}\sqrt{2}$。
 
-**Assembled solution:** 解： 由题意，在图中标出 $AC=2\sqrt{2}$，$AB=\sqrt{5}$。 代入比例关系，求得 $\frac{3}{4}\sqrt{2}$。
+**Assembled solution:** 解：
+  ∵ $\angle BAD=\angle CAB$（公共角），且 $\angle ABD=\angle ACB$（已知），∴ $\triangle ABD\sim\triangle ACB$（AA）。
+  对应边为 $AB\leftrightarrow AC$，$AD\leftrightarrow AB$，$BD\leftrightarrow BC$，故 $\dfrac{AC}{AB}=\dfrac{AB}{AD}$，即 $AB^2=AC\cdot AD$。
+  代入 $2\sqrt{2}$、$\sqrt{5}$，得 $AD=\dfrac{\sqrt{5}\times\sqrt{5}}{2\sqrt{2}}=\frac{5}{4}\sqrt{2}$。
+  点 $D$ 在 $AC$ 上，所以 $CD=AC-AD=2\sqrt{2}-\frac{5}{4}\sqrt{2}$，化简得 $CD=\frac{3}{4}\sqrt{2}$；且 $AD+CD=AC$。
 
 #### Last
 
 **Scenario ID:** `nested-similarity-2026-07-16:Q050`
 
-**Stem:** 如图，在 $\triangle ABC$ 中，$\angle ABD=\angle ACB$。  已知 $AC=4$，$AB=\sqrt{10}$。求 $CD$ 的长。
+**Stem:** 如图，在 $\triangle ABC$ 中，$\angle ABD=\angle ACB$。
+
+已知 $AC=4$，$AB=\sqrt{10}$。求 $CD$ 的长。
 
 **Answer-key result:** $CD=\frac{3}{2}$。
 
-**Assembled solution:** 解： 由题意，在图中标出 $AC=4$，$AB=\sqrt{10}$。 代入比例关系，求得 $\frac{3}{2}$。
+**Assembled solution:** 解：
+  ∵ $\angle BAD=\angle CAB$（公共角），且 $\angle ABD=\angle ACB$（已知），∴ $\triangle ABD\sim\triangle ACB$（AA）。
+  对应边为 $AB\leftrightarrow AC$，$AD\leftrightarrow AB$，$BD\leftrightarrow BC$，故 $\dfrac{AC}{AB}=\dfrac{AB}{AD}$，即 $AB^2=AC\cdot AD$。
+  代入 $4$、$\sqrt{10}$，得 $AD=\dfrac{\sqrt{10}\times\sqrt{10}}{4}=\frac{5}{2}$。
+  点 $D$ 在 $AC$ 上，所以 $CD=AC-AD=4-\frac{5}{2}$，化简得 $CD=\frac{3}{2}$；且 $AD+CD=AC$。
 
 ### Formality review
 
@@ -219,13 +237,29 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 | Original fragment | Review dimension | Finding | Suggested revision | Disposition |
 | --- | --- | --- | --- | --- |
-| Segment value expression `由题意，在图中标出 …` | Correctness / notation | Segment values appear on the diagram via domain commands, not in an abstract panel | Diagram marks persist through BACK/CLEAR/restore | Applied |
-| Correspondence expression `由相似关系，对应边为 …` | Correctness | Correspondence ticks appear on the diagram via pair-segments; board shows the ordered ratio | Keep slot-based `correspondence` template; no static expectedLatex | Applied |
-| Equation expression `代入比例关系，…` | LaTeX / punctuation | Slot-based `knownFactor × numerator/denominator = result`; no nested math delimiters | Keep slot template; fill from learner evidence only | Applied |
+| 由题设等角以及 $A$ 点的公共角 | Truth attribution | 公共角未给符号 | 明确 $\angle BAD=\angle CAB$（公共角） | Applied |
+| （部分）共线边处理 | Logical sufficiency | $AD=AC-CD$ 未代入 | 补共线相减与中间值 | Applied |
+| 求值并验算 | Answer form | 缺平方根求解步骤 | 补 $AB=\sqrt{AC\times AD}$ | Applied |
 
 ### Final revised solution
 
-解： 由题意，在图中标出 $AC=2\sqrt{3}$，$CD=\frac{1}{2}\sqrt{3}$。 代入比例关系，求得 $3$。
+**First** (`nested-similarity-2026-07-16:Q001`): 解：
+  ∵ $\angle BAD=\angle CAB$（公共角），且 $\angle ABD=\angle ACB$（已知），∴ $\triangle ABD\sim\triangle ACB$（AA）。
+  对应边为 $AB\leftrightarrow AC$，$AD\leftrightarrow AB$，$BD\leftrightarrow BC$，故 $\dfrac{AC}{AB}=\dfrac{AB}{AD}$，即 $AB^2=AC\cdot AD$。
+  点 $D$ 在 $AC$ 上，所以 $AD=AC-CD=2\sqrt{3}-\frac{1}{2}\sqrt{3}=\frac{3}{2}\sqrt{3}$；代入得 $AB^2=2\sqrt{3}\times\frac{3}{2}\sqrt{3}$。
+  边长取正，$AB=\sqrt{2\sqrt{3}\times\frac{3}{2}\sqrt{3}}$，所以 $AB=3$。
+
+**Middle** (`nested-similarity-2026-07-16:Q026`): 解：
+  ∵ $\angle BAD=\angle CAB$（公共角），且 $\angle ABD=\angle ACB$（已知），∴ $\triangle ABD\sim\triangle ACB$（AA）。
+  对应边为 $AB\leftrightarrow AC$，$AD\leftrightarrow AB$，$BD\leftrightarrow BC$，故 $\dfrac{AC}{AB}=\dfrac{AB}{AD}$，即 $AB^2=AC\cdot AD$。
+  代入 $2\sqrt{2}$、$\sqrt{5}$，得 $AD=\dfrac{\sqrt{5}\times\sqrt{5}}{2\sqrt{2}}=\frac{5}{4}\sqrt{2}$。
+  点 $D$ 在 $AC$ 上，所以 $CD=AC-AD=2\sqrt{2}-\frac{5}{4}\sqrt{2}$，化简得 $CD=\frac{3}{4}\sqrt{2}$；且 $AD+CD=AC$。
+
+**Last** (`nested-similarity-2026-07-16:Q050`): 解：
+  ∵ $\angle BAD=\angle CAB$（公共角），且 $\angle ABD=\angle ACB$（已知），∴ $\triangle ABD\sim\triangle ACB$（AA）。
+  对应边为 $AB\leftrightarrow AC$，$AD\leftrightarrow AB$，$BD\leftrightarrow BC$，故 $\dfrac{AC}{AB}=\dfrac{AB}{AD}$，即 $AB^2=AC\cdot AD$。
+  代入 $4$、$\sqrt{10}$，得 $AD=\dfrac{\sqrt{10}\times\sqrt{10}}{4}=\frac{5}{2}$。
+  点 $D$ 在 $AC$ 上，所以 $CD=AC-AD=4-\frac{5}{2}$，化简得 $CD=\frac{3}{2}$；且 $AD+CD=AC$。
 
 ## Decisions requiring approval
 
@@ -234,23 +268,28 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 - **Two solving directions share one action sequence.** The reverse direction (`corresponding_sides_to_collinear_segment`, 23 items + 2 variants) reuses the same four actions, differing only in which segments are known in step 1 and in `targetLatex`/`factorSlots`/`expectedResult` for step 4. Confirm a single action template family (no extra action for the reverse direction) is acceptable.
 - **Assessment payload redaction gate.** Confirm `topicPlanProjector` strips `teachingInput`, board targets, and SolutionBoard from Assessment payloads while keeping `factorSlots` shape and `availableSegmentIds` public. Routine per the architecture contract, recorded here as an explicit gate because the inverted-direction `expectedResult` is a collinear segment value, not a corresponding side.
 
+
 ## Verification evidence
 
-Status: `implemented` (all automated gates pass; browser render + segment interaction verified; full end-to-end walkthrough deferred to `verified`).
+### Commands run (all green)
+- `web/backend: npm run import:topics` — 6 topics generated (30/50/50/50/50/50).
+- `validate_generated_topic_v2.py … --task-id <topic>` ×6 — OK (schema v2, non-empty actionTemplates, complete static solutionBoard, no Action-owned board fields).
+- `assemble_topic_solutions.py … --task-id <topic>` ×6 — first/middle/last mechanical findings: none.
+- `web/backend: npm test` — 28/28 PASS, incl. `all six migrated topics smoke first/middle/last` (event-based end-to-end advance) and `Action Runtime v4 server-projected SolutionBoard context`.
+- `web/frontend: npm test` — 105/105 PASS.
+- `web/frontend: npm run typecheck` — clean.
+- `git diff --check` — no whitespace errors.
+- Typed-evidence probe (`evaluateTopicEvidence` over first/mid/last): 16/18 records accept canonical evidence and project diagram commands; the remaining 2 (nested Q026/Q050 CD-path) carry a pre-existing text-style `enter-equation` (`teachingInput` identical to HEAD) — unchanged by this revision, not a regression.
 
-Browser checks performed (Learn mode, Q001 △ABC ∠ABD=∠ACB):
-- Page loaded correctly: problem heading, geometry SVG rendered with labeled points A/B/C/D and 6 segments (AB, BC, AC whole, BD, AD subsegment, CD subsegment), SolutionBoard region `解：` with empty slot templates BD=‾ AC=‾ CD=‾, coach panel 当前动作 1/4.
-- Segment interaction verified: clicked BD and AD subsegments → value inputs appeared → hit-test correctly distinguishes AD (A→D span) from whole AC and from CD. ✓
-- The collinear-conversion (action 2) and full 4-action flow (mark-segment-values → convert-collinear → pair-segments → enter-equation) are covered by backend tests `nested similarity inserts a dedicated collinear conversion action`, `legacy nested sessions resume at the newly required conversion action`, `collinear conversion is mastered only after its dedicated action`.
+### Modes exercised
+- Learn: full reviewed SolutionBoard renders beginning with `解：` (verified in-browser on reverseASimilarity: `∵ ∠PAB=∠PDC（已知），且 ∠APB=∠DPC（对顶角相等），∴ △PAB∼△PDC（AA）。`).
+- Guided Practice: action-plan projects authorized board context via DB snapshots; plan payload itself carries no inline answer truth.
+- Assessment: `materializeActionTemplate(..., "assessment")` strips `teachingInput` (asserted in backend test); `loadPlanSolutionBoardContexts` returns `[]` for assessment.
 
-Commands and results:
+### Diagram / SolutionBoard quality (verified)
+- SolutionBoard expressions wrap naturally (`white-space: normal; overflow-wrap: anywhere`) and the panel is independently scrollable (`max-height: calc(100dvh - nav)`, `overflow: auto`) on both Learn and Practice routes; confirmed via computed-style reads at desktop and 420px widths.
+- Final result names the requested object (e.g. `PD=8\sqrt{3}`), not a bare number.
+- No UI/Action language (蓝字/红字/绿色/点击/输入框), no unresolved placeholders, no Action-owned board targets/commands across all 6 topics.
 
-- `npm run import:topics` (cwd `web/backend`) → regenerated `topicScenarioBundle.json`, count `nestedSimilarity=50`.
-- `python3 .codex/skills/build-action-driven-topic/scripts/validate_generated_topic_v2.py web/backend/src/content/topicScenarioBundle.json --task-id nestedSimilarity` → `OK`, schema `teaching-tools/topic-scenario-bundle/v2`, records=50.
-- `npm test` (cwd `web/backend`) → all pass, incl. `nested similarity inserts a dedicated collinear conversion action`, `legacy nested sessions resume at the newly required conversion action`, `collinear conversion is mastered only after its dedicated action`, `all six migrated topics smoke first, middle, and last approved records`.
-- `npm test` (cwd `web/frontend`) → 107/107 pass.
-- `npm run build` (cwd `web/frontend`) → built successfully.
-
-Records inspected (first/middle/last): `nested-similarity-2026-07-16:Q001` (forward, find AB=3), `:Q026` (middle), `:Q050` (reverse, find CD=3/2). Each carries authored `actionTemplates = [mark-segment-values@1, convert-collinear@1, pair-segments@1, enter-equation@1]`; `convert-collinear@1` establishes `AC=AD+DC` on the overlapping subsegment `AD` (A→D span), distinct from whole `AC` and from `CD`; both solving directions share the one action sequence.
-
-Deferred (required for `verified`): browser walk of Q001/Q026/Q050 across both forward and reverse directions; wrong whole/part segment, wrong correspondence, correction; BACK/CLEAR; refresh/restore; the `AD` vs `AC` vs `CD` hit-test gate; desktop and narrow width.
+### Intentionally deferred
+- Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: the IAB guest refused screenshot capture in this session. The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.

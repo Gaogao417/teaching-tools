@@ -72,10 +72,13 @@ def build_aa_solution(stem, answer, angle_given, angle_basis, similarity_stmt, p
     substituted = f"{_frac(val_of[left_top], val_of[left_bot])}={_frac(k1_val, k2_val)}"
 
     # Cross-multiplication deformation with numbers.
+    # left_top/left_bot = k1/k2  =>
+    #   left_bot == unknown: unknown = left_top * k2 / k1  =>  mate * k2 / k1
+    #   left_top == unknown: unknown = left_bot * k1 / k2  =>  mate * k1 / k2
     if left_bot == unknown:
-        deform_sub = f"{unknown}={_frac(mate_val + r'\times' + k1_val, k2_val)}"
-    else:
         deform_sub = f"{unknown}={_frac(mate_val + r'\times' + k2_val, k1_val)}"
+    else:
+        deform_sub = f"{unknown}={_frac(mate_val + r'\times' + k1_val, k2_val)}"
 
     ang_latex, ang_reason = angle_basis
     steps = [

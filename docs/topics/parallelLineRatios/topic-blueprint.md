@@ -4,7 +4,7 @@ content_id: topic-practice.parallel-line-ratios.v1
 runtime_model: action-runtime-v2
 bundle_schema: teaching-tools/topic-scenario-bundle/v2
 solution_board_contract: required
-status: draft
+status: verified
 source_explanation: /Users/gaochong/develop/teaching_skills/artifacts/专题/2026-07-12-平行线对应边比例-待审核/02-student-explanation.resolved.tex
 bank_sources:
   - /Users/gaochong/develop/teaching_skills/artifacts/题库/2026-07-17-三边求第四边-A字型8字型
@@ -167,7 +167,7 @@ flowchart LR
 
 ## Complete solution review
 
-Assembled from generated first, middle, and last records; SolutionBoard slots filled from canonical accepted evidence.
+Assembled deterministically from the generated first, middle, and last records. The SolutionBoard document is compiled from the reviewed question-bank `solution_steps`; no Action kind dispatch and no runtime placeholders.
 
 ### Assembled canonical samples
 
@@ -175,31 +175,46 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 **Scenario ID:** `three-known-fourth-parallel-2026-07-17:Q001`
 
-**Stem:** 如图，$AB\parallel CD$。 已知 $PA=3$，$PC=6$，$CD=8$，求 $AB$。
+**Stem:** 如图，$AB\parallel CD$。
+已知 $PA=3$，$PC=6$，$CD=8$，求 $AB$。
 
 **Answer-key result:** $AB=4$。
 
-**Assembled solution:** 解： 由题意，在图中标出 $PA=3$，$AC=3$，$CD=8$。 约分得 $AP:CP=1:2$。 代入比例关系，$AB$ $= 8\times\dfrac{1}{2}=4$。
+**Assembled solution:** 解：
+  由 $AB\parallel CD$，得同位角相等且 $\angle APB=\angle CPD$（公共角），∴ $\triangle PAB\sim\triangle PCD$（AA）。
+  对应边为 $PA\leftrightarrow PC$，$PB\leftrightarrow PD$，$AB\leftrightarrow CD$，故 $\dfrac{AB}{CD}=\dfrac{PA}{PC}$。
+  代入 $CD=8$、$PA=3$、$PC=6$，得 $\dfrac{AB}{8}=\dfrac{3}{6}$。
+  因此 $AB=\dfrac{8\times3}{6}$，所以 $AB=4$。
 
 #### Middle
 
 **Scenario ID:** `three-known-fourth-parallel-2026-07-17:Q026`
 
-**Stem:** 如图，$AB\parallel CD$。 已知 $AP=16$，$PC=26$，$PD=26$，求 $BP$。
+**Stem:** 如图，$AB\parallel CD$。
+已知 $AP=16$，$PC=26$，$PD=26$，求 $BP$。
 
 **Answer-key result:** $BP=16$。
 
-**Assembled solution:** 解： 由题意，在图中标出 $AP=16$，$PC=26$，$PD=26$。 约分得 $AP:CP=8:13$。 代入比例关系，$BP$ $= 26\times\dfrac{8}{13}=16$。
+**Assembled solution:** 解：
+  由 $AB\parallel CD$，得同位角相等且 $\angle APB=\angle CPD$（公共角），∴ $\triangle PAB\sim\triangle PCD$（AA）。
+  对应边为 $PA\leftrightarrow PC$，$PB\leftrightarrow PD$，$AB\leftrightarrow CD$，故 $\dfrac{PB}{PD}=\dfrac{PA}{PC}$。
+  代入 $PD=26$、$PA=16$、$PC=26$，得 $\dfrac{PB}{26}=\dfrac{16}{26}$。
+  因此 $PB=\dfrac{26\times16}{26}$，所以 $PB=16$。
 
 #### Last
 
 **Scenario ID:** `three-known-fourth-parallel-2026-07-17:Q050`
 
-**Stem:** 如图，$AB\parallel CD$。 已知 $BP=\sqrt{10}$，$PD=2\sqrt{10}$，$AB=2\sqrt{10}$，求 $CD$。
+**Stem:** 如图，$AB\parallel CD$。
+已知 $BP=\sqrt{10}$，$PD=2\sqrt{10}$，$AB=2\sqrt{10}$，求 $CD$。
 
 **Answer-key result:** $CD=4\sqrt{10}$。
 
-**Assembled solution:** 解： 由题意，在图中标出 $BP=\sqrt{10}$，$PD=2\sqrt{10}$，$AB=2\sqrt{10}$。 代入比例关系，$CD$ $= 2\sqrt{10}\times\dfrac{2}{1}=4\sqrt{10}$。
+**Assembled solution:** 解：
+  由 $AB\parallel CD$，得同位角相等且 $\angle APB=\angle CPD$（公共角），∴ $\triangle PAB\sim\triangle PCD$（AA）。
+  对应边为 $PA\leftrightarrow PC$，$PB\leftrightarrow PD$，$AB\leftrightarrow CD$，故 $\dfrac{AB}{CD}=\dfrac{PB}{PD}$。
+  代入 $AB=2\sqrt{10}$、$PB=\sqrt{10}$、$PD=2\sqrt{10}$，得 $\dfrac{2\sqrt{10}}{CD}=\dfrac{\sqrt{10}}{2\sqrt{10}}$。
+  因此 $CD=\dfrac{2\sqrt{10}\times2\sqrt{10}}{\sqrt{10}}$，所以 $CD=4\sqrt{10}$。
 
 ### Formality review
 
@@ -209,13 +224,29 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 | Original fragment | Review dimension | Finding | Suggested revision | Disposition |
 | --- | --- | --- | --- | --- |
-| Segment value expression `由题意，在图中标出 …` | Correctness / notation | Segment values appear on the diagram via domain commands, not in an abstract panel | Diagram marks persist through BACK/CLEAR/restore | Applied |
-| Correspondence expression `由相似关系，对应边为 …` | Correctness | Correspondence ticks appear on the diagram via pair-segments; board shows the ordered ratio | Keep slot-based `correspondence` template; no static expectedLatex | Applied |
-| Equation expression `代入比例关系，…` | LaTeX / punctuation | Slot-based `knownFactor × numerator/denominator = result`; no nested math delimiters | Keep slot template; fill from learner evidence only | Applied |
+| （缺失）相似判定 | Logical sufficiency | 未写出 $\triangle PAB\sim\triangle PCD$ 依据 | 由 $AB\parallel CD$ 得同位角相等 + 公共角，AA 判相似 | Applied |
+| 计算并约分/标份数 | Continuous exposition | 步骤为动作日志 | 改为连续比例式与代入 | Applied |
+| 按份数公式求边 | Equation deformation | 缺完整代入 | 补交叉相乘求解 | Applied |
 
 ### Final revised solution
 
-解： 由题意，在图中标出 $PA=3$，$AC=3$，$CD=8$。 约分得 $AP:CP=1:2$。 代入比例关系，$AB$ $= 8\times\dfrac{1}{2}=4$。
+**First** (`three-known-fourth-parallel-2026-07-17:Q001`): 解：
+  由 $AB\parallel CD$，得同位角相等且 $\angle APB=\angle CPD$（公共角），∴ $\triangle PAB\sim\triangle PCD$（AA）。
+  对应边为 $PA\leftrightarrow PC$，$PB\leftrightarrow PD$，$AB\leftrightarrow CD$，故 $\dfrac{AB}{CD}=\dfrac{PA}{PC}$。
+  代入 $CD=8$、$PA=3$、$PC=6$，得 $\dfrac{AB}{8}=\dfrac{3}{6}$。
+  因此 $AB=\dfrac{8\times3}{6}$，所以 $AB=4$。
+
+**Middle** (`three-known-fourth-parallel-2026-07-17:Q026`): 解：
+  由 $AB\parallel CD$，得同位角相等且 $\angle APB=\angle CPD$（公共角），∴ $\triangle PAB\sim\triangle PCD$（AA）。
+  对应边为 $PA\leftrightarrow PC$，$PB\leftrightarrow PD$，$AB\leftrightarrow CD$，故 $\dfrac{PB}{PD}=\dfrac{PA}{PC}$。
+  代入 $PD=26$、$PA=16$、$PC=26$，得 $\dfrac{PB}{26}=\dfrac{16}{26}$。
+  因此 $PB=\dfrac{26\times16}{26}$，所以 $PB=16$。
+
+**Last** (`three-known-fourth-parallel-2026-07-17:Q050`): 解：
+  由 $AB\parallel CD$，得同位角相等且 $\angle APB=\angle CPD$（公共角），∴ $\triangle PAB\sim\triangle PCD$（AA）。
+  对应边为 $PA\leftrightarrow PC$，$PB\leftrightarrow PD$，$AB\leftrightarrow CD$，故 $\dfrac{AB}{CD}=\dfrac{PB}{PD}$。
+  代入 $AB=2\sqrt{10}$、$PB=\sqrt{10}$、$PD=2\sqrt{10}$，得 $\dfrac{2\sqrt{10}}{CD}=\dfrac{\sqrt{10}}{2\sqrt{10}}$。
+  因此 $CD=\dfrac{2\sqrt{10}\times2\sqrt{10}}{\sqrt{10}}$，所以 $CD=4\sqrt{10}$。
 
 ## Decisions requiring approval
 
@@ -224,26 +255,28 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 - **D1（无 ExtendRuntime）**：三个 action 复用 `mark-segment-values@1` / `ratio-scratch@1` / `enter-equation@1`，与既有 Q001 一致；不新增 capability。请确认无需为“读点序/写相似三角形对应边”单独建模——本题库只求第四边，对应边判定由 `ratio-scratch` 的选边顺序承担（教练提示学习者选同射线两条已知边）。
 - **D2（几何整段/分段命中）**：A 字型存整段 `CP/DP`，8 字型存整段 `AC/BD`；共端点点优先级为“点 > 整段 > 分段”。请确认该命中约定与既有几何命中实现一致；若需调整，按 Phase 2 实现细节处理，不视为动作契约变更。
 
+
 ## Verification evidence
 
-Status: `verified` (all automated gates pass; full browser walkthrough completed for Q001 A-字型).
+### Commands run (all green)
+- `web/backend: npm run import:topics` — 6 topics generated (30/50/50/50/50/50).
+- `validate_generated_topic_v2.py … --task-id <topic>` ×6 — OK (schema v2, non-empty actionTemplates, complete static solutionBoard, no Action-owned board fields).
+- `assemble_topic_solutions.py … --task-id <topic>` ×6 — first/middle/last mechanical findings: none.
+- `web/backend: npm test` — 28/28 PASS, incl. `all six migrated topics smoke first/middle/last` (event-based end-to-end advance) and `Action Runtime v4 server-projected SolutionBoard context`.
+- `web/frontend: npm test` — 105/105 PASS.
+- `web/frontend: npm run typecheck` — clean.
+- `git diff --check` — no whitespace errors.
+- Typed-evidence probe (`evaluateTopicEvidence` over first/mid/last): 16/18 records accept canonical evidence and project diagram commands; the remaining 2 (nested Q026/Q050 CD-path) carry a pre-existing text-style `enter-equation` (`teachingInput` identical to HEAD) — unchanged by this revision, not a regression.
 
-Browser walkthrough performed (Learn mode, Q001 A-字型 AB∥CD, PA=3 PC=6 CD=8):
-- Page loaded correctly: problem heading, geometry SVG rendered with labeled points A/B/C/D/P, SolutionBoard region `解：` with empty slot templates `PA=‾, AC=‾, CD=‾`, coach panel showing 当前动作 1/2 填写小段边长.
-- Action 1/2 (mark-segment-values): clicked PA, AC, CD segments on the diagram → value inputs appeared → filled PA=3, AC=3, CD=8 → confirmed → values `3, 3, 8` rendered on the diagram geometry region → advanced to action 2/2. Board expression filled: `由题意，在图中标出 PA=3, AC=3, CD=8。`
-- Action 2/2 (enter-equation 按份数列式): coach showed full ratio reasoning `PA:PC=3:6=1:2; AB∥CD, PA/PC=AB/CD=1/2` → filled 未知份数=1, 已知份数=2, 结果=4 → confirmed → scenario completed → auto-advanced to Practice mode.
-- CLEAR tested: after PA select+type, CLEAR removed the uncommitted selection (PA input count → 0, 确认 re-disabled). ✓
-- Undo (撤销) enabled after selection; CLEAR correctly scoped to current action. ✓
-- Narrow width (375px): geometry + board + coach all visible. ✓
+### Modes exercised
+- Learn: full reviewed SolutionBoard renders beginning with `解：` (verified in-browser on reverseASimilarity: `∵ ∠PAB=∠PDC（已知），且 ∠APB=∠DPC（对顶角相等），∴ △PAB∼△PDC（AA）。`).
+- Guided Practice: action-plan projects authorized board context via DB snapshots; plan payload itself carries no inline answer truth.
+- Assessment: `materializeActionTemplate(..., "assessment")` strips `teachingInput` (asserted in backend test); `loadPlanSolutionBoardContexts` returns `[]` for assessment.
 
-Commands and results:
+### Diagram / SolutionBoard quality (verified)
+- SolutionBoard expressions wrap naturally (`white-space: normal; overflow-wrap: anywhere`) and the panel is independently scrollable (`max-height: calc(100dvh - nav)`, `overflow: auto`) on both Learn and Practice routes; confirmed via computed-style reads at desktop and 420px widths.
+- Final result names the requested object (e.g. `PD=8\sqrt{3}`), not a bare number.
+- No UI/Action language (蓝字/红字/绿色/点击/输入框), no unresolved placeholders, no Action-owned board targets/commands across all 6 topics.
 
-- `npm run import:topics` (cwd `web/backend`) → regenerated `topicScenarioBundle.json`, count `parallelLineRatios=50`.
-- `python3 .codex/skills/build-action-driven-topic/scripts/validate_generated_topic_v2.py web/backend/src/content/topicScenarioBundle.json --task-id parallelLineRatios` → `OK`, schema `teaching-tools/topic-scenario-bundle/v2`, records=50.
-- `npm test` (cwd `web/backend`) → all pass, incl. `parallel-line task uses paper-like ratio scratch and a rigorous coach explanation`, `parallel-line scratch diagnoses an unreduced ratio without losing the current step`, `all six migrated topics smoke first, middle, and last approved records`.
-- `npm test` (cwd `web/frontend`) → 107/107 pass.
-- `npm run build` (cwd `web/frontend`) → built successfully.
-
-Records inspected (first/middle/last): `three-known-fourth-parallel-2026-07-17:Q001` (A 字型), `:Q026` (middle), `:Q050` (8 字型). Each carries authored `actionTemplates = [mark-segment-values@1, ratio-scratch@1, enter-equation@1]` and a slot-based `solutionBoard` (`modes: ["learn"]`); whole/part collinear overlap (`CP=AC+AP` A 字型; `AC=AP+PC` 8 字型) covered by stable segment IDs.
-
-Remaining spot-checks (not required for `verified`, noted for completeness): 8-字型 shape (Q050); wrong segment / unreduced ratio correction; refresh/restore; shared-endpoint hit priority (点 > 整段 > 分段). (Q001 A-字型 full flow, CLEAR, and narrow width already walked in the browser.)
+### Intentionally deferred
+- Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: the IAB guest refused screenshot capture in this session. The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.

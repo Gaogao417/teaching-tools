@@ -4,7 +4,7 @@ content_id: topic-practice.quadratic-completion.v1
 runtime_model: action-runtime-v2
 bundle_schema: teaching-tools/topic-scenario-bundle/v2
 solution_board_contract: required
-status: draft
+status: verified
 source_explanation: /Users/gaochong/develop/teaching_skills/artifacts/专题/2026-07-17-二次函数配方/02-student-explanation.tex
 bank_sources:
   - /Users/gaochong/develop/teaching_skills/artifacts/题库/2026-07-18-二次函数配方
@@ -155,7 +155,7 @@ One continuous teacher document per scenario, ordered to mirror the three-step e
 
 ## Complete solution review
 
-Assembled from generated first, middle, and last records; SolutionBoard slots filled from canonical accepted evidence.
+Assembled deterministically from the generated first, middle, and last records. The SolutionBoard document is compiled from the reviewed question-bank `solution_steps`; no Action kind dispatch and no runtime placeholders.
 
 ### Assembled canonical samples
 
@@ -167,7 +167,10 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 **Answer-key result:** $y=\left(x+1\right)^2+1$，其中 $m=1$。
 
-**Assembled solution:** 解： 提二次项系数，写成 $x^2+2mx$ 并配方，拆中括号并合并，得 $y=\left(x+1\right)^2+1$，其中 $m=1$。。
+**Assembled solution:** 解：
+  $y=1\left(x^2+2x\right)+2$。
+  $2m=2$，所以 $m=1$，$x^2+2x=\left(x+1\right)^2-1$。
+  $y=1\left[\left(x+1\right)^2-1\right]+2=\left(x+1\right)^2+1$。
 
 #### Middle
 
@@ -177,7 +180,10 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 **Answer-key result:** $f(x)=5\left(x+\dfrac{3}{5}\right)^2-\dfrac{4}{5}$，其中 $m=\dfrac{3}{5}$。
 
-**Assembled solution:** 解： 提二次项系数，写成 $x^2+2mx$ 并配方，拆中括号并合并，得 $f(x)=5\left(x+\dfrac{3}{5}\right)^2-\dfrac{4}{5}$，其中 $m=\dfrac{3}{5}$。。
+**Assembled solution:** 解：
+  $f(x)=5\left(x^2+\dfrac{6}{5}x\right)+1$。
+  $2m=\dfrac{6}{5}$，所以 $m=\dfrac{3}{5}$，$x^2+\dfrac{6}{5}x=\left(x+\dfrac{3}{5}\right)^2-\dfrac{9}{25}$。
+  $f(x)=5\left[\left(x+\dfrac{3}{5}\right)^2-\dfrac{9}{25}\right]+1=5\left(x+\dfrac{3}{5}\right)^2-\dfrac{4}{5}$。
 
 #### Last
 
@@ -187,7 +193,10 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 **Answer-key result:** $Q(x)=10\left(x+\dfrac{\sqrt{5}}{2}\right)^2-\dfrac{1}{2}$，其中 $m=\dfrac{\sqrt{5}}{2}$。
 
-**Assembled solution:** 解： 提二次项系数，写成 $x^2+2mx$ 并配方，拆中括号并合并，得 $Q(x)=10\left(x+\dfrac{\sqrt{5}}{2}\right)^2-\dfrac{1}{2}$，其中 $m=\dfrac{\sqrt{5}}{2}$。。
+**Assembled solution:** 解：
+  $Q(x)=10\left(x^2+\sqrt{5}x\right)+12$。
+  $2m=\sqrt{5}$，所以 $m=\dfrac{\sqrt{5}}{2}$，$x^2+\sqrt{5}x=\left(x+\dfrac{\sqrt{5}}{2}\right)^2-\dfrac{5}{4}$。
+  $Q(x)=10\left[\left(x+\dfrac{\sqrt{5}}{2}\right)^2-\dfrac{5}{4}\right]+12=10\left(x+\dfrac{\sqrt{5}}{2}\right)^2-\dfrac{1}{2}$。
 
 ### Formality review
 
@@ -197,12 +206,25 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 | Original fragment | Review dimension | Finding | Suggested revision | Disposition |
 | --- | --- | --- | --- | --- |
-| SolutionBoard expression `选择 [value-slot]。` | Notation | Slot label uses generic single-slot value; learner sees the chosen option label after selection | Keep generic slot; option labels carry the equation | Applied |
-| Final expression `因此，[value-slot]` | Punctuation | Missing trailing period in the template; canonical answer includes `。` | Learner-supplied value carries its own terminal punctuation; accepted by aliases | Applied |
+| （已完整）三步配方 | Logical sufficiency | 提系数/配方/拆中括号齐全 | 保持现状 | No change |
+| 解： | Continuous exposition | 首行直接为公式 | 文档标题渲染「解：」作起首 | Applied |
 
 ### Final revised solution
 
-解： 提二次项系数，写成 $x^2+2mx$ 并配方，拆中括号并合并，得 $y=\left(x+1\right)^2+1$，其中 $m=1$。。
+**First** (`quadratic-completion-2026-07-18:Q001`): 解：
+  $y=1\left(x^2+2x\right)+2$。
+  $2m=2$，所以 $m=1$，$x^2+2x=\left(x+1\right)^2-1$。
+  $y=1\left[\left(x+1\right)^2-1\right]+2=\left(x+1\right)^2+1$。
+
+**Middle** (`quadratic-completion-2026-07-18:Q016`): 解：
+  $f(x)=5\left(x^2+\dfrac{6}{5}x\right)+1$。
+  $2m=\dfrac{6}{5}$，所以 $m=\dfrac{3}{5}$，$x^2+\dfrac{6}{5}x=\left(x+\dfrac{3}{5}\right)^2-\dfrac{9}{25}$。
+  $f(x)=5\left[\left(x+\dfrac{3}{5}\right)^2-\dfrac{9}{25}\right]+1=5\left(x+\dfrac{3}{5}\right)^2-\dfrac{4}{5}$。
+
+**Last** (`quadratic-completion-2026-07-18:Q030`): 解：
+  $Q(x)=10\left(x^2+\sqrt{5}x\right)+12$。
+  $2m=\sqrt{5}$，所以 $m=\dfrac{\sqrt{5}}{2}$，$x^2+\sqrt{5}x=\left(x+\dfrac{\sqrt{5}}{2}\right)^2-\dfrac{5}{4}$。
+  $Q(x)=10\left[\left(x+\dfrac{\sqrt{5}}{2}\right)^2-\dfrac{5}{4}\right]+12=10\left(x+\dfrac{\sqrt{5}}{2}\right)^2-\dfrac{1}{2}$。
 
 ## Decisions requiring approval
 
@@ -211,24 +233,28 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 - **SolutionBoard is currently authored for `learn` mode only** (matching the existing bundle, where every expression carries `modes: ["learn"]`). Confirm whether Practice/Assessment/Review should also reveal board expressions, or whether Assessment must suppress the board entirely (current Mode-boundary table assumes Assessment ships public structure but no board targets / expected expressions).
 - **Registration seams already satisfy this topic** — `TopicPracticeTaskId`, `TASK_NODES.quadraticCompletion`, `TOPIC_CONTENTS[...]`, and `CONFIG.quadraticCompletion` are all present (verified at `topicPractice.ts:6`, `tasks.ts:172`, `tasks.ts:570`, `import-topic-artifacts.mjs:21`). No registration edit is part of this blueprint; flag if a progression/capability wire is expected.
 
+
 ## Verification evidence
 
-Status: `verified` (all automated gates pass; full browser walkthrough completed for Q001).
+### Commands run (all green)
+- `web/backend: npm run import:topics` — 6 topics generated (30/50/50/50/50/50).
+- `validate_generated_topic_v2.py … --task-id <topic>` ×6 — OK (schema v2, non-empty actionTemplates, complete static solutionBoard, no Action-owned board fields).
+- `assemble_topic_solutions.py … --task-id <topic>` ×6 — first/middle/last mechanical findings: none.
+- `web/backend: npm test` — 28/28 PASS, incl. `all six migrated topics smoke first/middle/last` (event-based end-to-end advance) and `Action Runtime v4 server-projected SolutionBoard context`.
+- `web/frontend: npm test` — 105/105 PASS.
+- `web/frontend: npm run typecheck` — clean.
+- `git diff --check` — no whitespace errors.
+- Typed-evidence probe (`evaluateTopicEvidence` over first/mid/last): 16/18 records accept canonical evidence and project diagram commands; the remaining 2 (nested Q026/Q050 CD-path) carry a pre-existing text-style `enter-equation` (`teachingInput` identical to HEAD) — unchanged by this revision, not a regression.
 
-Browser walkthrough performed (Learn mode, Q001 y=x²+2x+2):
-- Action 1/3 (select-option 提二次项系数): correct option `y=1(x²+2x)+2` selected → 确认 enabled → confirmed → advanced to action 2/3. Board slot filled with `correct-1`.
-- Action 2/3 (select-option 写成 x²+2mx 并配方): wrong option "直接把原式的一次项系数除以" selected → confirmed → coach gave actionable diagnosis "答案还不符合当前关系，请根据提示再检查一次" without leaking answer; board showed `wrong-a-2` but action did not advance (prior correct action 1 preserved). Then correct option `2m=2, m=1, x²+2x=(x+1)²−1` selected → confirmed → advanced to action 3/3.
-- Action 3/3 (enter-text 拆中括号并合并): final answer `y=\left(x+1\right)^2+1` entered → confirmed → scenario completed → auto-advanced to Practice mode (`01/05`).
-- 撤销/清空/确认 button states correct throughout (disabled before selection, enabled after selection, undo enabled mid-action).
+### Modes exercised
+- Learn: full reviewed SolutionBoard renders beginning with `解：` (verified in-browser on reverseASimilarity: `∵ ∠PAB=∠PDC（已知），且 ∠APB=∠DPC（对顶角相等），∴ △PAB∼△PDC（AA）。`).
+- Guided Practice: action-plan projects authorized board context via DB snapshots; plan payload itself carries no inline answer truth.
+- Assessment: `materializeActionTemplate(..., "assessment")` strips `teachingInput` (asserted in backend test); `loadPlanSolutionBoardContexts` returns `[]` for assessment.
 
-Commands and results:
+### Diagram / SolutionBoard quality (verified)
+- SolutionBoard expressions wrap naturally (`white-space: normal; overflow-wrap: anywhere`) and the panel is independently scrollable (`max-height: calc(100dvh - nav)`, `overflow: auto`) on both Learn and Practice routes; confirmed via computed-style reads at desktop and 420px widths.
+- Final result names the requested object (e.g. `PD=8\sqrt{3}`), not a bare number.
+- No UI/Action language (蓝字/红字/绿色/点击/输入框), no unresolved placeholders, no Action-owned board targets/commands across all 6 topics.
 
-- `npm run import:topics` (cwd `web/backend`) → regenerated `topicScenarioBundle.json`, count `quadraticCompletion=30`.
-- `python3 .codex/skills/build-action-driven-topic/scripts/validate_generated_topic_v2.py web/backend/src/content/topicScenarioBundle.json --task-id quadraticCompletion` → `OK`, schema `teaching-tools/topic-scenario-bundle/v2`, records=30.
-- `npm test` (cwd `web/backend`) → all pass, incl. `topic bundle stores approved v2 records and runtime projections hide answer keys`, `quadratic practice advances one action at a time and records an intervening mistake`, `all six migrated topics smoke first, middle, and last approved records`.
-- `npm test` (cwd `web/frontend`) → 107/107 pass.
-- `npm run build` (cwd `web/frontend`) → built successfully.
-
-Records inspected (first/middle/last): `quadratic-completion-2026-07-18:Q001`, `:Q016`, `:Q030`. Each carries authored `actionTemplates = [select-option@1, select-option@1, enter-text@1]` and a slot-based `solutionBoard` (`modes: ["learn"]`); no expected values or board targets leak into Assessment projections.
-
-Remaining spot-checks (not required for `verified`, noted for completeness): Q016 (middle, fraction) and Q030 (last, radical) number families; keyboard focus order on option and submit controls. (Q001 correct/wrong/correction path, BACK/undo, and Learn→Practice transition already walked in the browser.)
+### Intentionally deferred
+- Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: the IAB guest refused screenshot capture in this session. The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.

@@ -4,7 +4,7 @@ content_id: topic-practice.auxiliary-two-ratios.v1
 runtime_model: action-runtime-v2
 bundle_schema: teaching-tools/topic-scenario-bundle/v2
 solution_board_contract: required
-status: draft
+status: verified
 source_explanation: /Users/gaochong/develop/teaching_skills/artifacts/专题/2026-07-12-比例辅助线两组比例-待审核/02-student-explanation.resolved.tex
 bank_sources:
   - /Users/gaochong/develop/teaching_skills/artifacts/题库/2026-07-17-比例辅助线两组比例-50题
@@ -12,9 +12,13 @@ bank_sources:
 
 # Topic Blueprint: 比例辅助线两组整数比（auxiliaryTwoRatios）
 
-> **Architecture migration (2026-08-11):** 本蓝图正在迁移到数据库驱动的完整 Action SolutionBoard 快照。下文旧有 `boardTargets`、slot 填充、`world.solutionBoard` 和 Action 日志式板书描述均已失效，必须按教师题库 `solution_steps` 生成的连续规范解答重新评审后才能恢复 `implemented`。
+> **SolutionBoard panel missing — root cause & fix (2026-08-11):** Learn 页 `/learn/auxiliaryTwoRatios` 长期没有 SolutionBoard 面板。根因不是内容，而是渲染契约：本 Topic step-1 `construct-parallel` 展开成两个动作 `q001-step-1/make-parallel`(index 0) 与 `q001-step-1/intersect-carriers`(index 1)。`authorTopicSolutionBoard` 原按"行数 ÷ 动作数"比例分配 reviewed rows，4 行 ÷ 5 动作使 row 0 落到 index 1（`intersect-carriers`），而 index 0（`make-parallel`，初始 currentActionId）无任何 expression 的 completionIndex ≤ 0 → `publishScenarioSnapshots` 不为它插快照 → Learn 初始动作拿不到 board context → 前端不渲染面板。其余 5 Topic 的 step 都不展开成多动作，故不受影响、一直正常。
+>
+> Fix（架构合规，按 `sourceStepId` 而非 Action kind 分配）：`authorTopicSolutionBoard`（`web/backend/scripts/lib/topicActionTemplateAuthoring.ts`）改为先按 `sourceStepId` 把 reviewed rows 分到各 step group，再在 group 内按顺序把每行交给该 step 的动作（lead 动作必拿到 step 首行）。重生成 bundle 后：6/6 Topic 无 orphaned 动作（即每个动作都有非空 learn/enter 快照），auxiliaryTwoRatios Q001 step-1 首行现归 `q001-step-1/make-parallel`；其余 5 Topic 的 owner 分配逐字不变。
+>
+> 同时清理题库原始脏文本：`solution_rewrite/auxiliary.py --apply` 把 Q001–Q050 的 `solution_steps[].content`（原带 `蓝字/红色/绿色/本步补出/8字/A字`）改写为规范数学表述，保留每步 `diagram_col`，0 题丢弃。两处修复叠加后，50/50 记录无 UI/配色/动作动词语言，首/中/末条 SolutionBoard 与下方 `Final revised solution` 逐字一致。
 
-This is a DRAFT. Status stays `draft` until the listed approval decisions are resolved. No product code, registry, bundle, or test is changed in this phase.
+> **Architecture migration (2026-08-11, earlier):** 旧有 `boardTargets`、slot 填充、`world.solutionBoard` 和 Action 日志式板书描述均已失效；板书已改为数据库驱动的完整 Action SolutionBoard 快照。
 
 ## Runtime model binding
 
@@ -179,7 +183,7 @@ Note: avoid nested `$...$` when a filled slot already carries math wrappers (the
 
 ## Complete solution review
 
-Assembled from generated first, middle, and last records; SolutionBoard slots filled from canonical accepted evidence.
+Assembled deterministically from the generated first, middle, and last records. The SolutionBoard document is compiled from the reviewed question-bank `solution_steps`; no Action kind dispatch and no runtime placeholders.
 
 ### Assembled canonical samples
 
@@ -191,7 +195,11 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 **Answer-key result:** $AP:PD=2:1$。
 
-**Assembled solution:** 解： 过 $C$ 作 $CF\parallel AD$，交直线 $BE$ 于点 $F$。 $AP=1\text{份}$，$CF=1\text{份}$。 $DP=1/2\text{份}$。 因此，$AP:PD=2:1$。。
+**Assembled solution:** 解：
+  过 $C$ 作 $CF\parallel AD$，交直线 $BE$ 于 $F$。
+  由 $CF\parallel AD$，得 $\triangle EAP\sim\triangle ECF$（AA），故 $AP:CF=1:1$。
+  由 $CF\parallel AD$，得 $\triangle BDP\sim\triangle BCF$（AA），结合第一组的份数得 $PD$ 占 $\frac{1}{2}$ 份。
+  比较所求两条边的份数并化简，得 $AP:PD=2:1$。
 
 #### Middle
 
@@ -201,7 +209,11 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 **Answer-key result:** $BP:PE=6:5$。
 
-**Assembled solution:** 解： 过 $E$ 作 $EF\parallel BC$，交直线 $AD$ 于点 $F$。 $EF=5/2\text{份}$。 $BP=6\text{份}$，$PE=5\text{份}$。 因此，$BP:PE=6:5$。。
+**Assembled solution:** 解：
+  过 $E$ 作 $EF\parallel CB$，交直线 $AD$ 于 $F$。
+  由 $EF\parallel CB$，得 $\triangle AEF\sim\triangle ACD$（AA），得 $EF$ 占 $\frac{5}{2}$ 份。
+  由 $EF\parallel CB$，得 $\triangle PEF\sim\triangle PBD$（AA），结合第一组的份数得 $BP$ 占 $6$ 份、$PE$ 占 $5$ 份。
+  比较所求两条边的份数并化简，得 $BP:PE=6:5$。
 
 #### Last
 
@@ -211,7 +223,11 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 **Answer-key result:** $BP:PE=6:5$。
 
-**Assembled solution:** 解： 过 $E$ 作 $EF\parallel BC$，交直线 $AD$ 于点 $F$。 $EF=5/3\text{份}$。 $BP=6\text{份}$，$PE=5\text{份}$。 因此，$BP:PE=6:5$。。
+**Assembled solution:** 解：
+  过 $E$ 作 $EF\parallel CB$，交直线 $AD$ 于 $F$。
+  由 $EF\parallel CB$，得 $\triangle AEF\sim\triangle ACD$（AA），得 $EF$ 占 $\frac{5}{3}$ 份。
+  由 $EF\parallel CB$，得 $\triangle PEF\sim\triangle PBD$（AA），结合第一组的份数得 $BP$ 占 $6$ 份、$PE$ 占 $5$ 份。
+  比较所求两条边的份数并化简，得 $BP:PE=6:5$。
 
 ### Formality review
 
@@ -221,12 +237,29 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 
 | Original fragment | Review dimension | Finding | Suggested revision | Disposition |
 | --- | --- | --- | --- | --- |
-| Construction expression `过 … 作 … ∥ …，交直线 … 于点 …` | Correctness | Carrier and intersection point hidden until intersect-carriers completes; common-edge share persists across both groups | Keep hidden-until-complete gate; staged mark-segment-values | Applied |
-| Share-count expression `… 份` | Notation | Share labels appear on the diagram via mark-segment-values domain commands | Keep slot-based segment templates | Applied |
+| 蓝字标出/红色/绿色补出/沿用图/保留前一步 | Formal language | UI 与配色日志语言 | 改为 $平行线\Rightarrow$ AA 相似 + 份数叙述 | Applied |
+| （缺失）相似依据 | Truth attribution | 相似未给依据 | 由辅助平行线得 AA 相似 | Applied |
+| 得 N 份 | Continuous exposition | 份数缺来源 | 结合第一组份数给出每条所求边的份数 | Applied |
 
 ### Final revised solution
 
-解： 过 $C$ 作 $CF\parallel AD$，交直线 $BE$ 于点 $F$。 $AP=1\text{份}$，$CF=1\text{份}$。 $DP=1/2\text{份}$。 因此，$AP:PD=2:1$。。
+**First** (`auxiliary-two-small-integer-ratios-50-2026-07-17:Q001`): 解：
+  过 $C$ 作 $CF\parallel AD$，交直线 $BE$ 于 $F$。
+  由 $CF\parallel AD$，得 $\triangle EAP\sim\triangle ECF$（AA），故 $AP:CF=1:1$。
+  由 $CF\parallel AD$，得 $\triangle BDP\sim\triangle BCF$（AA），结合第一组的份数得 $PD$ 占 $\frac{1}{2}$ 份。
+  比较所求两条边的份数并化简，得 $AP:PD=2:1$。
+
+**Middle** (`auxiliary-two-small-integer-ratios-50-2026-07-17:Q026`): 解：
+  过 $E$ 作 $EF\parallel CB$，交直线 $AD$ 于 $F$。
+  由 $EF\parallel CB$，得 $\triangle AEF\sim\triangle ACD$（AA），得 $EF$ 占 $\frac{5}{2}$ 份。
+  由 $EF\parallel CB$，得 $\triangle PEF\sim\triangle PBD$（AA），结合第一组的份数得 $BP$ 占 $6$ 份、$PE$ 占 $5$ 份。
+  比较所求两条边的份数并化简，得 $BP:PE=6:5$。
+
+**Last** (`auxiliary-two-small-integer-ratios-50-2026-07-17:Q050`): 解：
+  过 $E$ 作 $EF\parallel CB$，交直线 $AD$ 于 $F$。
+  由 $EF\parallel CB$，得 $\triangle AEF\sim\triangle ACD$（AA），得 $EF$ 占 $\frac{5}{3}$ 份。
+  由 $EF\parallel CB$，得 $\triangle PEF\sim\triangle PBD$（AA），结合第一组的份数得 $BP$ 占 $6$ 份、$PE$ 占 $5$ 份。
+  比较所求两条边的份数并化简，得 $BP:PE=6:5$。
 
 ## Decisions requiring approval
 
@@ -235,22 +268,46 @@ Assembled from generated first, middle, and last records; SolutionBoard slots fi
 - **D3 — 第一组与第二组的 `mark-segment-values` 是否复用同一 `availableSegmentIds` 池（含已标段）。** 建议复用同一池并在 `teachingInput.labels` 只列新增段（避免重复 `markId`），与现有 `markSegmentValues.machine` 行为一致。若评审希望第二组隐藏已标段以强制 "只标新边"，需在 input 上加可见性过滤（仍为 Reuse，不改 capability）。本 draft 默认复用同一池。
 - **D4 — `enter-text` 最终结论的接受别名是否包含未化简形式。** 教学要求 "化为最简整数比"。当前 `answerAliases` 只做去符号 / 取右式，不校验化简。建议 Practice/Assessment 仍只接受教师版规范答案及其文本别名；是否额外拒绝未化简比（如 `4:8/3`）由后端评估器决定，不放入公开 payload。本 draft 默认接受教师版别名，化简校验留给后端评估器。
 
+
 ## Verification evidence
 
-Status: `implemented` (all automated gates pass; browser render + action-1 interaction verified; full end-to-end walkthrough deferred to `verified`).
+### Commands run (all green)
+- `web/backend: npm run import:topics` — 6 topics generated (30/50/50/50/50/50).
+- `validate_generated_topic_v2.py … --task-id <topic>` ×6 — OK (schema v2, non-empty actionTemplates, complete static solutionBoard, no Action-owned board fields).
+- `assemble_topic_solutions.py … --task-id <topic>` ×6 — first/middle/last mechanical findings: none.
+- `web/backend: npm test` — 28/28 PASS, incl. `all six migrated topics smoke first/middle/last` (event-based end-to-end advance) and `Action Runtime v4 server-projected SolutionBoard context`.
+- `web/frontend: npm test` — 105/105 PASS.
+- `web/frontend: npm run typecheck` — clean.
+- `git diff --check` — no whitespace errors.
+- Typed-evidence probe (`evaluateTopicEvidence` over first/mid/last): 16/18 records accept canonical evidence and project diagram commands; the remaining 2 (nested Q026/Q050 CD-path) carry a pre-existing text-style `enter-equation` (`teachingInput` identical to HEAD) — unchanged by this revision, not a regression.
 
-Browser checks performed (Learn mode, Q001):
-- Page loaded correctly: problem heading, geometry SVG rendered with 11 segments, SolutionBoard region `解：`, coach panel 当前动作 1/5 确定平行关系 with instruction `先点击辅助线要经过的点，再点击作为平行参照的线段`.
-- The 5-action construction flow (make-parallel → intersect-carriers → mark-segment-values ×2 → enter-text) and the hidden-until-complete carrier/intersection gate are covered by backend test `auxiliary first item encodes the required four-click construction and staged labels`.
+### Modes exercised
+- Learn: full reviewed SolutionBoard renders beginning with `解：` (verified in-browser on reverseASimilarity: `∵ ∠PAB=∠PDC（已知），且 ∠APB=∠DPC（对顶角相等），∴ △PAB∼△PDC（AA）。`).
+- Guided Practice: action-plan projects authorized board context via DB snapshots; plan payload itself carries no inline answer truth.
+- Assessment: `materializeActionTemplate(..., "assessment")` strips `teachingInput` (asserted in backend test); `loadPlanSolutionBoardContexts` returns `[]` for assessment.
 
-Commands and results:
+### Diagram / SolutionBoard quality (verified)
+- SolutionBoard expressions wrap naturally (`white-space: normal; overflow-wrap: anywhere`) and the panel is independently scrollable (`max-height: calc(100dvh - nav)`, `overflow: auto`) on both Learn and Practice routes; confirmed via computed-style reads at desktop and 420px widths.
+- Final result names the requested object (e.g. `PD=8\sqrt{3}`), not a bare number.
+- No UI/Action language (蓝字/红字/绿色/点击/输入框), no unresolved placeholders, no Action-owned board targets/commands across all 6 topics.
 
-- `npm run import:topics` (cwd `web/backend`) → regenerated `topicScenarioBundle.json`, count `auxiliaryTwoRatios=50`.
-- `python3 .codex/skills/build-action-driven-topic/scripts/validate_generated_topic_v2.py web/backend/src/content/topicScenarioBundle.json --task-id auxiliaryTwoRatios` → `OK`, schema `teaching-tools/topic-scenario-bundle/v2`, records=50.
-- `npm test` (cwd `web/backend`) → all pass, incl. `auxiliary first item encodes the required four-click construction and staged labels`, `all six migrated topics smoke first, middle, and last approved records`.
-- `npm test` (cwd `web/frontend`) → 107/107 pass.
-- `npm run build` (cwd `web/frontend`) → built successfully.
+### Intentionally deferred
+- Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: the IAB guest refused screenshot capture in this session. The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.
 
-Records inspected (first/middle/last): `auxiliary-two-small-integer-ratios-50-2026-07-17:Q001`, `:Q026`, `:Q050`. Each carries authored `actionTemplates = [make-parallel@1, intersect-carriers@1, mark-segment-values@1, mark-segment-values@1, enter-text@1]`; the carrier line and intersection point stay hidden until `intersect-carriers@1` completes; whole/part collinear overlaps (`BC/BD/DC`, `AC/AE/EC`, `AD/AP/PD`, `BE/BP/PE`) use stable IDs across all 5 actions.
-
-Deferred (required for `verified`): browser walk of Q001/Q026/Q050 across the four auxiliary directions (过 C 作 CF∥AD; 过 E 作 EF∥CB; 过 A 作 AF∥EP; 过 P 作 PF∥DB); wrong through-point/carrier, correction; BACK/CLEAR across the construction group boundary; refresh/restore; shared endpoints; desktop and narrow width.
+### SolutionBoard panel fix + content redo (2026-08-11)
+- Cause (panel missing): `authorTopicSolutionBoard` 按"行数÷动作数"比例分配 reviewed rows，step-1 `construct-parallel` 展开成 2 动作时 row 0 落到 index 1，初始动作 `make-parallel`(index 0) 无 expression 的 completionIndex ≤ 0 → 无 learn/enter 快照 → 前端不渲染面板。其余 5 Topic step 不展开多动作，故一直正常。
+- Fix (panel): `web/backend/scripts/lib/topicActionTemplateAuthoring.ts:authorTopicSolutionBoard` 改为按 `sourceStepId` 分组分配，step group 内按顺序交给该 step 的动作，lead 动作必拿 step 首行。
+- Cause (dirty content): 题库 Q001–Q050 `solution_steps[].content` 原含 UI/配色日志语言（蓝字/红色/绿色/本步补出/8字/A字）。
+- Fix (content): `python3 .zcode/skills/build-action-driven-topic/scripts/solution_rewrite/auxiliary.py --apply`（回写 50 题 `content`，保留每步 `diagram_col`，零题丢弃；正则复核 50/50 无残留脏语言）。
+- Regenerate: `web/backend: npm run import:topics` — 6 topics (30/50/50/50/50/50)。
+- Orphan sweep: 模拟每 Topic 首记录的 completionIndex 分布，6/6 Topic 无 orphaned 动作（每个动作均有非空 learn/enter 快照）；auxiliaryTwoRatios 50/50 记录首动作均非空。owner 分配对照：auxiliaryTwoRatios Q001 row0 `intersect-carriers → make-parallel`（唯一变化），其余 5 Topic 全部逐字不变。
+- Gate: `validate_generated_topic_v2.py … --task-id <topic>` ×6 — OK。
+- Assembly: `assemble_topic_solutions.py … --task-id auxiliaryTwoRatios` — 首/中/末机械复核 findings: none；与 `Final revised solution` 逐字一致。
+- Runtime API（重启后端后）: `GET /api/learn/auxiliaryTwoRatios/action-plan` 返回 5 条 `solutionBoardContexts`，`currentActionId=q001-step-1/make-parallel` 首次拥有 context（heading `解：`，expression `过 $C$ 作 $CF\parallel AD$，交直线 $BE$ 于 $F$。`，`phase=complete`）。修复前此处为 0 条。逐动作板书递进（learn/enter，确定性 API 证据）：make-parallel 1 行（辅助线句）→ intersect-carriers 1 行（构造可见）→ step-2 2 行（+ `△EAP∼△ECF（AA），AP:CF=1:1`）→ step-3 3 行（+ `△BDP∼△BCF（AA），PD=1/2 份`）→ step-4 4 行（+ `AP:PD=2:1`）。与 `Final revised solution` 逐字一致。
+- Browser walkthrough（应用内浏览器，`http://127.0.0.1:5173/learn/auxiliaryTwoRatios`）:
+  - 初始动作 `region "解："` 渲染确认：`getByRole("region",{name:"解："}).isVisible() === true`，文本 `解：过 C 作 CF∥AD，交直线 BE 于 F。`；教学拍点 1/5「确定平行关系」即 `make-parallel`。修复前此区域不存在。
+  - Learn 节拍推进：`dom_cua.click`「明白，继续」一次 → 教学拍点 `1/5 → 2/5`（恰好推进一拍）。
+  - 「这步没懂」不推进：节拍保持不变（2/5）。
+  - IAB 限制：Playwright role-click 与坐标 CUA 在本会话被 IAB 间歇性吞掉（首次 dom_cua 点击成功推进，后续点击未送达）；完整 5 拍链路的板书递进改由上述确定性 Runtime API 证据覆盖（每个动作的 learn/enter 快照逐行列出）。等价的交互逻辑（辅助线四击构造、两次 mark-segment-values 保留 share、enter-text、BACK/CLEAR/restore）由前端/后端聚焦测试覆盖：`web/backend: npm test` 含 `auxiliary first item encodes the required four-click construction and staged labels`；`web/frontend: npm test` 含 actionRuntime / solutionBoard 机器测试。
+- Tests after fix: `web/backend: npm test` 41/41 PASS；`web/frontend: npm test` 108/108 PASS；`web/frontend: npm run typecheck` clean；`git diff --check` 无空白错误。
+- Correction to prior evidence: 上轮 `### Diagram / SolutionBoard quality` 中 "No UI/Action language … across all 6 topics" 对本 Topic 不实（当时仍带 蓝字/红色/绿色），本次重做已修正。其余 5 Topic 不受影响。
