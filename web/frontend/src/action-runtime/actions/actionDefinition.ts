@@ -27,6 +27,12 @@ export interface ActionMachineDefinition<Contract extends ActionContract = Actio
 
 export interface ActionPresentationProjection {
   enabledByKind: { points: string[]; lines: string[]; angles: string[] };
+  /**
+   * Ids that advance on a correct path right now (local truth). Optional; when
+   * omitted, `projectStandardSnapshot` falls back to the full `enabledByKind` set
+   * so server-authoritative actions (no local truth) keep their current behavior.
+   */
+  advanceObjectIds?: string[];
   answerSlots: AnswerSlotView[];
   preview?: CanvasSlice["preview"];
   diagramPreviewCommands?: DomainCommand[];
@@ -47,6 +53,11 @@ export function projectStandardSnapshot<Contract extends ActionContract = Action
     ? output as ActionEvidence
     : undefined;
   const presentation = present(context);
+  const enabledSet = new Set<string>([
+    ...presentation.enabledByKind.points,
+    ...presentation.enabledByKind.lines,
+    ...presentation.enabledByKind.angles,
+  ]);
   return {
     state: typeof snapshot.value === "string" ? snapshot.value : JSON.stringify(snapshot.value),
     selectedObjectIds: [...context.points, ...context.lines, ...context.angles],
@@ -61,6 +72,11 @@ export function projectStandardSnapshot<Contract extends ActionContract = Action
     commands: evidence ? commands(context.contract, evidence) : [],
     diagramPreviewCommands: presentation.diagramPreviewCommands || [],
     enabledByKind: presentation.enabledByKind,
+    // 3-layer affordance: when the machine exposes local truth, restrict
+    // advanceObjectIds to it; otherwise every enabled object can advance.
+    advanceObjectIds: presentation.advanceObjectIds
+      ? presentation.advanceObjectIds.filter((id) => enabledSet.has(id))
+      : [...enabledSet],
     projectedAnswerSlots: presentation.answerSlots.map((slot) => ({
       ...slot,
       hitTestable: slot.hitTestable ?? true,

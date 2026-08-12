@@ -145,6 +145,16 @@ export interface ActionSnapshotView {
   commands: DomainCommand[];
   diagramPreviewCommands: DomainCommand[];
   enabledByKind: { points: string[]; lines: string[]; angles: string[] };
+  /**
+   * ADR-006 3-layer affordance — the set of object ids that are on a CORRECT
+   * advancing path right now (the local truth). Produced by each action machine
+   * from its local truth. When absent, the projector falls back to `enabledByKind`
+   * (i.e. every plausible candidate also advances, which is the server-authoritative
+   * behavior where truth is not local). `enabledByKind` stays the broadest
+   * "interactable in this state" set so the renderer/hit-test and the
+   * `ignored-illegal` guard classification keep working unchanged.
+   */
+  advanceObjectIds?: string[];
   projectedAnswerSlots: AnswerSlotView[];
   preview?: CanvasSlice["preview"];
 }

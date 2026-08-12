@@ -118,14 +118,23 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
         (standard) => {
           const context = standard as FormMachineContext<Contract>;
           const specs = behavior.answerSlots?.(context) || context.contract.answerSlots;
+          const acceptingLines = context.lines.length < behavior.maxLines(context.contract)
+            ? behavior.availableLineIds(context.contract).filter((id) => !context.lines.includes(id))
+            : [];
+          // 3-layer affordance: the local-truth advancing line at the current
+          // slot index, when the machine exposes one. Server-authoritative and
+          // unordered actions omit it → every accepting line can advance.
+          const expectedNow = behavior.expectedLineAt?.(context.contract, context.lines.length);
+          const advanceLines = context.contract.validationPolicy === "server-authoritative" || !expectedNow
+            ? undefined
+            : acceptingLines.filter((id) => id === expectedNow);
           return {
             enabledByKind: {
               points: [],
-              lines: context.lines.length < behavior.maxLines(context.contract)
-                ? behavior.availableLineIds(context.contract).filter((id) => !context.lines.includes(id))
-                : [],
+              lines: acceptingLines,
               angles: [],
             },
+            advanceObjectIds: advanceLines,
             answerSlots: specs.map((slot) => {
               const value = behavior.slotValue?.(context, slot.id) ?? context.answers[slot.id] ?? "";
               return {

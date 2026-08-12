@@ -58,18 +58,33 @@ export const makeParallelDefinition: ActionMachineDefinition<MakeParallelAction>
     }) as AnyStateMachine;
   },
   project(snapshot) {
-    return projectStandardSnapshot(snapshot, () => false, (context) => ({
-      enabledByKind: {
-        points: context.points.length === 0 ? (context.contract as MakeParallelAction).input.availablePointIds : [],
-        lines: context.points.length === 1 && context.lines.length === 0 ? (context.contract as MakeParallelAction).input.availableLineIds : [],
-        angles: [],
-      },
-      answerSlots: (context.contract as MakeParallelAction).answerSlots.map((slot) => {
-        const value = slot.id === "through-point" ? context.points[0] || "" : context.lines[0] || "";
-        return { ...slot, value, active: false, status: value ? "filled" : "empty" };
-      }),
-      preview: { type: "parallel", throughPointId: context.points[0], referenceLineId: context.lines[0] },
-    }), (contract, evidence) => evidence.kind === "make-parallel" ? [{
+    return projectStandardSnapshot(snapshot, () => false, (context) => {
+      const contract = context.contract as MakeParallelAction;
+      const pointsEnabled = context.points.length === 0 ? contract.input.availablePointIds : [];
+      const linesEnabled = context.points.length === 1 && context.lines.length === 0 ? contract.input.availableLineIds : [];
+      // 3-layer affordance: local-truth advancing target for this state. Absent
+      // (→ fallback to enabled) when there is no local truth (server-authoritative
+      // or unauthored input).
+      const advance = contract.validationPolicy === "server-authoritative" ? undefined
+        : context.points.length === 0 && contract.input.throughPointId
+          ? [contract.input.throughPointId]
+          : context.points.length === 1 && context.lines.length === 0 && contract.input.referenceLineId
+            ? [contract.input.referenceLineId]
+            : undefined;
+      return {
+        enabledByKind: {
+          points: pointsEnabled,
+          lines: linesEnabled,
+          angles: [],
+        },
+        advanceObjectIds: advance,
+        answerSlots: contract.answerSlots.map((slot) => {
+          const value = slot.id === "through-point" ? context.points[0] || "" : context.lines[0] || "";
+          return { ...slot, value, active: false, status: value ? "filled" : "empty" };
+        }),
+        preview: { type: "parallel", throughPointId: context.points[0], referenceLineId: context.lines[0] },
+      };
+    }, (contract, evidence) => evidence.kind === "make-parallel" ? [{
       commandId: `${contract.actionId}/construct-parallel`,
       actionId: contract.actionId,
       type: "construct-parallel",

@@ -9,16 +9,27 @@ function entitiesFor(plan: ExercisePlan, child: ActionSnapshotView, geometry = p
   for (const line of geometry?.segments || []) ids.set(line.id, "line");
   for (const line of geometry?.derivedLines || []) ids.set(line.id, "line");
   const wrong = child.wrongObjectId;
+  // ADR-006 3-layer affordance. `advanceObjectIds` (machine-authored local truth)
+  // is the correct-path set; when the machine omits it we fall back to the whole
+  // accepting set so server-authoritative actions keep their current behavior.
+  const advance = new Set(child.advanceObjectIds
+    ?? [...child.enabledByKind.points, ...child.enabledByKind.lines, ...child.enabledByKind.angles]);
   return Object.fromEntries([...ids].map(([id, kind]) => {
     const enabled = child.enabledByKind[`${kind}s` as "points" | "lines" | "angles"].includes(id);
     const selected = child.selectedObjectIds.includes(id);
     return [id, {
       id,
       kind,
+      // `enabled` stays the renderer/hit-test authority and is unchanged: a
+      // reasonable-but-wrong candidate remains interactable and still reaches
+      // the local training guard.
       enabled,
+      // Broadest: anything the action will accept input on in this state.
       hitTestable: enabled,
+      // A plausible candidate the guard will evaluate (includes wrong ones).
       candidate: enabled,
-      advanceEnabled: enabled,
+      // On a correct advancing path right now (local truth).
+      advanceEnabled: enabled && advance.has(id),
       visualState: wrong === id ? "wrong" : selected ? "selected" : highlights.includes(id) ? "correct" : enabled ? "available" : "idle",
       feedback: wrong === id ? child.wrongMessage : undefined,
     } satisfies RuntimeEntityView];

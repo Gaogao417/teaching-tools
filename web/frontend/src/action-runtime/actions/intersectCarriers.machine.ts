@@ -37,14 +37,26 @@ export const intersectCarriersDefinition: ActionMachineDefinition<IntersectCarri
     }) as AnyStateMachine;
   },
   project(snapshot) {
-    return projectStandardSnapshot(snapshot, () => false, (context) => ({
-      enabledByKind: { points: context.points.length < 2 ? (context.contract as IntersectCarriersAction).input.availablePointIds : [], lines: [], angles: [] },
-      answerSlots: (context.contract as IntersectCarriersAction).answerSlots.map((slot, index) => {
-        const value = context.points[index] || "";
-        return { ...slot, value, active: false, status: value ? "filled" : "empty" };
-      }),
-      preview: { type: "intersection", parallelLineId: (context.contract as IntersectCarriersAction).input.parallelLineId, carrierPointIds: context.points },
-    }), (contract, evidence) => evidence.kind === "intersect-carriers" ? [{
+    return projectStandardSnapshot(snapshot, () => false, (context) => {
+      const contract = context.contract as IntersectCarriersAction;
+      const pointsEnabled = context.points.length < 2 ? contract.input.availablePointIds : [];
+      // 3-layer affordance: the local-truth carrier endpoint at the current
+      // index. Absent when there is no local truth.
+      const advance = contract.validationPolicy === "server-authoritative" || !contract.input.carrierPointIds
+        ? undefined
+        : context.points.length < 2 && contract.input.carrierPointIds[context.points.length]
+          ? [contract.input.carrierPointIds[context.points.length]]
+          : undefined;
+      return {
+        enabledByKind: { points: pointsEnabled, lines: [], angles: [] },
+        advanceObjectIds: advance,
+        answerSlots: contract.answerSlots.map((slot, index) => {
+          const value = context.points[index] || "";
+          return { ...slot, value, active: false, status: value ? "filled" : "empty" };
+        }),
+        preview: { type: "intersection", parallelLineId: contract.input.parallelLineId, carrierPointIds: context.points },
+      };
+    }, (contract, evidence) => evidence.kind === "intersect-carriers" ? [{
       commandId: `${contract.actionId}/construct-carrier`, actionId: contract.actionId, type: "construct-carrier",
       fromPointId: evidence.carrierPointIds[0], toPointId: evidence.carrierPointIds[1],
       outputLineId: (contract as IntersectCarriersAction).input.outputCarrierLineId,
