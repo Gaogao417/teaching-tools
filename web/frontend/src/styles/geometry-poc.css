@@ -164,3 +164,43 @@
   line-height: 1.2;
   text-shadow: 0 1px 0 var(--surface-card);
 }
+
+/* Transient "just changed" highlight for canvas elements. The board applies the
+   class for exactly one render when a fresh emphasis key arrives, so the
+   animation plays once and does not replay on unrelated re-renders. It is a
+   color/glow pulse — never a geometric transform — so SVG geometry and layout
+   stay stable. The teal matches the derived-line accent. */
+.geometry-canvas__board .geometry-emphasis-pulse {
+  animation: geometry-emphasis-pulse 0.8s ease-out 1;
+}
+
+@keyframes geometry-emphasis-pulse {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(24, 183, 183, 0));
+  }
+  35% {
+    filter: drop-shadow(0 0 5px rgba(24, 183, 183, 0.9));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 rgba(24, 183, 183, 0));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Reduced motion: a brief, gentle outline/color shift — no movement at all. */
+  .geometry-canvas__board .geometry-emphasis-pulse {
+    animation: geometry-emphasis-pulse-reduced 0.6s ease-out 1;
+  }
+}
+
+@keyframes geometry-emphasis-pulse-reduced {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(24, 183, 183, 0));
+  }
+  50% {
+    filter: drop-shadow(0 0 2px rgba(24, 183, 183, 0.7));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 rgba(24, 183, 183, 0));
+  }
+}

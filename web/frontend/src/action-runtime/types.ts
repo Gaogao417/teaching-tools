@@ -82,6 +82,24 @@ export interface ControlSlice {
   submitReason?: string;
 }
 
+/**
+ * A short-lived, UI-only highlight of elements that just changed. It is NOT
+ * part of the domain world, evaluation, checkpoint, or any persistent state:
+ * it exists only to drive a one-shot renderer animation. The `key` changes each
+ * time a new completion produces fresh targets so a renderer can play the
+ * animation again; the same key on a re-render must not replay.
+ */
+export type EmphasisTarget =
+  | { surface: "canvas"; kind: "entity"; id: string }
+  | { surface: "canvas"; kind: "teaching-mark"; id: string }
+  | { surface: "solution-board"; kind: "expression"; id: string }
+  | { surface: "answer"; kind: "slot"; id: string };
+
+export interface TransientEmphasis {
+  key: string;
+  targets: EmphasisTarget[];
+}
+
 export interface WorkspaceView {
   actionId: string;
   actionKind: ActionContract["kind"];
@@ -93,6 +111,8 @@ export interface WorkspaceView {
   solutionBoard?: SolutionBoardView;
   coach: CoachSlice;
   controls: ControlSlice;
+  /** Frontend-only, never persisted. Absent means no pending highlight. */
+  transientEmphasis?: TransientEmphasis;
 }
 
 export interface ActionSnapshotView {

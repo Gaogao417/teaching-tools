@@ -91,6 +91,24 @@ export interface InteractionView {
   preview?: PreviewSpec;
   canCancel: boolean;
   canGoBack: boolean;
+  /**
+   * Optional one-shot highlight for canvas elements that just changed. The
+   * `key` is stable across re-renders and only changes when a new highlight is
+   * due; renderers play the animation once per new key. Absent means idle.
+   */
+  emphasis?: TransientCanvasEmphasis;
+}
+
+/**
+ * Frontend-only transient highlight for the geometry surface. `entityIds` covers
+ * points/lines; `markIds` covers teaching marks. When a mark id references an
+ * emphasis-kind mark that has no independent renderer node, the board falls back
+ * to highlighting that mark's own entity ids.
+ */
+export interface TransientCanvasEmphasis {
+  key: string;
+  entityIds: readonly string[];
+  markIds: readonly string[];
 }
 
 /** View shown when no tool is active. The Canvas renders an idle state. */

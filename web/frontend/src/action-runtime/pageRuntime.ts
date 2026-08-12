@@ -13,8 +13,9 @@ import { applyActionEffectBatch, diagramEffects, replayActionEffectBatches } fro
 import type { ActionSolutionBoardContext } from "../../../shared/solutionBoard";
 import type { ActionRuntimeEvent } from "./events";
 import { projectWorkspaceView } from "./projectWorkspaceView";
+import { deriveTransientEmphasis } from "./projection/deriveTransientEmphasis";
 import { actionMachineRegistry, type ActionMachineRegistry } from "./registry";
-import type { ActionActor, ActionPageRuntime, PageRuntimeSnapshot } from "./types";
+import type { ActionActor, ActionPageRuntime, PageRuntimeSnapshot, TransientEmphasis } from "./types";
 
 type PageEvent =
   | { type: "ACTION_DONE"; evidence: ActionEvidence; commands: DomainCommand[]; submit: boolean; nextActionId?: string }
@@ -250,6 +251,17 @@ export function createActionPageRuntime(
   let handledEvidenceActionId: string | undefined;
   let draftToHydrate = checkpoint?.revision === plan.revision ? checkpoint.currentDraft : undefined;
 
+  // Transient emphasis is frontend-only UI state. It lives in this closure —
+  // never in the XState context, the snapshot, a checkpoint or any store — so it
+  // cannot be persisted, restored or replayed. The key is a monotonic counter so
+  // undo-then-recomplete yields a fresh key and the renderer can animate again.
+  let pendingEmphasis: TransientEmphasis | undefined;
+  let emphasisSeq = 0;
+  const nextEmphasisKey = () => `emphasis:${++emphasisSeq}`;
+  const setEmphasis = (targets: ReturnType<typeof deriveTransientEmphasis>) => {
+    pendingEmphasis = targets.length ? { key: nextEmphasisKey(), targets } : undefined;
+  };
+
   function notify() {
     // Child snapshots change without changing XState page context. Clone the
     // public snapshot so useSyncExternalStore observes every semantic event.
@@ -280,6 +292,10 @@ export function createActionPageRuntime(
         handledEvidenceActionId = snapshot.evidence.actionId;
         recentEvents.push({ type: "action-completed", at: new Date().toISOString() });
         const contract = child.contract;
+        // Derive the one-shot highlight BEFORE sending ACTION_DONE: the page
+        // transition notifies listeners synchronously, so the pending emphasis
+        // must already reflect the just-applied DomainCommands.
+        setEmphasis(deriveTransientEmphasis({ commands: snapshot.commands }));
         pageActor.send({
           type: "ACTION_DONE",
           evidence: snapshot.evidence,
@@ -325,10 +341,14 @@ export function createActionPageRuntime(
       }
       const childSnapshot = child.getSnapshot();
       if (event.type === "BACK" && childSnapshot.selectedObjectIds.length === 0 && Object.keys(childSnapshot.answers).length === 0) {
+        // Rolling back the last completed action: its highlight must not linger.
+        pendingEmphasis = undefined;
         pageActor.send({ type: "UNDO_LAST_ACTION" });
         return;
       }
       if (event.type === "CLEAR") {
+        // Clearing the draft group discards the in-flight changes; drop their highlight.
+        pendingEmphasis = undefined;
         pageActor.send({ type: "CLEAR_DRAFT_GROUP" });
         child.send(event);
         return;
@@ -336,7 +356,11 @@ export function createActionPageRuntime(
       child.send(event);
     },
     getView() {
-      return projectWorkspaceView(pageActor.getSnapshot().context, child.getSnapshot());
+      const view = projectWorkspaceView(pageActor.getSnapshot().context, child.getSnapshot());
+      // Emphasis is owned by the runtime, not the pure projection; attach it
+      // here so the projector stays free of any transient-presentation logic.
+      if (pendingEmphasis) view.transientEmphasis = pendingEmphasis;
+      return view;
     },
     getSnapshot() {
       return cachedPageSnapshot;
@@ -400,12 +424,24 @@ export function createActionPageRuntime(
     },
     applyEvaluation(result) {
       if (result.outcome === "rejected") wrongAttempts += 1;
+      // Resolve the pending highlight BEFORE the page transition notifies, so the
+      // view the learner sees next already reflects the evaluated outcome.
+      if (result.outcome === "rejected" || result.outcome === "conflict") {
+        pendingEmphasis = undefined;
+      } else if (result.solutionBoardContext?.stage === "accepted") {
+        const ctx = result.solutionBoardContext;
+        const owner = pageActor.getSnapshot().context.plan.actions.find((item) => item.actionId === ctx.actionId);
+        const sourceStepId = owner?.sourceStepId;
+        setEmphasis(sourceStepId ? deriveTransientEmphasis({ acceptedBoard: { context: ctx, sourceStepId } }) : []);
+      }
       pageActor.send({ type: "EVALUATION", result });
       if (result.outcome === "rejected" || result.outcome === "conflict") mountChild();
     },
     resetFromPlan(nextPlan) {
       draftToHydrate = undefined;
       previousActionId = nextPlan.currentActionId;
+      // A restore must never replay a prior highlight.
+      pendingEmphasis = undefined;
       pageActor.send({ type: "RESET", plan: nextPlan });
       mountChild();
     },

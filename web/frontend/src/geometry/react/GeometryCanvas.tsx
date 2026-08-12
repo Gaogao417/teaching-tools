@@ -47,6 +47,10 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   // every click. The board filters only on `entities[id].enabled`.
   const entitiesRef = useRef(view.entities);
   entitiesRef.current = view.entities;
+  // Keep the latest transient emphasis available to the board's renderer, which
+  // is mounted once but reads the current emphasis on every redraw.
+  const emphasisRef = useRef(view.emphasis);
+  emphasisRef.current = view.emphasis;
   // Likewise keep the latest click handler: the board's onHit is wired once at
   // mount, but onClickEntity closes over `view.entities` and would otherwise
   // stay pinned to the first render (idle, no enabled entities) and silently
@@ -62,6 +66,7 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
     if (!containerRef.current) return;
     const handles = mountGeometryBoard(containerRef.current, model, {
       getEntities: () => entitiesRef.current,
+      getEmphasis: () => emphasisRef.current,
       onHit: (hit) => {
         setInvalidHint(null);
         onClickEntityRef.current(hit);

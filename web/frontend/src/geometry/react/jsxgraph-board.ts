@@ -16,7 +16,10 @@ import JXG from "jsxgraph";
 import type { GeometryModel } from "../domain/model";
 import { hitTest } from "../domain/hit-test";
 import type { EntityRef } from "../interaction/events";
-import type { EntityAffordance } from "../interaction/interaction-view";
+import type { EntityAffordance, TransientCanvasEmphasis } from "../interaction/interaction-view";
+
+/** CSS class applied for one render to elements whose emphasis key is new. */
+const EMPHASIS_PULSE_CLASS = "geometry-emphasis-pulse";
 
 export interface BoardHandles {
   /** The underlying JSXGraph board. */
@@ -47,6 +50,11 @@ export interface BoardCallbacks {
   onMiss(): void;
   /** Fired on every pointer move with the world coordinates. */
   onPointerMove(position: { x: number; y: number }): void;
+  /**
+   * Optional one-shot canvas emphasis. When omitted (e.g. the POC workspace),
+   * the board renders no transient highlight.
+   */
+  getEmphasis?(): TransientCanvasEmphasis | undefined;
 }
 
 const POINT_ATTRS_ACTIVE: Partial<JXG.PointAttributes> = {
@@ -96,6 +104,36 @@ const CIRCLE_ATTRS: Partial<JXG.CircleAttributes> = {
 } as Partial<JXG.CircleAttributes>;
 
 /**
+ * Pure resolution of the transient canvas highlight for one render.
+ *
+ * - `fresh` is true only when the emphasis key differs from the last one the
+ *   board played, so a re-render with the same key produces no pulse targets
+ *   and the animation never restarts.
+ * - An emphasis-kind teaching mark has no independent renderer node, so a mark
+ *   id that resolves to such a mark contributes the mark's own entity ids to
+ *   `pulseEntities` instead of appearing in `pulseMarks`.
+ */
+export function resolveCanvasEmphasis(input: {
+  emphasis?: TransientCanvasEmphasis;
+  teachingMarks: readonly { id: string; kind: string; entityIds?: readonly string[] }[];
+  lastKey?: string;
+}): { fresh: boolean; pulseEntities: Set<string>; pulseMarks: Set<string> } {
+  const { emphasis, teachingMarks, lastKey } = input;
+  const fresh = Boolean(emphasis && emphasis.key !== lastKey);
+  const pulseEntities = new Set<string>();
+  const pulseMarks = new Set<string>();
+  if (fresh && emphasis) {
+    for (const id of emphasis.entityIds) pulseEntities.add(id);
+    for (const markId of emphasis.markIds) {
+      const mark = teachingMarks.find((candidate) => candidate.id === markId);
+      if (mark?.kind === "emphasis") mark.entityIds?.forEach((id) => pulseEntities.add(id));
+      else pulseMarks.add(markId);
+    }
+  }
+  return { fresh, pulseEntities, pulseMarks };
+}
+
+/**
  * Mount a JSXGraph board inside `container`, backed by `model`. Returns handles
  * the React layer uses to render, read the pointer, and tear down.
  */
@@ -114,6 +152,11 @@ export function mountGeometryBoard(
   }) as unknown as JXG.Board;
 
   let pointer: { x: number; y: number } | null = null;
+
+  // Last emphasis key the board has already played. A full redraw runs on every
+  // view change, so without this guard a highlight would replay on unrelated
+  // re-renders. We pulse only when the key is new.
+  let lastEmphasisKey: string | undefined;
 
   // Track the pointer in user coordinates for previews (render-layer only).
   // getUsrCoordsOfMouse expects the raw browser event: internally it calls
@@ -159,6 +202,17 @@ export function mountGeometryBoard(
     const teachingMarks = model.teachingMarksList();
     const emphasizedIds = new Set(teachingMarks.filter((mark) => mark.kind === "emphasis").flatMap((mark) => mark.entityIds));
 
+    // Resolve the transient highlight for this render (pure — extracted so the
+    // one-key-per-play rule and the emphasis-mark fallback are unit-testable
+    // without JSXGraph).
+    const emphasis = callbacks.getEmphasis?.();
+    const { fresh: freshEmphasis, pulseEntities, pulseMarks } = resolveCanvasEmphasis({
+      emphasis,
+      teachingMarks,
+      lastKey: lastEmphasisKey,
+    });
+    lastEmphasisKey = emphasis?.key;
+
     // Create point elements first so lines/circles can reference them by JSXGraph
     // element (the valid parent form), not by raw {x,y} objects. Points render on
     // a higher layer so the small draggable markers sit visually above the lines.
@@ -167,7 +221,13 @@ export function mountGeometryBoard(
       const el = board.create(
         "point",
         [point.x, point.y],
-        { ...(point.derived ? POINT_ATTRS_DERIVED : POINT_ATTRS_ACTIVE), ...entityStyle(entities[point.id]), layer: 9, name: point.id },
+        {
+          ...(point.derived ? POINT_ATTRS_DERIVED : POINT_ATTRS_ACTIVE),
+          ...entityStyle(entities[point.id]),
+          ...(freshEmphasis && pulseEntities.has(point.id) ? { cssClass: EMPHASIS_PULSE_CLASS } : {}),
+          layer: 9,
+          name: point.id,
+        },
       ) as JXG.Point;
       pointEls.set(point.id, el);
     }
@@ -183,6 +243,7 @@ export function mountGeometryBoard(
           ...(line.derived ? LINE_ATTRS_DERIVED : LINE_ATTRS),
           ...(emphasizedIds.has(line.id) ? { strokeColor: "#0f766e", strokeWidth: 4 } : {}),
           ...entityStyle(entities[line.id]),
+          ...(freshEmphasis && pulseEntities.has(line.id) ? { cssClass: EMPHASIS_PULSE_CLASS } : {}),
           layer: 7,
           name: line.id,
         }) as JXG.Line;
@@ -204,6 +265,7 @@ export function mountGeometryBoard(
           ...LINE_ATTRS_DERIVED,
           ...(emphasizedIds.has(line.id) ? { strokeColor: "#0f766e", strokeWidth: 4 } : {}),
           ...entityStyle(entities[line.id]),
+          ...(freshEmphasis && pulseEntities.has(line.id) ? { cssClass: EMPHASIS_PULSE_CLASS } : {}),
           layer: 7,
           name: line.id,
           // Before the intersection exists, show the complete mathematical
@@ -235,19 +297,21 @@ export function mountGeometryBoard(
         const y = (endpoints.from.y + endpoints.to.y) / 2 + (dx / length) * offset;
         const value = displayTeachingLatex(mark.valueLatex);
         const displayValue = mark.labelKind === "share" ? `${value} 份` : value;
+        const markPulsed = freshEmphasis && pulseMarks.has(mark.id);
         board.create("text", [x, y, displayValue], {
           fixed: true,
           anchorX: "middle",
           anchorY: "middle",
           fontSize: 16,
           color: mark.labelKind === "share" ? "#a16207" : "#0f766e",
-          cssClass: `geometry-teaching-label is-${mark.labelKind}`,
+          cssClass: `geometry-teaching-label is-${mark.labelKind}${markPulsed ? ` ${EMPHASIS_PULSE_CLASS}` : ""}`,
           highlight: false,
           layer: 10,
         }) as JXG.Text;
         continue;
       }
       if (mark.kind === "correspondence") {
+        const markPulsed = freshEmphasis && pulseMarks.has(mark.id);
         for (const segmentId of mark.segmentIds) {
           const endpoints = displayLineEndpoints(model, segmentId);
           if (!endpoints) continue;
@@ -266,7 +330,14 @@ export function mountGeometryBoard(
             board.create("segment", [
               [midX + ux * along - nx * half, midY + uy * along - ny * half],
               [midX + ux * along + nx * half, midY + uy * along + ny * half],
-            ], { strokeColor: "#a16207", strokeWidth: 2, fixed: true, highlight: false, layer: 10 }) as JXG.Line;
+            ], {
+              strokeColor: "#a16207",
+              strokeWidth: 2,
+              fixed: true,
+              highlight: false,
+              layer: 10,
+              ...(markPulsed ? { cssClass: EMPHASIS_PULSE_CLASS } : {}),
+            }) as JXG.Line;
           }
         }
       }
