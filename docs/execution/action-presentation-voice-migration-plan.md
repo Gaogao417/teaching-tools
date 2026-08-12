@@ -2,9 +2,8 @@
 
 ## Document Status
 
-- 状态：Remediation in progress（Training 轴 ADR-006 remediation 已闭环并标记 Implemented；voice 轴 coach-turn
-  边界与可观测性已落地，但 ADR-005 的 capture 仲裁 / Realtime port / Frame 退耦 / browser first audio 仍待完成。
-  详见 §Definition of Done 与各 ADR Status）
+- 状态：Implemented（remediation complete）—— ADR-005 与 ADR-006 经 2026-08-13 集成后，所有审核 remediation 项
+  已闭环并测试；仅余 rollout/rollback 真机演练等非代码门禁（见 §Definition of Done）。详见各 ADR Status。
 - 日期：2026-08-13（集成完成）
 - 集成基线 SHA：`86245f9`（master，审核确认的迁移基线；废弃文档中过期的 `2466965` / `f0475e3` 候选）
 - 媒体架构依据：[ADR-005](../adr/ADR-005-action-presentation-and-conversational-media.md)
@@ -613,8 +612,8 @@ COACH_STREAM_ASSESSMENT_ENABLED=false
 
 ## Definition of Done
 
-- [ ] ADR-005 标记 Accepted/Implemented —— coach-turn hex boundary 与 observability 已落地，但 capture 仲裁、
-      Realtime port、Frame 退耦、browser first audio 仍未完成，保持 remediation in progress，见 ADR-005 Status；
+- [x] ADR-005 标记 Accepted/Implemented —— 2026-08-13 remediation 闭环（coach-turn/Realtime port、capture 仲裁、
+      Frame 退耦、observability 含 browser first audio 全部落地并测试），见 ADR-005 Status；
 - [x] ADR-006 标记 Implemented —— 2026-08-13 Training remediation 闭环（guard/timer/affordance/metrics 全部落地并测试），
       见 ADR-006 Status；旧 server-authoritative Practice session 兼容/删除门禁已记录；
 - [x] Issue Inventory 的 P0/P1 全部关闭或有明确延期 ADR；
@@ -627,16 +626,16 @@ COACH_STREAM_ASSESSMENT_ENABLED=false
 - [x] TrainingSyncQueue 支持 offline、幂等、revision conflict、容量/TTL 与 best-effort flush；
 - [x] backend Training Record/Progress service 不重新判定 Practice 数学正确性；
 - [x] Assessment payload 无 local truth，仍使用 private evaluator 和权威 result；
-- [ ] `ActionRuntimeFrame` 不再拥有录音实现、provider selector、audio element 和 realtime protocol ——
-      Frame 仍直接持有 coach 编排，由 voice remediation 退回 presentation；
+- [x] `ActionRuntimeFrame` 不再拥有录音实现、provider selector、audio element 和 realtime protocol ——
+      `CoachController` 拥有 coach 编排，Frame 退回纯 presentation；
 - [x] Action Runtime 不 import media/AI infrastructure；
 - [x] 固定朗读有预取、缓存、取消和显式 autoplay 状态；
-- [ ] streaming Coach 的 browser first audio 可度量且早于完整回答 —— 服务端 `CoachTurnTelemetry` 时间线已落地，
-      前端 `browser_first_audio_at` 上报未接线；
-- [ ] Live Coach 使用 typed public protocol 并能更新当前 Action context —— realtime 仍耦合 provider，
-      boundary 由 voice remediation 收紧；
+- [x] streaming Coach 的 browser first audio 可度量且早于完整回答 —— 前端 `browser_first_audio_at` 上报 +
+      `TelemetrySink` 按 correlationId 关联服务端阶段（provider connected / llmFirstText / ttsFirstAudio）；
+- [x] Live Coach 使用 typed public protocol 并能更新当前 Action context —— `RealtimeVoiceProvider` port +
+      typed events + `UpdateContext`，turn/live 共享 `coachContextBuilder` 与 `coachModePolicy`；
 - [x] Assessment 默认安全关闭生成式 streaming/live；
-- [ ] 一个 MediaSessionController 保证无音频重叠 —— 仅仲裁 playback，capture 互斥未实现；
+- [x] 一个 MediaSessionController 保证无音频重叠 —— playback 仲裁 + `acquireCapture` capture 租约（turn/live 互斥持麦）；
 - [x] Emphasis 消费后清除且从不持久化；
 - [x] 数学口语语料零 blocking mismatch；
 - [ ] 所有 fallback/rollback 开关完成演练；

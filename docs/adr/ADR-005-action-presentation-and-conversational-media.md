@@ -2,22 +2,23 @@
 
 ## Status
 
-Accepted（remediation in progress）· 2026-08-13
+Implemented（remediation complete）· 2026-08-13
 
-> 2026-08-12 审核下调为 remediation in progress。经 coach omni-chain（`feat/coach-omni-chain`）与集成后，部分条款已落实：
+> 2026-08-12 审核下调的 remediation 项已全部闭环并通过测试（集成分支 `codex/adr-conformance`）：
 >
-> - ✅ coach turn hexagonal boundary：`TextCoachEngine` / `SpeechSynthesizer` ports + Claude / CosyVoice adapters +
->   application 编排（`SpokenSegmenter` / `SegmentPolicy` / `CoachTurnApplication` / `streamCoachTurn` 薄 NDJSON 桥）；
->   provider/model 仅存在于 adapter + composition + telemetry（§Layer Responsibilities、§Backend effect ports）；
-> - ✅ voice observability：`CoachTurnTelemetry` 提供每条 correlation 的 provider connected / LLM first text /
->   TTS first audio / usage 阶段时间线（§Observability Contract，服务端）。
+> - ✅ backend hexagonal boundary：Text / SpeechRecognizer / SpeechSynthesizer / **RealtimeVoiceProvider** ports +
+>   Claude / CosyVoice / DashScope / Qwen adapters；turn 与 live 经 `CoachTurnApplication` / `LiveCoachApplication`
+>   共享 `coachContextBuilder` 与 `coachModePolicy`；单体 `realtimeCoachRelay` 已拆为 port + adapter + 薄 WS transport
+>   （§Layer Responsibilities、§Backend effect ports）；
+> - ✅ transport 不 import provider（`transport` / `ports` / `application` grep 为空，由 `layerBoundaries` 测试守护）；
+> - ✅ voice observability：`TelemetrySink` port + 内存 adapter 持久化 turn/live/narration 时间线，前端上报
+>   `browser_first_audio_at`，按 `correlationId` 关联服务端阶段（provider connected / LLM first text / TTS first audio），
+>   `sanitizeTimeline` 对外剥离 provider/model（§Observability Contract）；
+> - ✅ capture 仲裁：`MediaSessionController.acquireCapture` 租约；turn recorder 与 live 互斥持有麦克风，
+>   权限失败释放 lease、不抛入训练路径（§Exclusive media session）；
+> - ✅ Frame 退耦：`CoachController` 拥有 coach turn/live/recorder 编排，`ActionRuntimeFrame` 退回纯 presentation。
 >
-> 以下条款仍未完全落实，状态保持 remediation in progress：
->
-> - ❌ capture 仲裁：`useCoachRecorder` 与 `useRealtimeCoach` 仍各自直接 `getUserMedia`，无 capture lease；仅有 UI disable（§Exclusive media session）；
-> - ❌ Realtime port：`ports/` 仅有 `SpeechSynthesizer` / `TextCoachEngine`，无 RealtimeVoice port；live 仍在前端耦合（§Backend effect ports）；
-> - ❌ Frame：`ActionRuntimeFrame` 仍直接持有 recorder / realtime 编排，未退回纯 presentation（§Layer Responsibilities）；
-> - ❌ browser first audio：服务端时间线已有，前端 `browser_first_audio_at` 上报未接线。
+> 仍未做（非 ADR 一致性门禁）：rollout/rollback 开关的真机演练、真机 realtime/ASR provider E2E。
 
 本 ADR 承接 [ADR-004](./ADR-004-frontend-action-runtime.md)。媒体分层本身不决定 Action Runtime 的
 判题和持久化策略；Learn / Practice / Assessment 的判定边界以后续
