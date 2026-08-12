@@ -45,6 +45,12 @@
   backend 教学计划、frontend Action Runtime、AI Coach 与统一页面工具的目标产品规格
 - `execution/action-driven-workspace-migration-plan.md`
   从 `ExerciseRuntimeSpec`/primitive switch 迁移到 versioned ExercisePlan 与 typed evidence 的实施路线
+- `adr/ADR-005-action-presentation-and-conversational-media.md`
+  Action transient emphasis、固定朗读、普通 Coach 与全双工语音的分层边界
+- `execution/action-presentation-voice-issue-inventory.md`
+  当前 Presentation/Voice 实现的问题分级与保留决策
+- `execution/action-presentation-voice-migration-plan.md`
+  分阶段迁移、并行 worktree 所有权、提交顺序与回滚门禁
 
 ## Writing Rules
 
@@ -61,4 +67,4 @@
 - 离线 authoring pipeline 属于内部生产工具，不暴露给学生端
 - `TaskDefinition`、`ContentDefinition`、`EnginePlugin` 仍是当前在线 runtime 的核心边界
 - 下一阶段要补齐的关键层是 `Scenario Bank`，用来承接 Python/Wolfram 离线出题结果
-- Action Runtime v2 目前是 Proposed 目标态；当前生产链路仍以 `ExerciseRuntimeSpec` v1 为准，迁移边界见 ADR-004
+- Action Runtime v2 已用于新建 Topic session；已有 pinned v1 session 继续兼容读取，边界见 ADR-004
