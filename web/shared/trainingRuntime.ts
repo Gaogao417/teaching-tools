@@ -46,6 +46,15 @@ export interface TrainingCheckpoint {
   actionMetrics: TrainingActionMetric[];
   clientRevision: number;
   createdAt: string;
+  /**
+   * ADR-006 v2 carry-on (additive). When the local training runtime produces v2
+   * telemetry it is attached here so v1 consumers keep working while v2-aware
+   * backends read v2 first and fall back to v1. Both fields are OPTIONAL: a v1
+   * checkpoint/result persisted before the v2 runtime shipped has neither and
+   * must still upload successfully.
+   */
+  actionMetricsV2?: TrainingActionMetricV2[];
+  attemptsV2?: TrainingAttemptEventV2[];
 }
 
 export interface TrainingResult extends Omit<TrainingCheckpoint, "currentActionId"> {
@@ -253,4 +262,19 @@ export function isTrainingAttemptEventV2(value: unknown): value is TrainingAttem
     && Number.isFinite(value.elapsedMs) && Number(value.elapsedMs) >= 0
     && ["correct-candidate", "wrong-candidate"].includes(String(value.classification))
     && (value.candidateId === undefined || typeof value.candidateId === "string");
+}
+
+/**
+ * Validates the v2 carry-on attached to a v1 checkpoint/result envelope. Returns
+ * `true` when the carry-on is absent (pure v1) or fully valid; `false` when any
+ * v2 field is present but malformed — the backend rejects the record in that case
+ * ("bad v2" must not be persisted). This validates ONLY shape, never math.
+ */
+export function hasValidTrainingV2CarryOn(value: unknown): boolean {
+  if (!record(value)) return true;
+  if (value.actionMetricsV2 !== undefined
+    && !(Array.isArray(value.actionMetricsV2) && value.actionMetricsV2.every(isTrainingActionMetricV2))) return false;
+  if (value.attemptsV2 !== undefined
+    && !(Array.isArray(value.attemptsV2) && value.attemptsV2.every(isTrainingAttemptEventV2))) return false;
+  return true;
 }
