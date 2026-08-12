@@ -104,7 +104,7 @@ interface StartPracticeResponse extends PracticeSessionSnapshot {}
 
 ## Exercise Plan
 
-`GET /api/practice/action-plan/:sessionId`
+`GET /api/practice/session/:sessionId/action-plan`
 
 目标作用：
 
@@ -115,9 +115,11 @@ interface StartPracticeResponse extends PracticeSessionSnapshot {}
 
 ## Training Checkpoint and Result
 
-`POST /api/practice/training-checkpoint`
+`POST /api/training/checkpoints`
 
-`POST /api/practice/training-result`
+`POST /api/training/results`
+
+`GET /api/training/progress/:sessionId`
 
 目标作用：
 
@@ -126,6 +128,18 @@ interface StartPracticeResponse extends PracticeSessionSnapshot {}
 - 保存跨设备 checkpoint、训练历史和 mastery 输入；
 - 返回 `Stored | Duplicate | IncompatibleRevision | InvalidEnvelope` receipt；
 - 不调用 private evaluator 重新判定数学正确性，也不阻塞前端当前 Action。
+
+## Coach / Speech Media
+
+- `POST /api/action-speech`：确定性 narration 的完整 URL compatibility path；
+- `POST /api/action-speech-stream`：`audio/mpeg` chunked narration，支持 request cancellation 和 server cache；
+- `POST /api/action-coach`：旧 request-response turn compatibility path；
+- `POST /api/coach/turn-stream`：provider-neutral NDJSON `CoachTurnEvent` v2；
+- `WS /api/coach-realtime`：provider-neutral `LiveCoachClientEvent` / `LiveCoachServerEvent` v2；
+- `POST /api/coach/telemetry`：只接收 correlation、阶段与 browser timestamp，不接收音频或完整回答。
+
+Live capture 必须等待 `live.ready`，Assessment 默认拒绝 streaming/live；公开事件 schema 未知分支 fail closed，
+provider/model metadata 不进入 browser contract。
 
 ## Assessment Submission
 

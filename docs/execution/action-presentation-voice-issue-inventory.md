@@ -14,6 +14,23 @@
 deterministic teacher voice 为 `f0475e3`。本清单以这些已提交实现为现状证据；“已提交”不表示下列
 架构、延迟或正确性问题已经关闭。
 
+## Resolution Snapshot（2026-08-12 migration implementation）
+
+| Issues | Resolution |
+| --- | --- |
+| VOICE-001 / SPEECH-002 | `entryLatex` + `entrySpoken` 双写；150/150 reviewed entries；v2 semantic fallback corpus |
+| STREAM-001 | provider-neutral NDJSON turn events；确定性首段与后续分段 TTS；URL request-response 可回滚 |
+| WS-001 / WS-002 / SAFE-001 | typed allowlist、ready handshake、limits、typed setup error、Assessment gate |
+| ARCH-001 / ARCH-002 / ARCH-003 | Action Runtime compatibility Frame 仅重导出；presentation 与 transport/application 分层；browser contract 无 provider union |
+| AUDIO-001 / AUDIO-002 / AUDIO-003 | exclusive MediaSession、separate replay、autoplay state、44.1/48 kHz resampler tests |
+| NARR-001 | current/next prefetch、bounded cache、Abort 与 stable versioned key |
+| COACH-001 / COACH-002 | shared public events、unified media、Action context update；directive 完整校验后应用 |
+| OBS-001 | correlation id + browser playback timestamps + safe telemetry endpoint |
+| EMPH-001 / EMPH-002 | keyed renderer acknowledgment/consume；command mapping contract tests |
+
+原有“证据”段落保留为迁移前审计记录，不再代表当前代码状态。生产 p50/p95、真实供应商成本与设备矩阵
+属于 rollout 观测门禁，不能由本地测试伪造。
+
 ## Severity
 
 | Level | 含义 |

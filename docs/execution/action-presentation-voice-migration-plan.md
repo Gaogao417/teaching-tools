@@ -2,14 +2,27 @@
 
 ## Document Status
 
-- 状态：Proposed
+- 状态：Implemented（代码迁移完成；生产设备矩阵与稳定窗口删除门禁继续跟踪）
 - 日期：2026-08-12
 - 媒体架构依据：[ADR-005](../adr/ADR-005-action-presentation-and-conversational-media.md)
 - 训练架构依据：[ADR-006](../adr/ADR-006-local-practice-training-runtime.md)
 - 问题依据：[Issue Inventory](./action-presentation-voice-issue-inventory.md)
-- 待同步：VOICE-001 改为要求上游双写朗读文案后，ADR-005 §Public Contract View（Deterministic
-  narration）与 Architectural Invariant #3 中“默认不增加字段 / 可选 spoken override”的措辞需收紧
-  为“朗读文案默认双写”，作为独立 ADR 更新跟进。
+- 已同步：ADR-005 的 deterministic narration contract 与 invariant 已收紧为 `entryLatex` / `entrySpoken`
+  默认双写；现有 150 个确定性 coach entry 已由 importer 重新生成并通过无 LaTeX 口播门禁。
+
+## Implementation Record
+
+- Action Runtime plan 升级为 v5，三种策略为 `local-demonstration` / `local-training` /
+  `server-authoritative`；Assessment guard 对 local truth 和等价已知 truth key fail closed。
+- 新增 provider-neutral `coachMedia.ts` v2 与 `trainingRuntime.ts` v1；未知 public event fail closed。
+- Practice local guard、semantic attempt、Action timer、assistance、持久 queue、Training Record/Progress/
+  mastery read model 已接线；result ingest 不调用 private evaluator。
+- Realtime 已改为 typed public protocol、ready 后 capture、payload/backpressure/usage/concurrency limit、
+  context update 与 Assessment gate；44.1/48 kHz 使用相位累积线性重采样。
+- 固定朗读使用统一 MediaSession、current/next prefetch、bounded cache、Abort、独立 replay 与 autoplay UI；
+  turn stream 使用 NDJSON provider-neutral events，并在完整生成式回答前先发确定性合格首段。
+- 旧 HTTP URL narration、request-response Coach、legacy evaluation 仍由 capability flag 独立回滚；删除要等
+  生产稳定窗口和客户端版本门禁，不与首发迁移混合。
 
 ## Outcome
 
@@ -591,25 +604,25 @@ COACH_STREAM_ASSESSMENT_ENABLED=false
 
 ## Definition of Done
 
-- [ ] ADR-005 标记 Accepted/Implemented；
-- [ ] ADR-006 标记 Implemented，旧 server-authoritative Practice session 兼容/删除门禁已记录；
-- [ ] Issue Inventory 的 P0/P1 全部关闭或有明确延期 ADR；
-- [ ] Learn / Practice / Assessment 分别绑定 LocalDemonstration / LocalTraining / ServerAuthoritative；
-- [ ] Practice 一道题只加载一次完整 plan，Action 切换零 backend 数学判题请求；
-- [ ] wrong candidate、correct candidate、BACK/CLEAR/hint/Coach 和 Action duration 有稳定 versioned 指标；
-- [ ] `hitTestable` / `candidate` / `advanceEnabled` 拆分后错误候选不会被 Canvas/Answer surface 吞掉；
-- [ ] TrainingSyncQueue 支持 offline、幂等、revision conflict、容量/TTL 与 best-effort flush；
-- [ ] backend Training Record/Progress service 不重新判定 Practice 数学正确性；
-- [ ] Assessment payload 无 local truth，仍使用 private evaluator 和权威 result；
-- [ ] `ActionRuntimeFrame` 不再拥有录音实现、provider selector、audio element 和 realtime protocol；
-- [ ] Action Runtime 不 import media/AI infrastructure；
-- [ ] 固定朗读有预取、缓存、取消和显式 autoplay 状态；
-- [ ] streaming Coach 的 browser first audio 可度量且早于完整回答；
-- [ ] Live Coach 使用 typed public protocol 并能更新当前 Action context；
-- [ ] Assessment 默认安全关闭生成式 streaming/live；
-- [ ] 一个 MediaSessionController 保证无音频重叠；
-- [ ] Emphasis 消费后清除且从不持久化；
-- [ ] 数学口语语料零 blocking mismatch；
+- [x] ADR-005 标记 Accepted/Implemented；
+- [x] ADR-006 标记 Implemented，旧 server-authoritative Practice session 兼容/删除门禁已记录；
+- [x] Issue Inventory 的 P0/P1 全部关闭或有明确延期 ADR；
+- [x] Learn / Practice / Assessment 分别绑定 LocalDemonstration / LocalTraining / ServerAuthoritative；
+- [x] Practice 一道题只加载一次完整 plan，Action 切换零 backend 数学判题请求；
+- [x] wrong candidate、correct candidate、BACK/CLEAR/hint/Coach 和 Action duration 有稳定 versioned 指标；
+- [x] `hitTestable` / `candidate` / `advanceEnabled` 拆分后错误候选不会被 Canvas/Answer surface 吞掉；
+- [x] TrainingSyncQueue 支持 offline、幂等、revision conflict、容量/TTL 与 best-effort flush；
+- [x] backend Training Record/Progress service 不重新判定 Practice 数学正确性；
+- [x] Assessment payload 无 local truth，仍使用 private evaluator 和权威 result；
+- [x] `ActionRuntimeFrame` 不再拥有录音实现、provider selector、audio element 和 realtime protocol；
+- [x] Action Runtime 不 import media/AI infrastructure；
+- [x] 固定朗读有预取、缓存、取消和显式 autoplay 状态；
+- [x] streaming Coach 的 browser first audio 可度量且早于完整回答；
+- [x] Live Coach 使用 typed public protocol 并能更新当前 Action context；
+- [x] Assessment 默认安全关闭生成式 streaming/live；
+- [x] 一个 MediaSessionController 保证无音频重叠；
+- [x] Emphasis 消费后清除且从不持久化；
+- [x] 数学口语语料零 blocking mismatch；
 - [ ] 所有 fallback/rollback 开关完成演练；
-- [ ] frontend/backend 全量 build/test 通过；
+- [x] frontend/backend 全量 build/test 通过；
 - [ ] 提交历史按上述依赖顺序可逐个回滚。

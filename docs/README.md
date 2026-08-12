@@ -53,6 +53,8 @@
   当前 Presentation/Voice 实现的问题分级与保留决策
 - `execution/action-presentation-voice-migration-plan.md`
   Training + Presentation/Voice 分阶段迁移、并行 worktree 所有权、提交顺序与回滚门禁
+- `execution/action-presentation-voice-baseline.md`
+  迁移前 clean SHA、build/test/request behavior 基线与生产 browser-first-audio 采集契约
 
 ## Writing Rules
 
@@ -69,4 +71,4 @@
 - 离线 authoring pipeline 属于内部生产工具，不暴露给学生端
 - `TaskDefinition`、`ContentDefinition`、`EnginePlugin` 仍是当前在线 runtime 的核心边界
 - 下一阶段要补齐的关键层是 `Scenario Bank`，用来承接 Python/Wolfram 离线出题结果
-- Action Runtime v2 已用于新建 Topic session；已有 pinned v1 session 继续兼容读取，边界见 ADR-004
+- Action Runtime v5 已用于新建 Topic session；已有 pinned v1 session 继续兼容读取，边界见 ADR-004

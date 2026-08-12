@@ -2,7 +2,7 @@
 
 ## 文档状态
 
-- 状态：Implemented（Action Runtime v2 产品闭环与自动化验收已完成）
+- 状态：Implemented（Action Runtime v5 产品闭环与自动化验收已完成）
 - 日期：2026-08-10
 - 优先级：P0
 - 目标端：Web 学生端
@@ -89,15 +89,16 @@ answer 草稿、coach 消息、错误对象和提交阶段又分别保存在 XSt
 | 模式 | ActionList 内容 | 本地能力 | backend 能力 |
 | --- | --- | --- | --- |
 | Learn | 可包含完整解题 action 与目标参数 | 本地演示、回放、即时判断 | 提供内容；可选记录学习进度 |
-| Guided Practice | 按 action policy 公开当前教学目标；隐藏未到达步骤 | 本地结构判断；公开目标可即时判断 | checkpoint、AI coach；私有目标或正式进度可权威复核 |
+| Guided Practice | 一次下发当前题完整 Action list 与审核过的 local truth | 本地判定、即时反馈、Action 推进和训练指标 | 异步训练记录、进度、AI coach；不重新判数学正确性 |
 | Assessment | 只含公开指令、候选对象和完成结构 | 判断输入是否完整，不判断私有数学真值 | 私有判题、计分、诊断、正式推进 |
 
 `ActionContract.validationPolicy` 必须显式声明：
 
-- `local-teaching`：目标参数属于公开教学内容，frontend guard 可以判断对象合法性和数学目标是否匹配，完成后可立即更新 draft world；
+- `local-demonstration`：目标参数属于公开教学内容，frontend guard 可以判断对象合法性和数学目标是否匹配，完成后可立即更新 draft world；
+- `local-training`：Practice 使用审核过的 local truth 当场分类语义候选，错误留在当前状态，正确完成才应用 DomainCommand 并异步上传训练记录；
 - `server-authoritative`：frontend guard 只判断对象类型、候选范围和 evidence 结构完整，数学正确性及正式 world commit 由 backend 决定。
 
-validation policy 是每个 action 的判题边界，不决定 machine 运行位置；两种 policy 的 action machine 都运行在 frontend。
+validation policy 是每个 action 的判题边界，不决定 machine 运行位置；三种 policy 的 action machine 都运行在 frontend。
 
 如果一个 action 的参数已经明确写出“过 A 作 BC 的平行线，与 EF 交于 G”，这些参数在
 Learn/Guided 模式属于公开教学内容；在独立 Assessment 中不得用同一份完整参数充当隐藏答案。
@@ -119,7 +120,7 @@ Learn/Guided 模式属于公开教学内容；在独立 Assessment 中不得用�
 3. machine 更新 context；action-specific projector 生成新的 `ActionPresentation`。
 4. page projector 将 presentation 与 page/world state 组合成 `WorkspaceView`，UI 立即响应且不请求 backend。
 5. action 完成时产生 `ActionCompletion`，其中包含 typed evidence 和零个或多个 `DomainCommand`。
-6. page runtime 将 commands 应用到 draft world；LocalTeaching 可直接进入下一 action，ServerAuthoritative 按提交策略保留 pending completion。
+6. page runtime 将 commands 应用到 draft world；LocalDemonstration/LocalTraining 可直接进入下一 action，ServerAuthoritative 按提交策略保留 pending completion。
 7. completed action 可以异步 checkpoint；未完成 action 默认存浏览器，只允许在页面隐藏/离开等明确 lifecycle 事件选择性远程 checkpoint，不随普通语义点击上传。
 
 ### 6.3 学生请求指导
@@ -134,12 +135,13 @@ Learn/Guided 模式属于公开教学内容；在独立 Assessment 中不得用�
 ### 6.4 正式提交
 
 1. frontend machine 确认 evidence 结构完整。
-2. `local-teaching` action 可直接完成，并异步 checkpoint。
-3. `server-authoritative` action 将 typed evidence 发送 backend。
-4. backend 独立校验 session、action、revision 和私有答案。
-5. backend 返回 accepted/rejected/conflict、结构化 diagnosis、committed world delta 与 next action。
-6. accepted 时 page runtime 提交对应 draft commands；rejected 时只回滚或标记 diagnosis 涉及的 action、对象和槽位；conflict 时按权威 revision 恢复。
-7. transport failure 进入可重试错误，不计为学生答错，不清除 draft，并复用原 idempotency key。
+2. `local-demonstration` action 可直接完成，并异步 checkpoint。
+3. `local-training` action 可直接完成并写入可重试 TrainingSyncQueue，不发送数学 evaluation request。
+4. `server-authoritative` action 将 typed evidence 发送 backend。
+5. backend 独立校验 session、action、revision 和私有答案。
+6. backend 返回 accepted/rejected/conflict、结构化 diagnosis、committed world delta 与 next action。
+7. accepted 时 page runtime 提交对应 draft commands；rejected 时只回滚或标记 diagnosis 涉及的 action、对象和槽位；conflict 时按权威 revision 恢复。
+8. transport failure 进入可重试错误，不计为学生答错，不清除 draft，并复用原 idempotency key。
 
 ## 7. Action 产品契约
 

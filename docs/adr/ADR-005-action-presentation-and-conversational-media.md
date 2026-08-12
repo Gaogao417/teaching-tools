@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed · 2026-08-12
+Implemented（兼容窗口内）· 2026-08-12
 
 本 ADR 承接 [ADR-004](./ADR-004-frontend-action-runtime.md)。媒体分层本身不决定 Action Runtime 的
 判题和持久化策略；Learn / Practice / Assessment 的判定边界以后续
@@ -216,8 +216,8 @@ type NarrationController =
         -> unit
 ```
 
-`TeacherUtterance` 由现有 Action 文案推导。Topic author 默认不增加字段；只有数学口语与展示文案
-确实不同时，才允许可选的 spoken override。
+`TeacherUtterance` 由审核过的 Action 文案推导。Topic author 必须为确定性朗读入口双写展示用
+`entryLatex` 与口播用 `entrySpoken`；`latexToSpokenChinese` 只作为存量 bundle 的版本化 fallback。
 
 ### Exclusive media session
 
@@ -506,7 +506,7 @@ Live session 在 Action 改变时收到经过验证的 `UpdateContext`。它是 
 
 1. Action Runtime 不依赖 TTS、LLM、MediaRecorder、AudioContext 或供应商 SDK。
 2. Emphasis 是 `WorkspaceView` 的瞬态 presentation metadata，不是 Cue/Timeline/历史状态。
-3. Topic author 默认不声明强调动画，也不重复声明朗读文案。
+3. Topic author 默认不声明强调动画；确定性朗读入口必须同源双写展示文案与口播文案。
 4. 固定 Action 朗读绝不经过 LLM。
 5. 所有音频播放和采集由一个 MediaSessionController 仲裁。
 6. 普通 Coach、流式 Coach、Live Coach 共享同一安全的公开上下文构造器和 mode policy。

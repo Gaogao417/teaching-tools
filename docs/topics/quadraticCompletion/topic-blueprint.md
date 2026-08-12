@@ -18,7 +18,7 @@ bank_sources:
 
 | Boundary | Required binding | Evidence location |
 | --- | --- | --- |
-| Product runtime | `Action Runtime v2` | Shared Action Runtime page, registry, typed evidence/evaluation |
+| Product runtime | `Action Runtime v5` | Shared Action Runtime page, registry, typed evidence/evaluation |
 | Generated bundle | `teaching-tools/topic-scenario-bundle/v2` | Generated bundle root `schema` (current bundle confirms) |
 | Exercise plan | Current `ACTION_RUNTIME_PLAN_VERSION` | `web/shared/actionRuntime.ts` and projected plan |
 | Scenario actions | Non-empty authored `actionTemplates` | First (Q001), middle (Q015), last (Q030) generated records |
@@ -26,7 +26,7 @@ bank_sources:
 
 **Legacy paths explicitly excluded:** `ExerciseRuntimeSpec`, primitive dispatch, `RuntimeActionEvent.value`, Topic-specific runtime frames, and reconstruction of actions from legacy `steps`.
 
-**Version note:** `content_id` ends in `.v1` and registered Actions are `kind@1`; neither changes the required Action Runtime v2 product model. The currently-shipped bundle record for Q001 already uses `actionTemplates` of `[select-option@1, select-option@1, enter-text@1]` with a slot-based `solutionBoard`, confirming the target shape this draft reproduces.
+**Version note:** `content_id` ends in `.v1` and registered Actions are `kind@1`; neither changes the required Action Runtime v5 product model. The currently-shipped bundle record for Q001 already uses `actionTemplates` of `[select-option@1, select-option@1, enter-text@1]` with a slot-based `solutionBoard`, confirming the target shape this draft reproduces.
 
 ## Source mapping
 

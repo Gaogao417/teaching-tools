@@ -18,7 +18,7 @@ bank_sources:
 
 | Boundary | Required binding | Evidence location |
 | --- | --- | --- |
-| Product runtime | `Action Runtime v2` | Shared Action Runtime page, registry, typed evidence/evaluation |
+| Product runtime | `Action Runtime v5` | Shared Action Runtime page, registry, typed evidence/evaluation |
 | Generated bundle | `teaching-tools/topic-scenario-bundle/v2` | Generated bundle root `schema` |
 | Exercise plan | Current `ACTION_RUNTIME_PLAN_VERSION` (=`3`) | `web/shared/actionRuntime.ts` (`ACTION_RUNTIME_PLAN_VERSION = 3`) and projected plan |
 | Scenario actions | Non-empty authored `actionTemplates` | First, middle, and last generated records (Q001, Q025, Q050) |
@@ -26,7 +26,7 @@ bank_sources:
 
 **Legacy paths explicitly excluded:** `ExerciseRuntimeSpec`, primitive dispatch, `RuntimeActionEvent.value`, Topic-specific runtime frames, and reconstruction of actions from legacy `steps`.
 
-**Version note:** `content_id` ends in `.v1` and the three reused Actions are `kind@1`; neither changes the required Action Runtime v2 product model.
+**Version note:** `content_id` ends in `.v1` and the three reused Actions are `kind@1`; neither changes the required Action Runtime v5 product model.
 
 ## Source mapping
 

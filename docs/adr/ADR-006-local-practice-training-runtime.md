@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted · 2026-08-12
+Implemented（旧 server-authoritative session 继续按 pinned policy 兼容）· 2026-08-12
 
 本 ADR 覆盖 [ADR-004](./ADR-004-frontend-action-runtime.md) 中“Guided Practice 使用
 `ServerAuthoritative`”以及“backend 对 Practice 每个 Action 做数学判定”的旧边界。ADR-004 的
@@ -30,7 +30,7 @@ Backend 对 Practice 仍负责 plan、session、记录、跨设备进度、熟�
 
 ## Context
 
-当前 Action Runtime v2 只有两种 `ValidationPolicy`：
+迁移前 Action Runtime v2 只有两种 `ValidationPolicy`：
 
 ```text
 Learn             -> local-teaching
