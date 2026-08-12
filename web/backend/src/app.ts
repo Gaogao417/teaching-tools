@@ -289,7 +289,7 @@ export function createApp() {
         message: "Invalid direct speech request",
       }).parse(req.body);
       const spokenText = /[\\$]/.test(body.text) ? latexToSpokenChinese(body.text) : body.text.trim();
-      const response = await narrationApplication.synthesize(spokenText, abort.signal);
+      const response = await narrationApplication.synthesize(spokenText, abort.signal, body.correlationId);
       if (!isDirectSpeechResponse(response)) throw new Error("Invalid direct speech response");
       res.json(response);
     } catch (error) {
@@ -304,7 +304,7 @@ export function createApp() {
       const body = z.custom<DirectSpeechRequest>(isDirectSpeechRequest, { message: "Invalid direct speech request" }).parse(req.body);
       const spokenText = /[\\$]/.test(body.text) ? latexToSpokenChinese(body.text) : body.text.trim();
       res.status(200); res.setHeader("Content-Type", "audio/mpeg"); res.setHeader("Cache-Control", "no-store"); res.flushHeaders();
-      await narrationApplication.stream(spokenText, abort.signal, (chunk) => { if (!res.destroyed) res.write(chunk); });
+      await narrationApplication.stream(spokenText, abort.signal, (chunk) => { if (!res.destroyed) res.write(chunk); }, body.correlationId);
       res.end();
     } catch (error) {
       if (!res.headersSent) next(error); else if (!res.destroyed) res.end();

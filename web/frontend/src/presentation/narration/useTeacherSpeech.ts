@@ -22,9 +22,9 @@ export function useTeacherSpeech(plan: ExercisePlan, action: ActionContract, sha
   const media = sharedMedia || ownedMedia;
   const narrationTransport = plan.runtimeCapabilities?.narrationTransport || "url";
   const narration = useMemo(() => new NarrationController({
-    synthesize: (text, signal) => narrationTransport === "stream"
-      ? api.streamActionSpeech({ text }, signal)
-      : api.synthesizeActionSpeech({ text }, signal),
+    synthesize: (text, signal, correlationId) => narrationTransport === "stream"
+      ? api.streamActionSpeech({ text, correlationId }, signal)
+      : api.synthesizeActionSpeech({ text, correlationId }, signal),
   }, media), [media, narrationTransport]);
   const [speechUrl, setSpeechUrl] = useState<string>();
   const [mediaState, setMediaState] = useState<MediaSessionState>(media.getState());

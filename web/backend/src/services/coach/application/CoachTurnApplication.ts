@@ -16,6 +16,7 @@ import { CoachTurnTelemetry } from "./CoachTurnTelemetry";
 import { AsyncQueue } from "./asyncQueue";
 import { coachModePolicy } from "./coachModePolicy";
 import type { CoachModePolicy } from "./coachModePolicy";
+import type { TelemetrySink } from "../ports/TelemetrySink";
 import { modelInput, resolveCoachPlanAndFallback } from "../coachTurnService";
 
 const MIME_TYPE = "audio/mpeg";
@@ -37,6 +38,10 @@ export interface CoachTurnDeps {
    *  turn path and the live path resolve the Assessment gate through one
    *  policy (ADR-005 §Architectural Invariants #6). */
   modePolicy?: CoachModePolicy;
+  /** Provider-neutral telemetry sink (ADR-005 §Observability Contract). The
+   *  turn timeline is sunk here and correlated with the browser-reported
+   *  `browser_first_audio_at`. Optional only so unit tests can omit it. */
+  sink?: TelemetrySink;
 }
 
 /**
@@ -86,7 +91,7 @@ export class CoachTurnApplication {
     const sessionId = request.context.kind === "practice" ? request.context.sessionId : `learn:${request.context.taskId}`;
     const provider = "claude-code";
     const model = process.env.COACH_CLAUDE_MODEL?.trim() || "glm-5.2";
-    const telemetry = new CoachTurnTelemetry(correlationId, sessionId, plan.mode, provider, model);
+    const telemetry = new CoachTurnTelemetry(correlationId, sessionId, plan.mode, provider, model, this.deps.sink);
 
     const queue = new AsyncQueue<CoachTurnEvent>();
     let sequence = 0;

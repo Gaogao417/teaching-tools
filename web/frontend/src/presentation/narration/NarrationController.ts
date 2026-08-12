@@ -1,7 +1,7 @@
 import type { MediaSessionController } from "../audio/MediaSessionController";
 
 export interface NarrationUtterance { utteranceId: string; spokenText: string; cacheKey: string }
-export interface NarrationClient { synthesize(text: string, signal: AbortSignal): Promise<{ audioUrl: string }> }
+export interface NarrationClient { synthesize(text: string, signal: AbortSignal, correlationId?: string): Promise<{ audioUrl: string }> }
 const sharedNarrationCache = new Map<string, string>();
 export function clearNarrationCacheForTests(): void { sharedNarrationCache.clear(); }
 
@@ -22,6 +22,9 @@ export class NarrationController {
     try {
       const url = await this.load(current, abort.signal);
       if (abort.signal.aborted || this.current?.utteranceId !== current.utteranceId) return undefined;
+      // ADR-005 §Observability Contract: thread the utterance id as the
+      // correlationId so the server-side narration timeline merges with the
+      // browser-reported `browser_first_audio_at` under one id.
       await this.media.playUrl("narration", url, { autoplay, replayKey: "action-narration", correlationId: current.utteranceId });
       if (next) void this.load(next, abort.signal).catch(() => undefined);
       return url;
@@ -37,7 +40,7 @@ export class NarrationController {
   private async load(utterance: NarrationUtterance, signal: AbortSignal): Promise<string> {
     const cached = this.cache.get(utterance.cacheKey);
     if (cached) return cached;
-    const speech = await this.client.synthesize(utterance.spokenText, signal);
+    const speech = await this.client.synthesize(utterance.spokenText, signal, utterance.utteranceId);
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     this.cache.set(utterance.cacheKey, speech.audioUrl);
     while (this.cache.size > this.capacity) {

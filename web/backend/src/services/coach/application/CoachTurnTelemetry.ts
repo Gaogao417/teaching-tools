@@ -1,4 +1,5 @@
 import type { UsageSummary } from "../ports/TextCoachEngine";
+import type { TelemetrySink } from "../ports/TelemetrySink";
 
 /**
  * Per-correlation server-side timeline for one coach turn. Records the stage
@@ -6,6 +7,11 @@ import type { UsageSummary } from "../ports/TextCoachEngine";
  * structured line when the turn reaches a terminal state. Provider/model are
  * included (server-only). This never logs full student audio, private answers,
  * or secrets — only counts and timestamps.
+ *
+ * On a terminal state the timeline is sunk to the provider-neutral
+ * {@link TelemetrySink} (which correlates it with the browser-reported
+ * `browser_first_audio_at` under the same `correlationId`). The sink call is
+ * best-effort and never throws into the coach path.
  */
 export interface CoachTurnTimeline {
   correlationId: string;
@@ -47,6 +53,7 @@ export class CoachTurnTelemetry {
     readonly mode: string,
     private readonly provider?: string,
     private readonly model?: string,
+    private readonly sink?: TelemetrySink,
   ) {}
 
   markProviderConnected(): void { this.providerConnectedAt ??= Date.now(); }
@@ -78,8 +85,32 @@ export class CoachTurnTelemetry {
         : terminal === "cancelled" ? { cancelledAt: now }
         : { failedAt: now }),
     };
-    // Server-only structured log; browser receives only its own playback marks.
-    console.info("coach_turn_timeline", JSON.stringify(timeline));
+    // Sink the server-side timeline so it is correlated with the browser's
+    // `browser_first_audio_at` under the same correlationId (ADR-005 §Observability
+    // Contract). The sink never throws into the coach path; the structured log
+    // is emitted by the sink adapter itself.
+    this.sink?.record({
+      correlationId: timeline.correlationId,
+      sessionId: timeline.sessionId,
+      flow: "turn",
+      mode: timeline.mode,
+      requestStartedAt: timeline.requestStartedAt,
+      providerConnectedAt: timeline.providerConnectedAt,
+      llmFirstTextAt: timeline.llmFirstTextAt,
+      firstSpokenSegmentAt: timeline.firstSpokenSegmentAt,
+      ttsFirstAudioAt: timeline.ttsFirstAudioAt,
+      completedAt: timeline.completedAt,
+      cancelledAt: timeline.cancelledAt,
+      failedAt: timeline.failedAt,
+      terminal: timeline.terminal,
+      provider: timeline.provider,
+      model: timeline.model,
+      usage: timeline.usage,
+      segmentCount: timeline.segmentCount,
+      audioDeltas: timeline.audioDeltas,
+      bufferedBytes: timeline.bufferedBytes,
+      droppedChunks: timeline.droppedChunks,
+    });
     return timeline;
   }
 
