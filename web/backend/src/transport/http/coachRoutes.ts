@@ -1,14 +1,30 @@
 import { Router } from "express";
 import { isCoachTurnRequest, type CoachTurnRequest } from "../../../../shared/actionRuntime";
 import { streamCoachTurn } from "../../services/coach/application/streamCoachTurn";
-import { isVoiceTelemetryEvent } from "../../../../shared/coachMedia";
+import { isVoiceTelemetryEvent, type VoiceTelemetryEvent } from "../../../../shared/coachMedia";
+import { sanitizeTimeline } from "../../services/coach/ports/TelemetrySink";
+import { telemetrySink } from "../../services/coach/composition";
 
 export function createCoachRoutes() {
   const router = Router();
+  // ADR-005 §Observability Contract: provider-neutral browser-telemetry channel.
+  // The browser reports playback marks (notably `browser-audio-started`, i.e.
+  // `browser_first_audio_at`) fire-and-forget; the route merges them into the
+  // matching server-side correlationId timeline. Best-effort: never throws into
+  // the request path and never changes attempt/world.
   router.post("/telemetry", (req, res) => {
     if (!isVoiceTelemetryEvent(req.body)) { res.status(400).json({ error: { code: "BAD_REQUEST", message: "Invalid voice telemetry" } }); return; }
-    console.info("voice_latency", JSON.stringify(req.body));
+    const event = req.body as VoiceTelemetryEvent;
+    telemetrySink.recordBrowserMark(event.correlationId, event.owner, event.stage, event.browserTimeMs);
     res.json({ accepted: true });
+  });
+  // Assessment-safe, provider-neutral read accessor for the merged per-correlation
+  // timeline (provider/model are stripped server-side). Used to verify end-to-end
+  // correlation of server stages with the browser first-audio moment.
+  router.get("/telemetry/:correlationId", (req, res) => {
+    const timeline = telemetrySink.getTimeline(req.params.correlationId);
+    if (!timeline) { res.status(404).json({ error: { code: "NOT_FOUND", message: "Unknown correlationId" } }); return; }
+    res.json(sanitizeTimeline(timeline));
   });
   router.post("/turn-stream", async (req, res, next) => {
     if (!isCoachTurnRequest(req.body)) { res.status(400).json({ error: { code: "BAD_REQUEST", message: "Invalid coach turn" } }); return; }

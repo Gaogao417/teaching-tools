@@ -347,6 +347,10 @@ export interface CoachSpeech {
  */
 export interface DirectSpeechRequest {
   text: string;
+  /** Optional correlationId so the server-side narration timeline can be sunk
+   *  under the same id the browser reports `browser_first_audio_at` for
+   *  (ADR-005 §Observability Contract). Additive; the request guard ignores it. */
+  correlationId?: string;
 }
 
 export type DirectSpeechResponse = CoachSpeech;

@@ -334,6 +334,14 @@ export class MediaSessionController {
 
   private mark(handle: UrlHandle, stage: MediaTelemetryMark["stage"]): void {
     if (!handle.correlationId) return;
-    this.telemetry?.({ correlationId: handle.correlationId, owner: handle.owner === "coach-turn" ? "turn" : handle.owner, stage, browserTimeMs: Date.now() });
+    // ADR-005 §Observability Contract: the browser-first-audio reporter is
+    // best-effort above all else. A telemetry callback failure (network throw,
+    // abort, autoplay-block) MUST NOT propagate into the playback/coach/training
+    // path or change attempt/world — so swallow any synchronous error here.
+    try {
+      this.telemetry?.({ correlationId: handle.correlationId, owner: handle.owner === "coach-turn" ? "turn" : handle.owner, stage, browserTimeMs: Date.now() });
+    } catch {
+      /* telemetry is best-effort; never let it break playback */
+    }
   }
 }

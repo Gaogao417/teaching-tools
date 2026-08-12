@@ -15,6 +15,7 @@ import { RealtimeVoiceError } from "../ports/RealtimeVoiceProvider";
 import { buildCoachContext } from "./coachContextBuilder";
 import type { CoachModePolicy } from "./coachModePolicy";
 import { coachModePolicy } from "./coachModePolicy";
+import type { TelemetrySink } from "../ports/TelemetrySink";
 import { AsyncQueue } from "./asyncQueue";
 
 /**
@@ -61,6 +62,10 @@ export interface LiveCoachDeps {
   provider: RealtimeVoiceProvider;
   /** Shared turn/live mode policy. */
   modePolicy?: CoachModePolicy;
+  /** Provider-neutral telemetry sink (ADR-005 §Observability Contract). The
+   *  live server timeline is sunk here and correlated with the browser-reported
+   *  `browser_first_audio_at`. Optional only so unit tests can omit it. */
+  sink?: TelemetrySink;
 }
 
 export interface LiveCoachStartParams {
@@ -84,11 +89,24 @@ export class LiveCoachApplication {
       return { ok: false, error: new LiveStartError(allowance.code, "Live Coach is not allowed in this mode", 403) };
     }
 
+    // ADR-005 §Observability Contract: open the per-correlation server timeline
+    // for the live flow. The sink call is best-effort and never throws.
+    const requestStartedAt = Date.now();
+    this.deps.sink?.record({
+      correlationId: params.correlationId,
+      sessionId: params.sessionId,
+      flow: "live",
+      mode: params.plan.mode,
+      requestStartedAt,
+    });
+
     const context = buildCoachContext(params.plan, { actionId: params.actionId });
     const openResult = await this.deps.provider.open(context, params.signal);
     if (!openResult.ok) {
+      this.deps.sink?.record({ correlationId: params.correlationId, flow: "live", failedAt: Date.now(), terminal: "failed" });
       return { ok: false, error: new LiveStartError(openResult.error.code, openResult.error.message, 502) };
     }
+    this.deps.sink?.record({ correlationId: params.correlationId, flow: "live", providerConnectedAt: Date.now() });
 
     const providerSession = openResult.value;
     const queue = new AsyncQueue<LiveCoachServerEvent>();
@@ -107,13 +125,15 @@ export class LiveCoachApplication {
       queue.complete();
     };
 
-    // Pump provider-neutral port events into the public media stream.
-    void this.pump(providerSession, emit, () => closeOnce("session-ended")).catch((error) => {
+    // Pump provider-neutral port events into the public media stream. The pump
+    // also records the live server timeline stages (first audio) and terminal.
+    void this.pump(providerSession, correlationId, emit, () => closeOnce("session-ended")).catch((error) => {
       if (!queue.closed) {
         const code = error instanceof RealtimeVoiceError ? error.code : "live-failed";
         emit({ type: "live.error", code, retryable: true });
         void closeOnce(code);
       }
+      this.deps.sink?.record({ correlationId, flow: "live", failedAt: Date.now(), terminal: "failed" });
     });
 
     const send = async (command: LiveCoachClientCommand): Promise<void> => {
@@ -139,9 +159,13 @@ export class LiveCoachApplication {
 
   private async pump(
     session: RealtimeVoiceSession,
+    correlationId: string,
     emit: (event: LiveServerPayload) => void,
     done: () => Promise<void>,
   ): Promise<void> {
+    let firstAudio = true;
+    let failed = false;
+    const sink = this.deps.sink;
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const { value: event, done: ended } = await session.next();
@@ -149,12 +173,19 @@ export class LiveCoachApplication {
       switch (event.type) {
         case "ready": emit({ type: "live.ready", inputSampleRate: event.inputSampleRate, outputSampleRate: event.outputSampleRate }); break;
         case "transcript-delta": emit({ type: "live.transcript.delta", role: event.role, text: event.text }); break;
-        case "audio-delta": emit({ type: "live.audio", audioBase64: event.audioBase64, mimeType: event.mimeType, sampleRate: event.sampleRate }); break;
+        case "audio-delta":
+          // First downstream audio = TTS first audio for the live correlation.
+          if (firstAudio) { firstAudio = false; const at = Date.now(); sink?.record({ correlationId, flow: "live", firstSpokenSegmentAt: at, ttsFirstAudioAt: at }); }
+          emit({ type: "live.audio", audioBase64: event.audioBase64, mimeType: event.mimeType, sampleRate: event.sampleRate });
+          break;
         case "interrupted": emit({ type: "live.interrupted" }); break;
         case "context-updated": emit({ type: "live.context-updated", actionId: event.actionId }); break;
-        case "completed": emit({ type: "live.completed" }); break;
-        case "closed": await done(); return;
-        case "error": emit({ type: "live.error", code: event.code, retryable: event.retryable }); break;
+        case "completed":
+          sink?.record({ correlationId, flow: "live", completedAt: Date.now(), terminal: "completed" });
+          emit({ type: "live.completed" });
+          break;
+        case "closed": await done(); if (!failed) sink?.record({ correlationId, flow: "live", cancelledAt: Date.now(), terminal: "cancelled" }); return;
+        case "error": failed = true; sink?.record({ correlationId, flow: "live", failedAt: Date.now(), terminal: "failed" }); emit({ type: "live.error", code: event.code, retryable: event.retryable }); break;
         default: break;
       }
     }
