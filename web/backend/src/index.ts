@@ -1,3 +1,4 @@
+import "./loadEnv";
 import http from "node:http";
 import { createApp } from "./app";
 import { attachRealtimeCoach } from "./services/coach/realtimeCoachRelay";

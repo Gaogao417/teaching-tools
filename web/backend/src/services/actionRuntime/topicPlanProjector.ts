@@ -144,7 +144,13 @@ export function buildTopicExercisePlan(
         : process.env.TRAINING_SYNC_MODE === "legacy-evaluation" ? "legacy-evaluation" : "async-records",
       narrationTransport: process.env.ACTION_NARRATION_TRANSPORT === "off" ? "off"
         : process.env.ACTION_NARRATION_TRANSPORT === "stream" ? "stream" : "url",
-      coachTurnTransport: process.env.COACH_TURN_TRANSPORT === "stream" ? "stream" : "request-response",
+      // Default to real streaming coach for Learn / Guided Practice. Assessment
+      // stays on the deterministic request-response path. COACH_TURN_TRANSPORT=
+      // request-response is the explicit emergency rollback; an unset variable
+      // must NOT silently fall back to request-response.
+      coachTurnTransport: mode === "assessment"
+        ? "request-response"
+        : process.env.COACH_TURN_TRANSPORT === "request-response" ? "request-response" : "stream",
       liveCoach: mode !== "assessment" && process.env.COACH_LIVE_ENABLED !== "false",
     },
   };

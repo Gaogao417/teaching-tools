@@ -8,6 +8,17 @@ export type MediaSessionState =
 interface UrlHandle { owner: MediaOwner; url: string; replayKey?: string; correlationId?: string; started?: boolean }
 export interface MediaTelemetryMark { correlationId: string; owner: "narration" | "turn" | "live"; stage: "requested" | "browser-audio-started" | "blocked-by-autoplay" | "cancelled" | "completed" | "error"; browserTimeMs: number }
 
+/** Handle returned to a caller driving incremental audio. Chunks are appended in
+ *  arrival order to a single MediaSource; `complete` finalizes the stream. */
+export interface AudioStreamHandle {
+  appendChunk(bytes: Uint8Array): void;
+  complete(): void;
+}
+interface StreamHandle extends AudioStreamHandle {
+  owner: MediaOwner;
+  abort(): void;
+}
+
 /** Owns every browser playback path and guarantees that only one media owner is audible. */
 export class MediaSessionController {
   private audio?: HTMLAudioElement;
@@ -18,6 +29,7 @@ export class MediaSessionController {
   private active?: UrlHandle;
   private externalStop?: () => void;
   private queue: UrlHandle[] = [];
+  private streamHandle?: StreamHandle;
 
   constructor(private readonly telemetry?: (mark: MediaTelemetryMark) => void) {}
 
@@ -32,6 +44,7 @@ export class MediaSessionController {
     this.externalStop?.();
     this.externalStop = undefined;
     this.queue = [];
+    this.abortStream();
     this.stopAudio();
     const handle = { owner, url, replayKey: options.replayKey, correlationId: options.correlationId };
     this.active = handle;
@@ -47,6 +60,127 @@ export class MediaSessionController {
     } catch {
       if (generation === this.generation) { this.setState({ status: "blocked-by-autoplay", owner, replayKey: options.replayKey }); this.mark(handle, "blocked-by-autoplay"); }
     }
+  }
+
+  /**
+   * Open a single-owner incremental audio stream for `owner` and return a handle
+   * that the caller feeds MP3 chunks to. All chunks of a turn are appended in
+   * arrival order to ONE MediaSource SourceBuffer — we never carve each chunk
+   * into a separate `<audio>` data URL. The first appended chunk triggers
+   * playback (and the browser-audio-started telemetry mark); playback begins
+   * before the full answer has arrived. Starting a stream interrupts narration,
+   * live and any previous turn. If MediaSource is unavailable the handle degrades
+   * to buffering the whole turn into one Blob played at completion (still a
+   * single owner, never overlapping audio).
+   */
+  startAudioStream(owner: MediaOwner, options: { correlationId?: string } = {}): AudioStreamHandle {
+    const generation = ++this.generation;
+    this.externalStop?.();
+    this.externalStop = undefined;
+    this.abortStream();
+    this.stopAudio();
+    this.queue = [];
+    this.active = { owner, url: "", correlationId: options.correlationId };
+    this.setState({ status: "loading", owner });
+    this.mark(this.active, "requested");
+
+    const supportsMediaSource = typeof MediaSource !== "undefined" && MediaSource.isTypeSupported("audio/mpeg");
+
+    if (!supportsMediaSource) {
+      const chunks: Uint8Array[] = [];
+      let finished = false;
+      const flush = () => {
+        if (!finished || generation !== this.generation || !chunks.length) return;
+        const blobUrl = URL.createObjectURL(new Blob(chunks as unknown as BlobPart[], { type: "audio/mpeg" }));
+        void this.playUrl(owner, blobUrl, { autoplay: true, correlationId: options.correlationId });
+      };
+      const handle: StreamHandle = {
+        owner,
+        appendChunk: (bytes) => { if (generation === this.generation) chunks.push(bytes); },
+        complete: () => { finished = true; flush(); },
+        abort: () => { chunks.length = 0; },
+      };
+      this.streamHandle = handle;
+      return handle;
+    }
+
+    const mediaSource = new MediaSource();
+    const objectUrl = URL.createObjectURL(mediaSource);
+    const audio = this.ensureAudio();
+    audio.src = objectUrl;
+    let sourceBuffer: SourceBuffer | undefined;
+    const pending: Uint8Array[] = [];
+    let ended = false;
+    let aborted = false;
+    let firstAppended = false;
+
+    const pump = () => {
+      if (aborted || generation !== this.generation || !sourceBuffer || sourceBuffer.updating || pending.length === 0) return;
+      const chunk = pending.shift()!;
+      try { sourceBuffer.appendBuffer(chunk as unknown as BufferSource); } catch { /* drop unparseable frame, keep streaming */ }
+    };
+    const finishIfDrained = () => {
+      if (ended && pending.length === 0 && mediaSource.readyState === "open") {
+        try { mediaSource.endOfStream(); } catch { /* ignore */ }
+      }
+    };
+    mediaSource.addEventListener("sourceopen", () => {
+      if (aborted || generation !== this.generation) return;
+      try { sourceBuffer = mediaSource.addSourceBuffer("audio/mpeg"); }
+      catch { this.fail(owner, generation, "media-source-buffer-failed"); return; }
+      sourceBuffer.addEventListener("updateend", () => {
+        if (aborted || generation !== this.generation) return;
+        if (!firstAppended) { firstAppended = true; this.tryPlay(owner, generation); }
+        finishIfDrained();
+        pump();
+      });
+      pump();
+    });
+
+    const handle: StreamHandle = {
+      owner,
+      appendChunk: (bytes) => {
+        if (aborted || generation !== this.generation) return;
+        pending.push(bytes);
+        pump();
+      },
+      complete: () => {
+        if (aborted || generation !== this.generation) return;
+        ended = true;
+        finishIfDrained();
+      },
+      abort: () => {
+        aborted = true;
+        pending.length = 0;
+        if (mediaSource.readyState === "open") { try { mediaSource.endOfStream(); } catch { /* ignore */ } }
+      },
+    };
+    this.streamHandle = handle;
+    return handle;
+  }
+
+  private tryPlay(owner: MediaOwner, generation: number): void {
+    if (generation !== this.generation || !this.audio) return;
+    void this.audio.play()
+      .then(() => { if (generation === this.generation) this.notifyAudioStarted(owner); })
+      .catch(() => {
+        if (generation === this.generation) {
+          this.setState({ status: "blocked-by-autoplay", owner, replayKey: this.active?.replayKey });
+          if (this.active) this.mark(this.active, "blocked-by-autoplay");
+        }
+      });
+  }
+
+  private fail(owner: MediaOwner, generation: number, message: string): void {
+    if (generation !== this.generation) return;
+    this.setState({ status: "error", owner, message });
+    if (this.active) this.mark(this.active, "error");
+  }
+
+  private abortStream(): void {
+    const handle = this.streamHandle;
+    this.streamHandle = undefined;
+    handle?.abort();
   }
 
   replay(replayKey: string): Promise<void> {
@@ -90,6 +224,7 @@ export class MediaSessionController {
     const externalStop = this.externalStop;
     this.externalStop = undefined;
     externalStop?.();
+    this.abortStream();
     this.stopAudio();
     this.active = undefined;
     this.setState({ status: "idle" });

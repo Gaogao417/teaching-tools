@@ -190,10 +190,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }, isCoachResponse, "coach"),
-  conductActionCoach: (payload: CoachTurnRequest) =>
+  conductActionCoach: (payload: CoachTurnRequest, options?: { signal?: AbortSignal }) =>
     validated<CoachTurnResponse>("/api/action-coach", {
       method: "POST",
       body: JSON.stringify(payload),
+      signal: options?.signal,
     }, isCoachTurnResponse, "multimodal coach"),
   streamActionCoach: streamCoachTurn,
   synthesizeActionSpeech: (payload: DirectSpeechRequest, signal?: AbortSignal) =>

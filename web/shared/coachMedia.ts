@@ -1,7 +1,7 @@
 import { isCoachDirective, type CoachDirective } from "./actionRuntime";
 
 /** Provider-neutral browser/server media contracts. Provider and model metadata stay server-side. */
-export const COACH_MEDIA_PROTOCOL_VERSION = 2 as const;
+export const COACH_MEDIA_PROTOCOL_VERSION = 3 as const;
 
 export type CoachMediaMode = "narration" | "turn" | "live";
 export interface VoiceTelemetryEvent {
@@ -49,10 +49,24 @@ export interface CoachTurnStart {
   studentAudio?: { mimeType: string; audioBase64: string; durationMs?: number };
 }
 
+/**
+ * A policy-approved, read-aloud chunk of the coach reply. `displayText` is what
+ * the transcript bubble shows; `spokenText` is what was sent to TTS (the two
+ * differ only when display and spoken copy are intentionally split). Both are
+ * provider-neutral plain text — no provider/model metadata crosses here.
+ */
+export interface SpokenSegment {
+  segmentId: string;
+  displayText: string;
+  spokenText: string;
+}
+
 export type CoachTurnEvent =
   | (MediaEnvelope & { type: "turn.started" })
   | (MediaEnvelope & { type: "turn.transcript.delta"; role: "student" | "coach"; text: string })
-  | (MediaEnvelope & { type: "turn.audio"; segmentId: string; audioBase64: string; mimeType: string; final: boolean })
+  | (MediaEnvelope & { type: "turn.segment.started"; segment: SpokenSegment })
+  | (MediaEnvelope & { type: "turn.audio.delta"; segmentId: string; audioBase64: string; mimeType: string })
+  | (MediaEnvelope & { type: "turn.audio.completed"; segmentId: string })
   | (MediaEnvelope & { type: "turn.directive"; directive: CoachDirective })
   | (MediaEnvelope & { type: "turn.completed" })
   | (MediaEnvelope & { type: "turn.cancelled" })
@@ -98,6 +112,9 @@ export function isNarrationEvent(value: unknown): value is NarrationEvent {
   }
 }
 
+const isSpokenSegment = (value: unknown): value is SpokenSegment => record(value)
+  && string(value, "segmentId") && string(value, "displayText") && string(value, "spokenText");
+
 export function isCoachTurnEvent(value: unknown): value is CoachTurnEvent {
   if (!record(value) || !envelope(value) || !string(value, "type")) return false;
   switch (value.type) {
@@ -105,7 +122,9 @@ export function isCoachTurnEvent(value: unknown): value is CoachTurnEvent {
     case "turn.completed":
     case "turn.cancelled": return true;
     case "turn.transcript.delta": return ["student", "coach"].includes(String(value.role)) && typeof value.text === "string";
-    case "turn.audio": return string(value, "segmentId") && string(value, "audioBase64") && string(value, "mimeType") && typeof value.final === "boolean";
+    case "turn.segment.started": return isSpokenSegment(value.segment);
+    case "turn.audio.delta": return string(value, "segmentId") && string(value, "audioBase64") && string(value, "mimeType");
+    case "turn.audio.completed": return string(value, "segmentId");
     case "turn.directive": return isCoachDirective(value.directive) && typeof value.directive.spokenText === "string";
     case "turn.error": return string(value, "code") && typeof value.retryable === "boolean";
     default: return false;

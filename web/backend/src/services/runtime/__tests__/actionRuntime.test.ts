@@ -63,7 +63,7 @@ async function main() {
   const authoredCoachEntries = allRecords.flatMap((record) => (record.promptData.actionTemplates || []) as unknown as AuthoredActionTemplate[])
     .filter((action) => action.coach?.entryLatex);
   assert.ok(authoredCoachEntries.length > 0 && authoredCoachEntries.every((action) => action.coach?.entrySpoken && !/[\\$]/.test(action.coach.entrySpoken)), "every deterministic coach entry must dual-write reviewed plain speech");
-  assert.deepEqual(new SpokenSegmenter(12, 24).segment("先看完整的公式 \\dfrac{1}{2}，再计算结果。"), ["先看完整的公式 \\dfrac{1}{2}，", "再计算结果。"]);
+  assert.deepEqual(new SpokenSegmenter(12, 24).segment("先看完整的公式 \\dfrac{1}{2}，再计算结果。").map((segment) => segment.spokenText), ["先看完整的公式 \\dfrac{1}{2}，", "再计算结果。"]);
   assert.ok(allRecords.every((record) => record.promptData.solutionBoard?.expressions.length), "every published Topic record must author a SolutionBoard script");
   for (const record of allRecords) {
     assert.ok(isSolutionBoardScript(record.promptData.solutionBoard), `${record.id} must have a valid SolutionBoard script`);
