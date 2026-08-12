@@ -46,7 +46,7 @@ Classify the request:
 
 1. Copy [assets/action-capability-spec.template.md](assets/action-capability-spec.template.md) to `docs/actions/<kind>/action-capability-spec.md`.
 2. Define the capability without Topic IDs, source-step wording, or one problem's object names.
-3. Specify public input, private truth, typed evidence, structural readiness, local teaching correctness, backend diagnosis, diagram preview/canonical effects, SolutionBoard isolation, modes, recovery, and authoring API.
+3. Specify public input, private truth, typed evidence, structural readiness, local teaching correctness, deterministic Learn demonstration events, backend diagnosis, diagram preview/canonical effects, SolutionBoard isolation, modes, recovery, and authoring API.
 4. List every shared/frontend/backend/authoring/test seam that must change.
 5. Keep status `draft` and validate:
 
@@ -65,7 +65,7 @@ Implement in this order:
 
 1. Shared discriminated `ActionContract`, typed `ActionEvidence`, and validators.
 2. Shared persistent `DomainCommand` semantics when the Action changes the diagram world.
-3. One isolated frontend machine definition and projector; include enabled entities, drafts, readiness, precise wrong state, and diagram preview commands.
+3. One isolated frontend machine definition and projector; include enabled entities, drafts, readiness, precise wrong state, diagram preview commands, and a deterministic Learn demonstration derived only from reviewed teaching truth.
 4. One registry entry for the exact `kind@version` with runtime input validation.
 5. Backend private evaluation with precise wrong action/object/input IDs plus accepted canonical diagram commands.
 6. Generic offline authoring support that emits public `input`, private `teachingInput`, answer fields, and capabilities. The Action authorer must not create SolutionBoard prose, targets, slots, or commands; the requesting Topic separately binds reviewed question-bank proof rows to Action visibility boundaries.
@@ -97,6 +97,7 @@ Set status `verified` only after all required gates pass. Then return the regist
 - Never implement a Topic-specific React branch, machine, evaluator case keyed by Topic ID, or one-off panel.
 - Never route new work through `ExerciseRuntimeSpec`, primitive switches, `RuntimeActionEvent.value`, topic answer strings, or a legacy Topic frame.
 - Keep answer truth in `teachingInput` or the backend answer key; Assessment receives only public interaction shape.
+- Require every Learn-capable Action to expose a deterministic demonstration path. Do not require learner clicks, synthesize missing truth, or put playback timing inside the Action.
 - Never ship an effect only in React or XState state. Persist it through typed workspace commands.
 - Never put SolutionBoard prose, `boardTargets`, slots, previews, or commands in an Action capability. Test that the capability preserves the backend-projected question solution context without interpreting it.
 - Never project different accepted effects in frontend preview and backend canonical evaluation.

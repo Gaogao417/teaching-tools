@@ -20,6 +20,8 @@ Read this only after implementation reaches `implemented`.
 ## Truth and mode boundaries
 
 - Learn may receive authorized database-backed SolutionBoard contexts.
+- Learn treats every Action as one paused teaching beat: learner questions keep the current beat, and explicit confirmation applies the reviewed `teachingInput` demonstration before moving exactly once.
+- Every Learn Action can demonstrate from reviewed teaching truth without requiring diagram clicks or answer-field entry from the learner.
 - Practice sends typed evidence to backend evaluation and preserves correct prior work after a rejected action.
 - Assessment contains no expected values, expected objects/order, accepted answers, coach truth, or SolutionBoard context.
 - Public counts and interaction shape remain sufficient for Assessment completion.
@@ -76,6 +78,7 @@ Use the real local page and walk:
 6. first, middle, and last bank records;
 7. desktop and narrow width;
 8. keyboard focus and accessible names for inputs and primary controls.
+9. Learn pacing: ask a text or voice question without advancing, replay the answer when speech is available, choose “没听懂”, then advance one beat with explicit confirmation.
 
 Restart the backend after importer output changes before taking screenshots or accepting results.
 

@@ -54,8 +54,8 @@ Treat only explicit user language such as “确认”, “通过”, or “按�
 6. Map each source teaching step to one or more actions. Mark every action as:
    - `Reuse kind@version`; or
    - `ExtendRuntime capability-name`.
-7. For every action specify learner interaction, typed evidence, diagram effect, and which reviewed proof rows become visible after acceptance. Do not make the Action author or assemble those rows.
-8. Separate public structure in `input` from teaching or assessment truth in `teachingInput`. Keep counts and interaction shape public; keep expected objects, values, ordering, and results private.
+7. For every action specify learner interaction, typed evidence, diagram effect, which reviewed proof rows become visible after acceptance, and the deterministic Learn demonstration beat. Do not make the Action author or assemble proof rows.
+8. Separate public structure in `input` from teaching or assessment truth in `teachingInput`. Keep counts and interaction shape public; keep expected objects, values, ordering, and results private. Make `teachingInput` complete enough for the shared runtime to demonstrate the action without requiring learner input.
 9. Specify stable geometry IDs, derived outputs, overlapping whole/part segments, reviewed SolutionBoard rows and their Action visibility boundaries, submit boundaries, mode behavior, registration points, and first/middle/last bank samples.
 10. Keep status `draft` and validate it:
 
@@ -111,7 +111,7 @@ python3 .codex/skills/build-action-driven-topic/scripts/assemble_topic_solutions
 
 1. Read [references/acceptance-checklist.md](references/acceptance-checklist.md) completely.
 2. Validate status `implemented`.
-3. Walk at least one complete Topic item from the first action through the final action in the real browser. Also exercise wrong selection, wrong input, correction, BACK, CLEAR, refresh/restore, and narrow width.
+3. Walk at least one complete Topic item from the first action through the final action in the real browser. In Learn, verify one explicit student confirmation advances exactly one deterministic demonstration beat, a question or “没听懂” response does not advance, and completion stays in teaching mode. In Practice, also exercise wrong selection, wrong input, correction, BACK, CLEAR, refresh/restore, and narrow width.
 4. Verify first, middle, and last bank records and all supported modes.
 5. Run frontend tests/build and backend tests. Record exact commands, scenarios, screenshots, and intentionally deferred checks under `Verification evidence`.
 6. Set status `verified` only when every required gate passes.
@@ -121,6 +121,7 @@ python3 .codex/skills/build-action-driven-topic/scripts/assemble_topic_solutions
 - Preserve the approved explanation as teaching truth; analyze action decomposition without inventing new pedagogy.
 - Prefer `Reuse`; add a new reusable capability only when no registered `kind@version` can express the interaction.
 - Never add a Topic-specific page or duplicate the shared Action Runtime.
+- Never add Topic-specific playback timers, coach API calls, prompts, ASR, or TTS code. Learn pacing and multimodal Q&A belong to the shared runtime; Topic authoring supplies only reviewed action truth and teaching copy.
 - Never implement a new Topic through `ExerciseRuntimeSpec`, a primitive switch, `RuntimeActionEvent.value`, a legacy Topic frame, or a fallback that reconstructs actions from `steps`.
 - Do not confuse Action Runtime v2 with action `version: 2`: reuse the registered `kind@version`, often `@1`, inside the v2 runtime model.
 - Never put expected objects, order, values, results, coach truth, or completed SolutionBoard content into Assessment payloads.

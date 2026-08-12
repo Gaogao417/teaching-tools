@@ -15,6 +15,7 @@
 - Derive enabled objects, selected objects, active slot, values, readiness, wrong state, and completion evidence from machine context.
 - Reject duplicates; enforce object kind, order, maximum count, and required answers.
 - Separate structural readiness from local teaching correctness.
+- Define deterministic Learn demonstration events from `teachingInput`; one shared runtime advance must complete exactly one Action without learner entry.
 - Emit diagram preview commands from the draft evidence shape when the Action has a diagram effect.
 - Register exactly the supported `kind@version` and validate every required input field.
 - Test invalid input and unsupported version errors.
@@ -34,6 +35,7 @@
 ## Modes, recovery, and security
 
 - Learn/LocalTeaching may merge teaching truth and preview correctness.
+- Learn confirmation drives the deterministic demonstration path; questions and comprehension feedback must leave the Action unchanged.
 - Guided Practice uses structurally complete typed evidence and backend authority.
 - Assessment keeps public shape but removes teaching truth, coach internals, and SolutionBoard context.
 - Rejected evaluation preserves prior committed effects and removes rejected drafts.
