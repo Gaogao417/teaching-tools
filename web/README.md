@@ -64,6 +64,7 @@ VITE_API_BASE_URL=http://localhost:3001 npm run dev
 - `COACH_ANSWER_PROVIDER`（默认 `claude-code`，即 ASR→LLM→TTS 三段；设为 `omni` 改用单次 `qwen3.5-omni-plus` 调用,直接听学生语音并用自然语音作答）
 - `COACH_OMNI_MODEL` / `COACH_OMNI_VOICE` / `COACH_OMNI_TIMEOUT_MS`（omni 链路参数，默认 `qwen3.5-omni-plus` / `Tina` / `45000`；复用同一个 `DASHSCOPE_API_KEY`,限北京区域。有效 omni 音色: Tina/Ethan/Serena）
 - `COACH_COSY_MODEL` / `COACH_COSY_VOICE` / `COACH_COSY_TIMEOUT_MS`（CosyVoice-v3-plus 链路，默认 `cosyvoice-v3-plus` / `longanyang` / `45000`；走 `DASHSCOPE_WS_BASE_URL` WebSocket）
+- `COACH_REALTIME_MODEL` / `COACH_REALTIME_VOICE` / `DASHSCOPE_REALTIME_WS_URL`（全双工实时对话 `qwen3.5-omni-plus-realtime`，默认音色 `Ethan`；教练面板「实时对话」按钮启停,浏览器流式采音↔后端中继↔DashScope）
 
 前端教练面板顶部有 **Omni / CosyVoice** 分段切换,按请求选择语音链路(偏好存 localStorage);不传时回退 `COACH_ANSWER_PROVIDER`。
 
