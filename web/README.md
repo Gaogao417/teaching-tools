@@ -57,11 +57,10 @@ VITE_API_BASE_URL=http://localhost:3001 npm run dev
 - `HOST`
 - `FRONTEND_ORIGIN`
 - `SQLITE_PATH`
-- `DASHSCOPE_API_KEY`（Qwen ASR 与 TTS，仅后端）
+- `DASHSCOPE_API_KEY`（Qwen ASR 与 CosyVoice TTS，仅后端）
 - `COACH_CLAUDE_MODEL`（默认 `glm-5.2`，由 Claude Code 调用）
 - `COACH_ASR_MODEL`（默认 `qwen3-asr-flash`）
-- `COACH_TTS_MODEL` / `COACH_TTS_VOICE`（默认 `qwen3-tts-instruct-flash` / `Cherry`，仅 `COACH_ANSWER_PROVIDER=claude-code` 时生效）
-- `COACH_ANSWER_PROVIDER`（默认 `claude-code`，即 ASR→LLM→TTS 三段；设为 `omni` 改用单次 `qwen3.5-omni-plus` 调用,直接听学生语音并用自然语音作答）
+- `COACH_ANSWER_PROVIDER`（默认 `cosyvoice`，即 ASR→GLM 文本答疑→CosyVoice TTS；设为 `omni` 改用单次 `qwen3.5-omni-plus` 调用,直接听学生语音并用自然语音作答）
 - `COACH_OMNI_MODEL` / `COACH_OMNI_VOICE` / `COACH_OMNI_TIMEOUT_MS`（omni 链路参数，默认 `qwen3.5-omni-plus` / `Tina` / `45000`；复用同一个 `DASHSCOPE_API_KEY`,限北京区域。有效 omni 音色: Tina/Ethan/Serena）
 - `COACH_COSY_MODEL` / `COACH_COSY_VOICE` / `COACH_COSY_TIMEOUT_MS`（CosyVoice-v3-plus 链路，默认 `cosyvoice-v3-plus` / `longanyang` / `45000`；走 `DASHSCOPE_WS_BASE_URL` WebSocket）
 - `COACH_REALTIME_MODEL` / `COACH_REALTIME_VOICE` / `DASHSCOPE_REALTIME_WS_URL`（全双工实时对话 `qwen3.5-omni-plus-realtime`，默认音色 `Ethan`；教练面板「实时对话」按钮启停,浏览器流式采音↔后端中继↔DashScope）

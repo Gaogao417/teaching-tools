@@ -10,7 +10,7 @@ import { latexToSpokenChinese } from "../../../../shared/speechText";
 import { getLearningActionPlan } from "../learningService";
 import { askActionRuntimeCoach, getActionRuntimePlan } from "../runtime/platform/sessionRuntimeService";
 import { askClaudeCodeCoach } from "./claudeCodeCoachService";
-import { synthesizeCoachSpeech, transcribeStudentAudio } from "./qwenSpeechService";
+import { transcribeStudentAudio } from "./qwenSpeechService";
 import { conductOmniCoach } from "./omniCoachService";
 import { synthesizeCosyVoice } from "./cosyVoiceService";
 
@@ -23,21 +23,20 @@ const plainSpeech = latexToSpokenChinese;
 
 /**
  * Server default for the speech backend, used when a request omits voiceModel.
- * "claude-code" = ASR→LLM→qwen3-tts-flash triplet; "omni" = single Qwen3.5-Omni
- * call; "cosyvoice" = Claude answer spoken by CosyVoice-v3-plus.
+ * "omni" = single Qwen3.5-Omni call (listens and replies with natural speech);
+ * "cosyvoice" = Claude/GLM answer spoken by CosyVoice-v3-plus (the default).
  */
-const ANSWER_PROVIDER = (process.env.COACH_ANSWER_PROVIDER || "claude-code").trim();
+const ANSWER_PROVIDER = (process.env.COACH_ANSWER_PROVIDER || "cosyvoice").trim();
 
 /**
  * Resolve the speech backend for a turn. An explicit per-request choice wins;
- * otherwise the server's COACH_ANSWER_PROVIDER default applies (back-compat
- * for callers that don't send voiceModel).
+ * otherwise the server's COACH_ANSWER_PROVIDER default applies. Any value other
+ * than omni routes to the CosyVoice turn path.
  */
-function resolveVoiceModel(requested?: "omni" | "cosyvoice"): "omni" | "cosyvoice" | "default" {
-  if (requested === "omni" || requested === "cosyvoice") return requested;
-  if (ANSWER_PROVIDER === "omni") return "omni";
-  if (ANSWER_PROVIDER === "cosyvoice") return "cosyvoice";
-  return "default";
+function resolveVoiceModel(requested?: "omni" | "cosyvoice"): "omni" | "cosyvoice" {
+  if (requested === "omni") return "omni";
+  if (requested === "cosyvoice") return "cosyvoice";
+  return ANSWER_PROVIDER === "omni" ? "omni" : "cosyvoice";
 }
 
 function learningFallback(plan: ExercisePlan, question: string): CoachDirective {
@@ -209,9 +208,7 @@ export async function conductCoachTurn(request: CoachTurnRequest): Promise<Coach
   if (request.synthesizeSpeech !== false) {
     try {
       const spoken = directive.spokenText || plainSpeech(directive.messageLatex);
-      const synthesized = effectiveVoice === "cosyvoice"
-        ? await synthesizeCosyVoice(spoken)
-        : await synthesizeCoachSpeech(spoken);
+      const synthesized = await synthesizeCosyVoice(spoken);
       speech = synthesized;
       speechProvider = synthesized.model;
     } catch {

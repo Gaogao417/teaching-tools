@@ -1,4 +1,3 @@
-const DEFAULT_DASHSCOPE_API_URL = "https://dashscope.aliyuncs.com/api/v1";
 const DEFAULT_DASHSCOPE_COMPATIBLE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const MAX_AUDIO_DURATION_MS = 60_000;
@@ -73,46 +72,4 @@ export async function transcribeStudentAudio(input: { dataUrl: string; durationM
   const transcript = typeof content === "string" ? content.trim() : "";
   if (!transcript) throw new SpeechProviderError("Qwen ASR returned an empty transcript");
   return { transcript, model };
-}
-
-function secureAudioUrl(value: string): string {
-  const url = new URL(value);
-  if (url.protocol === "http:") url.protocol = "https:";
-  if (url.protocol !== "https:") throw new SpeechProviderError("Qwen TTS returned an invalid audio URL");
-  return url.toString();
-}
-
-export async function synthesizeCoachSpeech(text: string): Promise<{
-  audioUrl: string;
-  model: string;
-  voice: string;
-  expiresAt?: number;
-}> {
-  const spokenText = text.trim().slice(0, 600);
-  if (!spokenText) throw new SpeechProviderError("TTS text is empty");
-  const model = process.env.COACH_TTS_MODEL?.trim() || "qwen3-tts-instruct-flash";
-  const voice = process.env.COACH_TTS_VOICE?.trim() || "Cherry";
-  const baseUrl = trimTrailingSlash(process.env.DASHSCOPE_API_BASE_URL?.trim() || DEFAULT_DASHSCOPE_API_URL);
-  const body = await postJson(`${baseUrl}/services/aigc/multimodal-generation/generation`, {
-    model,
-    input: {
-      text: spokenText,
-      voice,
-      language_type: "Chinese",
-      ...(model.includes("instruct") ? {
-        instructions: "像耐心的中学数学老师一样讲解：语速稍慢，停顿自然，重点清楚，语气鼓励但不夸张。",
-        optimize_instructions: true,
-      } : {}),
-    },
-  });
-  const audio = body.output?.audio;
-  if (!audio || typeof audio.url !== "string") {
-    throw new SpeechProviderError("Qwen TTS returned no audio URL");
-  }
-  return {
-    audioUrl: secureAudioUrl(audio.url),
-    model,
-    voice,
-    ...(typeof audio.expires_at === "number" ? { expiresAt: audio.expires_at } : {}),
-  };
 }

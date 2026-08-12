@@ -327,7 +327,7 @@ export interface CoachTurnRequest {
    * Per-request speech backend for the coach reply. "omni" = single
    * Qwen3.5-Omni call (listens + replies with speech); "cosyvoice" = Claude
    * answer spoken by CosyVoice-v3-plus. Omitted falls back to the backend's
-   * COACH_ANSWER_PROVIDER setting (the legacy ASR→LLM→TTS chain).
+   * COACH_ANSWER_PROVIDER setting (cosyvoice by default).
    */
   voiceModel?: CoachVoiceModel;
 }

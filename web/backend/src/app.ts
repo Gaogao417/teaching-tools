@@ -41,7 +41,7 @@ import {
 } from "../../shared/actionRuntime";
 import { latexToSpokenChinese } from "../../shared/speechText";
 import { conductCoachTurn } from "./services/coach/coachTurnService";
-import { synthesizeCoachSpeech } from "./services/coach/qwenSpeechService";
+import { synthesizeCosyVoice } from "./services/coach/cosyVoiceService";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
   message: "Invalid taskId",
@@ -270,15 +270,15 @@ export function createApp() {
     }
   });
 
-  // Stateless direct TTS for deterministic teacher copy. Reuses the same Qwen
-  // TTS provider as the coach turn path and the shared LaTeX→spoken transform.
-  // It never invokes the AI coach and stores no audio on disk.
+  // Stateless direct TTS for deterministic teacher copy. Synthesized by
+  // CosyVoice via the shared LaTeX→spoken transform; never invokes the AI coach
+  // and stores no audio on disk (audio is returned inline as a data URL).
   app.post("/api/action-speech", async (req, res, next) => {
     try {
       const body = z.custom<DirectSpeechRequest>(isDirectSpeechRequest, {
         message: "Invalid direct speech request",
       }).parse(req.body);
-      const response = await synthesizeCoachSpeech(latexToSpokenChinese(body.text));
+      const response = await synthesizeCosyVoice(latexToSpokenChinese(body.text));
       if (!isDirectSpeechResponse(response)) throw new Error("Invalid direct speech response");
       res.json(response);
     } catch (error) {
