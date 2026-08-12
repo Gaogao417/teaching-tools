@@ -9,12 +9,14 @@ import type {
 } from "../ports/TextCoachEngine";
 import { TextGenerationError } from "../ports/TextCoachEngine";
 import type { SpeechSynthesizer } from "../ports/SpeechSynthesizer";
+import type { SpeechRecognizer } from "../ports/SpeechRecognizer";
 import { SegmentPolicy } from "./SegmentPolicy";
 import { SpokenSegmenter } from "./SpokenSegmenter";
 import { CoachTurnTelemetry } from "./CoachTurnTelemetry";
 import { AsyncQueue } from "./asyncQueue";
+import { coachModePolicy } from "./coachModePolicy";
+import type { CoachModePolicy } from "./coachModePolicy";
 import { modelInput, resolveCoachPlanAndFallback } from "../coachTurnService";
-import { transcribeStudentAudio } from "../qwenSpeechService";
 
 const MIME_TYPE = "audio/mpeg";
 const SEGMENT_QUEUE_CAP = 8;
@@ -30,6 +32,11 @@ export interface CoachTurnDeps {
   text: TextCoachEngine;
   speech: SpeechSynthesizer;
   policy: SegmentPolicy;
+  recognizer: SpeechRecognizer;
+  /** Shared turn/live mode policy. Defaults to the process-wide instance so the
+   *  turn path and the live path resolve the Assessment gate through one
+   *  policy (ADR-005 §Architectural Invariants #6). */
+  modePolicy?: CoachModePolicy;
 }
 
 /**
@@ -54,19 +61,21 @@ export class CoachTurnApplication {
     const { plan, fallback } = resolveCoachPlanAndFallback(request);
 
     // Defense-in-depth: Assessment stays fail-closed for generative streaming.
-    if (plan.mode === "assessment" && process.env.COACH_STREAM_ASSESSMENT_ENABLED !== "true") {
-      return { ok: false, error: new CoachStartError("NOT_ALLOWED", "Streaming Coach is disabled in Assessment", 403) };
+    // The gate is the shared turn/live mode policy.
+    const allowance = (this.deps.modePolicy ?? coachModePolicy).allowTurn(plan.mode);
+    if (!allowance.ok) {
+      return { ok: false, error: new CoachStartError(allowance.code, "Streaming Coach is disabled in Assessment", 403) };
     }
 
     let studentQuestion = request.studentMessage?.trim() || "";
     let transcript: string | undefined;
     if (request.studentAudio) {
-      try {
-        transcript = (await transcribeStudentAudio(request.studentAudio)).transcript?.trim();
-        if (transcript) studentQuestion = studentQuestion || transcript;
-      } catch (error) {
-        return { ok: false, error: new CoachStartError("ASR_FAILED", (error as Error).message, 502) };
+      const asrResult = await this.deps.recognizer.transcribe(request.studentAudio);
+      if (!asrResult.ok) {
+        return { ok: false, error: new CoachStartError(asrResult.error.code, asrResult.error.message, 502) };
       }
+      transcript = asrResult.value.transcript?.trim();
+      if (transcript) studentQuestion = studentQuestion || transcript;
     }
     if (!studentQuestion) {
       return { ok: false, error: new CoachStartError("EMPTY_QUESTION", "Student question is empty", 400) };

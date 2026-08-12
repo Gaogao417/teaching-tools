@@ -5,7 +5,6 @@ import type {
   CoachTurnResponse,
   ExercisePlan,
 } from "../../../../shared/actionRuntime";
-import { renderBoardExpression } from "../../../../shared/solutionBoard";
 import { latexToSpokenChinese } from "../../../../shared/speechText";
 import { getLearningActionPlan } from "../learningService";
 import { askActionRuntimeCoach, getActionRuntimePlan } from "../runtime/platform/sessionRuntimeService";
@@ -14,6 +13,7 @@ import { transcribeStudentAudio } from "./qwenSpeechService";
 import { conductOmniCoach } from "./omniCoachService";
 import { synthesizeCosyVoice } from "./cosyVoiceService";
 import type { TextCoachInput } from "./ports/TextCoachEngine";
+import { buildCoachContext } from "./application/coachContextBuilder";
 
 /**
  * Normalize display LaTeX into plain spoken Chinese for TTS. Delegates to the
@@ -86,17 +86,13 @@ export function resolveCoachPlanAndFallback(request: CoachTurnRequest): { plan: 
 }
 
 export function modelInput(plan: ExercisePlan, request: CoachTurnRequest, studentQuestion: string): TextCoachInput {
-  const action = plan.actions.find((candidate) => candidate.actionId === request.trace.currentActionId)
-    || plan.actions.find((candidate) => candidate.actionId === plan.currentActionId)!;
-  const board = plan.solutionBoardContexts?.find((context) => context.actionId === action.actionId)?.board;
-  return {
-    problemLatex: plan.metadata.promptLatex,
-    mode: plan.mode,
-    action: { actionId: action.actionId, title: action.title, instruction: action.instruction },
-    visibleSolution: plan.mode === "assessment"
-      ? []
-      : (board?.expressions || []).filter((expression) => expression.phase !== "hidden").map((expression) => renderBoardExpression(expression)),
-    ...(plan.mode === "learn" ? { reviewedTeachingTargets: action.input } : {}),
+  // The Assessment-stripped, mode-aware base context is built by the shared
+  // coachContextBuilder — the same builder the live path uses — so turn and
+  // live present an identical safe context shape (ADR-005 §Architectural
+  // Invariants #6). Only the turn-specific augmentation (trace projection,
+  // conversation window, trimmed question) is added here.
+  const context = buildCoachContext(plan, {
+    actionId: request.trace.currentActionId,
     trace: {
       actionState: request.trace.actionState,
       selectedObjectIds: request.trace.selectedObjectIds,
@@ -104,6 +100,9 @@ export function modelInput(plan: ExercisePlan, request: CoachTurnRequest, studen
       wrongAttempts: request.trace.wrongAttempts,
       recentEvents: request.trace.recentEvents.slice(-12),
     },
+  });
+  return {
+    ...context,
     conversation: (request.conversation || []).slice(-8).map((turn) => ({
       role: turn.role,
       text: turn.text.slice(0, 600),

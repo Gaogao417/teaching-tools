@@ -7,8 +7,15 @@ import type { EventStream, Result, TextCoachEngine, TextCoachInput, TextGenerati
 import { TextGenerationError } from "../ports/TextCoachEngine";
 import type { SpeechEvent, SpeechSynthesizer } from "../ports/SpeechSynthesizer";
 import { SpeechError } from "../ports/SpeechSynthesizer";
+import type { AudioInput, SpeechRecognizer } from "../ports/SpeechRecognizer";
 import type { CoachTurnRequest } from "../../../../../shared/actionRuntime";
 import { getLearningActionPlan } from "../../learningService";
+
+class FakeRecognizer implements SpeechRecognizer {
+  async transcribe(_audio: AudioInput): Promise<{ ok: true; value: { transcript: string } }> {
+    return { ok: true, value: { transcript: "" } };
+  }
+}
 
 type TextStreamResult = Result<EventStream<TextGenerationEvent>, TextGenerationError>;
 
@@ -78,7 +85,7 @@ async function main(): Promise<void> {
   {
     const text = new FakeTextEngine();
     const speech = new FakeSpeech();
-    const app = new CoachTurnApplication({ text, speech, policy: new SegmentPolicy() });
+    const app = new CoachTurnApplication({ text, speech, policy: new SegmentPolicy(), recognizer: new FakeRecognizer() });
     const controller = new AbortController();
 
     const result = await app.start(buildLearnRequest(), controller.signal);
@@ -117,7 +124,7 @@ async function main(): Promise<void> {
   {
     const text = new FakeTextEngine();
     const speech = new FakeSpeech();
-    const app = new CoachTurnApplication({ text, speech, policy: new SegmentPolicy() });
+    const app = new CoachTurnApplication({ text, speech, policy: new SegmentPolicy(), recognizer: new FakeRecognizer() });
     const controller = new AbortController();
     const result = await app.start(buildLearnRequest(), controller.signal);
     assert.ok(result.ok);
@@ -158,7 +165,7 @@ async function main(): Promise<void> {
       },
     };
     const text = new FakeTextEngine();
-    const app = new CoachTurnApplication({ text, speech: failing, policy: new SegmentPolicy() });
+    const app = new CoachTurnApplication({ text, speech: failing, policy: new SegmentPolicy(), recognizer: new FakeRecognizer() });
     const result = await app.start(buildLearnRequest(), new AbortController().signal);
     assert.ok(result.ok);
     const events: CoachTurnEvent[] = [];
