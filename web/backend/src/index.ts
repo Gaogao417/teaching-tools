@@ -1,7 +1,7 @@
 import "./loadEnv";
 import http from "node:http";
 import { createApp } from "./app";
-import { attachRealtimeCoach } from "./services/coach/realtimeCoachRelay";
+import { attachRealtimeCoach } from "./transport/ws/realtimeCoachTransport";
 
 const port = Number(process.env.PORT || 3001);
 const host = process.env.HOST || "127.0.0.1";
