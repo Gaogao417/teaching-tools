@@ -1,6 +1,7 @@
 import type { TrainingRecordRepository } from "../ports/trainingRecordRepository";
 import { db } from "../../../db/database";
 import type { TrainingResult } from "../../../../../shared/trainingRuntime";
+import { normalizedActionMetrics } from "../application/normalizeTrainingMetric";
 
 export function updateTrainingMastery(result: TrainingResult): void {
   const session = db.prepare("SELECT student_name, task_id FROM practice_sessions WHERE id = ?")
@@ -18,10 +19,12 @@ export function updateTrainingMastery(result: TrainingResult): void {
       updated_at = excluded.updated_at
   `);
   const now = new Date().toISOString();
+  // Derive mastery from v2 telemetry when the envelope carries it; otherwise v1.
+  const metrics = normalizedActionMetrics(result);
   db.transaction(() => {
     const applied = db.prepare("INSERT OR IGNORE INTO training_progress_applied_v1 (record_id, applied_at) VALUES (?, ?)").run(result.recordId, now);
     if (applied.changes === 0) return;
-    for (const metric of result.actionMetrics) statement.run(
+    for (const metric of metrics) statement.run(
       session.student_name, session.task_id, metric.actionKind, metric.completed ? 1 : 0,
       metric.firstTryCorrect ? 1 : 0, metric.wrongAttemptCount, metric.durationMs, now,
     );
@@ -31,7 +34,9 @@ export function updateTrainingMastery(result: TrainingResult): void {
 export function readTrainingProgress(repository: TrainingRecordRepository, sessionId: string) {
   const records = repository.listForSession(sessionId);
   const latest = [...records].reverse().find((item) => item.kind === "result") || records.at(-1);
-  const metrics = latest?.record.actionMetrics || [];
+  // Read-model aggregates also prefer v2 carry-on when the latest record has it.
+  const latestRecord = latest?.record as TrainingResult | undefined;
+  const metrics = latestRecord ? normalizedActionMetrics(latestRecord) : [];
   const session = db.prepare("SELECT student_name, task_id FROM practice_sessions WHERE id = ?")
     .get(sessionId) as { student_name: string; task_id: string } | undefined;
   const mastery = session ? db.prepare("SELECT action_kind, completed_count, first_try_correct_count, wrong_attempt_count, total_duration_ms FROM training_progress_v1 WHERE student_name = ? AND task_id = ? ORDER BY action_kind")

@@ -10,6 +10,7 @@ import type { RuntimeEngineState } from "./runtime/platform/engineTypes";
 import type { SessionKind } from "../../../shared/similarityLearningMap";
 import { listActionEvaluations } from "../repositories/actionRuntimeRepository";
 import { SqliteTrainingRecordRepository } from "./training/adapters/sqliteTrainingRecordRepository";
+import { normalizedActionMetrics } from "./training/application/normalizeTrainingMetric";
 import type { TrainingResult } from "../../../shared/trainingRuntime";
 
 type ResultSessionRecord = {
@@ -68,7 +69,9 @@ export function finishAndPersistResult(
   const elapsedMs = Math.max(0, Date.parse(finishedAt) - Date.parse(session.started_at));
   const trainingResults = new SqliteTrainingRecordRepository().listForSession(session.id)
     .filter((item): item is typeof item & { record: TrainingResult } => item.kind === "result");
-  const trainingActionMetrics = trainingResults.flatMap((item) => item.record.actionMetrics);
+  // Derive the result-level training summary from v2 telemetry when a record
+  // carries it (ADR-006), falling back to v1 metrics otherwise.
+  const trainingActionMetrics = trainingResults.flatMap((item) => normalizedActionMetrics(item.record));
   const trainingMetrics: TrainingMetricsV1 | undefined = trainingActionMetrics.length ? {
     version: 1,
     actionCount: trainingActionMetrics.length,
