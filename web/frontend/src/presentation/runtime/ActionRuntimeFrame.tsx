@@ -227,14 +227,14 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   // unread dot on the avatar (cleared only when the student opens the drawer).
   useEffect(() => {
     if (railOpen) return;
-    const latex = view.coach.messageLatex;
+    const latex = view.coach.actionPromptLatex;
     const id = `coach-guidance:${latex}`;
     if (latex && id !== lastPreviewId.current) {
       lastPreviewId.current = id;
       setCoachPreview({ id, latex });
       setCoachUnread(true);
     }
-  }, [view.coach.messageLatex, railOpen]);
+  }, [view.coach.actionPromptLatex, railOpen]);
 
   useEffect(() => {
     if (railOpen) return;
@@ -378,6 +378,9 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   };
 
   const isTeaching = snapshot.plan.mode === "learn";
+  const currentActionIndex = snapshot.plan.actions.findIndex((item) => item.actionId === snapshot.currentActionId);
+  const previousTeachingAction = currentActionIndex > 0 ? snapshot.plan.actions[currentActionIndex - 1] : undefined;
+  const canAdvanceTeaching = snapshot.status !== "complete" && currentActionIndex < snapshot.plan.actions.length;
   const clickEntity = (entity: EntityRef) => {
     if (!isTeaching) send({ type: "OBJECT.SELECTED", objectKind: entity.kind, objectId: entity.id });
   };
@@ -412,7 +415,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
             <button type="button" className="topic-coach-sound" aria-label="重播老师语音" disabled={!speechUrl} onClick={() => replaySpeech()}><span className="material-symbols-outlined">volume_up</span></button>
             <button type="button" className="topic-coach-close" aria-label="收起指导栏" onClick={closeCoachRail}><span className="material-symbols-outlined">right_panel_close</span></button>
           </div>
-          <div className="topic-coach-bubble"><MathText value={view.coach.messageLatex} block /></div>
+          <div className="topic-coach-bubble" aria-label="当前 Action 讲解"><MathText value={view.coach.actionPromptLatex} block /></div>
           {autoplayBlocked ? <p className="topic-coach-recording" role="status">浏览器已阻止自动播放，请点右上角扬声器开始朗读。</p> : null}
           {coachThread.length ? <div className="topic-coach-thread" aria-label="答疑对话">{coachThread.map((turn) => (
             <div key={turn.id} className={`topic-coach-turn is-${turn.role}${turn.pending ? " is-pending" : ""}${turn.error ? " is-error" : ""}`}>
@@ -436,7 +439,14 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
         </aside>
       }
       actionBarLeft={isTeaching
-        ? <span className="topic-teaching-pause"><span className="material-symbols-outlined">pause_circle</span>{snapshot.status === "complete" ? "讲解已完成，仍可继续向老师提问" : "已暂停，等待学生回应后继续演示"}</span>
+        ? <div className="topic-action-playback" role="group" aria-label="Action 播放面板">
+          <button type="button" className="topic-action-playback-button" aria-label="回到第一个 Action" title="回到第一个 Action" disabled={disabled || (currentActionIndex === 0 && snapshot.status !== "complete")} onClick={() => runtime.seekTeaching(snapshot.plan.actions[0].actionId)}><span className="material-symbols-outlined">first_page</span></button>
+          <button type="button" className="topic-action-playback-button" aria-label="上一个 Action" title="上一个 Action" disabled={disabled || !previousTeachingAction} onClick={() => previousTeachingAction && runtime.seekTeaching(previousTeachingAction.actionId)}><span className="material-symbols-outlined">skip_previous</span></button>
+          <span className="topic-action-playback-position"><strong>Action {currentActionIndex + 1}</strong><small>/ {snapshot.plan.actions.length}</small></span>
+          <button type="button" className="topic-action-playback-button" aria-label="重播当前 Action 讲解" title="重播当前 Action 讲解" disabled={!speechUrl} onClick={() => replaySpeech()}><span className="material-symbols-outlined">replay</span></button>
+          <button type="button" className="topic-action-playback-button is-primary" aria-label="下一个 Action" title="播放到下一个 Action" disabled={coachBusy || disabled || !canAdvanceTeaching} onClick={() => runtime.advanceTeaching()}><span className="material-symbols-outlined">skip_next</span></button>
+          <span className="topic-teaching-pause"><span className="material-symbols-outlined">pause_circle</span>{snapshot.status === "complete" ? "讲解已完成" : "已暂停，等待学生回应后继续演示"}</span>
+        </div>
         : <ActionAnswerFields runtimeSend={send} disabled={disabled} view={view} />}
       actionEnd={
         isTeaching ? <div className="action-row topic-teaching-controls">

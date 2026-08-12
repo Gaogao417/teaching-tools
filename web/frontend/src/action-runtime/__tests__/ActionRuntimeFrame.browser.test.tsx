@@ -143,6 +143,9 @@ describe("ActionRuntimeFrame browser/accessibility contract", () => {
       studentMessage: "为什么要作平行线？",
     }));
     expect(container.textContent).toContain("因为要构造平行关系");
+    expect(container.querySelector('[aria-label="当前 Action 讲解"]')?.textContent).toContain("选择点和线");
+    expect(container.querySelector('[aria-label="当前 Action 讲解"]')?.textContent).not.toContain("因为要构造平行关系");
+    expect(container.querySelector('[aria-label="Action 播放面板"]')).not.toBeNull();
 
     const next = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "明白，继续")!;
     await act(async () => next.click());

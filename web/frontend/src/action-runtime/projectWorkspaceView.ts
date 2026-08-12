@@ -84,6 +84,7 @@ export function projectWorkspaceView(
     coach: {
       profileName: page.plan.coach.displayName,
       avatarId: page.plan.coach.avatarId,
+      actionPromptLatex: action.coach?.entryLatex || action.instruction,
       messageLatex: directive?.messageLatex || wrongMessage || action.coach?.entryLatex || action.instruction,
       tone: directive?.tone || (wrongMessage ? "wrong" : "prompt"),
       highlightObjectIds: directive?.highlightObjectIds || page.wrongObjectIds,

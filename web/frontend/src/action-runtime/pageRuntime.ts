@@ -27,6 +27,7 @@ type PageEvent =
   | { type: "CLEAR_DRAFT_GROUP" }
   | { type: "EVALUATION"; result: ActionEvaluationResponse }
   | { type: "COACH"; directive: CoachDirective }
+  | { type: "SEEK_TEACHING"; actionId: string }
   | { type: "RESET"; plan: ExercisePlan; checkpoint?: ActionCheckpointSnapshot };
 
 function initialWorld(plan: ExercisePlan) {
@@ -76,8 +77,8 @@ const pageMachine = setup({
       const commandBatches = context.world.commandBatches.filter((item) => item.actionId !== batch.actionId).concat(batch);
       const world = { ...context.world, draft, commandBatches };
       if (event.submit) return { evidence, completedActionIds, world, status: "submitting" as const, transportMessage: undefined };
-      if (!event.nextActionId) return { evidence, completedActionIds, world, status: "complete" as const };
-      return { evidence, completedActionIds, world, currentActionId: event.nextActionId, status: "active" as const };
+      if (!event.nextActionId) return { evidence, completedActionIds, world, status: "complete" as const, coachDirective: undefined };
+      return { evidence, completedActionIds, world, currentActionId: event.nextActionId, status: "active" as const, coachDirective: undefined };
     }),
     markSubmitting: assign({ status: () => "submitting" as const, transportMessage: () => undefined }),
     markTransportFailure: assign(({ event }) => event.type === "TRANSPORT_FAILURE"
@@ -180,6 +181,28 @@ const pageMachine = setup({
       };
     }),
     applyCoach: assign(({ event }) => event.type === "COACH" ? { coachDirective: event.directive } : {}),
+    seekTeaching: assign(({ context, event }) => {
+      if (event.type !== "SEEK_TEACHING" || context.plan.mode !== "learn") return {};
+      const targetIndex = context.plan.actions.findIndex((action) => action.actionId === event.actionId);
+      if (targetIndex < 0) return {};
+      const priorActionIds = new Set(context.plan.actions.slice(0, targetIndex).map((action) => action.actionId));
+      const commandBatches = context.world.commandBatches.filter((batch) => priorActionIds.has(batch.actionId));
+      return {
+        currentActionId: event.actionId,
+        completedActionIds: context.completedActionIds.filter((id) => priorActionIds.has(id)),
+        evidence: context.evidence.filter((item) => priorActionIds.has(item.actionId)),
+        world: {
+          ...context.world,
+          commandBatches,
+          draft: replayActionEffectBatches(context.world.committed, commandBatches),
+        },
+        status: "active" as const,
+        coachDirective: undefined,
+        wrongObjectIds: [],
+        wrongMessage: undefined,
+        transportMessage: undefined,
+      };
+    }),
     reset: assign(({ event }) => {
       if (event.type !== "RESET") return {};
       const checkpoint = event.checkpoint?.revision === event.plan.revision ? event.checkpoint : undefined;
@@ -221,6 +244,7 @@ const pageMachine = setup({
         CLEAR_DRAFT_GROUP: { actions: "clearDraftGroup" },
         EVALUATION: { actions: "applyEvaluation" },
         COACH: { actions: "applyCoach" },
+        SEEK_TEACHING: { actions: "seekTeaching" },
         RESET: { actions: "reset" },
       },
     },
@@ -427,6 +451,13 @@ export function createActionPageRuntime(
       if (page.plan.mode !== "learn" || page.status === "submitting" || page.status === "complete") return false;
       child.send({ type: "CLEAR" });
       return child.demonstrate();
+    },
+    seekTeaching(actionId) {
+      const page = pageActor.getSnapshot().context;
+      if (page.plan.mode !== "learn" || !page.plan.actions.some((action) => action.actionId === actionId)) return false;
+      pendingEmphasis = undefined;
+      pageActor.send({ type: "SEEK_TEACHING", actionId });
+      return true;
     },
     applyAgentCommand(command: AgentCommand, confirmed = false) {
       const page = pageActor.getSnapshot().context;

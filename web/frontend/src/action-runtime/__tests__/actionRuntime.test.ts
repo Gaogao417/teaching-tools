@@ -154,6 +154,18 @@ describe("Action Runtime v2", () => {
     expect(runtime.advanceTeaching()).toBe(true);
     expect(runtime.getSnapshot().status).toBe("complete");
     expect(runtime.getSnapshot().world.draft.geometry?.points.some((point) => point.id === "X")).toBe(true);
+
+    expect(runtime.seekTeaching("step/make")).toBe(true);
+    expect(runtime.getSnapshot().currentActionId).toBe("step/make");
+    expect(runtime.getSnapshot().status).toBe("active");
+    expect(runtime.getSnapshot().world.draft.geometry?.derivedLines || []).toHaveLength(0);
+    expect(runtime.getSnapshot().world.draft.geometry?.points.some((point) => point.id === "X")).toBe(false);
+
+    expect(runtime.advanceTeaching()).toBe(true);
+    expect(runtime.getSnapshot().currentActionId).toBe("step/intersect");
+    expect(runtime.seekTeaching("step/intersect")).toBe(true);
+    expect(runtime.getSnapshot().world.draft.geometry?.derivedLines?.map((line) => line.id)).toContain("P");
+    expect(runtime.getSnapshot().world.draft.geometry?.points.some((point) => point.id === "X")).toBe(false);
     runtime.stop();
   });
 

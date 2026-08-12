@@ -12,7 +12,7 @@ function view(focusTargetId?: string): WorkspaceView {
     progress: { current: 1, total: 1 },
     canvas: { entities: {}, selectedObjectIds: [], cursor: "default" },
     answer: { slots: [{ id: "value", label: "答案", kind: "text", value: "", required: true, active: true, status: "empty" }] },
-    coach: { profileName: "老师", avatarId: "school", messageLatex: "请填写", tone: "prompt", highlightObjectIds: [], focusTargetId },
+    coach: { profileName: "老师", avatarId: "school", actionPromptLatex: "请填写", messageLatex: "请填写", tone: "prompt", highlightObjectIds: [], focusTargetId },
     controls: { canBack: false, canClear: false, canCancel: true, canHelp: true, canSubmit: false, isSubmitting: false },
   };
 }

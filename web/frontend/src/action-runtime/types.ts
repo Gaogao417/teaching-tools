@@ -74,6 +74,8 @@ export interface SolutionBoardView {
 export interface CoachSlice {
   profileName: string;
   avatarId: string;
+  /** Reviewed copy owned by the current Action. Coach replies never replace it. */
+  actionPromptLatex: string;
   messageLatex: string;
   tone: "prompt" | "correct" | "wrong" | "explain";
   highlightObjectIds: string[];
@@ -182,6 +184,8 @@ export interface ActionPageRuntime {
   applyCoach(directive: CoachDirective): void;
   /** Apply the reviewed teaching targets and advance exactly one Learn beat. */
   advanceTeaching(): boolean;
+  /** Rebuild Learn presentation state at the start of a specific Action. */
+  seekTeaching(actionId: string): boolean;
   /** Learn allows direct execution; Guided requires explicit confirmation; Assessment rejects it. */
   applyAgentCommand(command: AgentCommand, confirmed?: boolean): boolean;
   markSubmitting(): void;
