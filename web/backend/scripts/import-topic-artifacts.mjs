@@ -484,6 +484,100 @@ function ratioToken(segments) {
   return segments.map(canonicalSegment).join(",");
 }
 
+/**
+ * A-shape correspondence pairs for parallelLineRatios (tri PAB ~ tri PCD via
+ * AB // CD): PA<->PC, PB<->PD, AB<->CD. Each pair is [small-tri side, large-tri
+ * side]. Values are matched in either orientation (PA or AP).
+ */
+const PARALLEL_PAIRS = [["PA", "PC"], ["PB", "PD"], ["AB", "CD"]];
+
+function stemSegmentValue(stem, seg) {
+  for (const candidate of [seg, seg.split("").reverse().join("")]) {
+    const m = stem.match(new RegExp(`\\$${candidate}\\s*=\\s*([^$]+)\\$`));
+    if (m) return m[1].trim();
+  }
+  return undefined;
+}
+
+/** Parse a small integer / n*sqrt(m) / sqrt(m) / frac{a}{b} latex value to a number. */
+function latexValueToNumber(latex) {
+  const t = String(latex).trim();
+  const frac = t.match(/^\\d?frac\{(-?\d+)\}\{(-?\d+)\}$/);
+  if (frac) return Number(frac[1]) / Number(frac[2]);
+  const coefSqrt = t.match(/^(-?\d+)\\sqrt\{(-?\d+)\}$/);
+  if (coefSqrt) return Number(coefSqrt[1]) * Math.sqrt(Number(coefSqrt[2]));
+  const sqrt = t.match(/^\\sqrt\{(-?\d+)\}$/);
+  if (sqrt) return Math.sqrt(Number(sqrt[1]));
+  if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+  return undefined;
+}
+
+function simplifyIntegerRatio(a, b) {
+  const gcd = (x, y) => (y === 0 ? x : gcd(y, x % y));
+  const g = gcd(Math.round(a), Math.round(b)) || 1;
+  return [Math.round(a) / g, Math.round(b) / g];
+}
+
+/**
+ * Derive the similarity ratio and per-segment shares for a parallelLineRatios
+ * item directly from the stem values and the answer, rather than from the
+ * narrative solution_steps. Returns the same shape as extractRatioCalculation
+ * plus a shares list, so the contract builder can use either source. Falls back
+ * to undefined when the stem does not contain two sides of a correspondence
+ * pair (i.e. the ratio cannot be fixed from the stem alone).
+ */
+function deriveParallelRatioAndShares(stem, answer) {
+  const target = (answer.match(/([A-Z]{2})\s*=/) || [])[1];
+  if (!target) return undefined;
+  const targetCanon = canonicalSegment(target);
+  const known = {};
+  for (const [a, b] of PARALLEL_PAIRS) {
+    for (const seg of [a, b]) {
+      const v = stemSegmentValue(stem, seg);
+      if (v !== undefined && known[seg] === undefined) known[seg] = v;
+    }
+  }
+  // find the correspondence pair that contains the target (either orientation)
+  const targetPair = PARALLEL_PAIRS.find(
+    (p) => canonicalSegment(p[0]) === targetCanon || canonicalSegment(p[1]) === targetCanon,
+  );
+  if (!targetPair) return undefined;
+  // normalize target to the pair's stored orientation so downstream keys match
+  const targetSeg = canonicalSegment(targetPair[0]) === targetCanon ? targetPair[0] : targetPair[1];
+  const mate = targetSeg === targetPair[0] ? targetPair[1] : targetPair[0];
+  // find a pair with BOTH sides known to fix the ratio
+  const ratioPair = PARALLEL_PAIRS.find(
+    (p) => p !== targetPair && known[p[0]] && known[p[1]],
+  );
+  if (!ratioPair) return undefined;
+  const [r1, r2] = ratioPair;
+  const num1 = latexValueToNumber(known[r1]);
+  const num2 = latexValueToNumber(known[r2]);
+  if (num1 === undefined || num2 === undefined) return undefined;
+  const [s1, s2] = simplifyIntegerRatio(num1, num2);
+  const finalRaw = (answer.match(/=\s*(.+?)\$?。?\s*$/) || [])[1] || "";
+  const finalVal = finalRaw.replace(/^\$/, "").replace(/\$$/, "").trim();
+  return {
+    ratio: {
+      content: `$\\dfrac{${r1}}{${r2}}=\\dfrac{${known[r1]}}{${known[r2]}}=\\dfrac{${s1}}{${s2}}$。`,
+      firstDisplayName: r1,
+      firstSegmentId: canonicalSegment(r1),
+      secondDisplayName: r2,
+      secondSegmentId: canonicalSegment(r2),
+      firstValueLatex: known[r1],
+      secondValueLatex: known[r2],
+      simplifiedFirstLatex: String(s1),
+      simplifiedSecondLatex: String(s2),
+    },
+    shares: [
+      { segmentId: canonicalSegment(target), displayName: target, valueLatex: String(s1) },
+      { segmentId: canonicalSegment(mate), displayName: mate, valueLatex: String(s2) },
+    ],
+    target,
+    mate,
+  };
+}
+
 function contractBase(itemId, index, title, primitive, content, nextStepId) {
   return {
     id: `${itemId.toLowerCase()}-step-${index + 1}`,
@@ -563,12 +657,19 @@ function buildMarkRatioContracts(taskId, itemId, block, assignmentFile) {
 function buildThreeKnownParallelContracts(itemId, block, assignmentFile) {
   const steps = block.solution_steps || [];
   const labels = extractSegmentLabels(block.stem_latex);
-  const ratio = extractRatioCalculation(steps);
-  const shareStep = steps.find((step) => /对应.*份/.test(step.content_latex || step.content || ""));
-  const shareContent = shareStep?.content_latex || shareStep?.content || "";
-  const shares = extractShareLabels(shareContent);
   const answer = block.answer || "";
-  const target = answer.match(/([A-Z]{2})/)?.[1];
+  // Prefer deriving the ratio and shares from the authoritative stem/answer
+  // truth; fall back to the narrative solution_steps patterns for older banks.
+  const derived = deriveParallelRatioAndShares(block.stem_latex, answer);
+  const ratio = derived?.ratio || extractRatioCalculation(steps);
+  const shares = derived?.shares?.length
+    ? derived.shares
+    : (() => {
+        const shareStep = steps.find((step) => /对应.*份/.test(step.content_latex || step.content || ""));
+        const shareContent = shareStep?.content_latex || shareStep?.content || "";
+        return extractShareLabels(shareContent);
+      })();
+  const target = derived?.target || answer.match(/([A-Z]{2})/)?.[1];
   const known = target && shares.length === 2
     ? shares.find((label) => canonicalSegment(label.displayName) !== canonicalSegment(target))?.displayName
     : undefined;
@@ -629,9 +730,12 @@ function buildThreeKnownParallelContracts(itemId, block, assignmentFile) {
       },
     };
   } else {
+    const fallbackShares = shares.length
+      ? shares.map((label) => `${label.displayName}=${label.valueLatex}份`).join("，")
+      : "标出对应边的份数。";
     second.acceptedAnswers = [labelToken(shares)];
-    second.expectedLatex = shareContent;
-    second.feedbackLatex = shareContent;
+    second.expectedLatex = fallbackShares;
+    second.feedbackLatex = fallbackShares;
     second.interaction = { kind: "mark-segments", ...common, expectedLabels: shares };
   }
 

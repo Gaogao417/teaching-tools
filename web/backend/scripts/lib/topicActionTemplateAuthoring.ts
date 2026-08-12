@@ -208,14 +208,41 @@ export function authorTopicSolutionBoard(
   const rows = sourceRows;
   if (!rows.length) throw new Error(`Scenario ${scenario.id || scenario.sourceQuestionId} has no reviewed solution content`);
 
+  // Distribute reviewed proof rows across Action stages by source step, then
+  // within each step across its actions in order. This keeps each step's lead
+  // action owning the step's first content row so every action resolves to a
+  // non-empty snapshot when the plan is projected (a step such as
+  // construct-parallel expands to multiple sub-actions; assigning its first row
+  // proportionally to a later sub-action would orphan the lead action and drop
+  // the SolutionBoard panel at the start of the step). We never inspect Action
+  // kinds or evidence fields, and a stage may still own multiple rows.
+  const stepOrder: string[] = [];
+  const actionsByStep = new Map<string, AuthoredActionTemplate[]>();
+  for (const action of actions) {
+    const list = actionsByStep.get(action.sourceStepId);
+    if (list) {
+      list.push(action);
+    } else {
+      actionsByStep.set(action.sourceStepId, [action]);
+      stepOrder.push(action.sourceStepId);
+    }
+  }
+  const stepCount = stepOrder.length;
+  // Pre-compute which source step each reviewed row belongs to, mirroring the
+  // previous proportional spread but over steps (not individual actions) so a
+  // step's lead action is always reached.
+  const rowsPerStep = rows.map((_, index) => Math.min(
+    stepCount - 1,
+    Math.max(0, Math.ceil(((index + 1) * stepCount) / rows.length) - 1),
+  ));
+  const rowIndexPerStep = new Map<number, number>();
+
   const expressions = rows.map((latexTemplate, index) => {
-    // Distribute reviewed proof rows across Action stages without inspecting
-    // Action kinds or evidence. A stage may own multiple mathematical rows.
-    const ownerIndex = Math.min(
-      actions.length - 1,
-      Math.max(0, Math.ceil(((index + 1) * actions.length) / rows.length) - 1),
-    );
-    const owner = actions[ownerIndex];
+    const stepPosition = rowsPerStep[index];
+    const stepActions = actionsByStep.get(stepOrder[stepPosition])!;
+    const withinStep = rowIndexPerStep.get(stepPosition) ?? 0;
+    rowIndexPerStep.set(stepPosition, withinStep + 1);
+    const owner = stepActions[Math.min(withinStep, stepActions.length - 1)];
     return {
       expressionId: `${owner.actionId}/solution-${index + 1}`,
       sourceStepId: owner.sourceStepId,
