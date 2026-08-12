@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActionContract, ExercisePlan } from "../../../../../shared/actionRuntime";
 import { useTeacherSpeech, type TeacherSpeech } from "../useTeacherSpeech";
+import { clearNarrationCacheForTests } from "../NarrationController";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -25,6 +26,7 @@ let fakeAudio: FakeAudio;
 let OriginalAudio: typeof Audio;
 
 beforeEach(() => {
+  clearNarrationCacheForTests();
   synthesizeActionSpeech.mockReset();
   synthesizeActionSpeech.mockResolvedValue({ audioUrl: "https://example/voice.mp3", model: "m", voice: "v" });
   fakeAudio = new FakeAudio();
@@ -41,7 +43,7 @@ afterEach(() => {
 
 function plan(mode: ExercisePlan["mode"], action: ActionContract): ExercisePlan {
   return {
-    planVersion: 4, exerciseId: "e", revision: 0, mode,
+    planVersion: 5, exerciseId: "e", revision: 0, mode,
     metadata: { taskId: "t", title: "t", promptLatex: "p", skillTags: [] },
     world: { revision: 0 },
     coach: { profileId: "c", displayName: "老师", avatarId: "school", tone: "supportive" },
@@ -51,12 +53,12 @@ function plan(mode: ExercisePlan["mode"], action: ActionContract): ExercisePlan 
 
 const learnAction: ActionContract = {
   actionId: "a1", sourceStepId: "s", kind: "enter-text", version: 1, title: "a1", instruction: "第一步",
-  input: {}, capabilities: [], answerSlots: [], validationPolicy: "local-teaching", submitOnComplete: false,
+  input: {}, capabilities: [], answerSlots: [], validationPolicy: "local-demonstration", submitOnComplete: false,
 } as unknown as ActionContract;
 
 const nextAction: ActionContract = {
   actionId: "a2", sourceStepId: "s2", kind: "enter-text", version: 1, title: "a2", instruction: "第二步",
-  input: {}, capabilities: [], answerSlots: [], validationPolicy: "local-teaching", submitOnComplete: false,
+  input: {}, capabilities: [], answerSlots: [], validationPolicy: "local-demonstration", submitOnComplete: false,
 } as unknown as ActionContract;
 
 let latest: TeacherSpeech;
@@ -78,7 +80,7 @@ describe("useTeacherSpeech", () => {
     const { root, container } = mount(plan("learn", learnAction), learnAction);
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(synthesizeActionSpeech).toHaveBeenCalledTimes(1);
-    expect(synthesizeActionSpeech).toHaveBeenCalledWith(expect.objectContaining({ text: "第一步" }));
+    expect(synthesizeActionSpeech).toHaveBeenCalledWith(expect.objectContaining({ text: "第一步" }), expect.any(AbortSignal));
     expect(fakeAudio.play).toHaveBeenCalledTimes(1); // Learn auto-plays
     synthesizeActionSpeech.mockClear();
     fakeAudio.play.mockClear();
@@ -92,7 +94,7 @@ describe("useTeacherSpeech", () => {
     // Switching to a new action synthesizes the new copy.
     act(() => root.render(<Harness p={plan("learn", nextAction)} a={nextAction} />));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(synthesizeActionSpeech).toHaveBeenCalledWith(expect.objectContaining({ text: "第二步" }));
+    expect(synthesizeActionSpeech).toHaveBeenCalledWith(expect.objectContaining({ text: "第二步" }), expect.any(AbortSignal));
     act(() => root.unmount());
     document.body.removeChild(container);
   });

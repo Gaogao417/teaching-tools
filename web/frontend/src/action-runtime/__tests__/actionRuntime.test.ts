@@ -5,12 +5,12 @@ import { createActionActor } from "../actionActor";
 import { createActionPageRuntime } from "../pageRuntime";
 import { actionMachineRegistry, UnsupportedActionError } from "../registry";
 
-function plan(validationPolicy: "local-teaching" | "server-authoritative" = "server-authoritative"): ExercisePlan {
+function plan(validationPolicy: "local-demonstration" | "server-authoritative" = "server-authoritative"): ExercisePlan {
   return {
-    planVersion: 4,
+    planVersion: 5,
     exerciseId: "exercise-1",
     revision: 0,
-    mode: validationPolicy === "local-teaching" ? "learn" : "guided-practice",
+    mode: validationPolicy === "local-demonstration" ? "learn" : "guided-practice",
     metadata: { taskId: "auxiliaryTwoRatios", title: "test", promptLatex: "prompt", skillTags: [] },
     world: {
       revision: 0,
@@ -42,11 +42,13 @@ function plan(validationPolicy: "local-teaching" | "server-authoritative" = "ser
       {
         actionId: "step/make", sourceStepId: "step", kind: "make-parallel", version: 1,
         title: "作平行线", instruction: "选点和线", input: { throughPointId: "T", referenceLineId: "S", availablePointIds: ["T", "C0", "C1"], availableLineIds: ["S"], outputLineId: "P", outputLineLabel: "TP" },
+        ...(validationPolicy === "local-demonstration" ? { localTruth: { throughPointId: "T", referenceLineId: "S" } } : {}),
         capabilities: ["agent:select-object", "agent:back", "agent:clear"], answerSlots: [], validationPolicy, submitOnComplete: false,
       },
       {
         actionId: "step/intersect", sourceStepId: "step", kind: "intersect-carriers", version: 1,
         title: "求交", instruction: "选两个点", input: { carrierPointIds: ["C0", "C1"], availablePointIds: ["T", "C0", "C1"], parallelLineId: "P", outputCarrierLineId: "C", outputPointId: "X" },
+        ...(validationPolicy === "local-demonstration" ? { localTruth: { carrierPointIds: ["C0", "C1"] } } : {}),
         capabilities: ["agent:select-object", "agent:back", "agent:clear"], answerSlots: [], validationPolicy, submitOnComplete: true,
       },
     ],
@@ -55,7 +57,7 @@ function plan(validationPolicy: "local-teaching" | "server-authoritative" = "ser
   };
 }
 
-function remainingContracts(validationPolicy: "local-teaching" | "server-authoritative"): ActionContract[] {
+function remainingContracts(validationPolicy: "local-demonstration" | "server-authoritative"): ActionContract[] {
   const base = (actionId: string) => ({ actionId, sourceStepId: actionId, version: 1 as const, title: actionId, instruction: actionId, capabilities: [], validationPolicy, submitOnComplete: true });
   return [
     { ...base("mark"), kind: "mark-segment-values", input: { labels: [{ segmentId: "AB", displayName: "AB", valueLatex: "2" }], availableSegmentIds: ["AB"], autoFocusSequence: true }, answerSlots: [{ id: "AB", label: "AB", kind: "number", required: true }] },
@@ -70,7 +72,7 @@ function remainingContracts(validationPolicy: "local-teaching" | "server-authori
 
 describe("Action Runtime v2", () => {
   it("validates plan/evidence at the transport boundary", () => {
-    expect(() => assertExercisePlan(plan())).not.toThrow();
+    expect(() => assertExercisePlan(plan("local-demonstration"))).not.toThrow();
     expect(() => assertExercisePlan({ ...plan(), planVersion: 99 })).toThrow(/Unsupported/);
     expect(isActionEvidence({ actionId: "a", sourceStepId: "s", kind: "enter-text", version: 1, value: "ok" })).toBe(true);
     expect(isActionEvidence({ actionId: "a", sourceStepId: "s", kind: "unknown", version: 1 })).toBe(false);
@@ -79,9 +81,9 @@ describe("Action Runtime v2", () => {
     expect(isCoachDirective({ directiveId: "d", messageLatex: "hint", tone: "prompt", highlightObjectIds: [], agentCommand: { commandId: "c", actionId: "a", type: "clear" } })).toBe(true);
     expect(isCoachDirective({ directiveId: "d", messageLatex: "hint", tone: "prompt", highlightObjectIds: [], agentCommand: { commandId: "c", actionId: "a", type: "dom-selector", value: "#answer" } })).toBe(false);
     const futurePlan = {
-      ...plan(),
+      ...plan("local-demonstration"),
       solutionBoardContexts: undefined,
-      actions: [{ ...plan().actions[0], kind: "future-tool", version: 9, input: { opaque: true } }],
+      actions: [{ ...plan("local-demonstration").actions[0], kind: "future-tool", version: 9, input: { opaque: true } }],
     };
     expect(() => assertExercisePlan(futurePlan)).not.toThrow();
     expect(actionMachineRegistry.supports("future-tool", 9)).toBe(false);
@@ -106,7 +108,7 @@ describe("Action Runtime v2", () => {
     let requests = 0;
     globalThis.fetch = (async () => { requests += 1; throw new Error("unexpected network"); }) as typeof fetch;
     try {
-      const runtime = createActionPageRuntime(plan("local-teaching"));
+      const runtime = createActionPageRuntime(plan("local-demonstration"));
       runtime.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "T" });
       runtime.send({ type: "BACK" });
       runtime.send({ type: "ANSWER.CHANGED", slotId: "unused", value: "1" });
@@ -118,8 +120,32 @@ describe("Action Runtime v2", () => {
     }
   });
 
+  it("LocalTraining records wrong semantic candidates and completes locally without evaluator submission", () => {
+    const trainingPlan: ExercisePlan = {
+      ...plan("local-demonstration"),
+      mode: "guided-practice",
+      actions: plan("local-demonstration").actions.map((action) => ({ ...action, validationPolicy: "local-training" as const })),
+      runtimeCapabilities: { practiceValidation: "local-training", trainingSync: "async-records", narrationTransport: "url", coachTurnTransport: "request-response", liveCoach: true },
+    };
+    const runtime = createActionPageRuntime(trainingPlan);
+    runtime.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "C0" });
+    expect(runtime.getSnapshot().currentActionId).toBe("step/make");
+    expect(runtime.getTrace().wrongAttempts).toBe(1);
+    runtime.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "T" });
+    runtime.send({ type: "OBJECT.SELECTED", objectKind: "line", objectId: "S" });
+    runtime.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "C0" });
+    runtime.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "C1" });
+    expect(runtime.getSnapshot().status).toBe("complete");
+    const training = runtime.getTrainingSnapshot();
+    expect(training.attempts.map((attempt) => attempt.outcome)).toEqual([
+      "wrong", "correct-partial", "correct-complete", "correct-partial", "correct-complete",
+    ]);
+    expect(training.actionMetrics.every((metric) => metric.completed)).toBe(true);
+    runtime.stop();
+  });
+
   it("advances Learn one reviewed teaching beat at a time without learner input", () => {
-    const runtime = createActionPageRuntime(plan("local-teaching"));
+    const runtime = createActionPageRuntime(plan("local-demonstration"));
     expect(runtime.getSnapshot().currentActionId).toBe("step/make");
     expect(runtime.advanceTeaching()).toBe(true);
     expect(runtime.getSnapshot().currentActionId).toBe("step/intersect");
@@ -132,7 +158,7 @@ describe("Action Runtime v2", () => {
   });
 
   it("every registered form action can demonstrate its reviewed teaching targets", () => {
-    for (const contract of remainingContracts("local-teaching")) {
+    for (const contract of remainingContracts("local-demonstration")) {
       const actor = actionMachineRegistry.create(contract);
       expect(actor.demonstrate(), contract.kind).toBe(true);
       expect(actor.getSnapshot().done, contract.kind).toBe(true);
@@ -145,7 +171,7 @@ describe("Action Runtime v2", () => {
       actionId: "choice", sourceStepId: "choice", kind: "select-option" as const, version: 1 as const,
       title: "选择", instruction: "选择", input: { options: [], expectedValue: "B" }, capabilities: [],
       answerSlots: [{ id: "choice", label: "选择", kind: "text" as const, required: true }],
-      validationPolicy: "local-teaching" as const, submitOnComplete: true,
+      validationPolicy: "local-demonstration" as const, submitOnComplete: true,
     };
     const actor = createActionActor(contract);
     actor.send({ type: "ANSWER.CHANGED", slotId: "choice", value: "A" });
@@ -193,7 +219,7 @@ describe("Action Runtime v2", () => {
       actor.send({ type: "SUBMIT" });
     };
 
-    for (const contract of remainingContracts("local-teaching")) {
+    for (const contract of remainingContracts("local-demonstration")) {
       const actor = actionMachineRegistry.create(contract);
       drive(actor, true);
       expect(actor.getSnapshot().done, contract.kind).toBe(true);
@@ -209,9 +235,9 @@ describe("Action Runtime v2", () => {
   });
 
   it("previews a selected segment value on the diagram and commits the teaching mark", () => {
-    const contract = remainingContracts("local-teaching")[0];
+    const contract = remainingContracts("local-demonstration")[0];
     const markedPlan: ExercisePlan = {
-      ...plan("local-teaching"),
+      ...plan("local-demonstration"),
       solutionBoardContexts: undefined,
       world: {
         revision: 0,
@@ -274,7 +300,7 @@ describe("Action Runtime v2", () => {
   });
 
   it("applies make-parallel and intersect commands to draft world and CLEAR removes every orphan", () => {
-    const runtime = createActionPageRuntime(plan("local-teaching"));
+    const runtime = createActionPageRuntime(plan("local-demonstration"));
     runtime.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "T" });
     expect(runtime.getView().canvas.preview).toMatchObject({ type: "parallel", throughPointId: "T" });
     expect(runtime.getView().solutionBoard?.visibleExpressions[0].latex).toContain("T");
@@ -307,7 +333,7 @@ describe("Action Runtime v2", () => {
   });
 
   it("BACK at an empty next action rewinds the previous action command batch", () => {
-    const runtime = createActionPageRuntime(plan("local-teaching"));
+    const runtime = createActionPageRuntime(plan("local-demonstration"));
     runtime.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "T" });
     runtime.send({ type: "OBJECT.SELECTED", objectKind: "line", objectId: "S" });
     expect(runtime.getSnapshot().currentActionId).toBe("step/intersect");
@@ -357,7 +383,7 @@ describe("Action Runtime v2", () => {
   });
 
   it("LocalTeaching checks public targets while ServerAuthoritative accepts structurally valid evidence", () => {
-    const local = createActionPageRuntime(plan("local-teaching"));
+    const local = createActionPageRuntime(plan("local-demonstration"));
     local.send({ type: "OBJECT.SELECTED", objectKind: "point", objectId: "C0" });
     expect(local.getTrace().selectedObjectIds).toEqual([]);
     expect(local.getView().coach.tone).toBe("wrong");

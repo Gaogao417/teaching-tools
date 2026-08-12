@@ -140,6 +140,8 @@ export interface TopicCoachSlotHint {
 
 export interface TopicCoachScript {
   entryLatex: string;
+  /** Authored spoken companion. Older bundles may omit it and use the versioned normalizer fallback. */
+  entrySpoken?: string;
   idleHintsLatex?: string[];
   invalidObjectLatex?: string;
   objectCategoryHintLatex?: string;

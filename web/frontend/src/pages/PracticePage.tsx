@@ -328,6 +328,15 @@ export function PracticePage() {
     }
   };
 
+  const handleLocalTrainingComplete = async () => {
+    const currentSession = sessionRef.current;
+    if (!currentSession) return;
+    const restored = await api.restorePractice(currentSession.sessionId);
+    setSession(restored);
+    triggerFeedback(feedbackKind(restored.runtime));
+    if (restored.phase === "group_finished") await finishPractice(restored);
+  };
+
   const beginRemediation = async () => {
     if (!session || session.sessionKind !== "challenge") return;
     const remediation = await api.startRemediation(session.sessionId);
@@ -466,6 +475,7 @@ export function PracticePage() {
             response={actionPlan}
             disabled={session.phase === "correct_pause" || session.phase === "group_finished"}
             onEvaluation={handleActionEvaluation}
+            onComplete={handleLocalTrainingComplete}
           />
         ) : runtime.instance.engineKind === "topic-practice" ? (
           <TopicRuntimeFrame

@@ -29,7 +29,7 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-export async function synthesizeCosyVoice(text: string): Promise<CosyVoiceOutput> {
+export async function synthesizeCosyVoice(text: string, signal?: AbortSignal, onAudioChunk?: (chunk: Buffer) => void): Promise<CosyVoiceOutput> {
   const spokenText = text.trim().slice(0, 600);
   if (!spokenText) throw new SpeechProviderError("CosyVoice text is empty");
   const model = process.env.COACH_COSY_MODEL?.trim() || "cosyvoice-v3-plus";
@@ -62,6 +62,7 @@ export async function synthesizeCosyVoice(text: string): Promise<CosyVoiceOutput
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       try { ws.terminate(); } catch { /* ignore */ }
       reject(new SpeechProviderError(message));
     };
@@ -69,9 +70,13 @@ export async function synthesizeCosyVoice(text: string): Promise<CosyVoiceOutput
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       try { ws.close(); } catch { /* ignore */ }
       resolve(output);
     };
+    const abort = () => fail("CosyVoice synthesis cancelled");
+    if (signal?.aborted) { abort(); return; }
+    signal?.addEventListener("abort", abort, { once: true });
 
     ws.on("open", () => {
       ws.send(JSON.stringify({
@@ -97,7 +102,9 @@ export async function synthesizeCosyVoice(text: string): Promise<CosyVoiceOutput
 
     ws.on("message", (data, isBinary) => {
       if (isBinary) {
-        fragments.push(Buffer.from(data as Uint8Array));
+        const chunk = Buffer.from(data as Uint8Array);
+        fragments.push(chunk);
+        onAudioChunk?.(chunk);
         return;
       }
       let message: Record<string, any>;

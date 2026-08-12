@@ -16,6 +16,9 @@ function entitiesFor(plan: ExercisePlan, child: ActionSnapshotView, geometry = p
       id,
       kind,
       enabled,
+      hitTestable: enabled,
+      candidate: enabled,
+      advanceEnabled: enabled,
       visualState: wrong === id ? "wrong" : selected ? "selected" : highlights.includes(id) ? "correct" : enabled ? "available" : "idle",
       feedback: wrong === id ? child.wrongMessage : undefined,
     } satisfies RuntimeEntityView];

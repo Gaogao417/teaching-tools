@@ -18,10 +18,10 @@ export const makeParallelDefinition: ActionMachineDefinition<MakeParallelAction>
       guards: {
         validPoint: ({ event }) => event.type === "OBJECT.SELECTED" && event.objectKind === "point"
           && contract.input.availablePointIds.includes(event.objectId)
-          && (contract.validationPolicy !== "local-teaching" || !contract.input.throughPointId || event.objectId === contract.input.throughPointId),
+          && (contract.validationPolicy === "server-authoritative" || !contract.input.throughPointId || event.objectId === contract.input.throughPointId),
         validLine: ({ event }) => event.type === "OBJECT.SELECTED" && event.objectKind === "line"
           && contract.input.availableLineIds.includes(event.objectId)
-          && (contract.validationPolicy !== "local-teaching" || !contract.input.referenceLineId || event.objectId === contract.input.referenceLineId),
+          && (contract.validationPolicy === "server-authoritative" || !contract.input.referenceLineId || event.objectId === contract.input.referenceLineId),
       },
       actions: {
         selectPoint: assign(({ event }) => event.type === "OBJECT.SELECTED" ? { points: [event.objectId], wrongObjectId: undefined, wrongMessage: undefined } : {}),

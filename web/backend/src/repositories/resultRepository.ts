@@ -16,6 +16,7 @@ type TaskHistoryRow = {
   cleared_at: string;
   problem_count: number;
   first_try_accuracy: number;
+  snapshot_json: string;
 };
 
 type ResultHistoryRow = {
@@ -38,7 +39,7 @@ type InsertResultSnapshotArgs = {
 
 const getResultRowBySessionIdStatement = db.prepare(`SELECT snapshot_json FROM practice_results WHERE session_id = ?`);
 const listTaskHistoryStatement = db.prepare(
-  `SELECT r.session_id, r.student_name, r.elapsed_ms, r.cleared_at, r.problem_count, r.first_try_accuracy
+  `SELECT r.session_id, r.student_name, r.elapsed_ms, r.cleared_at, r.problem_count, r.first_try_accuracy, r.snapshot_json
    FROM practice_results r
    JOIN practice_sessions s ON s.id = r.session_id
    WHERE r.task_id = ? AND r.student_name = ? AND s.session_kind = 'practice'
@@ -80,6 +81,7 @@ export function listTaskHistory(taskId: TaskId, studentName: string, limit = 5):
       clearedAt: row.cleared_at,
       problemCount: row.problem_count,
       firstTryAccuracy: row.first_try_accuracy,
+      trainingMetrics: (JSON.parse(row.snapshot_json) as ResultSnapshot).trainingMetrics,
     }))
     .reverse();
 }

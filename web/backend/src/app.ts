@@ -41,7 +41,9 @@ import {
 } from "../../shared/actionRuntime";
 import { latexToSpokenChinese } from "../../shared/speechText";
 import { conductCoachTurn } from "./services/coach/coachTurnService";
-import { synthesizeCosyVoice } from "./services/coach/cosyVoiceService";
+import { narrationApplication } from "./services/coach/composition";
+import { createTrainingRoutes } from "./transport/http/trainingRoutes";
+import { createCoachRoutes } from "./transport/http/coachRoutes";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
   message: "Invalid taskId",
@@ -58,6 +60,8 @@ export function createApp() {
   // Short browser recordings are base64 data URLs. Qwen ASR caps source audio
   // at 10 MB; the request guard applies the same boundary after JSON decoding.
   app.use(express.json({ limit: "14mb" }));
+  app.use("/api/training", createTrainingRoutes());
+  app.use("/api/coach", createCoachRoutes());
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
@@ -274,15 +278,32 @@ export function createApp() {
   // CosyVoice via the shared LaTeX→spoken transform; never invokes the AI coach
   // and stores no audio on disk (audio is returned inline as a data URL).
   app.post("/api/action-speech", async (req, res, next) => {
+    const abort = new AbortController();
+    res.on("close", () => { if (!res.writableEnded) abort.abort(); });
     try {
       const body = z.custom<DirectSpeechRequest>(isDirectSpeechRequest, {
         message: "Invalid direct speech request",
       }).parse(req.body);
-      const response = await synthesizeCosyVoice(latexToSpokenChinese(body.text));
+      const spokenText = /[\\$]/.test(body.text) ? latexToSpokenChinese(body.text) : body.text.trim();
+      const response = await narrationApplication.synthesize(spokenText, abort.signal);
       if (!isDirectSpeechResponse(response)) throw new Error("Invalid direct speech response");
       res.json(response);
     } catch (error) {
       next(error);
+    }
+  });
+
+  app.post("/api/action-speech-stream", async (req, res, next) => {
+    const abort = new AbortController();
+    res.on("close", () => { if (!res.writableEnded) abort.abort(); });
+    try {
+      const body = z.custom<DirectSpeechRequest>(isDirectSpeechRequest, { message: "Invalid direct speech request" }).parse(req.body);
+      const spokenText = /[\\$]/.test(body.text) ? latexToSpokenChinese(body.text) : body.text.trim();
+      res.status(200); res.setHeader("Content-Type", "audio/mpeg"); res.setHeader("Cache-Control", "no-store"); res.flushHeaders();
+      await narrationApplication.stream(spokenText, abort.signal, (chunk) => { if (!res.destroyed) res.write(chunk); });
+      res.end();
+    } catch (error) {
+      if (!res.headersSent) next(error); else if (!res.destroyed) res.end();
     }
   });
 
@@ -315,6 +336,10 @@ export function createApp() {
           message: error.issues[0]?.message || "Invalid request",
         },
       });
+      return;
+    }
+    if (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500) {
+      res.status(error.status).json({ error: { code: "BAD_REQUEST", message: error.message || "Invalid request" } });
       return;
     }
     console.error(error);

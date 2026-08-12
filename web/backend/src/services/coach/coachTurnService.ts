@@ -118,9 +118,7 @@ async function conductCoachTurnOmni(
     ...fallback,
     spokenText: fallback.spokenText || plainSpeech(fallback.messageLatex),
   };
-  let answerProvider: CoachTurnResponse["providers"]["answer"] = "deterministic-fallback";
   let speech: CoachTurnResponse["speech"] | undefined;
-  let speechProvider: string | undefined;
 
   try {
     const omni = await conductOmniCoach(input, request.studentAudio);
@@ -131,14 +129,10 @@ async function conductCoachTurnOmni(
       spokenText: plainSpeech(omni.messageLatex),
       tone: fallback.tone,
     };
-    answerProvider = "qwen3.5-omni-plus";
     if (request.synthesizeSpeech !== false && omni.audioWavBase64) {
       speech = {
         audioUrl: `data:audio/wav;base64,${omni.audioWavBase64}`,
-        model: omni.model,
-        voice: omni.voice,
       };
-      speechProvider = omni.model;
     }
   } catch {
     // keep the deterministic fallback; speech simply stays unavailable
@@ -147,10 +141,6 @@ async function conductCoachTurnOmni(
   return {
     directive,
     ...(speech ? { speech } : {}),
-    providers: {
-      answer: answerProvider,
-      ...(speechProvider ? { speech: speechProvider } : {}),
-    },
   };
 }
 
@@ -172,23 +162,20 @@ export async function conductCoachTurn(request: CoachTurnRequest): Promise<Coach
     fallback = learningFallback(plan, request.studentMessage || "");
   }
 
-  const effectiveVoice = resolveVoiceModel(request.voiceModel);
+  const effectiveVoice = resolveVoiceModel();
   if (effectiveVoice === "omni") {
     return conductCoachTurnOmni(request, plan, fallback);
   }
 
   let transcript: string | undefined;
-  let transcriptionProvider: string | undefined;
   if (request.studentAudio) {
     const transcription = await transcribeStudentAudio(request.studentAudio);
     transcript = transcription.transcript;
-    transcriptionProvider = transcription.model;
   }
   const studentQuestion = request.studentMessage?.trim() || transcript?.trim() || "";
   if (!studentQuestion) throw new Error("Student question is empty");
 
   let directive = fallback;
-  let answerProvider: CoachTurnResponse["providers"]["answer"] = "deterministic-fallback";
   try {
     const generated = await askClaudeCodeCoach(modelInput(plan, request, studentQuestion));
     directive = {
@@ -198,19 +185,16 @@ export async function conductCoachTurn(request: CoachTurnRequest): Promise<Coach
       spokenText: generated.spokenText,
       tone: generated.tone,
     };
-    answerProvider = "claude-code-glm-5.2";
   } catch {
     directive = { ...fallback, spokenText: fallback.spokenText || plainSpeech(fallback.messageLatex) };
   }
 
   let speech: CoachTurnResponse["speech"];
-  let speechProvider: string | undefined;
   if (request.synthesizeSpeech !== false) {
     try {
       const spoken = directive.spokenText || plainSpeech(directive.messageLatex);
       const synthesized = await synthesizeCosyVoice(spoken);
       speech = synthesized;
-      speechProvider = synthesized.model;
     } catch {
       speech = undefined;
     }
@@ -220,10 +204,5 @@ export async function conductCoachTurn(request: CoachTurnRequest): Promise<Coach
     directive,
     ...(transcript ? { transcript } : {}),
     ...(speech ? { speech } : {}),
-    providers: {
-      answer: answerProvider,
-      ...(transcriptionProvider ? { transcription: transcriptionProvider } : {}),
-      ...(speechProvider ? { speech: speechProvider } : {}),
-    },
   };
 }

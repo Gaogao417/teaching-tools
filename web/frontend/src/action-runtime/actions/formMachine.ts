@@ -48,14 +48,14 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
           || context.lines.includes(event.objectId)
           || context.lines.length >= behavior.maxLines(contract)) return false;
         const expected = behavior.expectedLineAt?.(contract, context.lines.length);
-        return contract.validationPolicy !== "local-teaching" || !expected || expected === event.objectId;
+        return contract.validationPolicy === "server-authoritative" || !expected || expected === event.objectId;
       };
       return setup({
         types: { context: {} as Context, events: {} as ActionRuntimeEvent, output: {} as ActionEvidence | { type: "cancelled" } },
         guards: {
           validLine: ({ context, event }) => validLine(context, event),
           canComplete: ({ context }) => behavior.structurallyReady(context)
-            && (contract.validationPolicy !== "local-teaching" || behavior.locallyCorrect(context)),
+            && (contract.validationPolicy === "server-authoritative" || behavior.locallyCorrect(context)),
           structurallyReady: ({ context }) => behavior.structurallyReady(context),
         },
         actions: {
@@ -132,7 +132,9 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
                 ...slot,
                 value,
                 active: context.activeSlotId === slot.id,
-                status: value ? "filled" as const : "empty" as const,
+                status: context.wrongMessage && context.activeSlotId === slot.id
+                  ? "wrong" as const
+                  : value ? "filled" as const : "empty" as const,
               };
             }),
             diagramPreviewCommands: behavior.previewCommands?.(context),

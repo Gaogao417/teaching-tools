@@ -4,7 +4,7 @@ import { createActionPageRuntime } from "../pageRuntime";
 
 function plan(): ExercisePlan {
   return {
-    planVersion: 4,
+    planVersion: 5,
     exerciseId: "exercise-1",
     revision: 0,
     mode: "guided-practice",
@@ -58,6 +58,8 @@ describe("PageRuntime transient emphasis lifecycle", () => {
     completeMakeParallel(runtime);
     const emphasis = runtime.getView().transientEmphasis;
     expect(emphasis?.targets).toContainEqual({ surface: "canvas", kind: "entity", id: "P" });
+    runtime.consumeTransientEmphasis(emphasis!.key);
+    expect(runtime.getView().transientEmphasis).toBeUndefined();
     runtime.stop();
   });
 

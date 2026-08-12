@@ -92,6 +92,38 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_practice_action_events_session
     ON practice_action_events(session_id, id);
 
+  CREATE TABLE IF NOT EXISTS training_records_v1 (
+    record_id TEXT PRIMARY KEY,
+    record_kind TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    exercise_id TEXT NOT NULL,
+    client_revision INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES practice_sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_training_records_session
+    ON training_records_v1(session_id, received_at);
+
+  CREATE TABLE IF NOT EXISTS training_progress_v1 (
+    student_name TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    action_kind TEXT NOT NULL,
+    completed_count INTEGER NOT NULL,
+    first_try_correct_count INTEGER NOT NULL,
+    wrong_attempt_count INTEGER NOT NULL,
+    total_duration_ms INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(student_name, task_id, action_kind)
+  );
+
+  CREATE TABLE IF NOT EXISTS training_progress_applied_v1 (
+    record_id TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL,
+    FOREIGN KEY(record_id) REFERENCES training_records_v1(record_id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS practice_action_checkpoints (
     session_id TEXT NOT NULL,
     instance_id TEXT NOT NULL,

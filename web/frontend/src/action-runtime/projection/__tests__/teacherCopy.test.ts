@@ -4,7 +4,7 @@ import { teacherCopyForAction } from "../teacherCopy";
 
 function planWithCoach(actions: ActionContract[]): ExercisePlan {
   return {
-    planVersion: 4,
+    planVersion: 5,
     exerciseId: "e",
     revision: 0,
     mode: "learn",
@@ -21,7 +21,7 @@ const base = (actionId: string, sourceStepId: string, kind: ActionContract["kind
   ({
     actionId, sourceStepId, kind, version: 1, title: actionId, instruction: `指令-${actionId}`,
     input: {}, capabilities: [], answerSlots: [],
-    validationPolicy: "local-teaching", submitOnComplete: false,
+    validationPolicy: "local-demonstration", submitOnComplete: false,
   }) as unknown as ActionContract;
 
 describe("teacherCopyForAction", () => {
@@ -30,8 +30,8 @@ describe("teacherCopyForAction", () => {
     const plan = planWithCoach([first]);
     const copy = teacherCopyForAction(plan, first);
     expect(copy.displayLatex).toBe("入口讲解 $\\frac{1}{2}$");
-    // Spoken form is the normalized entry (LaTeX stripped, frac → 除以).
-    expect(copy.spokenText).toBe("入口讲解 1 除以 2");
+    // Spoken form preserves the Chinese denominator-first fraction semantics.
+    expect(copy.spokenText).toBe("入口讲解 2 分之 1");
   });
 
   it("falls back to the instruction when the first action has no coach entry", () => {

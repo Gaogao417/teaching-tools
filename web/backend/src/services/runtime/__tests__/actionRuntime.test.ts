@@ -12,6 +12,7 @@ const {
   askActionRuntimeCoach,
   checkpointActionRuntime,
   getActionRuntimePlan,
+  restorePractice,
   startChallenge,
   startPractice,
   submitActionEvaluation,
@@ -22,6 +23,10 @@ const { expressionSlotIds, isSolutionBoardScript, renderBoardExpression } = requ
 const { getCommittedActionWorld, listActionEvaluations } = require("../../../repositories/actionRuntimeRepository") as typeof import("../../../repositories/actionRuntimeRepository");
 const { getLearningActionPlan } = require("../../learningService") as typeof import("../../learningService");
 const { __test__: claudeCoachTest } = require("../../coach/claudeCodeCoachService") as typeof import("../../coach/claudeCodeCoachService");
+const { SqliteTrainingRecordRepository } = require("../../training/adapters/sqliteTrainingRecordRepository") as typeof import("../../training/adapters/sqliteTrainingRecordRepository");
+const { ingestTrainingRecord } = require("../../training/application/ingestTrainingRecord") as typeof import("../../training/application/ingestTrainingRecord");
+const { advanceTrainingSession } = require("../../training/progress/advanceTrainingSession") as typeof import("../../training/progress/advanceTrainingSession");
+const { SpokenSegmenter } = require("../../coach/application/SpokenSegmenter") as typeof import("../../coach/application/SpokenSegmenter");
 
 type ActionContract = import("../../../../../shared/actionRuntime").ActionContract;
 type ActionEvidence = import("../../../../../shared/actionRuntime").ActionEvidence;
@@ -55,6 +60,10 @@ async function main() {
   const allRecords = Object.values(bundle.scenarios).flat();
   assert.equal(allRecords.length, 280);
   assert.ok(allRecords.every((record) => record.promptData.actionTemplates?.length), "every published Topic record must author actionTemplates");
+  const authoredCoachEntries = allRecords.flatMap((record) => (record.promptData.actionTemplates || []) as unknown as AuthoredActionTemplate[])
+    .filter((action) => action.coach?.entryLatex);
+  assert.ok(authoredCoachEntries.length > 0 && authoredCoachEntries.every((action) => action.coach?.entrySpoken && !/[\\$]/.test(action.coach.entrySpoken)), "every deterministic coach entry must dual-write reviewed plain speech");
+  assert.deepEqual(new SpokenSegmenter(12, 24).segment("先看完整的公式 \\dfrac{1}{2}，再计算结果。"), ["先看完整的公式 \\dfrac{1}{2}，", "再计算结果。"]);
   assert.ok(allRecords.every((record) => record.promptData.solutionBoard?.expressions.length), "every published Topic record must author a SolutionBoard script");
   for (const record of allRecords) {
     assert.ok(isSolutionBoardScript(record.promptData.solutionBoard), `${record.id} must have a valid SolutionBoard script`);
@@ -115,7 +124,7 @@ async function main() {
   }
 
   const learningPlan = getLearningActionPlan("auxiliaryTwoRatios");
-  assert.equal(learningPlan.planVersion, 4);
+  assert.equal(learningPlan.planVersion, 5);
   assert.equal(learningPlan.mode, "learn");
   assert.equal(learningPlan.exerciseId, "learn-auxiliaryTwoRatios", "Learn identity must stay stable across stateless coach requests");
   assert.equal(getLearningActionPlan("auxiliaryTwoRatios").exerciseId, learningPlan.exerciseId);
@@ -165,7 +174,8 @@ async function main() {
 
   const started = startPractice("auxiliaryTwoRatios", "Action Runtime Test");
   const bootstrap = getActionRuntimePlan(started.sessionId);
-  assert.equal(bootstrap.plan.planVersion, 4);
+  assert.equal(bootstrap.plan.planVersion, 5);
+  assert.ok(bootstrap.plan.actions.every((action) => action.validationPolicy === "local-training" && action.localTruth));
   assert.ok(bootstrap.plan.actions.some((action) => action.kind === "make-parallel"));
   assert.ok(bootstrap.plan.actions.some((action) => action.kind === "intersect-carriers"));
   assert.equal(JSON.stringify(bootstrap.plan).includes("acceptedAnswers"), false);
@@ -246,7 +256,7 @@ async function main() {
     idempotencyKey: crypto.randomUUID(),
   });
   assert.equal(conflict.outcome, "conflict");
-  assert.equal(conflict.plan?.planVersion, 4);
+  assert.equal(conflict.plan?.planVersion, 5);
 
   const coach = askActionRuntimeCoach({
     sessionId: started.sessionId,
@@ -291,12 +301,65 @@ async function main() {
   assert.equal(JSON.stringify(assessment.world).includes("solutionBoard"), false);
   for (const action of assessment.actions) {
     assert.equal(action.validationPolicy, "server-authoritative");
+    assert.equal(action.localTruth, undefined);
     if (action.kind === "make-parallel") assert.equal(action.input.throughPointId, undefined);
     if (action.kind === "intersect-carriers") assert.equal(action.input.carrierPointIds, undefined);
     if (action.kind === "enter-text") assert.equal(action.input.expectedValues, undefined);
     if (action.kind === "select-option") assert.equal(action.input.expectedValue, undefined);
   }
   assert.equal(/acceptedAnswers|expectedValue|expectedValues|throughPointId|carrierPointIds/.test(JSON.stringify(assessment)), false);
+  assert.equal(assessment.runtimeCapabilities?.liveCoach, false);
+
+  process.env.PRACTICE_VALIDATION_MODE = "server-authoritative";
+  process.env.TRAINING_SYNC_MODE = "legacy-evaluation";
+  process.env.ACTION_NARRATION_TRANSPORT = "off";
+  process.env.COACH_TURN_TRANSPORT = "request-response";
+  process.env.COACH_LIVE_ENABLED = "false";
+  const rollback = startPractice("auxiliaryTwoRatios", "Capability Rollback Test");
+  const rollbackPlan = getActionRuntimePlan(rollback.sessionId).plan;
+  assert.ok(rollbackPlan.actions.every((action) => action.validationPolicy === "server-authoritative"));
+  assert.deepEqual(rollbackPlan.runtimeCapabilities, {
+    practiceValidation: "server-authoritative", trainingSync: "legacy-evaluation", narrationTransport: "off",
+    coachTurnTransport: "request-response", liveCoach: false,
+  });
+  delete process.env.PRACTICE_VALIDATION_MODE;
+  delete process.env.TRAINING_SYNC_MODE;
+  delete process.env.ACTION_NARRATION_TRANSPORT;
+  delete process.env.COACH_TURN_TRANSPORT;
+  delete process.env.COACH_LIVE_ENABLED;
+
+  const localTraining = startPractice("auxiliaryTwoRatios", "Local Training Ingest Test");
+  const localPlan = getActionRuntimePlan(localTraining.sessionId).plan;
+  const completedAt = new Date().toISOString();
+  const trainingResult: import("../../../../../shared/trainingRuntime").TrainingResult = {
+    version: 1,
+    recordId: `${localTraining.sessionId}:${localPlan.exerciseId}:result:v1`,
+    sessionId: localTraining.sessionId,
+    exerciseId: localPlan.exerciseId,
+    planRevision: localPlan.revision,
+    completedActionIds: localPlan.actions.map((action) => action.actionId),
+    attempts: [],
+    actionMetrics: localPlan.actions.map((action) => ({
+      actionId: action.actionId, actionKind: action.kind, durationMs: 100, attemptCount: 1,
+      wrongAttemptCount: 0, firstTryCorrect: true, completed: true, assistanceUsed: [],
+    })),
+    clientRevision: localPlan.actions.length,
+    createdAt: completedAt,
+    completedAt,
+    durationMs: localPlan.actions.length * 100,
+    correctActionCount: localPlan.actions.length,
+    firstTryCorrectCount: localPlan.actions.length,
+  };
+  const trainingRepository = new SqliteTrainingRecordRepository();
+  const firstReceipt = ingestTrainingRecord(trainingRepository, "result", trainingResult);
+  assert.equal(firstReceipt.duplicate, false);
+  advanceTrainingSession(trainingResult);
+  const duplicateReceipt = ingestTrainingRecord(trainingRepository, "result", trainingResult);
+  assert.equal(duplicateReceipt.duplicate, true);
+  assert.equal(restorePractice(localTraining.sessionId).currentIndex, 1, "locally validated result advances once without evaluator");
+
+  const assessmentResult = { ...trainingResult, recordId: `${challenge.sessionId}:result`, sessionId: challenge.sessionId, exerciseId: assessment.exerciseId };
+  assert.throws(() => advanceTrainingSession(assessmentResult), /Assessment does not accept/);
 
   const pinned = startPractice("auxiliaryTwoRatios", "Pinned v1 Test");
   db.prepare("UPDATE practice_sessions SET action_runtime_version = 1 WHERE id = ?").run(pinned.sessionId);
@@ -311,11 +374,11 @@ async function main() {
 
   db.close();
   rmSync(sqlitePath, { force: true });
-  console.log("PASS Action Runtime v4 server-projected SolutionBoard context");
+  console.log("PASS Action Runtime v5 local-training and Assessment isolation");
 }
 
 void main().catch((error) => {
-  console.error("FAIL Action Runtime v4", error);
+  console.error("FAIL Action Runtime v5", error);
   db.close();
   throw error;
 });

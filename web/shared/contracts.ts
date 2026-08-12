@@ -448,6 +448,18 @@ export interface TaskHistoryItem {
   clearedAt: string;
   problemCount: number;
   firstTryAccuracy: number;
+  trainingMetrics?: TrainingMetricsV1;
+}
+
+export interface TrainingMetricsV1 {
+  version: 1;
+  actionCount: number;
+  attemptCount: number;
+  wrongAttemptCount: number;
+  firstTryCorrectCount: number;
+  firstTryCorrectRate: number;
+  averageActionDurationMs: number;
+  assistance: Partial<Record<import("./trainingRuntime").TrainingAssistance, number>>;
 }
 
 export interface ResultAttemptReview {
@@ -572,6 +584,7 @@ export interface ResultSnapshot {
   challengeId?: string;
   sourceSessionId?: string;
   linkedSessionIds?: string[];
+  trainingMetrics?: TrainingMetricsV1;
 }
 
 export interface FinishPracticeRequest {

@@ -16,11 +16,8 @@ vi.mock("../../api/client", () => ({
     askActionCoach: vi.fn(),
     conductActionCoach,
     synthesizeActionSpeech,
+    reportVoiceTelemetry: vi.fn().mockResolvedValue({ accepted: true }),
   },
-}));
-vi.mock("../../utils/storage", () => ({
-  getVoiceModel: () => "omni" as const,
-  setVoiceModel: () => undefined,
 }));
 vi.mock("../../geometry/react/GeometryCanvas", () => ({
   GeometryCanvasSurface: ({ view, onClickEntity }: {
@@ -35,7 +32,7 @@ function response(): ActionPlanResponse {
   return {
     sessionId: "browser-session",
     plan: {
-      planVersion: 4, exerciseId: "browser-exercise", revision: 0, mode: "guided-practice",
+      planVersion: 5, exerciseId: "browser-exercise", revision: 0, mode: "guided-practice",
       metadata: { taskId: "auxiliaryTwoRatios", title: "辅助线", promptLatex: "prompt", skillTags: [] },
       world: {
         revision: 0,
@@ -113,7 +110,6 @@ describe("ActionRuntimeFrame browser/accessibility contract", () => {
         highlightObjectIds: [],
         suggestedActionId: "make",
       },
-      providers: { answer: "claude-code-glm-5.2" },
     });
     const learnResponse = response();
     learnResponse.sessionId = "learn:auxiliaryTwoRatios";
@@ -122,7 +118,7 @@ describe("ActionRuntimeFrame browser/accessibility contract", () => {
     if (firstLearnAction.kind !== "make-parallel") throw new Error("fixture must start with make-parallel");
     learnResponse.plan.actions[0] = {
       ...firstLearnAction,
-      validationPolicy: "local-teaching",
+      validationPolicy: "local-demonstration",
       input: {
         ...firstLearnAction.input,
         throughPointId: "T",

@@ -3,8 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import topicActionAuthoring from "./lib/topicActionTemplateAuthoring.ts";
+import speechText from "../../shared/speechText.ts";
 
 const { authorTopicActionTemplates, authorTopicSolutionBoard } = topicActionAuthoring;
+const { latexToSpokenChinese } = speechText;
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "../../..");
@@ -696,6 +698,7 @@ function buildThreeKnownParallelContracts(itemId, block, assignmentFile) {
   first.presentation = { autoFocusSequence: true, autoSubmitOnComplete: true };
   first.coach = {
     entryLatex: `把边长标到小段上。先填写 ${smallSegmentLabels[0]?.displayName}。`,
+    entrySpoken: `把边长标到小段上。先填写 ${smallSegmentLabels[0]?.displayName}。`,
     idleHintsLatex: smallSegmentLabels.map((label) => `当前填写 ${label.displayName}，它的边长是 ${label.valueLatex}。`),
     invalidObjectLatex: "不用选择线段，直接填写当前亮起的小段。",
     objectCategoryHintLatex: "系统会按顺序把焦点移到需要填写的小段。",
@@ -716,6 +719,7 @@ function buildThreeKnownParallelContracts(itemId, block, assignmentFile) {
     };
     second.coach = {
       entryLatex: "三条已知边里，有两条是相似三角形的一组对应边。先按同一方向点出它们，再把边长代入草稿式并约分。",
+      entrySpoken: "三条已知边里，有两条是相似三角形的一组对应边。先按同一方向点出它们，再把边长代入草稿式并约分。",
       idleHintsLatex: ["先找落在同一条射线上的两条已知对应边。", `先点 ${ratio.firstDisplayName}，再点 ${ratio.secondDisplayName}。`],
       invalidObjectLatex: "这条边不能组成当前要计算的那组已知对应边比。",
       objectCategoryHintLatex: "要找的是同一方向上、分别属于两个相似三角形的两条已知对应边。",
@@ -766,8 +770,10 @@ function buildThreeKnownParallelContracts(itemId, block, assignmentFile) {
     const proof = ratio
       ? `因为 $${ratio.firstDisplayName}:${ratio.secondDisplayName}=${ratio.firstValueLatex}:${ratio.secondValueLatex}=${ratio.simplifiedFirstLatex}:${ratio.simplifiedSecondLatex}$；又因为 $AB\\parallel CD$，两个三角形相似，所以对应边成比例：$\\dfrac{${ratio.firstDisplayName}}{${ratio.secondDisplayName}}=\\dfrac{${target}}{${known}}=\\dfrac{${targetShare.valueLatex}}{${knownShare.valueLatex}}$。所以 ${target} 是 ${targetShare.valueLatex} 份，${known} 是 ${knownShare.valueLatex} 份。`
       : `因为 $AB\\parallel CD$，两个三角形相似，对应边成比例，所以 $${target}:${known}=${targetShare.valueLatex}:${knownShare.valueLatex}$。也就是 ${target} 是 ${targetShare.valueLatex} 份，${known} 是 ${knownShare.valueLatex} 份。`;
+    const proofSpoken = latexToSpokenChinese(proof);
     third.coach = {
       entryLatex: proof,
+      entrySpoken: proofSpoken,
       explanationLatex: proof,
       nextActionLatex: `把份数关系落到算式上：$${target}=${known}\\times\\dfrac{\\Box}{\\Box}$。`,
       invalidObjectLatex: `这里先要放能直接代入数值的已知边 ${known}，其他线段暂时不用。`,

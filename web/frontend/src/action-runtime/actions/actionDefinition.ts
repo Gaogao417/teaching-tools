@@ -61,7 +61,12 @@ export function projectStandardSnapshot<Contract extends ActionContract = Action
     commands: evidence ? commands(context.contract, evidence) : [],
     diagramPreviewCommands: presentation.diagramPreviewCommands || [],
     enabledByKind: presentation.enabledByKind,
-    projectedAnswerSlots: presentation.answerSlots,
+    projectedAnswerSlots: presentation.answerSlots.map((slot) => ({
+      ...slot,
+      hitTestable: slot.hitTestable ?? true,
+      candidate: slot.candidate ?? true,
+      advanceEnabled: slot.advanceEnabled ?? !done,
+    })),
     preview: presentation.preview,
   };
 }
@@ -88,7 +93,7 @@ export function createActorFromDefinition<Contract extends ActionContract>(
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     demonstrate() {
       const events = definition.teachingEvents?.(contract) || [];
-      if (!events.length || contract.validationPolicy !== "local-teaching") return false;
+      if (!events.length || contract.validationPolicy !== "local-demonstration") return false;
       for (const event of events) actor.send(event);
       return true;
     },

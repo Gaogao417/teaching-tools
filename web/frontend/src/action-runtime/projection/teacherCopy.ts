@@ -27,5 +27,6 @@ export function teacherCopyForAction(plan: ExercisePlan, action: ActionContract)
   const displayLatex = isFirstOfStep
     ? (action.coach?.entryLatex ?? action.instruction)
     : action.instruction;
-  return { displayLatex, spokenText: latexToSpokenChinese(displayLatex) };
+  const authoredSpoken = isFirstOfStep ? action.coach?.entrySpoken?.trim() : undefined;
+  return { displayLatex, spokenText: authoredSpoken || latexToSpokenChinese(displayLatex) };
 }

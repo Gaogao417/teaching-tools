@@ -11,7 +11,7 @@ export const intersectCarriersDefinition: ActionMachineDefinition<IntersectCarri
   createMachine(contract) {
     const valid = (index: number, event: ActionRuntimeEvent) => event.type === "OBJECT.SELECTED" && event.objectKind === "point"
       && contract.input.availablePointIds.includes(event.objectId)
-      && (contract.validationPolicy !== "local-teaching" || !contract.input.carrierPointIds || event.objectId === contract.input.carrierPointIds[index]);
+      && (contract.validationPolicy === "server-authoritative" || !contract.input.carrierPointIds || event.objectId === contract.input.carrierPointIds[index]);
     return setup({
       types: { context: {} as Context, events: {} as ActionRuntimeEvent, output: {} as ActionEvidence | { type: "cancelled" } },
       guards: { validFirst: ({ event }) => valid(0, event), validSecond: ({ event }) => valid(1, event) },

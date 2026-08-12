@@ -19,7 +19,11 @@ function modeFor(state: TopicPracticeEngineState, sessionKind: SessionKind): Lea
 }
 
 function validationFor(mode: LearningMode): ValidationPolicy {
-  return mode === "learn" ? "local-teaching" : "server-authoritative";
+  if (mode === "learn") return "local-demonstration";
+  if (mode === "guided-practice") return process.env.PRACTICE_VALIDATION_MODE === "server-authoritative" || process.env.TRAINING_SYNC_MODE === "legacy-evaluation"
+    ? "server-authoritative"
+    : "local-training";
+  return "server-authoritative";
 }
 
 function mergedLearningGeometry(scenario: TopicResolvedScenario): TopicGeometryModel | undefined {
@@ -53,6 +57,7 @@ export function materializeActionTemplate(template: AuthoredActionTemplate, mode
     title: template.title,
     instruction: template.instruction,
     input,
+    ...(mode === "assessment" ? {} : { localTruth: { ...(template.teachingInput || {}) } }),
     capabilities: mode === "assessment"
       ? template.capabilities.filter((capability) => !capability.startsWith("agent:"))
       : [...template.capabilities],
@@ -133,5 +138,14 @@ export function buildTopicExercisePlan(
     actions,
     currentActionId,
     completedActionIds,
+    runtimeCapabilities: {
+      practiceValidation: validationFor("guided-practice") === "local-training" ? "local-training" : "server-authoritative",
+      trainingSync: process.env.TRAINING_SYNC_MODE === "local-only" ? "local-only"
+        : process.env.TRAINING_SYNC_MODE === "legacy-evaluation" ? "legacy-evaluation" : "async-records",
+      narrationTransport: process.env.ACTION_NARRATION_TRANSPORT === "off" ? "off"
+        : process.env.ACTION_NARRATION_TRANSPORT === "stream" ? "stream" : "url",
+      coachTurnTransport: process.env.COACH_TURN_TRANSPORT === "stream" ? "stream" : "request-response",
+      liveCoach: mode !== "assessment" && process.env.COACH_LIVE_ENABLED !== "false",
+    },
   };
 }

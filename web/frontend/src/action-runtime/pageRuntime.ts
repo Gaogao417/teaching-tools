@@ -16,6 +16,8 @@ import { projectWorkspaceView } from "./projectWorkspaceView";
 import { deriveTransientEmphasis } from "./projection/deriveTransientEmphasis";
 import { actionMachineRegistry, type ActionMachineRegistry } from "./registry";
 import type { ActionActor, ActionPageRuntime, PageRuntimeSnapshot, TransientEmphasis } from "./types";
+import { AttemptRecorder } from "./training/attemptRecorder";
+import { semanticCandidate } from "./training/candidateSemantics";
 
 type PageEvent =
   | { type: "ACTION_DONE"; evidence: ActionEvidence; commands: DomainCommand[]; submit: boolean; nextActionId?: string }
@@ -250,6 +252,7 @@ export function createActionPageRuntime(
   let childUnsubscribe: (() => void) | undefined;
   let handledEvidenceActionId: string | undefined;
   let draftToHydrate = checkpoint?.revision === plan.revision ? checkpoint.currentDraft : undefined;
+  const attemptRecorder = new AttemptRecorder(plan.exerciseId, plan.exerciseId);
 
   // Transient emphasis is frontend-only UI state. It lives in this closure —
   // never in the XState context, the snapshot, a checkpoint or any store — so it
@@ -286,6 +289,7 @@ export function createActionPageRuntime(
     child?.stop();
     handledEvidenceActionId = undefined;
     child = registry.create(actionFor());
+    if (child.contract.validationPolicy === "local-training") attemptRecorder.start(child.contract);
     childUnsubscribe = child.subscribe(() => {
       const snapshot = child.getSnapshot();
       if (snapshot.done && snapshot.evidence && handledEvidenceActionId !== snapshot.evidence.actionId) {
@@ -340,6 +344,9 @@ export function createActionPageRuntime(
         if (recentEvents.length > 30) recentEvents.shift();
       }
       const childSnapshot = child.getSnapshot();
+      if (page.plan.mode === "guided-practice" && (event.type === "BACK" || event.type === "CLEAR")) {
+        attemptRecorder.useAssistance(event.type === "BACK" ? "back" : "clear", child.contract);
+      }
       if (event.type === "BACK" && childSnapshot.selectedObjectIds.length === 0 && Object.keys(childSnapshot.answers).length === 0) {
         // Rolling back the last completed action: its highlight must not linger.
         pendingEmphasis = undefined;
@@ -353,7 +360,23 @@ export function createActionPageRuntime(
         child.send(event);
         return;
       }
-      child.send(event);
+      const target = child;
+      const contract = target.contract;
+      const before = target.getSnapshot();
+      target.send(event);
+      if (contract.validationPolicy === "local-training") {
+        const after = target.getSnapshot();
+        const candidate = semanticCandidate(event, before, after);
+        if (candidate) {
+          const outcome = after.done && after.evidence
+            ? "correct-complete"
+            : after.wrongObjectId || (event.type === "SUBMIT" && after.wrongMessage)
+              ? "wrong"
+              : "correct-partial";
+          attemptRecorder.record(contract, candidate, outcome);
+          if (outcome === "wrong") wrongAttempts += 1;
+        }
+      }
     },
     getView() {
       const view = projectWorkspaceView(pageActor.getSnapshot().context, child.getSnapshot());
@@ -364,6 +387,18 @@ export function createActionPageRuntime(
     },
     getSnapshot() {
       return cachedPageSnapshot;
+    },
+    getTrainingSnapshot() {
+      return attemptRecorder.snapshot();
+    },
+    consumeTransientEmphasis(key) {
+      if (pendingEmphasis?.key !== key) return;
+      pendingEmphasis = undefined;
+      notify();
+    },
+    recordAssistance(kind) {
+      const contract = actionFor();
+      if (contract.validationPolicy === "local-training") attemptRecorder.useAssistance(kind, contract);
     },
     getTrace(studentMessage) {
       const page = pageActor.getSnapshot().context;

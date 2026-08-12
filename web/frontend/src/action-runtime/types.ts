@@ -9,11 +9,18 @@ import type {
 import type { TopicGeometryModel } from "../../../shared/topicPractice";
 import type { DomainCommand, WorkspaceWorld } from "../../../shared/actionWorld";
 import type { ActionRuntimeEvent } from "./events";
+import type { AttemptRecorderSnapshot } from "./training/attemptRecorder";
 
 export interface RuntimeEntityView {
   id: string;
   kind: "point" | "line" | "angle";
   enabled: boolean;
+  /** Can receive pointer/keyboard input even when it is not an advancing candidate. */
+  hitTestable: boolean;
+  /** Semantically plausible candidate; wrong candidates must still reach the local guard. */
+  candidate: boolean;
+  /** Current state allows this candidate to advance when correct. */
+  advanceEnabled: boolean;
   visualState: "idle" | "available" | "selected" | "wrong" | "correct";
   feedback?: string;
 }
@@ -37,6 +44,9 @@ export interface AnswerSlotView {
   required: boolean;
   active: boolean;
   status: "empty" | "filled" | "wrong" | "correct";
+  hitTestable?: boolean;
+  candidate?: boolean;
+  advanceEnabled?: boolean;
   placeholder?: string;
   options?: import("../../../shared/topicPractice").TopicChoiceOption[];
 }
@@ -165,6 +175,9 @@ export interface ActionPageRuntime {
   getView(): WorkspaceView;
   getSnapshot(): PageRuntimeSnapshot;
   getTrace(studentMessage?: string): StudentTrace;
+  getTrainingSnapshot(): AttemptRecorderSnapshot;
+  recordAssistance(kind: "hint" | "coach"): void;
+  consumeTransientEmphasis(key: string): void;
   subscribe(listener: () => void): () => void;
   applyCoach(directive: CoachDirective): void;
   /** Apply the reviewed teaching targets and advance exactly one Learn beat. */

@@ -39,6 +39,10 @@ export function deriveTransientEmphasis(input: {
         // the mark's own entity ids — that fallback lives in the renderer, not here.
         targets.push({ surface: "canvas", kind: "teaching-mark", id: command.markId });
         break;
+      default: {
+        const exhaustive: never = command;
+        return exhaustive;
+      }
     }
   }
 

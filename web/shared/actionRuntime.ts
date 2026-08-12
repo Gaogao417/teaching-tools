@@ -11,10 +11,10 @@ import {
   type ActionSolutionBoardContext,
 } from "./solutionBoard";
 
-export const ACTION_RUNTIME_PLAN_VERSION = 4 as const;
+export const ACTION_RUNTIME_PLAN_VERSION = 5 as const;
 
 export type LearningMode = "learn" | "guided-practice" | "assessment";
-export type ValidationPolicy = "local-teaching" | "server-authoritative";
+export type ValidationPolicy = "local-demonstration" | "local-training" | "server-authoritative";
 
 export interface CoachProfile {
   profileId: string;
@@ -78,6 +78,8 @@ interface ActionContractBase<Kind extends string, Input> {
   title: string;
   instruction: string;
   input: Input;
+  /** Reviewed answer truth. Required for local modes and forbidden in Assessment. */
+  localTruth?: Record<string, unknown>;
   capabilities: string[];
   answerSlots: AnswerSlotSpec[];
   validationPolicy: ValidationPolicy;
@@ -186,6 +188,13 @@ export interface ExercisePlan {
   actions: ActionContract[];
   currentActionId: string;
   completedActionIds: string[];
+  runtimeCapabilities?: {
+    practiceValidation: "local-training" | "server-authoritative";
+    trainingSync: "legacy-evaluation" | "async-records" | "local-only";
+    narrationTransport: "url" | "stream" | "off";
+    coachTurnTransport: "request-response" | "stream";
+    liveCoach: boolean;
+  };
 }
 
 interface EvidenceBase<Kind extends ActionKind> {
@@ -323,21 +332,10 @@ export interface CoachTurnRequest {
   studentAudio?: CoachAudioInput;
   conversation?: CoachConversationTurn[];
   synthesizeSpeech?: boolean;
-  /**
-   * Per-request speech backend for the coach reply. "omni" = single
-   * Qwen3.5-Omni call (listens + replies with speech); "cosyvoice" = Claude
-   * answer spoken by CosyVoice-v3-plus. Omitted falls back to the backend's
-   * COACH_ANSWER_PROVIDER setting (cosyvoice by default).
-   */
-  voiceModel?: CoachVoiceModel;
 }
-
-export type CoachVoiceModel = "omni" | "cosyvoice";
 
 export interface CoachSpeech {
   audioUrl: string;
-  model: string;
-  voice: string;
   expiresAt?: number;
 }
 
@@ -356,11 +354,6 @@ export type DirectSpeechResponse = CoachSpeech;
 export interface CoachTurnResponse extends CoachResponse {
   transcript?: string;
   speech?: CoachSpeech;
-  providers: {
-    answer: "claude-code-glm-5.2" | "qwen3.5-omni-plus" | "deterministic-fallback";
-    transcription?: string;
-    speech?: string;
-  };
 }
 
 export type EvaluationOutcome = "accepted" | "rejected" | "conflict";
@@ -541,21 +534,15 @@ export function isCoachTurnRequest(value: unknown): value is CoachTurnRequest {
     && conversationValid
     && (value.studentMessage === undefined || typeof value.studentMessage === "string")
     && (value.synthesizeSpeech === undefined || typeof value.synthesizeSpeech === "boolean")
-    && (value.voiceModel === undefined || ["omni", "cosyvoice"].includes(String(value.voiceModel)))
     && ((typeof value.studentMessage === "string" && value.studentMessage.trim().length > 0) || audio !== undefined);
 }
 
 export function isCoachTurnResponse(value: unknown): value is CoachTurnResponse {
-  if (!isCoachResponse(value) || !isRecord(value) || !isRecord(value.providers)) return false;
-  if (!["claude-code-glm-5.2", "qwen3.5-omni-plus", "deterministic-fallback"].includes(String(value.providers.answer))) return false;
+  if (!isCoachResponse(value) || !isRecord(value)) return false;
   if (value.transcript !== undefined && typeof value.transcript !== "string") return false;
-  if (value.providers.transcription !== undefined && typeof value.providers.transcription !== "string") return false;
-  if (value.providers.speech !== undefined && typeof value.providers.speech !== "string") return false;
   if (value.speech === undefined) return true;
   return isRecord(value.speech)
     && hasString(value.speech, "audioUrl")
-    && hasString(value.speech, "model")
-    && hasString(value.speech, "voice")
     && (value.speech.expiresAt === undefined || typeof value.speech.expiresAt === "number");
 }
 
@@ -568,7 +555,7 @@ export function isDirectSpeechRequest(value: unknown): value is DirectSpeechRequ
 }
 
 export function isDirectSpeechResponse(value: unknown): value is DirectSpeechResponse {
-  if (!isRecord(value) || !hasString(value, "audioUrl") || !hasString(value, "model") || !hasString(value, "voice")) return false;
+  if (!isRecord(value) || !hasString(value, "audioUrl")) return false;
   return value.expiresAt === undefined || typeof value.expiresAt === "number";
 }
 
@@ -626,12 +613,25 @@ function isWorldProjection(value: unknown): value is WorldProjection {
       && value.geometry.teachingMarks.every(isTeachingMark)));
 }
 
+const LOCAL_TRUTH_KEYS = /^(acceptedAnswers|expectedValue|expectedValues|expectedOrder|expectedResult|throughPointId|referenceLineId|carrierPointIds|simplifiedRatio|shareValues|knownValueLatex)$/;
+function containsLocalTruth(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsLocalTruth);
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, nested]) => LOCAL_TRUTH_KEYS.test(key) || containsLocalTruth(nested));
+}
+
 export function isExercisePlan(value: unknown): value is ExercisePlan {
   if (!isRecord(value) || value.planVersion !== ACTION_RUNTIME_PLAN_VERSION
     || !hasString(value, "exerciseId") || typeof value.revision !== "number"
     || !["learn", "guided-practice", "assessment"].includes(String(value.mode))
     || !hasString(value, "currentActionId") || !hasStringArray(value, "completedActionIds")
     || !isWorldProjection(value.world) || !isRecord(value.metadata) || !isRecord(value.coach)
+    || (value.runtimeCapabilities !== undefined && (!isRecord(value.runtimeCapabilities)
+      || !["local-training", "server-authoritative"].includes(String(value.runtimeCapabilities.practiceValidation))
+      || !["legacy-evaluation", "async-records", "local-only"].includes(String(value.runtimeCapabilities.trainingSync))
+      || !["url", "stream", "off"].includes(String(value.runtimeCapabilities.narrationTransport))
+      || !["request-response", "stream"].includes(String(value.runtimeCapabilities.coachTurnTransport))
+      || typeof value.runtimeCapabilities.liveCoach !== "boolean"))
     || (value.solutionBoardContexts !== undefined && (!Array.isArray(value.solutionBoardContexts)
       || !value.solutionBoardContexts.every(isActionSolutionBoardContext)))) return false;
   if (!Array.isArray(value.actions) || !value.actions.length) return false;
@@ -642,9 +642,16 @@ export function isExercisePlan(value: unknown): value is ExercisePlan {
     return hasString(action, "sourceStepId") && hasString(action, "kind") && Number.isInteger(action.version) && Number(action.version) > 0
       && hasString(action, "title") && hasString(action, "instruction") && isRecord(action.input)
       && hasStringArray(action, "capabilities") && Array.isArray(action.answerSlots) && action.answerSlots.every(isAnswerSlot)
-      && ["local-teaching", "server-authoritative"].includes(String(action.validationPolicy))
+      && ["local-demonstration", "local-training", "server-authoritative"].includes(String(action.validationPolicy))
       && typeof action.submitOnComplete === "boolean";
   }) && ids.has(value.currentActionId as string)
+    && (value.mode === "assessment"
+      ? value.actions.every((action) => isRecord(action) && action.validationPolicy === "server-authoritative"
+        && action.localTruth === undefined && !containsLocalTruth(action.input))
+      : value.actions.every((action) => isRecord(action) && isRecord(action.localTruth)
+        && action.validationPolicy === (value.mode === "learn" ? "local-demonstration"
+          : isRecord(value.runtimeCapabilities) && value.runtimeCapabilities.practiceValidation === "server-authoritative"
+            ? "server-authoritative" : "local-training")))
     && (value.solutionBoardContexts === undefined
       || (value.mode !== "assessment"
         && value.solutionBoardContexts.every((context) => ids.has(context.actionId))));

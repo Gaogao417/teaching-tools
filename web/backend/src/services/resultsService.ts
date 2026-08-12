@@ -1,4 +1,4 @@
-import type { ContentDefinition, ExerciseEngineKind, ExerciseInstance, ResultAttemptReview, ResultSnapshot, TaskHistoryItem, TaskId } from "../../../shared/contracts";
+import type { ContentDefinition, ExerciseEngineKind, ExerciseInstance, ResultAttemptReview, ResultSnapshot, TaskHistoryItem, TaskId, TrainingMetricsV1 } from "../../../shared/contracts";
 import { TASK_COLORS } from "../../../shared/tasks";
 import { getPreviousElapsedMs, getResultSnapshot, insertResultSnapshot, listResultHistory, listTaskHistory } from "../repositories/resultRepository";
 import { listChildSessionIds, markSessionFinished } from "../repositories/sessionRepository";
@@ -9,6 +9,8 @@ import { getEnginePlugin } from "./runtime/platform/engineRegistry";
 import type { RuntimeEngineState } from "./runtime/platform/engineTypes";
 import type { SessionKind } from "../../../shared/similarityLearningMap";
 import { listActionEvaluations } from "../repositories/actionRuntimeRepository";
+import { SqliteTrainingRecordRepository } from "./training/adapters/sqliteTrainingRecordRepository";
+import type { TrainingResult } from "../../../shared/trainingRuntime";
 
 type ResultSessionRecord = {
   id: string;
@@ -64,7 +66,22 @@ export function finishAndPersistResult(
 
   const finishedAt = new Date().toISOString();
   const elapsedMs = Math.max(0, Date.parse(finishedAt) - Date.parse(session.started_at));
-  const firstTryCorrectCount = instances.filter((record) => record.engineState.firstTryCorrect).length;
+  const trainingResults = new SqliteTrainingRecordRepository().listForSession(session.id)
+    .filter((item): item is typeof item & { record: TrainingResult } => item.kind === "result");
+  const trainingActionMetrics = trainingResults.flatMap((item) => item.record.actionMetrics);
+  const trainingMetrics: TrainingMetricsV1 | undefined = trainingActionMetrics.length ? {
+    version: 1,
+    actionCount: trainingActionMetrics.length,
+    attemptCount: trainingActionMetrics.reduce((sum, metric) => sum + metric.attemptCount, 0),
+    wrongAttemptCount: trainingActionMetrics.reduce((sum, metric) => sum + metric.wrongAttemptCount, 0),
+    firstTryCorrectCount: trainingActionMetrics.filter((metric) => metric.firstTryCorrect).length,
+    firstTryCorrectRate: trainingActionMetrics.filter((metric) => metric.firstTryCorrect).length / trainingActionMetrics.length,
+    averageActionDurationMs: trainingActionMetrics.reduce((sum, metric) => sum + metric.durationMs, 0) / trainingActionMetrics.length,
+    assistance: trainingActionMetrics.flatMap((metric) => metric.assistanceUsed).reduce<TrainingMetricsV1["assistance"]>((counts, assistance) => ({ ...counts, [assistance]: (counts[assistance] || 0) + 1 }), {}),
+  } : undefined;
+  const firstTryCorrectCount = trainingResults.length
+    ? trainingResults.filter((item) => item.record.actionMetrics.every((metric) => metric.firstTryCorrect)).length
+    : instances.filter((record) => record.engineState.firstTryCorrect).length;
   const firstTryAccuracy = instances.length ? firstTryCorrectCount / instances.length : 0;
 
   const previousElapsedMs = getPreviousElapsedMs(session.task_id, session.student_name);
@@ -143,6 +160,7 @@ export function finishAndPersistResult(
     challengeId: session.challenge_id ?? undefined,
     sourceSessionId: session.source_session_id ?? undefined,
     linkedSessionIds: listChildSessionIds(session.id),
+    ...(trainingMetrics ? { trainingMetrics } : {}),
   };
 
   insertResultSnapshot({

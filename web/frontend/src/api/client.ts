@@ -27,6 +27,8 @@ import type {
   ExercisePlan,
 } from "../../../shared/actionRuntime";
 import { assertExercisePlan, isActionCheckpointResponse, isActionEvaluationResponse, isActionPlanResponse, isCoachResponse, isCoachTurnResponse, isDirectSpeechResponse } from "../../../shared/actionRuntime";
+import { isTrainingReceipt, type TrainingCheckpoint, type TrainingReceipt, type TrainingResult } from "../../../shared/trainingRuntime";
+import { isCoachTurnEvent, type CoachTurnEvent, type VoiceTelemetryEvent } from "../../../shared/coachMedia";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
@@ -65,7 +67,65 @@ async function requestLearningActionPlan(path: string): Promise<ExercisePlan> {
   return plan;
 }
 
+async function streamCoachTurn(payload: CoachTurnRequest, onEvent: (event: CoachTurnEvent) => void, signal?: AbortSignal): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/coach/turn-stream`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal,
+  });
+  if (!response.ok || !response.body) throw new Error("Coach stream request failed");
+  const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    pending += decoder.decode(value, { stream: !done });
+    const lines = pending.split("\n"); pending = lines.pop() || "";
+    for (const line of lines.filter(Boolean)) {
+      const event = JSON.parse(line) as unknown;
+      if (!isCoachTurnEvent(event)) throw new Error("Invalid Coach stream event");
+      onEvent(event);
+    }
+    if (done) break;
+  }
+  if (pending.trim()) {
+    const event = JSON.parse(pending) as unknown;
+    if (!isCoachTurnEvent(event)) throw new Error("Invalid Coach stream event");
+    onEvent(event);
+  }
+}
+
+async function streamActionSpeech(payload: DirectSpeechRequest, signal?: AbortSignal): Promise<DirectSpeechResponse> {
+  if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported("audio/mpeg")) {
+    return validated<DirectSpeechResponse>("/api/action-speech", { method: "POST", body: JSON.stringify(payload), signal }, isDirectSpeechResponse, "speech");
+  }
+  const response = await fetch(`${API_BASE_URL}/api/action-speech-stream`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal,
+  });
+  if (!response.ok || !response.body) throw new Error("Speech stream request failed");
+  const mediaSource = new MediaSource();
+  const audioUrl = URL.createObjectURL(mediaSource);
+  void new Promise<void>((resolve, reject) => {
+    mediaSource.addEventListener("sourceopen", async () => {
+      try {
+        const source = mediaSource.addSourceBuffer("audio/mpeg");
+        const reader = response.body!.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await new Promise<void>((appended, failed) => {
+            const finish = () => { source.removeEventListener("updateend", finish); source.removeEventListener("error", fail); appended(); };
+            const fail = () => { source.removeEventListener("updateend", finish); source.removeEventListener("error", fail); failed(new Error("Speech buffer append failed")); };
+            source.addEventListener("updateend", finish, { once: true }); source.addEventListener("error", fail, { once: true });
+            source.appendBuffer(value);
+          });
+        }
+        if (mediaSource.readyState === "open") mediaSource.endOfStream();
+        resolve();
+      } catch (error) { if (mediaSource.readyState === "open") mediaSource.endOfStream("decode"); reject(error); }
+    }, { once: true });
+  }).catch(() => URL.revokeObjectURL(audioUrl));
+  return { audioUrl };
+}
+
 export const api = {
+  reportVoiceTelemetry: (event: VoiceTelemetryEvent) => request<{ accepted: true }>("/api/coach/telemetry", { method: "POST", body: JSON.stringify(event), keepalive: true }),
   getTaskTree: () => request<TaskTreeResponse>("/api/task-tree"),
   getSimilarityLearningMap: (studentName: string) =>
     request<LearningMapResponse>(`/api/learning-maps/similarity?studentName=${encodeURIComponent(studentName)}`),
@@ -120,6 +180,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }, isActionCheckpointResponse, "checkpoint"),
+  uploadTrainingRecord: (kind: "checkpoint" | "result", payload: TrainingCheckpoint | TrainingResult) =>
+    validated<TrainingReceipt>(`/api/training/${kind === "checkpoint" ? "checkpoints" : "results"}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }, isTrainingReceipt, `training ${kind}`),
   askActionCoach: (payload: CoachRequest) =>
     validated("/api/practice/action-coach", {
       method: "POST",
@@ -130,11 +195,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }, isCoachTurnResponse, "multimodal coach"),
-  synthesizeActionSpeech: (payload: DirectSpeechRequest) =>
+  streamActionCoach: streamCoachTurn,
+  synthesizeActionSpeech: (payload: DirectSpeechRequest, signal?: AbortSignal) =>
     validated<DirectSpeechResponse>("/api/action-speech", {
       method: "POST",
       body: JSON.stringify(payload),
+      signal,
     }, isDirectSpeechResponse, "speech"),
+  streamActionSpeech,
   finishPractice: (sessionId: string) =>
     request<FinishPracticeResponse>("/api/practice/finish", {
       method: "POST",
