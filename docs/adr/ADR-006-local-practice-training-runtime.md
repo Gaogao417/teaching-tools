@@ -2,20 +2,21 @@
 
 ## Status
 
-Accepted（remediation in progress）· 2026-08-12
+Implemented（remediation complete）· 2026-08-13
 
-> 2026-08-12 ADR 一致性审核将本 ADR 由 Implemented 下调为 remediation in progress。主路径（local-training
-> 判定策略、本地推进、持久 queue、result ingest 不重判数学正确性）可运行，但以下条款尚未完全落实：
+> 2026-08-12 审核下调的 remediation 项已由 Training remediation 分支（`codex/adr-conformance` 集成）全部闭环并通过测试：
 >
-> - `trainingGuard.ts` 不存在：候选 outcome 仍在 `pageRuntime` 按执行后 snapshot 猜测，且无 `IgnoredIllegal`
->   分类（§Module Responsibilities、§Local attempt and completion）；
-> - `actionTimer.ts` 不存在：用 `Date.now()` 墙钟差，缺单调时钟、visibility 暂停、active segments 与 BACK
->   重入续计，违反 §Metrics Semantics 计时契约；
-> - `hitTestable` / `candidate` / `advanceEnabled` 三字段同值（= `enabled`），三层语义未实现（§Module Responsibilities）；
-> - metrics contract 不完整：缺 back/clear/hint/coach 分别计数、UTC start/completion、active duration segments
->   与 `errorDistribution(actionStateBefore, candidate)`（§Metrics Semantics）。
+> - `trainingGuard.ts` 已落地：候选事件分类为 `ignored-illegal` / `wrong` / `correct-partial` / `correct-completion`，
+>   是 outcome 的唯一裁决者；illegal 不计入命中率、不记录（§Local attempt and completion）；
+> - `actionTimer.ts` 已落地：单调时钟、visibility 暂停、active segments、BACK 重入续计；`Date.now()` 墙钟差已移除
+>   （§Metrics Semantics 计时契约；visibility 经可注入 listener 单测覆盖，未做真机 E2E）；
+> - `hitTestable` / `candidate` / `advanceEnabled` 已分开：`advanceEnabled` 由 local-truth `advanceObjectIds` 限制，
+>   合理但错误的候选仍到达 guard（§Module Responsibilities）；
+> - metrics contract 已补齐：back/clear/hint/coach 计数、UTC start/completion、active duration segments、
+>   `errorDistribution(actionStateBefore, candidate)`；v2 与 v1 envelope 并存，后端 ingest 双向接受（§Metrics Semantics）；
+> - wrong candidate 在同一 render 周期出现视觉 + 文字反馈（`TrainingFeedbackController` → Frame），不改 attempt/world。
 >
-> 以上由 Training remediation 分支跟踪；只有门禁真实通过后才重新标记 Implemented。
+> 仍未做（均为可选/非审核门禁）：wrong feedback 的确定性语音朗读按 ADR-006 为可选项，暂缓；visibility 暂停未做真机 E2E。
 
 本 ADR 覆盖 [ADR-004](./ADR-004-frontend-action-runtime.md) 中“Guided Practice 使用
 `ServerAuthoritative`”以及“backend 对 Practice 每个 Action 做数学判定”的旧边界。ADR-004 的

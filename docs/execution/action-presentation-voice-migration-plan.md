@@ -2,9 +2,11 @@
 
 ## Document Status
 
-- 状态：Remediation in progress（主路径可运行；ADR-005/006 经 2026-08-12 一致性审核下调为 remediation，部分
-  DoD 项已重新打开，见 §Definition of Done 与各 ADR 的 Status）
-- 日期：2026-08-12
+- 状态：Remediation in progress（Training 轴 ADR-006 remediation 已闭环并标记 Implemented；voice 轴 coach-turn
+  边界与可观测性已落地，但 ADR-005 的 capture 仲裁 / Realtime port / Frame 退耦 / browser first audio 仍待完成。
+  详见 §Definition of Done 与各 ADR Status）
+- 日期：2026-08-13（集成完成）
+- 集成基线 SHA：`86245f9`（master，审核确认的迁移基线；废弃文档中过期的 `2466965` / `f0475e3` 候选）
 - 媒体架构依据：[ADR-005](../adr/ADR-005-action-presentation-and-conversational-media.md)
 - 训练架构依据：[ADR-006](../adr/ADR-006-local-practice-training-runtime.md)
 - 问题依据：[Issue Inventory](./action-presentation-voice-issue-inventory.md)
@@ -17,9 +19,13 @@
   `server-authoritative`；Assessment guard 对 local truth 和等价已知 truth key fail closed。
 - 新增 provider-neutral `coachMedia.ts` v2 与 `trainingRuntime.ts` v1；未知 public event fail closed。
 - 持久 queue、Training Record/Progress/mastery read model 已接线；result ingest 不调用 private evaluator。
-  但 Practice local guard、semantic attempt、Action timer、assistance metrics 与三层 affordance **尚未接线**
-  （`trainingGuard.ts` / `actionTimer.ts` 不存在；metrics contract 缺字段；`hitTestable`/`candidate`/`advanceEnabled`
-  三字段同值）——2026-08-12 审核后由“已接线”更正，详见 ADR-006 Status 与 §Definition of Done。
+  Practice local guard（`trainingGuard.ts`）、semantic attempt、Action timer（`actionTimer.ts`，单调时钟 + visibility
+  暂停 + BACK 续计）、assistance metrics（back/clear/hint/coach + errorDistribution）与三层 affordance
+  （hitTestable/candidate/advanceEnabled）**已接线**并经测试；v2 telemetry 随 v1 envelope 上报，后端双向 ingest——
+  2026-08-13 Training remediation 闭环，详见 ADR-006 Status。
+- coach omni-chain：`TextCoachEngine` / `SpeechSynthesizer` ports + Claude / CosyVoice adapters + `SpokenSegmenter` /
+  `SegmentPolicy` / `CoachTurnApplication` + `CoachTurnTelemetry` 时间线；`streamCoachTurn` 为薄 NDJSON 桥；Assessment
+  fail closed。capture 仲裁 / Realtime port / Frame 退耦 / browser first audio 仍为 ADR-005 未决项。
 - Realtime 已改为 typed public protocol、ready 后 capture、payload/backpressure/usage/concurrency limit、
   context update 与 Assessment gate；44.1/48 kHz 使用相位累积线性重采样。
 - 固定朗读使用统一 MediaSession、current/next prefetch、bounded cache、Abort、独立 replay 与 autoplay UI；
@@ -607,17 +613,17 @@ COACH_STREAM_ASSESSMENT_ENABLED=false
 
 ## Definition of Done
 
-- [ ] ADR-005 标记 Accepted/Implemented —— 2026-08-12 审核下调为 remediation in progress（backend hexagonal
-      boundary、observability、capture 仲裁、Frame 退回 presentation 未完成），见 ADR-005 Status；
-- [ ] ADR-006 标记 Implemented —— 同上下调为 remediation in progress（guard/timer/affordance/metrics 未完成），
+- [ ] ADR-005 标记 Accepted/Implemented —— coach-turn hex boundary 与 observability 已落地，但 capture 仲裁、
+      Realtime port、Frame 退耦、browser first audio 仍未完成，保持 remediation in progress，见 ADR-005 Status；
+- [x] ADR-006 标记 Implemented —— 2026-08-13 Training remediation 闭环（guard/timer/affordance/metrics 全部落地并测试），
       见 ADR-006 Status；旧 server-authoritative Practice session 兼容/删除门禁已记录；
 - [x] Issue Inventory 的 P0/P1 全部关闭或有明确延期 ADR；
 - [x] Learn / Practice / Assessment 分别绑定 LocalDemonstration / LocalTraining / ServerAuthoritative；
 - [x] Practice 一道题只加载一次完整 plan，Action 切换零 backend 数学判题请求；
-- [ ] wrong candidate、correct candidate、BACK/CLEAR/hint/Coach 和 Action duration 有稳定 versioned 指标 ——
-      metrics contract 缺 back/clear/hint/coach 计数、UTC 时间戳、active segments 与 errorDistribution；
-- [ ] `hitTestable` / `candidate` / `advanceEnabled` 拆分后错误候选不会被 Canvas/Answer surface 吞掉 ——
-      当前三字段同值（= `enabled`），三层语义未实现；
+- [x] wrong candidate、correct candidate、BACK/CLEAR/hint/Coach 和 Action duration 有稳定 versioned 指标 ——
+      v2 metrics 含 back/clear/hint/coach 计数、UTC start/completion、active segments 与 errorDistribution；
+- [x] `hitTestable` / `candidate` / `advanceEnabled` 拆分后错误候选不会被 Canvas/Answer surface 吞掉 ——
+      `advanceEnabled` 由 local-truth `advanceObjectIds` 限制，合理但错误候选仍到达 guard；
 - [x] TrainingSyncQueue 支持 offline、幂等、revision conflict、容量/TTL 与 best-effort flush；
 - [x] backend Training Record/Progress service 不重新判定 Practice 数学正确性；
 - [x] Assessment payload 无 local truth，仍使用 private evaluator 和权威 result；
@@ -625,7 +631,8 @@ COACH_STREAM_ASSESSMENT_ENABLED=false
       Frame 仍直接持有 coach 编排，由 voice remediation 退回 presentation；
 - [x] Action Runtime 不 import media/AI infrastructure；
 - [x] 固定朗读有预取、缓存、取消和显式 autoplay 状态；
-- [ ] streaming Coach 的 browser first audio 可度量且早于完整回答 —— voice observability timeline 未完成；
+- [ ] streaming Coach 的 browser first audio 可度量且早于完整回答 —— 服务端 `CoachTurnTelemetry` 时间线已落地，
+      前端 `browser_first_audio_at` 上报未接线；
 - [ ] Live Coach 使用 typed public protocol 并能更新当前 Action context —— realtime 仍耦合 provider，
       boundary 由 voice remediation 收紧；
 - [x] Assessment 默认安全关闭生成式 streaming/live；
