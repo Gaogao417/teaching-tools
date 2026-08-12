@@ -4,12 +4,15 @@
 
 - 日期：2026-08-12
 - 分支：`feat/coach-omni-chain`
-- 基线提交：`8325184 feat(coach): full-duplex realtime voice coach`
+- 审核起点：`8325184 feat(coach): full-duplex realtime voice coach`
+- 当前实现基线：`f0475e3 feat(action-runtime): deterministic Learn teaching with teacher voice coach`
 - 审核范围：Action Runtime v2 transient emphasis、固定 Action TTS、普通多模态 Coach、
   turn-based Omni/CosyVoice、full-duplex realtime relay、前端音频播放与共享 contract。
 
-当前工作区包含大量未提交 Topic、SolutionBoard、Action Feedback 和 teacher speech 改动。
-本清单只记录问题，不假定这些改动已经形成可供其他 worktree 使用的 commit。
+审核开始时工作区包含大量未提交 Topic、SolutionBoard、Action Feedback 和 teacher speech 改动；
+它们随后已经按职责形成独立提交，其中 transient emphasis 为 `f0bc687`，本架构文档为 `d3b8ae9`，
+deterministic teacher voice 为 `f0475e3`。本清单以这些已提交实现为现状证据；“已提交”不表示下列
+架构、延迟或正确性问题已经关闭。
 
 ## Severity
 

@@ -83,9 +83,23 @@ web/backend/src/
 
 ### Phase 0 — Freeze and Baseline
 
+当前状态：baseline hygiene 已完成。相关提交已经按职责拆分：
+
+```text
+45c7a62 feat(topics): rewrite formal solutions across six similarity/ratio topics
+bce2c1b feat(backend): derive parallel ratio from stem truth and regenerate bundle
+95ec252 docs(skills): require deterministic Learn demonstration and teaching truth
+f0bc687 feat(action-runtime): transient emphasis for just-changed canvas and board
+d3b8ae9 docs(adr): record Action Presentation and Conversational Media layering
+f0475e3 feat(action-runtime): deterministic Learn teaching with teacher voice coach
+```
+
+`f0475e3` 是当前 migration baseline candidate。正式创建 worktree 前仍需在该 SHA（或其经过验证的
+后继 SHA）运行全量门禁，并把最终 SHA 记录为 `<baseline-sha>`。
+
 交付：
 
-- 先把当前 dirty tree 拆成可审核的既有功能 commits；
+- 保持上述既有功能 commits 独立可回滚；
 - 新增 latency correlation id 和最小时间戳，不改变模型路径；
 - 记录三条现状基线：Action speech、turn-based Coach、full-duplex realtime；
 - 建立 feature flags/capability projection，默认行为保持不变。
@@ -96,7 +110,7 @@ web/backend/src/
 - baseline SHA 必须通过 frontend/backend build 与现有测试；
 - latency 日志不得包含学生完整音频或私有答案。
 
-当前 dirty tree 建议先分成三个既有成果 commit，再单独提交本轮架构文档，而不是一把提交：
+上述 baseline 已经遵守以下职责拆分；后续不得在迁移分支中重新 squash 成一个大 commit：
 
 1. `feat(authoring): repair reviewed solution rewrite pipeline and topic blueprints`
    - `.codex/skills/**`、Topic blueprints、authoring scripts、generated topic bundle；
@@ -107,7 +121,8 @@ web/backend/src/
 4. `docs(architecture): define action presentation and voice migration`
    - ADR-005、问题清单、迁移/worktree 计划和文档索引。
 
-若一个文件同时包含两组改动，使用交互式 patch staging；不要让迁移 worktree 通过复制未提交文件解决。
+若后续一个文件同时包含两组改动，使用交互式 patch staging；不要让 migration worktree 通过复制
+其他 worktree 的未提交文件解决。
 
 ### Phase 1 — Provider-neutral Contracts and Composition Boundaries
 
