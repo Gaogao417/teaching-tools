@@ -453,6 +453,32 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
             <button type="button" className="topic-coach-close" aria-label="收起指导栏" onClick={closeCoachRail}><span className="material-symbols-outlined">right_panel_close</span></button>
           </div>
           <div className="topic-coach-bubble" aria-label="当前 Action 讲解"><MathText value={view.coach.actionPromptLatex} block /></div>
+          {/*
+            ADR-006 §Voice and Coach Integration — instant wrong-candidate
+            feedback rendered in the SAME cycle the wrong candidate appears.
+            `view.feedback` is projected by TrainingFeedbackController from a
+            guard decision the recorder already consumed, so it is pure view
+            state: it adds no attempts, writes no metrics, and never blocks
+            training. The wrong object is already highlighted on the canvas via
+            the machine's wrongObjectId; this is the textual half of the pair.
+            Optional spoken playback (view.feedback.spokenText via
+            controller.requestSpoken) is intentionally deferred: it would need a
+            non-blocking NarrationClient wired alongside the coach audio stream
+            without entangling the two. Per ADR-006, voice failure must not
+            change attempt/world, so visual+text ships first.
+          */}
+          {view.feedback?.active ? (
+            <div
+              className="topic-coach-message"
+              role="status"
+              aria-live="polite"
+              data-testid="training-feedback"
+              data-feedback-tone={view.feedback.tone}
+              data-feedback-focus={view.feedback.focusTargetId}
+            >
+              <MathText value={view.feedback.messageLatex} block />
+            </div>
+          ) : null}
           {autoplayBlocked ? <p className="topic-coach-recording" role="status">浏览器已阻止自动播放，请点右上角扬声器开始朗读。</p> : null}
           {coachThread.length ? <div className="topic-coach-thread" aria-label="答疑对话">{coachThread.map((turn) => (
             <div key={turn.id} className={`topic-coach-turn is-${turn.role}${turn.pending ? " is-pending" : ""}${turn.error ? " is-error" : ""}`}>

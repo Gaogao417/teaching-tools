@@ -10,6 +10,7 @@ import type { TopicGeometryModel } from "../../../shared/topicPractice";
 import type { DomainCommand, WorkspaceWorld } from "../../../shared/actionWorld";
 import type { ActionRuntimeEvent } from "./events";
 import type { AttemptRecorderSnapshot } from "./training/attemptRecorder";
+import type { TrainingFeedbackView } from "../presentation/training/TrainingFeedbackController";
 
 export interface RuntimeEntityView {
   id: string;
@@ -125,6 +126,13 @@ export interface WorkspaceView {
   controls: ControlSlice;
   /** Frontend-only, never persisted. Absent means no pending highlight. */
   transientEmphasis?: TransientEmphasis;
+  /**
+   * ADR-006 §Voice and Coach Integration — instant wrong-candidate feedback
+   * projected by `TrainingFeedbackController` from a guard decision. Frontend-
+   * only view value (never persisted, never in XState context). Absent/inactive
+   * means there is no wrong feedback to show this render cycle.
+   */
+  feedback?: TrainingFeedbackView;
 }
 
 export interface ActionSnapshotView {

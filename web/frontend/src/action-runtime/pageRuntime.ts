@@ -19,6 +19,7 @@ import type { ActionActor, ActionPageRuntime, PageRuntimeSnapshot, TransientEmph
 import { AttemptRecorder } from "./training/attemptRecorder";
 import { browserVisibilityListener, VisibilityTimerAdapter } from "./training/actionTimer";
 import { TrainingGuard } from "./training/trainingGuard";
+import { TrainingFeedbackController, type TrainingFeedbackView } from "../presentation/training/TrainingFeedbackController";
 
 type PageEvent =
   | { type: "ACTION_DONE"; evidence: ActionEvidence; commands: DomainCommand[]; submit: boolean; nextActionId?: string }
@@ -297,6 +298,16 @@ export function createActionPageRuntime(
     pendingEmphasis = targets.length ? { key: nextEmphasisKey(), targets } : undefined;
   };
 
+  // ADR-006 §Voice and Coach Integration — instant wrong-candidate feedback.
+  // Like emphasis, this is frontend-only view state in this closure (never in
+  // XState context, the snapshot, a checkpoint or any store). It is PURE: it
+  // only READS a guard decision the recorder already consumed, so guard →
+  // attempt recording → state advancement always completes first. It adds no
+  // wrong attempts and never touches metrics/timing. Projected by the owned
+  // TrainingFeedbackController and attached to the view in getView().
+  const feedbackController = new TrainingFeedbackController();
+  let pendingFeedback: TrainingFeedbackView | undefined;
+
   function notify() {
     // Child snapshots change without changing XState page context. Clone the
     // public snapshot so useSyncExternalStore observes every semantic event.
@@ -365,6 +376,13 @@ export function createActionPageRuntime(
     const current = snapshot.context.currentActionId;
     if (current !== previousActionId) {
       previousActionId = current;
+      // Advancing to a new Action leaves the prior wrong feedback behind. NOTE:
+      // pendingEmphasis is intentionally NOT cleared here — it is set just before
+      // ACTION_DONE and must survive this transition so the renderer can animate.
+      // pendingFeedback is redundant here (the triggering event already cleared
+      // it) but cleared defensively to honour "no stale feedback after action
+      // change" even if a future path advances without re-classifying.
+      pendingFeedback = undefined;
       mountChild();
     }
     notify();
@@ -389,12 +407,14 @@ export function createActionPageRuntime(
       if (event.type === "BACK" && childSnapshot.selectedObjectIds.length === 0 && Object.keys(childSnapshot.answers).length === 0) {
         // Rolling back the last completed action: its highlight must not linger.
         pendingEmphasis = undefined;
+        pendingFeedback = undefined;
         pageActor.send({ type: "UNDO_LAST_ACTION" });
         return;
       }
       if (event.type === "CLEAR") {
         // Clearing the draft group discards the in-flight changes; drop their highlight.
         pendingEmphasis = undefined;
+        pendingFeedback = undefined;
         pageActor.send({ type: "CLEAR_DRAFT_GROUP" });
         child.send(event);
         return;
@@ -421,6 +441,15 @@ export function createActionPageRuntime(
           attemptRecorder.record(contract, result.candidate, "correct-complete", before.state);
         }
         // ignored-illegal: no record, timer continues.
+        // ADR-006 §Voice and Coach Integration — project the feedback view ONLY
+        // from the guard's own decision, AFTER the recorder consumed it. This is
+        // a pure read; it adds no attempts and writes no metrics. `wrong` shows
+        // instant visual+textual feedback this render cycle; any other decision
+        // (correct-partial/correct-completion/ignored-illegal) clears it so the
+        // learner never sees stale wrong feedback once they move past it.
+        pendingFeedback = decision.kind === "wrong"
+          ? feedbackController.project(decision)
+          : undefined;
       }
     },
     getView() {
@@ -428,6 +457,9 @@ export function createActionPageRuntime(
       // Emphasis is owned by the runtime, not the pure projection; attach it
       // here so the projector stays free of any transient-presentation logic.
       if (pendingEmphasis) view.transientEmphasis = pendingEmphasis;
+      // Likewise, the feedback view is runtime-owned transient UI state; attach
+      // it here so projectWorkspaceView stays a pure page composition.
+      if (pendingFeedback) view.feedback = pendingFeedback;
       return view;
     },
     getSnapshot() {
@@ -477,6 +509,7 @@ export function createActionPageRuntime(
       const page = pageActor.getSnapshot().context;
       if (page.plan.mode !== "learn" || !page.plan.actions.some((action) => action.actionId === actionId)) return false;
       pendingEmphasis = undefined;
+      pendingFeedback = undefined;
       pageActor.send({ type: "SEEK_TEACHING", actionId });
       return true;
     },
@@ -515,6 +548,7 @@ export function createActionPageRuntime(
       // view the learner sees next already reflects the evaluated outcome.
       if (result.outcome === "rejected" || result.outcome === "conflict") {
         pendingEmphasis = undefined;
+        pendingFeedback = undefined;
       } else if (result.solutionBoardContext?.stage === "accepted") {
         const ctx = result.solutionBoardContext;
         const owner = pageActor.getSnapshot().context.plan.actions.find((item) => item.actionId === ctx.actionId);
@@ -529,6 +563,7 @@ export function createActionPageRuntime(
       previousActionId = nextPlan.currentActionId;
       // A restore must never replay a prior highlight.
       pendingEmphasis = undefined;
+      pendingFeedback = undefined;
       pageActor.send({ type: "RESET", plan: nextPlan });
       mountChild();
     },
