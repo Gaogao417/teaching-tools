@@ -105,7 +105,7 @@ describe("SolutionBoardPanel emphasis", () => {
       const { root } = render(<SolutionBoardPanel board={board()} emphasis={{ key: "k1", expressionIds: ["e2"] }} />);
       expect(animateSpy).toHaveBeenCalledTimes(1);
       const options = animateSpy.mock.calls[0][1] as { duration: number };
-      expect(options.duration).toBe(500); // reduced-motion duration
+      expect(options.duration).toBe(650); // reduced-motion duration
       act(() => root.unmount());
     } finally {
       window.matchMedia = original;

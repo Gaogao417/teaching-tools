@@ -346,8 +346,6 @@ export function mountGeometryBoard(
     board.unsuspendUpdate();
   }
 
-  renderModel();
-
   return {
     board,
     getPointer: () => pointer,

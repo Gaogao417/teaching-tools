@@ -171,15 +171,18 @@
    color/glow pulse — never a geometric transform — so SVG geometry and layout
    stay stable. The teal matches the derived-line accent. */
 .geometry-canvas__board .geometry-emphasis-pulse {
-  animation: geometry-emphasis-pulse 0.8s ease-out 1;
+  animation: geometry-emphasis-pulse 1.1s ease-out 1;
 }
 
 @keyframes geometry-emphasis-pulse {
   0% {
     filter: drop-shadow(0 0 0 rgba(24, 183, 183, 0));
   }
-  35% {
-    filter: drop-shadow(0 0 5px rgba(24, 183, 183, 0.9));
+  22% {
+    filter: drop-shadow(0 0 8px rgba(24, 183, 183, 1));
+  }
+  52% {
+    filter: drop-shadow(0 0 5px rgba(24, 183, 183, 0.82));
   }
   100% {
     filter: drop-shadow(0 0 0 rgba(24, 183, 183, 0));
@@ -189,7 +192,7 @@
 @media (prefers-reduced-motion: reduce) {
   /* Reduced motion: a brief, gentle outline/color shift — no movement at all. */
   .geometry-canvas__board .geometry-emphasis-pulse {
-    animation: geometry-emphasis-pulse-reduced 0.6s ease-out 1;
+    animation: geometry-emphasis-pulse-reduced 0.8s ease-out 1;
   }
 }
 
@@ -198,7 +201,7 @@
     filter: drop-shadow(0 0 0 rgba(24, 183, 183, 0));
   }
   50% {
-    filter: drop-shadow(0 0 2px rgba(24, 183, 183, 0.7));
+    filter: drop-shadow(0 0 4px rgba(24, 183, 183, 0.78));
   }
   100% {
     filter: drop-shadow(0 0 0 rgba(24, 183, 183, 0));

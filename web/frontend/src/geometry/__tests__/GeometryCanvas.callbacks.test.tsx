@@ -70,6 +70,7 @@ describe("GeometryCanvas — stale-closure regression", () => {
     capturedCallbacks = null;
     mountedModels.length = 0;
     destroy.mockClear();
+    render.mockClear();
   });
 
   it("an onHit fired AFTER a tool starts reaches runtime.send (uses latest handler)", async () => {
@@ -187,6 +188,48 @@ describe("GeometryCanvas — stale-closure regression", () => {
     await act(async () => root.render(<GeometryCanvasSurface model={next} modelVersion={1} view={rendererView} onClickEntity={() => undefined} />));
     expect(mountedModels).toEqual([initial, next]);
     expect(destroy).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+    document.body.removeChild(container);
+  });
+
+  it("keeps animated Canvas nodes alive when transient emphasis is acknowledged", async () => {
+    const model = seededTriangle();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const baseView = {
+      prompt: "emphasis",
+      entities: {},
+      selected: [],
+      cursor: "default" as const,
+      canCancel: true,
+      canGoBack: false,
+    };
+
+    await act(async () => root.render(<GeometryCanvasSurface
+      model={model}
+      modelVersion={0}
+      view={{ ...baseView, emphasis: { key: "k1", entityIds: ["AB"], markIds: [] } }}
+      onClickEntity={() => undefined}
+    />));
+    expect(render).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.render(<GeometryCanvasSurface
+      model={model}
+      modelVersion={0}
+      view={baseView}
+      onClickEntity={() => undefined}
+    />));
+    expect(render).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.render(<GeometryCanvasSurface
+      model={model}
+      modelVersion={0}
+      view={{ ...baseView, emphasis: { key: "k2", entityIds: ["AC"], markIds: [] } }}
+      onClickEntity={() => undefined}
+    />));
+    expect(render).toHaveBeenCalledTimes(2);
+
     await act(async () => root.unmount());
     document.body.removeChild(container);
   });

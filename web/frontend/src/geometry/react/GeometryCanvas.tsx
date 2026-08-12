@@ -38,6 +38,12 @@ export interface GeometryCanvasSurfaceProps {
 export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion }: GeometryCanvasSurfaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const handlesRef = useRef<BoardHandles | null>(null);
+  // Runtime acknowledgment removes emphasis on the next animation frame. Keep
+  // the last non-empty key as the renderer's playback identity so acknowledgment
+  // alone does not redraw JSXGraph and delete nodes whose animation is running.
+  const renderedEmphasisKeyRef = useRef<string | undefined>(view.emphasis?.key);
+  if (view.emphasis?.key) renderedEmphasisKeyRef.current = view.emphasis.key;
+  const emphasisRenderKey = view.emphasis?.key ?? renderedEmphasisKeyRef.current;
   // Pointer world position lives in the render layer — never enters the machine.
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const [invalidHint, setInvalidHint] = useState<string | null>(null);
@@ -97,13 +103,16 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
     setInvalidHint(null);
   }, [view.prompt]);
 
-  // Re-render the board when the model changed OR when the view changed (so
-  // per-entity affordance styling — wrong/selected/correct colors — updates as
-  // the machine advances, including wrong→correct transitions within a step).
-  // renderModel is an idempotent full redraw, safe to call on every view change.
+  // Redraw only for geometry, entity affordance, or a genuinely new emphasis.
+  // Depending on the whole `view` would redraw when acknowledgment removes
+  // `view.emphasis`, cutting the 1.1s pulse down to a single frame.
+  const entityRenderKey = Object.keys(view.entities).sort().map((id) => {
+    const entity = view.entities[id];
+    return `${id}:${entity.kind}:${Number(entity.enabled)}:${Number(entity.expected)}:${entity.visualState}:${entity.feedback || ""}`;
+  }).join("|");
   useEffect(() => {
     handlesRef.current?.render();
-  }, [modelVersion, view]);
+  }, [model, modelVersion, entityRenderKey, emphasisRenderKey]);
 
   // Size contract (plan feedback): the host (.artifact-diagram-stage) provides
   // available space; GeometryCanvas derives its own width + aspect-ratio from the

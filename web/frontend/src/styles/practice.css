@@ -2562,7 +2562,7 @@
    this static style is a low-motion fallback and a stable selector for tests. */
 .solution-board-line.is-emphasis {
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, #18b7b7 9%, transparent);
+  background: color-mix(in srgb, #18b7b7 16%, transparent);
 }
 
 .topic-geometry-entity-row { display: flex; gap: 6px; flex-wrap: wrap; }
