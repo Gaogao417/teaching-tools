@@ -47,10 +47,12 @@
   从 `ExerciseRuntimeSpec`/primitive switch 迁移到 versioned ExercisePlan 与 typed evidence 的实施路线
 - `adr/ADR-005-action-presentation-and-conversational-media.md`
   Action transient emphasis、固定朗读、普通 Coach 与全双工语音的分层边界
+- `adr/ADR-006-local-practice-training-runtime.md`
+  Practice 本地训练判定、Action 级速度/准确率、异步训练记录与 Assessment 权威链路的分离边界
 - `execution/action-presentation-voice-issue-inventory.md`
   当前 Presentation/Voice 实现的问题分级与保留决策
 - `execution/action-presentation-voice-migration-plan.md`
-  分阶段迁移、并行 worktree 所有权、提交顺序与回滚门禁
+  Training + Presentation/Voice 分阶段迁移、并行 worktree 所有权、提交顺序与回滚门禁
 
 ## Writing Rules
 

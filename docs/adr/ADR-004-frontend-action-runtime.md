@@ -4,6 +4,11 @@
 
 Accepted · 2026-08-10
 
+> 2026-08-12 mode-boundary amendment：本 ADR 中 Guided Practice 使用 `ServerAuthoritative`、Practice
+> 每个 Action 由 backend 判数学正确性的条款已由
+> [ADR-006](./ADR-006-local-practice-training-runtime.md) 覆盖。frontend Page Runtime、typed Action、
+> DomainCommand、Assessment 私有判题与版本化 session 原则继续有效。
+
 ## Context
 
 ADR-001 确立了 runtime-first：backend `EnginePlugin` 持有真值、判题并生成

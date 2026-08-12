@@ -70,7 +70,7 @@
 ## Success Criteria
 
 - 学生可以在同一套 Web runtime 内完成 `example` 和 `exercise`
-- 前后端职责清晰，前端不承担判题真值
+- 前后端职责按模式清晰：Learn/Practice frontend 使用公开真值做本地演示/训练，Assessment 真值和判定只在 backend
 - 题库与运行时分层明确
 - 内容生产链路与在线做题链路互不耦合
 

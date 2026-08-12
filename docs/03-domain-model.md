@@ -13,8 +13,8 @@
 ## Modeling Principles
 
 - 任务目录、题型模板、题库记录、运行时实例必须分层
-- backend 保存真值与状态推进
-- frontend 只消费 runtime projection
+- backend 保存 approved scenario、session、Assessment 私有真值和跨设备进度
+- Learn/Practice frontend 消费含 reviewed local truth 的 runtime projection；Assessment projection 不含答案
 - 离线 authoring 结果不是页面类型
 
 ## Core Objects
@@ -26,8 +26,13 @@
 - `AuthoringRun`
 - `ExerciseInstance`
 - `ExerciseRuntimeSpec`
+- `ExercisePlan`
+- `LocalActionTruth`
 - `ServerRuntimeState`
 - `ClientDraftState`
+- `TrainingAttemptEvent`
+- `ActionTrainingSummary`
+- `ExerciseTrainingResult`
 - `PracticeSessionSnapshot`
 - `ResultSnapshot`
 
@@ -182,7 +187,9 @@ type ExerciseInstance = {
 - `ScenarioRecord`
 - 当前 engine state
 
-`ExerciseInstance` 不包含 scenario id/version、answer key、accepted answers 或 validation metadata。scenario reference 保存在 backend session/engine state 中。
+`ExerciseInstance` 不包含 scenario id/version 或 validation metadata。scenario reference 保存在 backend
+session/engine state 中。Learn/Practice 的 reviewed local truth 位于 mode-safe `ExercisePlan`，不塞入通用
+`ExerciseInstance`；Assessment plan 始终省略它。
 
 ## ExerciseRuntimeSpec
 
@@ -214,7 +221,30 @@ type ExerciseRuntimeSpec = {
 - focus target
 - transient feedback
 
-它不表达真值。
+它不表达真值。Practice 的 local truth 属于只读 `ExercisePlan`，不是可变 draft。
+
+## ExercisePlan and LocalActionTruth
+
+`ExercisePlan` 是 Action Runtime 的 versioned 在线契约，包含当前 exercise 的完整 Action list、world、
+mode、plan revision 和当前 Action。其 validation strategy 按 mode 固定：
+
+```text
+Learn       -> LocalDemonstration(LocalActionTruth)
+Practice    -> LocalTraining(LocalActionTruth)
+Assessment  -> ServerAuthoritative（无 LocalActionTruth）
+```
+
+`LocalActionTruth` 是按 `kind + version` 做 runtime schema validation 的 reviewed opaque payload，只允许出现在
+Learn/Practice plan。它不是 authoring report，也不能出现在 Assessment DOM、trace、Coach 或 media context。
+
+## TrainingAttemptEvent and ActionTrainingSummary
+
+`TrainingAttemptEvent` 记录 Practice 中一次合理语义候选的正确/错误分类、Action state、sequence 和局部耗时。
+illegal hit、pointer、hover 和每个文本键击不进入命中率。
+
+`ActionTrainingSummary` 保存 Action entry 到 correct completion 的 duration、correct/wrong attempt、BACK、
+CLEAR、hint、first-attempt 与 assistance 数据。`ExerciseTrainingResult` 聚合当前题的 event 与 summary，进入
+本地持久同步队列后异步上传。它是训练遥测，不是不可伪造的 Assessment 成绩。
 
 ## PracticeSessionSnapshot
 
@@ -222,12 +252,13 @@ session 级快照，面向练习页与恢复接口。
 
 ## ResultSnapshot
 
-Review 模式使用的不可变完成后快照。除用时、首次正确率与历史趋势外，还包含：
+Review 模式使用的不可变、versioned 完成后快照：
 
-- `problemReviews`: 每道题的 prompt、尝试次数和首次正确状态
-- `attemptLog`: 运行时已经判定过的提交动作、步骤标题、提交值和 evaluation
+- Training snapshot 包含 Action duration、semantic hit accuracy、Action first-try accuracy、assistance 和错误分布；
+- Assessment snapshot 包含 backend 权威的 expected/actual structured answers、diagnosis 和 accepted/rejected log。
 
-动作复盘来自 backend 持久化的 runtime action event。frontend 只负责展示，不重新判题，也不从汇总指标猜测过程。
+动作复盘来自 backend 持久化的 versioned TrainingResult 或 Assessment result。Review frontend 只负责展示，
+不重新判题，也不从汇总指标猜测过程。
 
 ## Current Reality
 
@@ -244,7 +275,11 @@ Review 模式使用的不可变完成后快照。除用时、首次正确率与�
 - `ScenarioRecord`
 - `ScenarioValidationReport`
 - `AuthoringRun`
+- ADR-006 的 `LocalTraining` policy、TrainingAttempt/Summary/Result 与异步 TrainingSyncQueue
 
 这三者用于承接后续 Python / Wolfram authoring pipeline。
 
 现有 `TopicScenarioRecord` 是迁移输入，不是新架构的跨层领域模型；六个 topic 需要迁移到上述统一 schema。
+
+Practice 新模型的完整契约与旧 session 兼容边界见
+[ADR-006](./adr/ADR-006-local-practice-training-runtime.md)。

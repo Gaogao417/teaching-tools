@@ -4,8 +4,9 @@
 
 Proposed · 2026-08-12
 
-本 ADR 承接 [ADR-004](./ADR-004-frontend-action-runtime.md)。它不改变 Action Runtime v2 的
-状态权威、判题和持久化边界，只补充三个此前没有明确归属的能力：
+本 ADR 承接 [ADR-004](./ADR-004-frontend-action-runtime.md)。媒体分层本身不决定 Action Runtime 的
+判题和持久化策略；Learn / Practice / Assessment 的判定边界以后续
+[ADR-006](./ADR-006-local-practice-training-runtime.md) 为准。本 ADR 补充三个此前没有明确归属的能力：
 
 - Action 完成后对页面元素做一次性强调；
 - Action 进入时朗读确定性的教师文案；
@@ -296,7 +297,7 @@ type CoachTurnApplication =
 ```
 
 流式发声只允许在一个完整、可朗读并通过 mode policy 的 segment 上开始；不能直接把单个 token
-送进 TTS。第一阶段 Learn/Guided 可以开放，Assessment 默认继续使用确定性提示，直到逐段
+送进 TTS。第一阶段 Learn/Practice 可以开放，Assessment 默认继续使用确定性提示，直到逐段
 防泄漏策略有独立验收。
 
 ### Backend effect ports

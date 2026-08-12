@@ -33,8 +33,25 @@ deterministic teacher voice 为 `f0475e3`。本清单以这些已提交实现为
 
 影响：教师朗读可能说错数学关系，而不是单纯“不自然”。这比延迟更优先。
 
-目标：使用 token/AST 感知的规范化器；至少正确覆盖分数、根号、角、平行、垂直、相似、全等、
-乘方、上下标、括号、等号/不等号和常见单位；增加真实 Topic 语料回归集。
+目标：根因是朗读文案目前只有一套 LaTeX 源，spokenText 全部由 `latexToSpokenChinese` 有损派生。
+改为要求上游（Topic authoring / 确定性朗读文案来源）**直接产出两套同源文案**，而不是事后再把
+单一 LaTeX 规范化成口语：
+
+1. 一套可朗读的 plain 文案（`spokenText`）——供 TTS 朗读，同时作为学生可读的口播稿呈现；
+2. 一套展示用 LaTeX（`entryLatex` 等）——在前端渲染为公式/排版，绝不送进 TTS。
+
+落地约束：
+
+- `TopicCoachScript` 为朗读入口增加 spoken 同伴字段（先落地 `entryLatex` ↔ `entrySpoken`），
+  作者同时维护两套；display LaTeX 不再经过 `latexToSpokenChinese` 派生 spokenText；
+- `latexToSpokenChinese` 降级为 transitional fallback，只服务尚未补齐 `entrySpoken` 的存量 Action，
+  并与 SPEECH-002 的“唯一规范化入口”一起收敛为单点；
+- 真实 Topic 语料回归集继续守住“口播语义 ≠ 展示语义”的零 blocking mismatch，至少覆盖分数、
+  根号、角、平行、垂直、相似、全等、乘方、上下标、括号、等号/不等号和常见单位。
+
+架构含义：这撤销迁移计划此前“不修改 Topic authoring schema”的默认原则；ADR-005 中
+“只有数学口语与展示文案确实不同时，才允许可选的 spoken override”需收紧为“朗读文案默认双写”
+（见迁移计划 Document Status 的待同步项）。
 
 #### STREAM-001：普通 Coach 和 turn-based Omni/CosyVoice 都是“上游流式、浏览器整包”
 
@@ -194,8 +211,9 @@ LLM first token、TTS first audio、browser audio started、autoplay blocked、b
 
 影响：职责不清晰；未来非幂等规范化、语言或 voice style 会产生差异。
 
-目标：frontend 负责选择 display copy/可选 spoken override；backend speech application 负责唯一规范化、
-版本化 cache key，并返回实际 spoken text 供诊断。
+目标：以 VOICE-001 的双写文案为唯一来源——authoring 同时提供 display LaTeX 与 spokenText，
+backend speech application 不再做有损规范化，只负责版本化 cache key 并返回实际 spoken text 供诊断；
+`latexToSpokenChinese` 仅在存量 Action 缺少 `entrySpoken` 时作为 fallback 执行一次（不重复）。
 
 #### AUDIO-002：Autoplay blocked 被静默降级，用户不知道为什么没声音
 

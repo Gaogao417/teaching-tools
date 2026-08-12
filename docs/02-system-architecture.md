@@ -11,8 +11,10 @@ Offline Authoring Pipeline
 
 Online Student Runtime
   TaskDefinition + ContentDefinition -> approved-only ScenarioSelector
-    -> EnginePlugin(private truth) -> ExerciseRuntimeSpec(safe projection)
-    -> Frontend Runtime Host -> RuntimeActionEvent -> EnginePlugin
+    -> ExercisePlan Projector
+       ├─ Learn / Practice: reviewed local truth -> Frontend Action Runtime
+       │    -> local completion -> async TrainingResult
+       └─ Assessment: safe public plan -> Evidence -> Private Evaluator
 ```
 
 这两条链路共享的是“题型契约与题目 schema”，但运行职责完全不同。
@@ -24,7 +26,7 @@ Online Student Runtime
 - 题库记录与 runtime 投影分离
 - backend 成为 Scenario Bank 与 frontend 之间的唯一桥梁
 - 新 session 只使用 approved scenario；已有 session 固定原 scenario version
-- 数学真值和判定规则不进入 frontend runtime projection
+- 数学真值按 mode 投影：Learn/Practice 接收审核过的 local truth；Assessment 私有真值绝不进入 frontend
 
 ## Two Pipelines
 
@@ -47,10 +49,11 @@ Online Student Runtime
 
 职责：
 
-- 接收学生进入任务、恢复 session、提交动作
+- 接收学生进入任务、恢复 session、同步训练记录或提交 Assessment evidence
 - 从题库中选择已批准 scenario
-- 基于引擎和模板投影出 `ExerciseRuntimeSpec`
-- 判题、推进步骤、保存结果
+- 基于 mode 投影 versioned `ExercisePlan`
+- Practice 在 frontend 本地判定并推进；backend 异步保存训练记录和进度
+- Assessment 在 backend 判题、推进权威步骤并保存结果
 
 特点：
 
@@ -120,14 +123,16 @@ approved 不是“成功导入”的别名。候选题必须有与其版本匹�
 
 ### EnginePlugin
 
-`EnginePlugin` 只存在于 backend，负责：
+`EnginePlugin` / Action plan projector 只存在于 backend，负责：
 
 - 把模板与 scenario 投影成 runtime instance
-- 接收学生动作并做判定
-- 推进步骤状态
-- 组装 `ExerciseRuntimeSpec`
+- 为 Learn/Practice 投影经审核的公开 local truth
+- 为 Assessment 投影不含答案的 public plan，并对 Assessment evidence 做权威判定
+- 组装 versioned `ExercisePlan`；legacy engine 继续为 pinned session 组装 `ExerciseRuntimeSpec`
 
-engine 可以读取 backend-only answer key 和 validation-backed truth，但只能向 frontend 投影完成当前动作所需的 public scene、allowed actions、状态和反馈。未完成题目的答案键、accepted answers、expected values、validation report 与 authoring metadata 不属于 `ExerciseRuntimeSpec`。
+engine 可以读取完整 answer key 和 validation-backed truth。Learn/Practice 只接收完成本地演示/训练所需的
+审核真值；Assessment 不接收答案键、accepted answers、expected values 或等价可推导字段。validation
+report 与 authoring metadata 在所有模式都不属于在线 plan。
 
 ## Current State vs Next Step
 
@@ -158,12 +163,14 @@ engine 可以读取 backend-only answer key 和 validation-backed truth，但只
 - 通过 `engineKind` 路由到对应 `EnginePlugin`
 - 管理 session、runtime state、result snapshot
 - 保存 scenario id/version；恢复时解析固定版本而不是重新选择
+- 接收 Practice 的 versioned TrainingCheckpoint/TrainingResult，更新历史、趋势与熟练度但不重判数学正确性
+- 仅对 Assessment/Challenge evidence 运行 private evaluator
 
 ## Frontend Responsibilities
 
-- 消费 `ExerciseRuntimeSpec`
-- 管理本地 draft state
-- 提交 `RuntimeActionEvent`
+- 消费 versioned `ExercisePlan`
+- 管理本地 Action draft、Practice local guard、world、attempt recorder 和 Action timer
+- 异步排队 TrainingCheckpoint/TrainingResult；Assessment 才提交待权威判定的 evidence
 - 渲染工作区、引导区、反馈层与结果页
 
 ## Hard Constraints
@@ -172,7 +179,9 @@ engine 可以读取 backend-only answer key 和 validation-backed truth，但只
 - frontend 不知道 Python / Wolfram 细节
 - 在线 API 不暴露离线 authoring 内部流程
 - `Scenario Bank` 不能退化成“前端直接读的一堆页面字段”
-- frontend 不接收 answer key、accepted answers 或其他可用于提前判题的真值
+- Assessment frontend 不接收 answer key、accepted answers 或其他可用于提前判题的真值
+- Learn/Practice 只能接收 approved scenario 投影出的、当前 exercise 所需的 reviewed local truth
+- Practice 客户端记录不能作为可信 Assessment 成绩；需要权威结论必须进入 Assessment
 - draft/validated/rejected scenario 不得作为“无 approved 数据”时的回退
 
 ## Current Engine Reality
@@ -202,10 +211,16 @@ engine 可以读取 backend-only answer key 和 validation-backed truth，但只
 
 这套架构是 ADR-001 的**分层演进**，不是替换：
 
-- 后端 `EnginePlugin` 不变，仍是真值 / 判题 / 投影 `ExerciseRuntimeSpec` 的唯一层
+- backend 仍是 scenario/version 与 Assessment 私有真值的权威；Practice 数学正确性按 ADR-006 移到
+  frontend local-training guard
 - 前端展示层从手写 SVG 迁移到 Action + WorldState + JSXGraph
-- ADR-001 的所有硬约束（真值不下前端、approved-only scenario、version pinning）全部保留
+- approved-only scenario、version pinning 和 Assessment truth isolation 全部保留
 
 现有 SVG renderer 保留至对应 engine 迁移完成。后续 triangle-trig /
 coordinate-isosceles-right / angle-equation 的前端展示层重写按 ADR-002 的路径推进，
-后端 `EnginePlugin` 不动。
+后端 `EnginePlugin` 继续服务 Assessment 与 pinned legacy session；Practice 新 session 按 ADR-006 逐步切到
+本地 Action training path。
+
+Practice/Assessment 的最新 mode boundary 见
+[ADR-006](./adr/ADR-006-local-practice-training-runtime.md)；迁移期 pinned legacy session 继续走原
+`ExerciseRuntimeSpec -> RuntimeActionEvent -> EnginePlugin` compatibility path。
