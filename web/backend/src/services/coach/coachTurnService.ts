@@ -13,6 +13,7 @@ import { askClaudeCodeCoach } from "./claudeCodeCoachService";
 import { transcribeStudentAudio } from "./qwenSpeechService";
 import { conductOmniCoach } from "./omniCoachService";
 import { synthesizeCosyVoice } from "./cosyVoiceService";
+import type { TextCoachInput } from "./ports/TextCoachEngine";
 
 /**
  * Normalize display LaTeX into plain spoken Chinese for TTS. Delegates to the
@@ -39,7 +40,7 @@ function resolveVoiceModel(requested?: "omni" | "cosyvoice"): "omni" | "cosyvoic
   return ANSWER_PROVIDER === "omni" ? "omni" : "cosyvoice";
 }
 
-function learningFallback(plan: ExercisePlan, question: string): CoachDirective {
+export function learningFallback(plan: ExercisePlan, question: string): CoachDirective {
   const action = plan.actions.find((candidate) => candidate.actionId === plan.currentActionId)!;
   const messageLatex = question.includes("没听懂")
     ? `我们先不往下走。当前只看这一件事：${action.instruction}。你可以继续问“为什么要这样做”，我会换一种说法。`
@@ -54,7 +55,7 @@ function learningFallback(plan: ExercisePlan, question: string): CoachDirective 
   };
 }
 
-function validateLearningTrace(plan: ExercisePlan, request: CoachTurnRequest): void {
+export function validateLearningTrace(plan: ExercisePlan, request: CoachTurnRequest): void {
   if (request.exerciseId !== plan.exerciseId || request.trace.exerciseId !== plan.exerciseId) {
     throw new Error("Learning exercise is not active");
   }
@@ -64,7 +65,27 @@ function validateLearningTrace(plan: ExercisePlan, request: CoachTurnRequest): v
   }
 }
 
-function modelInput(plan: ExercisePlan, request: CoachTurnRequest, studentQuestion: string) {
+/** Resolve the exercise plan and the deterministic fallback directive shared by
+ *  both the request-response and the streaming coach paths. The streaming path
+ *  never uses the omni branch — it is text-stream + TTS only. */
+export function resolveCoachPlanAndFallback(request: CoachTurnRequest): { plan: ExercisePlan; fallback: CoachDirective } {
+  if (request.context.kind === "practice") {
+    const fallbackResponse = askActionRuntimeCoach({
+      sessionId: request.context.sessionId,
+      exerciseId: request.exerciseId,
+      trace: request.trace,
+      studentMessage: request.studentMessage,
+    });
+    const plan = getActionRuntimePlan(request.context.sessionId).plan;
+    return { plan, fallback: fallbackResponse.directive };
+  }
+  const plan = getLearningActionPlan(request.context.taskId as TaskId);
+  validateLearningTrace(plan, request);
+  const fallback = learningFallback(plan, request.studentMessage || "");
+  return { plan, fallback };
+}
+
+export function modelInput(plan: ExercisePlan, request: CoachTurnRequest, studentQuestion: string): TextCoachInput {
   const action = plan.actions.find((candidate) => candidate.actionId === request.trace.currentActionId)
     || plan.actions.find((candidate) => candidate.actionId === plan.currentActionId)!;
   const board = plan.solutionBoardContexts?.find((context) => context.actionId === action.actionId)?.board;

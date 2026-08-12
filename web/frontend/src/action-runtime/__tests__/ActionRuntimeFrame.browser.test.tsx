@@ -141,7 +141,7 @@ describe("ActionRuntimeFrame browser/accessibility contract", () => {
     expect(conductActionCoach).toHaveBeenCalledWith(expect.objectContaining({
       context: { kind: "learn", taskId: "auxiliaryTwoRatios" },
       studentMessage: "为什么要作平行线？",
-    }));
+    }), expect.anything());
     expect(container.textContent).toContain("因为要构造平行关系");
     expect(container.querySelector('[aria-label="当前 Action 讲解"]')?.textContent).toContain("选择点和线");
     expect(container.querySelector('[aria-label="当前 Action 讲解"]')?.textContent).not.toContain("因为要构造平行关系");

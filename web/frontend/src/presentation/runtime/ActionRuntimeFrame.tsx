@@ -23,7 +23,7 @@ import { useCoachRecorder } from "../coach/useCoachRecorder";
 import { useTeacherSpeech } from "../narration/useTeacherSpeech";
 import { getTrainingSyncQueue } from "../../persistence/training/trainingSyncQueue";
 import { buildTrainingCheckpoint, buildTrainingResult } from "../../action-runtime/training/trainingRecords";
-import { MediaSessionController } from "../audio/MediaSessionController";
+import { MediaSessionController, type AudioStreamHandle } from "../audio/MediaSessionController";
 import { COACH_MEDIA_PROTOCOL_VERSION } from "../../../../shared/coachMedia";
 
 interface ActionRuntimeFrameProps {
@@ -61,6 +61,14 @@ function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoa
   return expressionIds.length ? { key: emphasis.key, expressionIds } : undefined;
 }
 
+/** Decode a base64 string into a Uint8Array for MediaSource appendBuffer. */
+function decodeBase64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete }: ActionRuntimeFrameProps) {
   const storageKey = `action-runtime-v3:${response.sessionId}:${response.plan.exerciseId}`;
   const localCheckpoint = useMemo(() => {
@@ -86,6 +94,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   const submissionKeys = useRef(new Map<string, string>());
   const completionNotified = useRef(false);
   const trainingCompletionNotified = useRef(false);
+  const coachAbortRef = useRef<AbortController | null>(null);
   const [coachBusy, setCoachBusy] = useState(false);
   const [studentMessage, setStudentMessage] = useState("");
   const [coachThread, setCoachThread] = useState<CoachThreadMessage[]>([]);
@@ -118,6 +127,15 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   useEffect(() => {
     if (realtime.active) realtime.updateContext(action.actionId, action.instruction);
   }, [realtime.active, realtime.updateContext, action.actionId, action.instruction]);
+
+  // Advancing to a new Action (or unmounting) cancels any in-flight coach turn
+  // and its audio. This is also what lets a new turn preempt an old one.
+  useEffect(() => {
+    return () => {
+      coachAbortRef.current?.abort();
+      mediaSession.stop("coach-turn");
+    };
+  }, [action.actionId, mediaSession]);
 
   useEffect(() => {
     if (!realtime.transcript.length) return;
@@ -280,6 +298,10 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     }]);
     setStudentMessage("");
     setCoachBusy(true);
+    coachAbortRef.current?.abort();
+    const abort = new AbortController();
+    coachAbortRef.current = abort;
+    const audioStreamRef = { current: null as AudioStreamHandle | null };
     try {
       const payload: CoachTurnRequest = {
         context: local
@@ -292,35 +314,50 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
         conversation: previousConversation,
         synthesizeSpeech: true,
       };
-      let result;
+      const coachTurnId = crypto.randomUUID();
+      let coachStreamedText = "";
+      let studentTranscript = "";
+      const upsertCoachBubble = (text: string, pending: boolean) =>
+        setCoachThread((current) => {
+          const rest = current.filter((turn) => turn.id !== coachTurnId);
+          return text ? [...rest, { id: coachTurnId, role: "coach" as const, text, pending }] : rest;
+        });
+      const markStudentTurn = (text: string) =>
+        setCoachThread((current) => current.map((turn) => turn.id === studentTurnId ? { ...turn, text, pending: false } : turn));
+
       if (snapshot.plan.runtimeCapabilities?.coachTurnTransport === "stream") {
         let directive: CoachDirective | undefined;
-        let streamedTranscript = "";
         await api.streamActionCoach(payload, (event) => {
-          if (event.type === "turn.transcript.delta" && event.role === "coach") streamedTranscript += event.text;
-          if (event.type === "turn.audio") mediaSession.enqueueUrl("coach-turn", `data:${event.mimeType};base64,${event.audioBase64}`, "coach-turn", event.correlationId);
-          if (event.type === "turn.directive") directive = event.directive;
-        });
+          if (event.type === "turn.transcript.delta") {
+            if (event.role === "coach") { coachStreamedText += event.text; upsertCoachBubble(coachStreamedText, true); }
+            else if (event.role === "student") studentTranscript = event.text;
+          } else if (event.type === "turn.audio.delta") {
+            // Feed each MP3 chunk into one incremental MediaSource stream so
+            // playback starts on the first chunk — before the full answer lands.
+            const handle = audioStreamRef.current ?? mediaSession.startAudioStream("coach-turn", { correlationId: event.correlationId });
+            audioStreamRef.current = handle;
+            handle.appendChunk(decodeBase64ToBytes(event.audioBase64));
+          } else if (event.type === "turn.directive") {
+            directive = event.directive;
+          }
+        }, abort.signal);
+        audioStreamRef.current?.complete();
+        if (abort.signal.aborted) return;
         if (!directive) throw new Error("Coach stream ended without a directive");
-        result = { directive, transcript: streamedTranscript };
+        upsertCoachBubble(directive.messageLatex, false);
+        runtime.applyCoach(directive);
+        markStudentTurn(studentTranscript || message || "语音提问");
       } else {
-        result = await api.conductActionCoach(payload);
-      }
-      runtime.applyCoach(result.directive);
-      setCoachThread((current) => [
-        ...current.map((turn) => turn.id === studentTurnId
-          ? { ...turn, text: result.transcript || message || "语音提问", pending: false }
-          : turn),
-        {
-          id: result.directive.directiveId,
-          role: "coach",
-          text: result.directive.messageLatex,
-        },
-      ]);
-      if (result.speech?.audioUrl) {
-        playSpeechUrl(result.speech.audioUrl);
+        const turnResponse = await api.conductActionCoach(payload, { signal: abort.signal });
+        if (abort.signal.aborted) return;
+        runtime.applyCoach(turnResponse.directive);
+        setCoachThread((current) => [...current, { id: turnResponse.directive.directiveId, role: "coach" as const, text: turnResponse.directive.messageLatex }]);
+        markStudentTurn(turnResponse.transcript || message || "语音提问");
+        if (turnResponse.speech?.audioUrl) playSpeechUrl(turnResponse.speech.audioUrl);
       }
     } catch {
+      if (abort.signal.aborted) return; // cancelled by a new turn / Action switch
+      mediaSession.stop("coach-turn");
       const failure: CoachDirective = {
         directiveId: crypto.randomUUID(),
         messageLatex: "老师暂时没有连上。我们先停在这一步，稍后可以再问一次。",
@@ -483,7 +520,8 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
 // motion variant is shorter and gentler; both avoid movement entirely.
 const BOARD_EMPHASIS_KEYFRAMES: Keyframe[] = [
   { backgroundColor: "rgba(24,183,183,0)", boxShadow: "0 0 0 0 rgba(24,183,183,0)" },
-  { backgroundColor: "rgba(24,183,183,0.16)", boxShadow: "0 0 0 3px rgba(24,183,183,0.5)", offset: 0.4 },
+  { backgroundColor: "rgba(24,183,183,0.24)", boxShadow: "0 0 0 4px rgba(24,183,183,0.58)", offset: 0.35 },
+  { backgroundColor: "rgba(24,183,183,0.14)", boxShadow: "0 0 0 2px rgba(24,183,183,0.32)", offset: 0.68 },
   { backgroundColor: "rgba(24,183,183,0)", boxShadow: "0 0 0 0 rgba(24,183,183,0)" },
 ];
 const BOARD_EMPHASIS_KEYFRAMES_REDUCED: Keyframe[] = [
@@ -517,7 +555,7 @@ export function SolutionBoardPanel({ board, emphasis }: { board: SolutionBoardVi
       const node = containerRef.current.querySelector<HTMLElement>(`[data-expression-id="${id}"]`);
       if (!node || typeof node.animate !== "function") continue;
       node.animate(reduce ? BOARD_EMPHASIS_KEYFRAMES_REDUCED : BOARD_EMPHASIS_KEYFRAMES, {
-        duration: reduce ? 500 : 900,
+        duration: reduce ? 650 : 1100,
         easing: "ease-out",
       });
     }

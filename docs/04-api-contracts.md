@@ -133,8 +133,11 @@ interface StartPracticeResponse extends PracticeSessionSnapshot {}
 
 - `POST /api/action-speech`：确定性 narration 的完整 URL compatibility path；
 - `POST /api/action-speech-stream`：`audio/mpeg` chunked narration，支持 request cancellation 和 server cache；
-- `POST /api/action-coach`：旧 request-response turn compatibility path；
-- `POST /api/coach/turn-stream`：provider-neutral NDJSON `CoachTurnEvent` v2；
+- `POST /api/action-coach`：**已弃用**的 request-response turn compatibility path，仅在 `COACH_TURN_TRANSPORT=request-response`
+  显式回滚时使用；默认配置不再调用；
+- `POST /api/coach/turn-stream`：provider-neutral NDJSON `CoachTurnEvent` v3，真实流式链路（增量文本 → 增量分段 →
+  流式 TTS → `turn.audio.delta` → 浏览器增量播放）。Learn / Guided Practice 默认走该路径；Assessment 默认拒绝，除非
+  `COACH_STREAM_ASSESSMENT_ENABLED=true`；
 - `WS /api/coach-realtime`：provider-neutral `LiveCoachClientEvent` / `LiveCoachServerEvent` v2；
 - `POST /api/coach/telemetry`：只接收 correlation、阶段与 browser timestamp，不接收音频或完整回答。
 

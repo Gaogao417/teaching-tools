@@ -261,6 +261,10 @@ export function createApp() {
     }
   });
 
+  // DEPRECATED request-response coach fallback. The default path is the
+  // streaming turn at POST /api/coach/turn-stream. This whole-response route is
+  // retained only as the explicit COACH_TURN_TRANSPORT=request-response rollback
+  // and must not be called by the default capability projection.
   app.post("/api/action-coach", async (req, res, next) => {
     try {
       const body = z.custom<CoachTurnRequest>(isCoachTurnRequest, {
