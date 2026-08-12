@@ -1,4 +1,22 @@
 export type MediaOwner = "narration" | "coach-turn" | "live";
+
+/** Who may hold the microphone. Capture is mutually exclusive with every other
+ *  capture owner — a turn recording and a live session can never share the mic
+ *  (ADR-005 §Exclusive media session). */
+export type CaptureOwner = "coach-turn" | "live";
+
+/**
+ * Exclusive microphone capture lease. Acquire BEFORE
+ * `navigator.mediaDevices.getUserMedia`; release on stop, failure or permission
+ * denial. `acquireCapture` returns `null` when another owner already holds the
+ * mic — in that case the caller MUST NOT call `getUserMedia`. Release is
+ * idempotent and only the current holder releases.
+ */
+export interface CaptureLease {
+  readonly owner: CaptureOwner;
+  release(): void;
+}
+
 export type MediaSessionState =
   | { status: "idle" }
   | { status: "loading" | "playing"; owner: MediaOwner; replayKey?: string }
@@ -30,6 +48,8 @@ export class MediaSessionController {
   private externalStop?: () => void;
   private queue: UrlHandle[] = [];
   private streamHandle?: StreamHandle;
+  // ADR-005 §Exclusive media session: at most one capture owner holds the mic.
+  private captureOwner?: CaptureOwner;
 
   constructor(private readonly telemetry?: (mark: MediaTelemetryMark) => void) {}
 
@@ -38,6 +58,36 @@ export class MediaSessionController {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
+
+  /**
+   * Acquire the exclusive microphone capture lease for `owner`. Returns the
+   * lease when granted, or `null` when another owner already holds the mic — in
+   * that case the caller MUST NOT call `getUserMedia` (ADR-005 §Exclusive media
+   * session). Capture arbitration is orthogonal to playback arbitration: a turn
+   * recording and a live session can each play audio through this controller
+   * while never sharing the microphone.
+   */
+  acquireCapture(owner: CaptureOwner): CaptureLease | null {
+    if (this.captureOwner) return null;
+    this.captureOwner = owner;
+    let released = false;
+    return {
+      owner,
+      release: () => {
+        if (released) return;
+        released = true;
+        if (this.captureOwner === owner) this.captureOwner = undefined;
+      },
+    };
+  }
+
+  /** Release the capture lease if `owner` currently holds it. Idempotent. */
+  releaseCapture(owner: CaptureOwner): void {
+    if (this.captureOwner === owner) this.captureOwner = undefined;
+  }
+
+  /** The owner currently holding the microphone, if any. */
+  getCaptureOwner(): CaptureOwner | undefined { return this.captureOwner; }
 
   async playUrl(owner: MediaOwner, url: string, options: { autoplay: boolean; replayKey?: string; correlationId?: string } = { autoplay: true }): Promise<void> {
     const generation = ++this.generation;
@@ -232,6 +282,7 @@ export class MediaSessionController {
 
   dispose(): void {
     this.stop();
+    this.captureOwner = undefined;
     this.listeners.clear();
     this.replayHandles.clear();
     if (this.audio) this.detach(this.audio);
