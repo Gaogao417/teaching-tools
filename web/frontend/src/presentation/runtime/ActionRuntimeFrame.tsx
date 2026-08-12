@@ -3,10 +3,6 @@ import type {
   ActionCheckpointSnapshot,
   ActionEvaluationResponse,
   ActionPlanResponse,
-  CoachAudioInput,
-  CoachConversationTurn,
-  CoachDirective,
-  CoachTurnRequest,
 } from "../../../../shared/actionRuntime";
 import { api } from "../../api/client";
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
@@ -18,12 +14,11 @@ import { GeometryCanvasSurface } from "../../geometry/react/GeometryCanvas";
 import type { ActionRuntimeEvent } from "../../action-runtime/events";
 import type { SolutionBoardView, TransientEmphasis } from "../../action-runtime/types";
 import { useActionPageRuntime } from "../../action-runtime/react/useActionPageRuntime";
-import { useRealtimeCoach } from "../coach/useRealtimeCoach";
-import { useCoachRecorder } from "../coach/useCoachRecorder";
+import { useCoachController } from "../coach/useCoachController";
 import { useTeacherSpeech } from "../narration/useTeacherSpeech";
 import { getTrainingSyncQueue } from "../../persistence/training/trainingSyncQueue";
 import { buildTrainingCheckpoint, buildTrainingResult } from "../../action-runtime/training/trainingRecords";
-import { MediaSessionController, type AudioStreamHandle } from "../audio/MediaSessionController";
+import { MediaSessionController } from "../audio/MediaSessionController";
 import { COACH_MEDIA_PROTOCOL_VERSION } from "../../../../shared/coachMedia";
 
 interface ActionRuntimeFrameProps {
@@ -32,12 +27,6 @@ interface ActionRuntimeFrameProps {
   local?: boolean;
   onEvaluation?: (result: ActionEvaluationResponse) => void | Promise<void>;
   onComplete?: () => void;
-}
-
-interface CoachThreadMessage extends CoachConversationTurn {
-  id: string;
-  pending?: boolean;
-  error?: boolean;
 }
 
 /** Split transient emphasis into the canvas channel (entities + teaching marks). */
@@ -59,14 +48,6 @@ function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoa
   if (!emphasis) return undefined;
   const expressionIds = emphasis.targets.filter((t) => t.surface === "solution-board" && t.kind === "expression").map((t) => t.id);
   return expressionIds.length ? { key: emphasis.key, expressionIds } : undefined;
-}
-
-/** Decode a base64 string into a Uint8Array for MediaSource appendBuffer. */
-function decodeBase64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }
 
 export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete }: ActionRuntimeFrameProps) {
@@ -94,10 +75,6 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   const submissionKeys = useRef(new Map<string, string>());
   const completionNotified = useRef(false);
   const trainingCompletionNotified = useRef(false);
-  const coachAbortRef = useRef<AbortController | null>(null);
-  const [coachBusy, setCoachBusy] = useState(false);
-  const [studentMessage, setStudentMessage] = useState("");
-  const [coachThread, setCoachThread] = useState<CoachThreadMessage[]>([]);
   const [railOpen, setRailOpen] = useState(false);
   const [coachPreview, setCoachPreview] = useState<{ id: string; latex: string } | null>(null);
   const [coachUnread, setCoachUnread] = useState(false);
@@ -112,41 +89,27 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     }).catch(() => undefined);
   }), [response.sessionId]);
   const teacherSpeech = useTeacherSpeech(snapshot.plan, action, mediaSession);
-  const realtime = useRealtimeCoach(mediaSession);
   const { speechUrl, speaking, autoplayBlocked, replay: replaySpeech, speak: playSpeechUrl } = teacherSpeech;
   const lastPreviewId = useRef("");
-  const recorder = useCoachRecorder({
-    disabled: coachBusy || realtime.active,
-    onAudio: (audio) => { void askCoach({ audio }); },
-    onError: (text) => setCoachThread((current) => [...current, { id: crypto.randomUUID(), role: "coach", text, error: true }]),
+  // ADR-005 §Layer Responsibilities: coach turn / recorder / live orchestration
+  // is owned by the CoachController (via useCoachController), not this Frame.
+  // The Frame is now presentation over `coach` + the workspace view.
+  const coach = useCoachController({
+    media: mediaSession,
+    canHelp: view.controls.canHelp,
+    transport: snapshot.plan.runtimeCapabilities?.coachTurnTransport,
+    local: Boolean(local),
+    sessionId: response.sessionId,
+    taskId: snapshot.plan.metadata.taskId,
+    exerciseId: snapshot.plan.exerciseId,
+    mode: snapshot.plan.mode,
+    currentActionId: snapshot.currentActionId,
+    instruction: action.instruction,
+    runtime,
+    playSpeechUrl,
   });
-  const recording = recorder.recording;
 
   useEffect(() => () => mediaSession.dispose(), [mediaSession]);
-
-  useEffect(() => {
-    if (realtime.active) realtime.updateContext(action.actionId, action.instruction);
-  }, [realtime.active, realtime.updateContext, action.actionId, action.instruction]);
-
-  // Advancing to a new Action (or unmounting) cancels any in-flight coach turn
-  // and its audio. This is also what lets a new turn preempt an old one.
-  useEffect(() => {
-    return () => {
-      coachAbortRef.current?.abort();
-      mediaSession.stop("coach-turn");
-    };
-  }, [action.actionId, mediaSession]);
-
-  useEffect(() => {
-    if (!realtime.transcript.length) return;
-    setCoachThread((current) => {
-      const liveIds = new Set(realtime.transcript.map((item) => item.id));
-      return [
-        ...current.filter((item) => !liveIds.has(item.id)),
-        ...realtime.transcript.map((item) => ({ id: item.id, role: item.role, text: item.text })),
-      ];
-    });
-  }, [realtime.transcript]);
 
   useEffect(() => {
     if (local) return;
@@ -256,13 +219,13 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
 
   useEffect(() => {
     if (railOpen) return;
-    const last = coachThread[coachThread.length - 1];
+    const last = coach.thread[coach.thread.length - 1];
     if (last?.role === "coach" && last.id !== lastPreviewId.current) {
       lastPreviewId.current = last.id;
       setCoachPreview({ id: last.id, latex: last.text });
       setCoachUnread(true);
     }
-  }, [coachThread, railOpen]);
+  }, [coach.thread, railOpen]);
 
   // The preview bubble is fleeting (~6s); the unread dot is what persists.
   useEffect(() => {
@@ -280,101 +243,6 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     setCoachUnread(false);
   };
   const closeCoachRail = () => setRailOpen(false);
-
-  const askCoach = async (input?: { message?: string; audio?: CoachAudioInput }) => {
-    if (coachBusy || !view.controls.canHelp) return;
-    const message = input?.message?.trim() || studentMessage.trim();
-    if (!message && !input?.audio) return;
-    runtime.recordAssistance(input?.message?.includes("没听懂") ? "hint" : "coach");
-    const studentTurnId = crypto.randomUUID();
-    const previousConversation = coachThread
-      .filter((turn) => !turn.pending && !turn.error)
-      .map(({ role, text }) => ({ role, text }));
-    setCoachThread((current) => [...current, {
-      id: studentTurnId,
-      role: "student",
-      text: message || "正在识别语音…",
-      pending: Boolean(input?.audio),
-    }]);
-    setStudentMessage("");
-    setCoachBusy(true);
-    coachAbortRef.current?.abort();
-    const abort = new AbortController();
-    coachAbortRef.current = abort;
-    const audioStreamRef = { current: null as AudioStreamHandle | null };
-    try {
-      const payload: CoachTurnRequest = {
-        context: local
-          ? { kind: "learn", taskId: snapshot.plan.metadata.taskId }
-          : { kind: "practice", sessionId: response.sessionId },
-        exerciseId: snapshot.plan.exerciseId,
-        trace: runtime.getTrace(message || undefined),
-        ...(message ? { studentMessage: message } : {}),
-        ...(input?.audio ? { studentAudio: input.audio } : {}),
-        conversation: previousConversation,
-        synthesizeSpeech: true,
-      };
-      const coachTurnId = crypto.randomUUID();
-      let coachStreamedText = "";
-      let studentTranscript = "";
-      const upsertCoachBubble = (text: string, pending: boolean) =>
-        setCoachThread((current) => {
-          const rest = current.filter((turn) => turn.id !== coachTurnId);
-          return text ? [...rest, { id: coachTurnId, role: "coach" as const, text, pending }] : rest;
-        });
-      const markStudentTurn = (text: string) =>
-        setCoachThread((current) => current.map((turn) => turn.id === studentTurnId ? { ...turn, text, pending: false } : turn));
-
-      if (snapshot.plan.runtimeCapabilities?.coachTurnTransport === "stream") {
-        let directive: CoachDirective | undefined;
-        await api.streamActionCoach(payload, (event) => {
-          if (event.type === "turn.transcript.delta") {
-            if (event.role === "coach") { coachStreamedText += event.text; upsertCoachBubble(coachStreamedText, true); }
-            else if (event.role === "student") studentTranscript = event.text;
-          } else if (event.type === "turn.audio.delta") {
-            // Feed each MP3 chunk into one incremental MediaSource stream so
-            // playback starts on the first chunk — before the full answer lands.
-            const handle = audioStreamRef.current ?? mediaSession.startAudioStream("coach-turn", { correlationId: event.correlationId });
-            audioStreamRef.current = handle;
-            handle.appendChunk(decodeBase64ToBytes(event.audioBase64));
-          } else if (event.type === "turn.directive") {
-            directive = event.directive;
-          }
-        }, abort.signal);
-        audioStreamRef.current?.complete();
-        if (abort.signal.aborted) return;
-        if (!directive) throw new Error("Coach stream ended without a directive");
-        upsertCoachBubble(directive.messageLatex, false);
-        runtime.applyCoach(directive);
-        markStudentTurn(studentTranscript || message || "语音提问");
-      } else {
-        const turnResponse = await api.conductActionCoach(payload, { signal: abort.signal });
-        if (abort.signal.aborted) return;
-        runtime.applyCoach(turnResponse.directive);
-        setCoachThread((current) => [...current, { id: turnResponse.directive.directiveId, role: "coach" as const, text: turnResponse.directive.messageLatex }]);
-        markStudentTurn(turnResponse.transcript || message || "语音提问");
-        if (turnResponse.speech?.audioUrl) playSpeechUrl(turnResponse.speech.audioUrl);
-      }
-    } catch {
-      if (abort.signal.aborted) return; // cancelled by a new turn / Action switch
-      mediaSession.stop("coach-turn");
-      const failure: CoachDirective = {
-        directiveId: crypto.randomUUID(),
-        messageLatex: "老师暂时没有连上。我们先停在这一步，稍后可以再问一次。",
-        spokenText: "老师暂时没有连上。我们先停在这一步，稍后可以再问一次。",
-        tone: "prompt",
-        highlightObjectIds: [],
-        suggestedActionId: action.actionId,
-      };
-      runtime.applyCoach(failure);
-      setCoachThread((current) => [
-        ...current.map((turn) => turn.id === studentTurnId ? { ...turn, pending: false, error: Boolean(input?.audio) } : turn),
-        { id: failure.directiveId, role: "coach", text: failure.messageLatex, error: true },
-      ]);
-    } finally {
-      setCoachBusy(false);
-    }
-  };
 
   // Translate the runtime's transient emphasis into surface-specific channels.
   // `view.transientEmphasis` is a stable reference between changes, so these
@@ -480,24 +348,24 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
             </div>
           ) : null}
           {autoplayBlocked ? <p className="topic-coach-recording" role="status">浏览器已阻止自动播放，请点右上角扬声器开始朗读。</p> : null}
-          {coachThread.length ? <div className="topic-coach-thread" aria-label="答疑对话">{coachThread.map((turn) => (
+          {coach.thread.length ? <div className="topic-coach-thread" aria-label="答疑对话">{coach.thread.map((turn) => (
             <div key={turn.id} className={`topic-coach-turn is-${turn.role}${turn.pending ? " is-pending" : ""}${turn.error ? " is-error" : ""}`}>
               <small>{turn.role === "student" ? "学生" : "老师"}</small>
               {turn.role === "coach" ? <MathText value={turn.text} /> : <p>{turn.text}</p>}
             </div>
           ))}</div> : null}
           {view.controls.canHelp && snapshot.plan.runtimeCapabilities?.liveCoach !== false && snapshot.plan.mode !== "assessment" ? <div className="topic-coach-realtime">
-            <button type="button" className={`btn ${realtime.active ? "btn-secondary" : "btn-primary"} topic-coach-realtime-toggle${realtime.active ? " is-active" : ""}`} disabled={realtime.connecting} aria-pressed={realtime.active} onClick={() => { if (realtime.active) realtime.stop(); else void realtime.start({ sessionId: local ? undefined : response.sessionId, taskId: local ? snapshot.plan.metadata.taskId : undefined, exerciseId: snapshot.plan.exerciseId, actionId: snapshot.currentActionId, mode: local ? "learn" : "guided-practice" }); }}><span className="material-symbols-outlined">{realtime.active ? "call_end" : "forum"}</span>{realtime.connecting ? "连接中…" : realtime.active ? "结束对话" : "实时对话"}</button>
-            {realtime.active ? <p className="topic-coach-recording" role="status"><span />实时通话中，直接说话即可，说完会自动回答</p> : null}
-            {realtime.error ? <p className="topic-coach-recording" role="alert">{realtime.error}</p> : null}
+            <button type="button" className={`btn ${coach.realtime.active ? "btn-secondary" : "btn-primary"} topic-coach-realtime-toggle${coach.realtime.active ? " is-active" : ""}`} disabled={coach.realtime.connecting} aria-pressed={coach.realtime.active} onClick={() => { if (coach.realtime.active) coach.realtime.stop(); else void coach.realtime.start({ sessionId: local ? undefined : response.sessionId, taskId: local ? snapshot.plan.metadata.taskId : undefined, exerciseId: snapshot.plan.exerciseId, actionId: snapshot.currentActionId, mode: local ? "learn" : "guided-practice" }); }}><span className="material-symbols-outlined">{coach.realtime.active ? "call_end" : "forum"}</span>{coach.realtime.connecting ? "连接中…" : coach.realtime.active ? "结束对话" : "实时对话"}</button>
+            {coach.realtime.active ? <p className="topic-coach-recording" role="status"><span />实时通话中，直接说话即可，说完会自动回答</p> : null}
+            {coach.realtime.error ? <p className="topic-coach-recording" role="alert">{coach.realtime.error}</p> : null}
           </div> : null}
           {view.controls.canHelp ? <div className="topic-coach-composer">
-            <label className="topic-coach-question"><span className="sr-only">向老师提问</span><input value={studentMessage} placeholder="文字或语音问老师" disabled={coachBusy || recording || realtime.active} onKeyDown={(event) => { if (event.key === "Enter") void askCoach(); }} onChange={(event) => setStudentMessage(event.target.value)} /></label>
-            <button type="button" className={`topic-coach-mic${recording ? " is-recording" : ""}`} aria-label={recording ? "结束录音" : "语音提问"} disabled={coachBusy || realtime.active} onClick={() => void recorder.toggle()}><span className="material-symbols-outlined">{recording ? "stop_circle" : "mic"}</span></button>
-            <button type="button" className="topic-coach-send" aria-label="发送问题" disabled={coachBusy || recording || realtime.active || !studentMessage.trim()} onClick={() => void askCoach()}><span className="material-symbols-outlined">send</span></button>
+            <label className="topic-coach-question"><span className="sr-only">向老师提问</span><input value={coach.studentMessage} placeholder="文字或语音问老师" disabled={coach.busy || coach.recording || coach.realtime.active} onKeyDown={(event) => { if (event.key === "Enter") void coach.askCoach(); }} onChange={(event) => coach.setStudentMessage(event.target.value)} /></label>
+            <button type="button" className={`topic-coach-mic${coach.recording ? " is-recording" : ""}`} aria-label={coach.recording ? "结束录音" : "语音提问"} disabled={coach.busy || coach.realtime.active} onClick={() => void coach.toggleRecorder()}><span className="material-symbols-outlined">{coach.recording ? "stop_circle" : "mic"}</span></button>
+            <button type="button" className="topic-coach-send" aria-label="发送问题" disabled={coach.busy || coach.recording || coach.realtime.active || !coach.studentMessage.trim()} onClick={() => void coach.askCoach()}><span className="material-symbols-outlined">send</span></button>
           </div> : null}
-          {recording ? <p className="topic-coach-recording" role="status"><span />正在听，点停止后发送（最长 45 秒）</p> : null}
-          {coachBusy ? <p className="topic-coach-thinking" role="status">老师正在结合当前解题状态回答…</p> : null}
+          {coach.recording ? <p className="topic-coach-recording" role="status"><span />正在听，点停止后发送（最长 45 秒）</p> : null}
+          {coach.busy ? <p className="topic-coach-thinking" role="status">老师正在结合当前解题状态回答…</p> : null}
           {view.coach.agentCommand && snapshot.plan.mode === "guided-practice" ? <button type="button" className="btn btn-secondary" onClick={() => runtime.applyAgentCommand(view.coach.agentCommand!, true)}>确认执行老师建议</button> : null}
         </aside>
       }
@@ -507,14 +375,14 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
           <button type="button" className="topic-action-playback-button" aria-label="上一个 Action" title="上一个 Action" disabled={disabled || !previousTeachingAction} onClick={() => previousTeachingAction && runtime.seekTeaching(previousTeachingAction.actionId)}><span className="material-symbols-outlined">skip_previous</span></button>
           <span className="topic-action-playback-position"><strong>Action {currentActionIndex + 1}</strong><small>/ {snapshot.plan.actions.length}</small></span>
           <button type="button" className="topic-action-playback-button" aria-label="重播当前 Action 讲解" title="重播当前 Action 讲解" disabled={!speechUrl} onClick={() => replaySpeech()}><span className="material-symbols-outlined">replay</span></button>
-          <button type="button" className="topic-action-playback-button is-primary" aria-label="下一个 Action" title="播放到下一个 Action" disabled={coachBusy || disabled || !canAdvanceTeaching} onClick={() => runtime.advanceTeaching()}><span className="material-symbols-outlined">skip_next</span></button>
+          <button type="button" className="topic-action-playback-button is-primary" aria-label="下一个 Action" title="播放到下一个 Action" disabled={coach.busy || disabled || !canAdvanceTeaching} onClick={() => runtime.advanceTeaching()}><span className="material-symbols-outlined">skip_next</span></button>
           <span className="topic-teaching-pause"><span className="material-symbols-outlined">pause_circle</span>{snapshot.status === "complete" ? "讲解已完成" : "已暂停，等待学生回应后继续演示"}</span>
         </div>
         : <ActionAnswerFields runtimeSend={send} disabled={disabled} view={view} />}
       actionEnd={
         isTeaching ? <div className="action-row topic-teaching-controls">
-          <button type="button" className="btn btn-ghost" disabled={coachBusy || snapshot.status === "complete"} onClick={() => void askCoach({ message: "我没听懂这一步，请换一种说法，并说明为什么这样做。" })}>这步没懂</button>
-          <button type="button" className="btn btn-primary" disabled={coachBusy || disabled || snapshot.status === "complete"} onClick={() => runtime.advanceTeaching()}>{snapshot.status === "complete" ? "讲解完成" : "明白，继续"}</button>
+          <button type="button" className="btn btn-ghost" disabled={coach.busy || snapshot.status === "complete"} onClick={() => void coach.askCoach({ message: "我没听懂这一步，请换一种说法，并说明为什么这样做。" })}>这步没懂</button>
+          <button type="button" className="btn btn-primary" disabled={coach.busy || disabled || snapshot.status === "complete"} onClick={() => runtime.advanceTeaching()}>{snapshot.status === "complete" ? "讲解完成" : "明白，继续"}</button>
         </div> : <div className="action-row">
           <button type="button" className="btn btn-ghost" disabled={!view.controls.canBack || disabled} onClick={() => send({ type: "BACK" })}>撤销</button>
           <button type="button" className="btn btn-ghost" disabled={!view.controls.canClear || disabled} onClick={() => send({ type: "CLEAR" })}>清空</button>

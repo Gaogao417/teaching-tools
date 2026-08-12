@@ -4,7 +4,7 @@ import {
   isLiveCoachServerEvent,
   type LiveCoachClientEvent,
 } from "../../../../shared/coachMedia";
-import type { MediaSessionController } from "../audio/MediaSessionController";
+import type { CaptureLease, MediaSessionController } from "../audio/MediaSessionController";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
@@ -51,6 +51,9 @@ export function useRealtimeCoach(media?: MediaSessionController): UseRealtimeCoa
   const sequenceRef = useRef(0);
   const correlationRef = useRef("");
   const sessionRef = useRef("");
+  // ADR-005 §Exclusive media session: the mic lease acquired on live.ready and
+  // released on teardown, so a turn recording and a live session never share it.
+  const captureLeaseRef = useRef<CaptureLease | null>(null);
 
   const interruptPlayback = useCallback(() => {
     scheduledRef.current.forEach((node) => { try { node.onended = null; node.stop(); } catch { /* ended */ } });
@@ -67,6 +70,8 @@ export function useRealtimeCoach(media?: MediaSessionController): UseRealtimeCoa
     streamRef.current = null;
     void audioCtxRef.current?.close().catch(() => undefined);
     audioCtxRef.current = null;
+    captureLeaseRef.current?.release();
+    captureLeaseRef.current = null;
     media?.release("live");
   }, [interruptPlayback, media]);
 
@@ -89,22 +94,36 @@ export function useRealtimeCoach(media?: MediaSessionController): UseRealtimeCoa
   const setupAudio = useCallback(async (ws: WebSocket, inputSampleRate: number) => {
     const AudioCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtor) throw new Error("此浏览器不支持 AudioContext");
+    // ADR-005 §Exclusive media session: acquire the mic before getUserMedia.
+    // A turn recording holding the mic denies this — live fails gracefully with
+    // a user-facing error instead of silently sharing the microphone.
+    const captureLease = media?.acquireCapture("live") ?? null;
+    if (media && !captureLease) throw new Error("录音正在进行，无法同时开始实时通话，请先停止录音。");
+    captureLeaseRef.current = captureLease;
     const audioCtx = new AudioCtor();
     audioCtxRef.current = audioCtx;
-    await audioCtx.audioWorklet.addModule("/realtime-capture-worklet.js");
-    await audioCtx.resume();
-    nextStartRef.current = audioCtx.currentTime;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    streamRef.current = stream;
-    const source = audioCtx.createMediaStreamSource(stream);
-    sourceRef.current = source;
-    const worklet = new AudioWorkletNode(audioCtx, "pcm16-capture");
-    workletRef.current = worklet;
-    source.connect(worklet);
-    worklet.port.onmessage = (message: MessageEvent) => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify(envelope({ type: "live.audio", audioBase64: base64FromBytes(new Uint8Array(message.data as ArrayBuffer)), mimeType: "audio/pcm", sampleRate: inputSampleRate })));
-    };
+    try {
+      await audioCtx.audioWorklet.addModule("/realtime-capture-worklet.js");
+      await audioCtx.resume();
+      nextStartRef.current = audioCtx.currentTime;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const source = audioCtx.createMediaStreamSource(stream);
+      sourceRef.current = source;
+      const worklet = new AudioWorkletNode(audioCtx, "pcm16-capture");
+      workletRef.current = worklet;
+      source.connect(worklet);
+      worklet.port.onmessage = (message: MessageEvent) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify(envelope({ type: "live.audio", audioBase64: base64FromBytes(new Uint8Array(message.data as ArrayBuffer)), mimeType: "audio/pcm", sampleRate: inputSampleRate })));
+      };
+    } catch (error) {
+      // Permission denied / worklet load failed / device error: release the mic
+      // so a turn recording is not blocked, then propagate the failure.
+      captureLeaseRef.current?.release();
+      captureLeaseRef.current = null;
+      throw error;
+    }
     media?.acquire("live", () => { try { ws.close(); } catch { /* ignore */ } teardownAudio(); }, correlationRef.current);
   }, [envelope, media, teardownAudio]);
 
