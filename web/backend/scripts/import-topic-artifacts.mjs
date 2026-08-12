@@ -370,6 +370,11 @@ function genericContracts(taskId, itemId, block) {
       hintLatex: block.teaching?.fallback_move || block.explanation || "只检查当前一步。",
       nextStepId,
     };
+    // Answer-free demonstration beat narration: the select step must not state
+    // the correct option, and the input step must not state the result, or the
+    // coach panel would leak the answer in guided Practice. promptLatex only
+    // names the current step / asks for the final write-up.
+    base.coach = coachFor(base.promptLatex);
     if (!final) {
       base.options = rotateOptions([
         { value: `correct-${index + 1}`, labelLatex: content },
@@ -580,6 +585,21 @@ function deriveParallelRatioAndShares(stem, answer) {
   };
 }
 
+// Author the deterministic Learn-demonstration narration for a step. `entryLatex`
+// is the reviewed, answer-free operational lead-in for the beat; `entrySpoken`
+// is its LaTeX-free spoken rendering. Using the step's own instruction (not the
+// correct option, expected value, or proof result) keeps guided Practice from
+// leaking the answer through the coach panel, since the projector only strips
+// coach for Assessment. The display text never carries raw LaTeX controls into
+// entrySpoken: plain prose is copied verbatim and LaTeX-bearing copy is run
+// through latexToSpokenChinese.
+function coachFor(displayLatex) {
+  const text = String(displayLatex || "").trim();
+  if (!text) return undefined;
+  const spoken = /[\\$]/.test(text) ? latexToSpokenChinese(text) : text;
+  return { entryLatex: text, entrySpoken: spoken };
+}
+
 function contractBase(itemId, index, title, primitive, content, nextStepId) {
   return {
     id: `${itemId.toLowerCase()}-step-${index + 1}`,
@@ -593,6 +613,7 @@ function contractBase(itemId, index, title, primitive, content, nextStepId) {
     successCondition: "完成当前图上动作，且对象、顺序和数值都正确。",
     errorDiagnosis: "当前点击对象、顺序或标注值与题目条件不一致。",
     feedbackLatex: content,
+    coach: coachFor(content),
     hintLatex: "只检查当前一步：先确认点击的是哪条线段，再核对数值或比例方向。",
     nextStepId,
   };
@@ -646,13 +667,28 @@ function buildMarkRatioContracts(taskId, itemId, block, assignmentFile) {
       expectedOrder: factorSlots.map(canonicalSegment),
       equation: { targetLatex: target, factorSlots, resultLatex: answer },
     };
+    third.feedbackLatex = third.expectedLatex;
+    third.successCondition = "列式结构和最终结果都正确。";
   } else {
+    // The requested segment is not part of the proportion (e.g. nestedSimilarity
+    // asks for CD, derived from CD=AC-AD after the convert-collinear step), so
+    // the share-based equation model does not fit. Model the final step as a
+    // reviewed text answer so the local-training guard validates the result
+    // against the answer aliases instead of accepting any input on a vacuous
+    // equation (whose expectedResult would be absent). The SolutionBoard still
+    // carries the full reviewed derivation; only the final-step action kind
+    // changes from a degenerate equation to an honest text answer.
+    third.primitive = "input";
+    third.title = "写出最终结论";
+    third.goal = "根据已经完成的推理，写出本题的最终结论。";
+    third.promptLatex = "根据已经完成的推理，写出最终答案。";
     third.acceptedAnswers = answerAliases(answer);
     third.expectedLatex = answer;
-    third.interaction = { kind: "equation", ...common, equation: { targetLatex: "结论", factorSlots: ["已知", "未知份数", "已知份数"], resultLatex: answer } };
+    third.coach = coachFor(third.goal);
+    third.interaction = { kind: "input", ...common };
+    third.feedbackLatex = answer;
+    third.successCondition = "最终结论与教师版规范答案数学等价。";
   }
-  third.feedbackLatex = third.expectedLatex;
-  third.successCondition = "列式结构和最终结果都正确。";
   return [first, second, third];
 }
 
@@ -966,6 +1002,7 @@ function withNestedConversionContract(taskId, contracts) {
       target: "topic-answer",
       promptLatex: "依次点击 $AC$、$AD$、$DC$，建立 $AC=AD+DC$。",
       acceptedAnswers: ["AC,AD,CD"],
+      coach: coachFor("依次点击整段、目标分段和已知分段，建立共线线段关系。"),
       expectedLatex: "$AC=AD+DC$",
       successCondition: "整段、目标分段和已知分段的关系正确。",
       errorDiagnosis: "整段与两个分段的对应关系不一致。",

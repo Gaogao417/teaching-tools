@@ -280,3 +280,13 @@ Assembled deterministically from the generated first, middle, and last records. 
 
 ### Intentionally deferred
 - Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: the IAB guest refused screenshot capture in this session. The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.
+
+## v5 / LocalTraining migration re-audit (2026-08-12)
+
+**Status: remains `verified`** (re-audited against Action Runtime v5 / LocalTraining).
+
+- Runtime archetypes confirmed via `topicPlanProjector.ts`: Learn=`local-demonstration`, guided-practice=`local-training`, assessment=`server-authoritative`; `planVersion` read from `ACTION_RUNTIME_PLAN_VERSION` (=`5`), not hardcoded.
+- **No Topic-data change required.** This Topic was already the reference for the training-presentation/voice migration: all 150 actions already carried reviewed `coach.entryLatex` + `coach.entrySpoken` dual-write (rich `idleHintsLatex` / `targetHintsLatex` / `slotHints` retained), and its generated records are byte-identical to the pre-audit bundle. Re-verified only.
+- Reused `kind@version`: `mark-segment-values@1`, `ratio-scratch@1`, `enter-equation@1`. No new capability.
+- Generated gate `validate_generated_topic_v2.py`: OK (records=50). Assembled first/middle/last (`three-known-fourth-parallel-2026-07-17:Q001/Q026/Q050`): mechanical findings none; math re-verified (A-shape proportions and share computations correct).
+- Full gate: `web/backend: npm test` 41/41 PASS; `web/frontend: npm test` 150/150 PASS, `npm run build` clean.

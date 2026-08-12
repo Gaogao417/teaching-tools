@@ -311,3 +311,13 @@ Assembled deterministically from the generated first, middle, and last records. 
   - IAB 限制：Playwright role-click 与坐标 CUA 在本会话被 IAB 间歇性吞掉（首次 dom_cua 点击成功推进，后续点击未送达）；完整 5 拍链路的板书递进改由上述确定性 Runtime API 证据覆盖（每个动作的 learn/enter 快照逐行列出）。等价的交互逻辑（辅助线四击构造、两次 mark-segment-values 保留 share、enter-text、BACK/CLEAR/restore）由前端/后端聚焦测试覆盖：`web/backend: npm test` 含 `auxiliary first item encodes the required four-click construction and staged labels`；`web/frontend: npm test` 含 actionRuntime / solutionBoard 机器测试。
 - Tests after fix: `web/backend: npm test` 41/41 PASS；`web/frontend: npm test` 108/108 PASS；`web/frontend: npm run typecheck` clean；`git diff --check` 无空白错误。
 - Correction to prior evidence: 上轮 `### Diagram / SolutionBoard quality` 中 "No UI/Action language … across all 6 topics" 对本 Topic 不实（当时仍带 蓝字/红色/绿色），本次重做已修正。其余 5 Topic 不受影响。
+
+## v5 / LocalTraining migration re-audit (2026-08-12)
+
+**Status: remains `verified`** (re-audited against Action Runtime v5 / LocalTraining).
+
+- Runtime archetypes confirmed via `topicPlanProjector.ts`: Learn=`local-demonstration`, guided-practice=`local-training`, assessment=`server-authoritative`; `planVersion` read from `ACTION_RUNTIME_PLAN_VERSION` (=`5`), not hardcoded. No legacy `ExerciseRuntimeSpec` / primitive dispatch / `RuntimeActionEvent.value` on the Topic path.
+- **Fix applied (authoring source → `contractBase`):** all 250 demonstration beats previously lacked reviewed voice narration (`coach` was `null`). Authored `coach.entryLatex` + `coach.entrySpoken` dual-write on each beat (including the `make-parallel` + `intersect-carriers` construction step and the two `mark-segment-values` share stages), sourced from the answer-free step instruction so guided Practice cannot leak the ratio through the coach panel. Coverage after fix: 250/250 dual-written, 0 `entrySpoken` carry raw LaTeX controls.
+- Reused `kind@version`: `make-parallel@1`, `intersect-carriers@1`, `mark-segment-values@1`, `enter-text@1`. No new capability.
+- Generated gate `validate_generated_topic_v2.py`: OK (records=50). Assembled first/middle/last (`auxiliary-two-small-integer-ratios-50-2026-07-17:Q001/Q026/Q050`): mechanical findings none; math re-verified (auxiliary-line construction, two AA-similarity groups, share arithmetic, and the final $AP:PD$ / $BP:PE$ ratios all correct). SolutionBoard unchanged.
+- Full gate: `web/backend: npm test` 41/41 PASS (incl. `auxiliary first item encodes the required four-click construction and staged labels`, `Action Runtime v5 local-training and Assessment isolation` which projects this Topic across learn/guided/assessment); `web/frontend: npm test` 150/150 PASS, `npm run build` clean. Bundle deterministic across two importer runs.

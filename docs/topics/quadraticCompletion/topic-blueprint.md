@@ -258,3 +258,13 @@ Assembled deterministically from the generated first, middle, and last records. 
 
 ### Intentionally deferred
 - Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: the IAB guest refused screenshot capture in this session. The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.
+
+## v5 / LocalTraining migration re-audit (2026-08-12)
+
+**Status: remains `verified`** (re-audited against Action Runtime v5 / LocalTraining).
+
+- Runtime archetypes confirmed via `topicPlanProjector.ts`: Learn=`local-demonstration`, guided-practice=`local-training`, assessment=`server-authoritative`; `planVersion` read from `ACTION_RUNTIME_PLAN_VERSION` (=`5`), not hardcoded. No legacy `ExerciseRuntimeSpec` / primitive dispatch / `RuntimeActionEvent.value` on the Topic path.
+- **Fix applied (authoring source `import-topic-artifacts.mjs` → `genericContracts`):** every demonstration beat previously lacked reviewed voice narration (`coach` was `null` on all 90 actions, so the teacher-copy selector fell back to `instruction`). Authored `coach.entryLatex` + `coach.entrySpoken` dual-write on each beat, sourced from the answer-free step orientation (`promptLatex`) so guided Practice cannot leak the correct option/result through the coach panel (the projector only strips `coach` for Assessment). Coverage after fix: 90/90 dual-written, 0 `entrySpoken` carry raw LaTeX controls.
+- Reused `kind@version`: `select-option@1`, `enter-text@1`. No new capability.
+- Generated gate `validate_generated_topic_v2.py`: OK (records=30). Assembled first/middle/last (`quadratic-completion-2026-07-18:Q001/Q016/Q030`): mechanical findings none; math re-verified (completing-the-square derivations and vertex forms all correct, name the requested object). SolutionBoard unchanged by the voice migration.
+- Full gate: `web/backend: npm test` 41/41 PASS; `web/frontend: npm test` 150/150 PASS, `npm run build` clean. Bundle deterministic across two importer runs.

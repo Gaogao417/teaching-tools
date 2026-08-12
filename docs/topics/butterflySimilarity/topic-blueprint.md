@@ -20,7 +20,7 @@ bank_sources:
 | --- | --- | --- |
 | Product runtime | `Action Runtime v5` | Shared Action Runtime page, registry, typed evidence/evaluation |
 | Generated bundle | `teaching-tools/topic-scenario-bundle/v2` | Generated bundle root `schema` |
-| Exercise plan | Current `ACTION_RUNTIME_PLAN_VERSION` (=`3`) | `web/shared/actionRuntime.ts` (`ACTION_RUNTIME_PLAN_VERSION = 3`) and projected plan |
+| Exercise plan | Current `ACTION_RUNTIME_PLAN_VERSION` | `web/shared/actionRuntime.ts` (`ACTION_RUNTIME_PLAN_VERSION`) and projected plan |
 | Scenario actions | Non-empty authored `actionTemplates` | First, middle, and last generated records (Q001, Q025, Q050) |
 | Solution document | Reviewed slot-based `solutionBoard` | Scenario authoring output and Learn/Guided plan |
 
@@ -296,4 +296,15 @@ No `ExtendRuntime` decisions are proposed: all three actions reuse registered ki
 - No UI/Action language (蓝字/红字/绿色/点击/输入框), no unresolved placeholders, no Action-owned board targets/commands across all 6 topics.
 
 ### Intentionally deferred
-- Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: the IAB guest refused screenshot capture in this session. The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.
+- Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.
+
+## v5 / LocalTraining migration re-audit (2026-08-12)
+
+**Status: remains `verified`** (re-audited against Action Runtime v5 / LocalTraining).
+
+- Runtime archetypes confirmed via `topicPlanProjector.ts`: Learn=`local-demonstration`, guided-practice=`local-training`, assessment=`server-authoritative`; `planVersion` read from `ACTION_RUNTIME_PLAN_VERSION` (=`5`), not hardcoded.
+- **Fix applied (authoring source → `contractBase`):** all 150 demonstration beats previously lacked reviewed voice narration (`coach` was `null`). Authored `coach.entryLatex` + `coach.entrySpoken` dual-write on each beat from the answer-free step instruction. Coverage after fix: 150/150 dual-written, 0 `entrySpoken` carry raw LaTeX controls.
+- **Blueprint doc fix:** the Exercise-plan boundary row previously pinned `ACTION_RUNTIME_PLAN_VERSION (=`3`)`; corrected to the current constant (=`5`) to match the other five Topic blueprints and the live `web/shared/actionRuntime.ts`.
+- Reused `kind@version`: `mark-segment-values@1`, `pair-segments@1`, `enter-equation@1`. No new capability.
+- Generated gate `validate_generated_topic_v2.py`: OK (records=50). Assembled first/middle/last (`butterfly-similarity-2026-07-16:Q001/Q026/Q050`): mechanical findings none; math re-verified ($\triangle AOC\sim\triangle DOB$ via given angle + vertex angle, proportions and $OD/OB$ results correct).
+- Full gate: `web/backend: npm test` 41/41 PASS; `web/frontend: npm test` 150/150 PASS, `npm run build` clean.

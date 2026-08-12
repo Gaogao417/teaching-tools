@@ -278,3 +278,13 @@ Assembled deterministically from the generated first, middle, and last records. 
 
 ### Intentionally deferred
 - Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: the IAB guest refused screenshot capture in this session. The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.
+
+## v5 / LocalTraining migration re-audit (2026-08-12)
+
+**Status: remains `verified`** (re-audited against Action Runtime v5 / LocalTraining).
+
+- Runtime archetypes confirmed via `topicPlanProjector.ts`: Learn=`local-demonstration`, guided-practice=`local-training`, assessment=`server-authoritative`; `planVersion` read from `ACTION_RUNTIME_PLAN_VERSION` (=`5`), not hardcoded.
+- **Fix applied (authoring source → `contractBase`):** all 150 demonstration beats previously lacked reviewed voice narration (`coach` was `null`). Authored `coach.entryLatex` + `coach.entrySpoken` dual-write on each beat, sourced from the answer-free step instruction so guided Practice cannot leak the result through the coach panel. Coverage after fix: 150/150 dual-written, 0 `entrySpoken` carry raw LaTeX controls.
+- Reused `kind@version`: `mark-segment-values@1`, `pair-segments@1`, `enter-equation@1`. No new capability.
+- Generated gate `validate_generated_topic_v2.py`: OK (records=50). Assembled first/middle/last (`reverse_a-similarity-2026-07-16:Q001/Q026/Q050`): mechanical findings none; math re-verified ($\triangle PAB\sim\triangle PDC$ via given angle + vertical angle, proportions and $PD/PC$ results correct).
+- Full gate: `web/backend: npm test` 41/41 PASS; `web/frontend: npm test` 150/150 PASS, `npm run build` clean.

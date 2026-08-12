@@ -292,4 +292,23 @@ Assembled deterministically from the generated first, middle, and last records. 
 - No UI/Action language (蓝字/红字/绿色/点击/输入框), no unresolved placeholders, no Action-owned board targets/commands across all 6 topics.
 
 ### Intentionally deferred
-- Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: the IAB guest refused screenshot capture in this session. The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.
+- Pixel-level per-segment click recording (wrong-select / BACK / CLEAR / refresh / narrow-width) was not captured via screenshots: The equivalent interaction logic is covered by the focused frontend/backend tests (auxiliary four-click construction, parallel ratio scratch, nested convert-collinear, BACK/CLEAR/restore persistence). If you want the screenshot trail for the record, run it directly in the open browser at http://127.0.0.1:5173/learn/<taskId>.
+
+## v5 / LocalTraining migration re-audit (2026-08-12)
+
+**Status: remains `verified`** (re-audited against Action Runtime v5 / LocalTraining). Two defects found and fixed.
+
+- Runtime archetypes confirmed via `topicPlanProjector.ts`: Learn=`local-demonstration`, guided-practice=`local-training`, assessment=`server-authoritative`; `planVersion` read from `ACTION_RUNTIME_PLAN_VERSION` (=`5`), not hardcoded.
+
+- **Fix 1 — coach voice dual-write (authoring source → `contractBase` + the inserted `convert-collinear` step):** all 200 demonstration beats previously lacked reviewed voice narration (`coach` was `null`). Authored `coach.entryLatex` + `coach.entrySpoken` dual-write on each beat from the answer-free step instruction. Coverage after fix: 200/200 dual-written, 0 `entrySpoken` carry raw LaTeX controls.
+
+- **Fix 2 — local-training guard regression (authoring source → `buildMarkRatioContracts` else-branch):** 23 of 50 records ask for $CD$ (derived from $CD=AC-AD$ after the `convert-collinear` step), so the requested segment is not in the proportion and `buildMarkRatioContracts` could not fit the share-based `enter-equation`. Those records fell into a degenerate `enter-equation` with empty `teachingInput`, which made `locallyCorrect` vacuously true under the local-training Practice guard (`!expectedResult` short-circuit) — a regression exposed by the v5 migration (pre-migration Practice used server-authoritative evaluation, which still validated via `acceptedAnswers`). Routed those 23 records' final step to `enter-text@1` with `expectedValues` truth (answer aliases), so the local guard now validates the result. The reviewed SolutionBoard (which already derives $AB^2=AC\cdot AD$ then $CD=AC-AD$) is unchanged. The other 27 records (asking for $AB$, in the proportion) keep `enter-equation@1` with full per-slot truth.
+
+  | Records | Final step | teachingInput | Practice guard |
+  | --- | --- | --- | --- |
+  | 27 (ask $AB$) | `enter-equation@1` | full (`expectedOrder`,`expectedResult`) | validates per-slot |
+  | 23 (ask $CD$) | `enter-text@1` (was degenerate `enter-equation`) | `expectedValues` aliases | validates result |
+
+- Reused `kind@version`: `mark-segment-values@1`, `convert-collinear@1`, `pair-segments@1`, `enter-equation@1` (27 records), `enter-text@1` (23 records). No new capability. Assessment-safety re-verified: the 23 `enter-text` records expose no `expectedValues` in public `input` (truth stays in `teachingInput`, stripped by the projector).
+- Generated gate `validate_generated_topic_v2.py`: OK (records=50). Assembled first/middle/last (`nested-similarity-2026-07-16:Q001/Q026/Q050`): mechanical findings none; math re-verified ($\triangle ABD\sim\triangle ACB$, $AB^2=AC\cdot AD$, $CD=AC-AD$ all correct). SolutionBoard unchanged.
+- Full gate: `web/backend: npm test` 41/41 PASS (incl. `nested similarity inserts a dedicated collinear conversion action`, `legacy nested sessions resume at the newly required conversion action`, `collinear conversion is mastered only after its dedicated action`); `web/frontend: npm test` 150/150 PASS, `npm run build` clean. Bundle deterministic across two importer runs.
