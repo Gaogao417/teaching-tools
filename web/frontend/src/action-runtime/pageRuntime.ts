@@ -17,7 +17,8 @@ import { deriveTransientEmphasis } from "./projection/deriveTransientEmphasis";
 import { actionMachineRegistry, type ActionMachineRegistry } from "./registry";
 import type { ActionActor, ActionPageRuntime, PageRuntimeSnapshot, TransientEmphasis } from "./types";
 import { AttemptRecorder } from "./training/attemptRecorder";
-import { semanticCandidate } from "./training/candidateSemantics";
+import { browserVisibilityListener, VisibilityTimerAdapter } from "./training/actionTimer";
+import { TrainingGuard } from "./training/trainingGuard";
 
 type PageEvent =
   | { type: "ACTION_DONE"; evidence: ActionEvidence; commands: DomainCommand[]; submit: boolean; nextActionId?: string }
@@ -277,6 +278,13 @@ export function createActionPageRuntime(
   let handledEvidenceActionId: string | undefined;
   let draftToHydrate = checkpoint?.revision === plan.revision ? checkpoint.currentDraft : undefined;
   const attemptRecorder = new AttemptRecorder(plan.exerciseId, plan.exerciseId);
+  // ADR-006 §Local attempt and completion — the guard is the single authority
+  // for the CandidateDecision vocabulary (incl. ignored-illegal). The shared
+  // ActionTimer lives inside the recorder; bind its pause/resume to page
+  // visibility so hidden stops the active foreground clock.
+  const guard = new TrainingGuard();
+  const visibilityAdapter = new VisibilityTimerAdapter(attemptRecorder.actionTimer, browserVisibilityListener);
+  const releaseVisibility = visibilityAdapter.bind();
 
   // Transient emphasis is frontend-only UI state. It lives in this closure —
   // never in the XState context, the snapshot, a checkpoint or any store — so it
@@ -313,7 +321,14 @@ export function createActionPageRuntime(
     child?.stop();
     handledEvidenceActionId = undefined;
     child = registry.create(actionFor());
-    if (child.contract.validationPolicy === "local-training") attemptRecorder.start(child.contract);
+    if (child.contract.validationPolicy === "local-training") {
+      // BACK re-entry into an already-completed Action continues accumulating
+      // that Action's original segments (ADR-006 §Metrics Semantics): reopen
+      // preserves prior counters/segments and clears the completed flag so the
+      // Action can re-complete. A fresh Action just starts.
+      if (attemptRecorder.actionTimer.isCompleted(child.contract.actionId)) attemptRecorder.reopen(child.contract);
+      else attemptRecorder.start(child.contract);
+    }
     childUnsubscribe = child.subscribe(() => {
       const snapshot = child.getSnapshot();
       if (snapshot.done && snapshot.evidence && handledEvidenceActionId !== snapshot.evidence.actionId) {
@@ -390,16 +405,22 @@ export function createActionPageRuntime(
       target.send(event);
       if (contract.validationPolicy === "local-training") {
         const after = target.getSnapshot();
-        const candidate = semanticCandidate(event, before, after);
-        if (candidate) {
-          const outcome = after.done && after.evidence
-            ? "correct-complete"
-            : after.wrongObjectId || (event.type === "SUBMIT" && after.wrongMessage)
-              ? "wrong"
-              : "correct-partial";
-          attemptRecorder.record(contract, candidate, outcome);
-          if (outcome === "wrong") wrongAttempts += 1;
+        // The guard is the single authority for the CandidateDecision
+        // vocabulary. ignored-illegal is a no-op (not recorded, not wrong);
+        // wrong/correct-partial/correct-completion feed the recorder. The child
+        // machine already applied evidence/commands on completion (its
+        // subscriber sends ACTION_DONE); the recorder owns telemetry + timing.
+        const result = guard.classify(contract, event, before, after);
+        const decision = result.decision;
+        if (decision.kind === "wrong" && result.candidate) {
+          attemptRecorder.record(contract, result.candidate, "wrong", before.state);
+          wrongAttempts += 1;
+        } else if (decision.kind === "correct-partial" && result.candidate) {
+          attemptRecorder.record(contract, result.candidate, "correct-partial", before.state);
+        } else if (decision.kind === "correct-completion" && result.candidate) {
+          attemptRecorder.record(contract, result.candidate, "correct-complete", before.state);
         }
+        // ignored-illegal: no record, timer continues.
       }
     },
     getView() {
@@ -512,6 +533,7 @@ export function createActionPageRuntime(
       mountChild();
     },
     stop() {
+      releaseVisibility();
       childUnsubscribe?.();
       child.stop();
       listeners.clear();
