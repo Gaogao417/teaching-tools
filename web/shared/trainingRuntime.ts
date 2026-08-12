@@ -1,4 +1,5 @@
 import { isActionEvidence, type ActionEvidence } from "./actionRuntime";
+import type { DomainCommand } from "./actionWorld";
 
 export const TRAINING_RUNTIME_VERSION = 1 as const;
 export type TrainingAssistance = "none" | "back" | "clear" | "hint" | "coach";
@@ -160,7 +161,7 @@ export type CandidateDecision =
   | { kind: "ignored-illegal" }
   | { kind: "wrong"; feedback: TrainingFeedback }
   | { kind: "correct-partial" }
-  | { kind: "correct-completion" };
+  | { kind: "correct-completion"; evidence: ActionEvidence; commands: DomainCommand[] };
 
 /** ADR-006 AttemptClassification — legal candidate attempts only. */
 export type AttemptClassification = "correct-candidate" | "wrong-candidate";
@@ -200,7 +201,8 @@ export interface TrainingActionMetricV2 {
   actionId: string;
   actionKind: string;
   startedAt: string;
-  completedAt: string;
+  /** UTC completion timestamp; absent while an Action is still in progress (checkpoint). */
+  completedAt?: string;
   duration: ActionDuration;
   correctAttemptCount: number;
   wrongAttemptCount: number;
@@ -243,7 +245,7 @@ const isErrorDistributionEntry = (value: unknown): value is ErrorDistributionEnt
 
 export function isTrainingActionMetricV2(value: unknown): value is TrainingActionMetricV2 {
   return record(value) && value.version === TRAINING_RUNTIME_V2_VERSION && string(value, "actionId") && string(value, "actionKind")
-    && string(value, "startedAt") && string(value, "completedAt") && isActiveDuration(value.duration)
+    && string(value, "startedAt") && (value.completedAt === undefined || typeof value.completedAt === "string") && isActiveDuration(value.duration)
     && Number.isInteger(value.correctAttemptCount) && Number(value.correctAttemptCount) >= 0
     && Number.isInteger(value.wrongAttemptCount) && Number(value.wrongAttemptCount) >= 0
     && Number.isInteger(value.backCount) && Number(value.backCount) >= 0

@@ -66,8 +66,9 @@ describe("TrainingGuard", () => {
     const after = snapshot({ state: "completed", done: true, evidence, commands: [] });
     const result = guard.classify(selectAction, { type: "SUBMIT" }, before, after);
     expect(result.decision.kind).toBe("correct-completion");
-    expect(result.evidence).toEqual(evidence);
-    expect(result.commands).toEqual([]);
+    if (result.decision.kind !== "correct-completion") return;
+    expect(result.decision.evidence).toEqual(evidence);
+    expect(result.decision.commands).toEqual([]);
   });
 
   it("treats an object outside the accepting set as ignored-illegal (not wrong)", () => {

@@ -288,7 +288,7 @@ export class AttemptRecorder {
       actionId: metric.actionId,
       actionKind: metric.actionKind,
       startedAt: metric.startedAt,
-      completedAt: metric.completedAt ?? metric.startedAt,
+      ...(metric.completedAt ? { completedAt: metric.completedAt } : {}),
       duration: actionDuration,
       correctAttemptCount: metric.correctAttemptCount,
       wrongAttemptCount: metric.wrongAttemptCount,

@@ -40,6 +40,8 @@ describe("training telemetry v2 contracts", () => {
     expect(isTrainingActionMetricV2({ ...metric, backCount: -1 })).toBe(false);
     expect(isTrainingActionMetricV2({ ...metric, assistanceLevel: "provider-llm" })).toBe(false);
     expect(isTrainingActionMetricV2({ ...metric, duration: { ...metric.duration, activeDurationMs: -5 } })).toBe(false);
+    // An in-progress Action has no completion timestamp; completedAt is optional.
+    expect(isTrainingActionMetricV2({ ...metric, completedAt: undefined })).toBe(true);
   });
 
   it("classifies only legal candidate attempts; illegal never enters v2 telemetry", () => {

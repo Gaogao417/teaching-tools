@@ -97,7 +97,8 @@ describe("AttemptRecorder v2 telemetry", () => {
     // BACK re-entry: reopen preserves counters and startedAt, clears completed.
     recorder.reopen(action);
     const reopened = recorder.snapshot().actionMetricsV2![0];
-    expect(reopened.completedAt).toBe(reopened.startedAt); // completed flag cleared → completedAt fallback
+    // After reopen the Action is in-progress again, so completedAt is absent (no bogus fallback to startedAt).
+    expect(reopened.completedAt).toBeUndefined();
     // startedAt is preserved (segments continue accumulating).
     expect(reopened.duration.startedAt).toBe(before.duration.startedAt);
   });

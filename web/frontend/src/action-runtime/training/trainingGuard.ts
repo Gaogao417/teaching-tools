@@ -1,5 +1,4 @@
-import type { ActionContract, ActionEvidence } from "../../../../shared/actionRuntime";
-import type { DomainCommand } from "../../../../shared/actionWorld";
+import type { ActionContract } from "../../../../shared/actionRuntime";
 import type { CandidateDecision, SemanticCandidate, TrainingFeedback } from "../../../../shared/trainingRuntime";
 import type { ActionRuntimeEvent } from "../events";
 import type { ActionSnapshotView } from "../types";
@@ -35,10 +34,6 @@ export interface ClassificationResult {
   decision: CandidateDecision;
   /** The legal candidate this event produced (present for non-ignored outcomes). */
   candidate?: SemanticCandidate;
-  /** Present only for correct-completion: the machine's evidence + commands. */
-  evidence?: ActionEvidence;
-  /** Present only for correct-completion: the domain commands to apply. */
-  commands?: DomainCommand[];
 }
 
 const DEFAULT_WRONG_MESSAGE = "这个对象不是当前动作需要的对象。";
@@ -76,7 +71,7 @@ export class TrainingGuard {
         return { decision: { kind: "wrong", feedback: feedbackFrom(after, candidate.objectId) }, candidate };
       }
       if (after.done && after.evidence) {
-        return { decision: { kind: "correct-completion" }, candidate, evidence: after.evidence, commands: after.commands };
+        return { decision: { kind: "correct-completion", evidence: after.evidence, commands: after.commands }, candidate };
       }
       return { decision: { kind: "correct-partial" }, candidate };
     }
@@ -85,7 +80,7 @@ export class TrainingGuard {
     // (form not structurally ready) is an idle/illegal candidate — ignored.
     if (event.type === "SUBMIT") {
       if (after.done && after.evidence) {
-        return { decision: { kind: "correct-completion" }, candidate, evidence: after.evidence, commands: after.commands };
+        return { decision: { kind: "correct-completion", evidence: after.evidence, commands: after.commands }, candidate };
       }
       if (after.wrongMessage && after.wrongMessage !== before.wrongMessage) {
         return { decision: { kind: "wrong", feedback: feedbackFrom(after) }, candidate };
@@ -95,7 +90,7 @@ export class TrainingGuard {
 
     // Non-object, non-submit candidate with no completion: partial progress.
     if (after.done && after.evidence) {
-      return { decision: { kind: "correct-completion" }, candidate, evidence: after.evidence, commands: after.commands };
+      return { decision: { kind: "correct-completion", evidence: after.evidence, commands: after.commands }, candidate };
     }
     return { decision: { kind: "correct-partial" }, candidate };
   }
