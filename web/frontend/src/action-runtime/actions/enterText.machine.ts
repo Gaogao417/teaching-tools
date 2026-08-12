@@ -8,6 +8,10 @@ export const enterTextDefinition = createFormMachineDefinition<EnterTextAction>(
   structurallyReady: (context) => Boolean(context.answers.value?.trim()),
   locallyCorrect: (context) => !context.contract.input.expectedValues || context.contract.input.expectedValues.includes(context.answers.value || ""),
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "enter-text", version: 1, value: context.answers.value }),
+  teachingEvents: (contract) => contract.input.expectedValues?.[0] ? [
+    { type: "ANSWER.CHANGED", slotId: "value", value: contract.input.expectedValues[0] },
+    { type: "SUBMIT" },
+  ] : [],
 });
 
 export const createEnterTextActor = (contract: EnterTextAction) => createActorFromDefinition(enterTextDefinition, contract);

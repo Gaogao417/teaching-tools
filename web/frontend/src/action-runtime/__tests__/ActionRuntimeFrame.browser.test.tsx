@@ -8,13 +8,19 @@ import type { ActionPlanResponse } from "../../../../shared/actionRuntime";
 const checkpointAction = vi.fn();
 const evaluateAction = vi.fn();
 const conductActionCoach = vi.fn();
+const synthesizeActionSpeech = vi.fn().mockResolvedValue({ audioUrl: "https://example/test.mp3", model: "test-tts", voice: "test" });
 vi.mock("../../api/client", () => ({
   api: {
     checkpointAction,
     evaluateAction,
     askActionCoach: vi.fn(),
     conductActionCoach,
+    synthesizeActionSpeech,
   },
+}));
+vi.mock("../../utils/storage", () => ({
+  getVoiceModel: () => "omni" as const,
+  setVoiceModel: () => undefined,
 }));
 vi.mock("../../geometry/react/GeometryCanvas", () => ({
   GeometryCanvasSurface: ({ view, onClickEntity }: {

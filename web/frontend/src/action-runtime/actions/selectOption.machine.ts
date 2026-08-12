@@ -8,6 +8,10 @@ export const selectOptionDefinition = createFormMachineDefinition<SelectOptionAc
   structurallyReady: (context) => Boolean(context.answers.choice),
   locallyCorrect: (context) => !context.contract.input.expectedValue || context.answers.choice === context.contract.input.expectedValue,
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "select-option", version: 1, value: context.answers.choice }),
+  teachingEvents: (contract) => contract.input.expectedValue ? [
+    { type: "ANSWER.CHANGED", slotId: "choice", value: contract.input.expectedValue },
+    { type: "SUBMIT" },
+  ] : [],
 });
 
 export const createSelectOptionActor = (contract: SelectOptionAction) => createActorFromDefinition(selectOptionDefinition, contract);

@@ -44,6 +44,27 @@ export const enterEquationDefinition = createFormMachineDefinition<EnterEquation
   }),
   commands: (contract, evidence) => evidence.kind === "enter-equation" ? emphasisCommands(contract, evidence.factors) : [],
   previewCommands: (context) => emphasisCommands(context.contract, context.lines),
+  teachingEvents: (contract) => {
+    const result = contract.input.expectedResult;
+    if (!result) return [];
+    if (contract.input.shareValues) {
+      const known = contract.input.expectedOrder?.[0] || contract.input.availableSegmentIds[0];
+      if (!known) return [];
+      return [
+        { type: "OBJECT.SELECTED" as const, objectKind: "line" as const, objectId: known },
+        { type: "ANSWER.CHANGED" as const, slotId: "numerator", value: contract.input.shareValues[0] },
+        { type: "ANSWER.CHANGED" as const, slotId: "denominator", value: contract.input.shareValues[1] },
+        { type: "ANSWER.CHANGED" as const, slotId: "result", value: result },
+        { type: "SUBMIT" as const },
+      ];
+    }
+    if (contract.input.expectedOrder?.length !== 3) return [];
+    return [
+      ...contract.input.expectedOrder.map((objectId) => ({ type: "OBJECT.SELECTED" as const, objectKind: "line" as const, objectId })),
+      { type: "ANSWER.CHANGED" as const, slotId: "result", value: result },
+      { type: "SUBMIT" as const },
+    ];
+  },
 });
 
 export const createEnterEquationActor = (contract: EnterEquationAction) => createActorFromDefinition(enterEquationDefinition, contract);

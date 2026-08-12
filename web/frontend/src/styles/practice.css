@@ -2495,7 +2495,7 @@
   min-height: 0;
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1.65fr) minmax(300px, .85fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(340px, 1fr);
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
   gap: var(--space-3);
@@ -2529,18 +2529,7 @@
   font-family: "STSong", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
 }
 
-.solution-board-panel h2 {
-  margin: 0;
-  padding-bottom: var(--space-4);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-ink) 16%, transparent);
-  color: var(--color-ink);
-  font-family: inherit;
-  font-size: clamp(22px, 1.55vw, 27px);
-  font-weight: 700;
-  line-height: 1.4;
-  letter-spacing: .08em;
-}
-.solution-board-document { display: block; padding-top: var(--space-5); }
+.solution-board-document { display: block; }
 .solution-board-line {
   position: relative;
   margin: 0;
@@ -2567,6 +2556,13 @@
   width: 3px;
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--color-primary) 72%, transparent);
+}
+/* Transient "just appeared" highlight, separate from is-current/is-complete.
+   The one-shot animation is driven by the Web Animations API in SolutionBoardPanel;
+   this static style is a low-motion fallback and a stable selector for tests. */
+.solution-board-line.is-emphasis {
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, #18b7b7 9%, transparent);
 }
 
 .topic-geometry-entity-row { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -2677,6 +2673,17 @@
 .topic-coach-turn.is-coach { justify-self: start; border: 1px solid color-mix(in srgb, var(--color-primary) 15%, var(--color-line)); }
 .topic-coach-turn.is-pending { opacity: .66; }
 .topic-coach-turn.is-error { border-color: color-mix(in srgb, var(--color-danger) 32%, var(--color-line)); }
+.topic-coach-voice { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--color-line); border-radius: var(--radius-md); background: var(--surface-main); width: fit-content; }
+.topic-coach-voice-option { border: 0; background: transparent; color: var(--color-muted); padding: 4px 12px; border-radius: calc(var(--radius-md) - 2px); cursor: pointer; font-size: var(--text-sm); line-height: 1.4; }
+.topic-coach-voice-option:hover:not(:disabled) { background: var(--fill-accent-soft); color: var(--color-primary-strong); }
+.topic-coach-voice-option.is-active { background: var(--color-primary); color: #fff; }
+.topic-coach-voice-option:disabled { opacity: .4; cursor: not-allowed; }
+.topic-coach-realtime { display: grid; gap: 6px; }
+.topic-coach-realtime-toggle { display: inline-flex; align-items: center; gap: 6px; width: fit-content; padding: 6px 12px; font-size: var(--text-sm); }
+.topic-coach-realtime-toggle .material-symbols-outlined { font-size: 18px; }
+.topic-coach-realtime-toggle.is-active { background: var(--color-danger); border-color: var(--color-danger); color: #fff; }
+.topic-coach-realtime-transcript { display: grid; gap: 4px; max-height: 180px; overflow: auto; padding-top: var(--space-2); border-top: 1px dashed var(--color-line); }
+.topic-coach-realtime-transcript .topic-coach-turn { font-size: var(--text-sm); margin: 0; }
 .topic-coach-composer { display: grid; grid-template-columns: minmax(0, 1fr) 38px 38px; align-items: center; gap: 6px; }
 .topic-coach-mic,
 .topic-coach-send { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--color-line); border-radius: 50%; background: var(--surface-main); color: var(--color-primary-strong); cursor: pointer; }
@@ -2694,6 +2701,84 @@
 .topic-teaching-controls { align-items: center; }
 @keyframes topic-recording-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-danger) 13%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .topic-coach-mic.is-recording { animation: none; } }
+
+/* ── Ambient coach dock trigger (the collapsed-rail entry point) ── */
+.topic-coach-dock-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-line));
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 24px;
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.topic-coach-dock-avatar:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+.topic-coach-dock-avatar:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.topic-coach-dock-avatar.is-speaking { animation: topic-coach-speaking-pulse 1.2s ease-in-out infinite; }
+@keyframes topic-coach-speaking-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-primary) 16%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .topic-coach-dock-avatar.is-speaking { animation: none; } }
+
+/* Persistent "you have unread coach guidance" dot (clears only when the rail opens) */
+.topic-coach-dock-unread {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  border: 2px solid var(--surface-card);
+}
+
+/* Transient 2-line preview bubble — pops to the left of the avatar, then fades while the dot stays */
+.topic-coach-dock-preview {
+  position: absolute;
+  top: -4px;
+  right: calc(100% + 12px);
+  width: max-content;
+  max-width: 220px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-line));
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  max-height: 2.9em;
+  overflow: hidden;
+  text-align: left;
+  animation: topic-coach-preview-in .15s ease;
+}
+.topic-coach-dock-preview .math-text { font-size: var(--text-sm); line-height: 1.45; }
+.topic-coach-dock-preview::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-line));
+  border-right: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-line));
+  background: var(--surface-card);
+  transform: rotate(45deg);
+}
+@keyframes topic-coach-preview-in { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .topic-coach-dock-preview { animation: none; } }
+
+/* Collapse button inside the open coach drawer header (mirrors .topic-coach-sound) */
+.topic-coach-close { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: var(--color-muted); cursor: pointer; }
+.topic-coach-close:hover { background: var(--fill-neutral-soft); color: var(--color-ink); }
+/* The drawer header carries an extra collapse button → 4 columns. Scoped so the
+   shared .topic-coach-header (also used by TopicRuntimeFrame) is unaffected. */
+.ks-focus-rail-drawer .topic-coach-header { grid-template-columns: 34px minmax(0, 1fr) 34px 34px; }
 .topic-coach-followup { position: relative; padding-top: var(--space-3); border-top: 1px solid color-mix(in srgb, var(--color-primary) 12%, var(--color-line)); }
 .topic-coach-panel.tone-wrong .topic-coach-bubble { border-color: color-mix(in srgb, var(--color-danger) 36%, var(--color-line)); background: color-mix(in srgb, var(--fill-danger-soft) 82%, transparent); }
 .topic-coach-panel.tone-correct .topic-coach-bubble { border-color: color-mix(in srgb, var(--color-success) 30%, var(--color-line)); background: color-mix(in srgb, var(--color-success) 7%, rgba(255, 255, 255, .82)); }

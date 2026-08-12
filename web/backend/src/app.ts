@@ -31,12 +31,17 @@ import {
   isCoachResponse,
   isCoachTurnRequest,
   isCoachTurnResponse,
+  isDirectSpeechRequest,
+  isDirectSpeechResponse,
   type ActionCheckpointRequest,
   type ActionEvaluationRequest,
   type CoachRequest,
   type CoachTurnRequest,
+  type DirectSpeechRequest,
 } from "../../shared/actionRuntime";
+import { latexToSpokenChinese } from "../../shared/speechText";
 import { conductCoachTurn } from "./services/coach/coachTurnService";
+import { synthesizeCoachSpeech } from "./services/coach/qwenSpeechService";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
   message: "Invalid taskId",
@@ -259,6 +264,22 @@ export function createApp() {
       }).parse(req.body);
       const response = await conductCoachTurn(body);
       if (!isCoachTurnResponse(response)) throw new Error("Invalid multimodal coach response");
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Stateless direct TTS for deterministic teacher copy. Reuses the same Qwen
+  // TTS provider as the coach turn path and the shared LaTeX→spoken transform.
+  // It never invokes the AI coach and stores no audio on disk.
+  app.post("/api/action-speech", async (req, res, next) => {
+    try {
+      const body = z.custom<DirectSpeechRequest>(isDirectSpeechRequest, {
+        message: "Invalid direct speech request",
+      }).parse(req.body);
+      const response = await synthesizeCoachSpeech(latexToSpokenChinese(body.text));
+      if (!isDirectSpeechResponse(response)) throw new Error("Invalid direct speech response");
       res.json(response);
     } catch (error) {
       next(error);

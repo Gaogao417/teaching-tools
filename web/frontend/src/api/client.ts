@@ -22,9 +22,11 @@ import type {
   CoachResponse,
   CoachTurnRequest,
   CoachTurnResponse,
+  DirectSpeechRequest,
+  DirectSpeechResponse,
   ExercisePlan,
 } from "../../../shared/actionRuntime";
-import { assertExercisePlan, isActionCheckpointResponse, isActionEvaluationResponse, isActionPlanResponse, isCoachResponse, isCoachTurnResponse } from "../../../shared/actionRuntime";
+import { assertExercisePlan, isActionCheckpointResponse, isActionEvaluationResponse, isActionPlanResponse, isCoachResponse, isCoachTurnResponse, isDirectSpeechResponse } from "../../../shared/actionRuntime";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
@@ -128,6 +130,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }, isCoachTurnResponse, "multimodal coach"),
+  synthesizeActionSpeech: (payload: DirectSpeechRequest) =>
+    validated<DirectSpeechResponse>("/api/action-speech", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }, isDirectSpeechResponse, "speech"),
   finishPractice: (sessionId: string) =>
     request<FinishPracticeResponse>("/api/practice/finish", {
       method: "POST",

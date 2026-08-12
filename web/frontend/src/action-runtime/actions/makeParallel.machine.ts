@@ -84,6 +84,12 @@ export const makeParallelDefinition: ActionMachineDefinition<MakeParallelAction>
       throughPointId: evidence.throughPointId, referenceLineId: evidence.referenceLineId, outputLineId: contract.input.outputLineId,
     }] : [];
   },
+  teachingEvents(contract) {
+    return contract.input.throughPointId && contract.input.referenceLineId ? [
+      { type: "OBJECT.SELECTED", objectKind: "point", objectId: contract.input.throughPointId },
+      { type: "OBJECT.SELECTED", objectKind: "line", objectId: contract.input.referenceLineId },
+    ] : [];
+  },
 };
 
 export const createMakeParallelActor = (contract: MakeParallelAction) => createActorFromDefinition(makeParallelDefinition, contract);

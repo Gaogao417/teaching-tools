@@ -64,6 +64,13 @@ export const intersectCarriersDefinition: ActionMachineDefinition<IntersectCarri
       firstLineId: contract.input.parallelLineId, secondLineId: contract.input.outputCarrierLineId, outputPointId: contract.input.outputPointId,
     }] : [];
   },
+  teachingEvents(contract) {
+    return contract.input.carrierPointIds ? contract.input.carrierPointIds.map((objectId) => ({
+      type: "OBJECT.SELECTED" as const,
+      objectKind: "point" as const,
+      objectId,
+    })) : [];
+  },
 };
 
 export const createIntersectCarriersActor = (contract: IntersectCarriersAction) => createActorFromDefinition(intersectCarriersDefinition, contract);

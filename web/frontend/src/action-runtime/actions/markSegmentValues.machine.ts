@@ -38,6 +38,13 @@ export const markSegmentValuesDefinition = createFormMachineDefinition<MarkSegme
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "mark-segment-values", version: 1, values: { ...context.answers } }),
   commands: (contract, evidence) => evidence.kind === "mark-segment-values" ? labelCommands(contract, evidence.values) : [],
   previewCommands: (context) => labelCommands(context.contract, context.answers),
+  teachingEvents: (contract) => contract.input.labels.length ? [
+    ...contract.input.labels.flatMap((label) => [
+      { type: "OBJECT.SELECTED" as const, objectKind: "line" as const, objectId: label.segmentId },
+      { type: "ANSWER.CHANGED" as const, slotId: label.segmentId, value: label.valueLatex },
+    ]),
+    { type: "SUBMIT" as const },
+  ] : [],
 });
 
 export const createMarkSegmentValuesActor = (contract: MarkSegmentValuesAction) => createActorFromDefinition(markSegmentValuesDefinition, contract);

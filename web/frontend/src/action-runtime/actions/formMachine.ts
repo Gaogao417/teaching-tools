@@ -26,6 +26,7 @@ export interface FormMachineBehavior<Contract extends ActionContract> {
   slotValue?(context: FormMachineContext<Contract>, slotId: string): string;
   commands?(contract: Contract, evidence: ActionEvidence): DomainCommand[];
   previewCommands?(context: FormMachineContext<Contract>): DomainCommand[];
+  teachingEvents?(contract: Contract): ActionRuntimeEvent[];
 }
 
 function frame<Contract extends ActionContract>(context: FormMachineContext<Contract>): HistoryFrame {
@@ -141,6 +142,7 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
       );
     },
     commands: behavior.commands || (() => []),
+    teachingEvents: behavior.teachingEvents,
   };
   return definition;
 }

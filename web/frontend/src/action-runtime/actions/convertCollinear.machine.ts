@@ -27,6 +27,10 @@ export const convertCollinearDefinition = createFormMachineDefinition<ConvertCol
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "convert-collinear", version: 1, segmentIds: [...context.lines] }),
   commands: (contract, evidence) => evidence.kind === "convert-collinear" ? emphasisCommands(contract, evidence.segmentIds) : [],
   previewCommands: (context) => emphasisCommands(context.contract, context.lines),
+  teachingEvents: (contract) => contract.input.expectedOrder?.length === 3 ? [
+    ...contract.input.expectedOrder.map((objectId) => ({ type: "OBJECT.SELECTED" as const, objectKind: "line" as const, objectId })),
+    { type: "SUBMIT" as const },
+  ] : [],
 });
 
 export const createConvertCollinearActor = (contract: ConvertCollinearAction) => createActorFromDefinition(convertCollinearDefinition, contract);

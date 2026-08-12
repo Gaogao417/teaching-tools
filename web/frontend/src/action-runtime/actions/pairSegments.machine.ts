@@ -29,6 +29,10 @@ export const pairSegmentsDefinition = createFormMachineDefinition<PairSegmentsAc
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "pair-segments", version: 1, segmentIds: [...context.lines] }),
   commands: (contract, evidence) => evidence.kind === "pair-segments" ? pairCommands(contract, evidence.segmentIds) : [],
   previewCommands: (context) => pairCommands(context.contract, context.lines),
+  teachingEvents: (contract) => contract.input.expectedOrder?.length ? [
+    ...contract.input.expectedOrder.map((objectId) => ({ type: "OBJECT.SELECTED" as const, objectKind: "line" as const, objectId })),
+    { type: "SUBMIT" as const },
+  ] : [],
 });
 
 export const createPairSegmentsActor = (contract: PairSegmentsAction) => createActorFromDefinition(pairSegmentsDefinition, contract);

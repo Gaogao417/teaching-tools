@@ -25,6 +25,12 @@ export const ratioScratchDefinition = createFormMachineDefinition<RatioScratchAc
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "ratio-scratch", version: 1, segmentIds: [...context.lines], ratio: [context.answers["ratio-first"], context.answers["ratio-second"]] }),
   commands: (contract, evidence) => evidence.kind === "ratio-scratch" ? ratioCommands(contract, evidence.segmentIds, evidence.ratio) : [],
   previewCommands: (context) => ratioCommands(context.contract, context.lines, [context.answers["ratio-first"], context.answers["ratio-second"]]),
+  teachingEvents: (contract) => contract.input.expectedOrder?.length === 2 && contract.input.simplifiedRatio ? [
+    ...contract.input.expectedOrder.map((objectId) => ({ type: "OBJECT.SELECTED" as const, objectKind: "line" as const, objectId })),
+    { type: "ANSWER.CHANGED" as const, slotId: "ratio-first", value: contract.input.simplifiedRatio[0] },
+    { type: "ANSWER.CHANGED" as const, slotId: "ratio-second", value: contract.input.simplifiedRatio[1] },
+    { type: "SUBMIT" as const },
+  ] : [],
 });
 
 export const createRatioScratchActor = (contract: RatioScratchAction) => createActorFromDefinition(ratioScratchDefinition, contract);

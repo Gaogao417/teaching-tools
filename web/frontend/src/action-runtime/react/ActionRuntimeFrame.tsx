@@ -6,17 +6,21 @@ import type {
   CoachAudioInput,
   CoachConversationTurn,
   CoachDirective,
+  CoachVoiceModel,
 } from "../../../../shared/actionRuntime";
 import { api } from "../../api/client";
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
 import { MathText } from "../../components/math/MathText";
 import { buildGeometryModel } from "../../geometry/adapters/topicGeometryModel";
 import type { EntityRef } from "../../geometry/interaction/events";
-import type { InteractionView } from "../../geometry/interaction/interaction-view";
+import type { InteractionView, TransientCanvasEmphasis } from "../../geometry/interaction/interaction-view";
 import { GeometryCanvasSurface } from "../../geometry/react/GeometryCanvas";
 import type { ActionRuntimeEvent } from "../events";
-import type { SolutionBoardView } from "../types";
+import type { SolutionBoardView, TransientEmphasis } from "../types";
+import { getVoiceModel, setVoiceModel } from "../../utils/storage";
 import { useActionPageRuntime } from "./useActionPageRuntime";
+import { useRealtimeCoach } from "./useRealtimeCoach";
+import { useTeacherSpeech } from "./useTeacherSpeech";
 
 interface ActionRuntimeFrameProps {
   response: ActionPlanResponse;
@@ -48,6 +52,27 @@ function recordingMimeType(): string | undefined {
     .find((mimeType) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mimeType));
 }
 
+/** Split transient emphasis into the canvas channel (entities + teaching marks). */
+function canvasEmphasisFrom(emphasis: TransientEmphasis | undefined): TransientCanvasEmphasis | undefined {
+  if (!emphasis) return undefined;
+  const entityIds = emphasis.targets.filter((t) => t.surface === "canvas" && t.kind === "entity").map((t) => t.id);
+  const markIds = emphasis.targets.filter((t) => t.surface === "canvas" && t.kind === "teaching-mark").map((t) => t.id);
+  if (!entityIds.length && !markIds.length) return undefined;
+  return { key: emphasis.key, entityIds, markIds };
+}
+
+export interface SolutionBoardEmphasis {
+  key: string;
+  expressionIds: readonly string[];
+}
+
+/** Split transient emphasis into the SolutionBoard channel (expression ids). */
+function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoardEmphasis | undefined {
+  if (!emphasis) return undefined;
+  const expressionIds = emphasis.targets.filter((t) => t.surface === "solution-board" && t.kind === "expression").map((t) => t.id);
+  return expressionIds.length ? { key: emphasis.key, expressionIds } : undefined;
+}
+
 export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete }: ActionRuntimeFrameProps) {
   const storageKey = `action-runtime-v3:${response.sessionId}:${response.plan.exerciseId}`;
   const localCheckpoint = useMemo(() => {
@@ -75,13 +100,23 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   const recorderStream = useRef<MediaStream | null>(null);
   const recordingStartedAt = useRef(0);
   const recordingTimer = useRef<number | undefined>(undefined);
-  const speechPlayer = useRef<HTMLAudioElement | null>(null);
   const completionNotified = useRef(false);
   const [coachBusy, setCoachBusy] = useState(false);
   const [studentMessage, setStudentMessage] = useState("");
   const [coachThread, setCoachThread] = useState<CoachThreadMessage[]>([]);
   const [recording, setRecording] = useState(false);
-  const [speechUrl, setSpeechUrl] = useState<string>();
+  const [railOpen, setRailOpen] = useState(false);
+  const [coachPreview, setCoachPreview] = useState<{ id: string; latex: string } | null>(null);
+  const [coachUnread, setCoachUnread] = useState(false);
+  const [voiceModel, setVoiceModelState] = useState<CoachVoiceModel>(() => getVoiceModel());
+  const selectVoiceModel = (model: CoachVoiceModel) => {
+    setVoiceModelState(model);
+    setVoiceModel(model);
+  };
+  const teacherSpeech = useTeacherSpeech(snapshot.plan, action);
+  const realtime = useRealtimeCoach();
+  const { speechUrl, speaking, replay: replaySpeech, speak: playSpeechUrl } = teacherSpeech;
+  const lastPreviewId = useRef("");
 
   useEffect(() => {
     if (local) return;
@@ -155,14 +190,46 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     recorderStream.current?.getTracks().forEach((track) => track.stop());
   }, []);
 
+  // Peripheral awareness: while the coach drawer is collapsed, surface each new
+  // piece of guidance as a transient 2-line preview bubble plus a persistent
+  // unread dot on the avatar (cleared only when the student opens the drawer).
+  useEffect(() => {
+    if (railOpen) return;
+    const latex = view.coach.messageLatex;
+    const id = `coach-guidance:${latex}`;
+    if (latex && id !== lastPreviewId.current) {
+      lastPreviewId.current = id;
+      setCoachPreview({ id, latex });
+      setCoachUnread(true);
+    }
+  }, [view.coach.messageLatex, railOpen]);
+
+  useEffect(() => {
+    if (railOpen) return;
+    const last = coachThread[coachThread.length - 1];
+    if (last?.role === "coach" && last.id !== lastPreviewId.current) {
+      lastPreviewId.current = last.id;
+      setCoachPreview({ id: last.id, latex: last.text });
+      setCoachUnread(true);
+    }
+  }, [coachThread, railOpen]);
+
+  // The preview bubble is fleeting (~6s); the unread dot is what persists.
+  useEffect(() => {
+    if (!coachPreview) return;
+    const timer = window.setTimeout(() => setCoachPreview(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [coachPreview]);
+
   const send = (event: ActionRuntimeEvent) => {
     if (!disabled) runtime.send(event);
   };
-  const playSpeech = (url = speechUrl) => {
-    if (!url || !speechPlayer.current) return;
-    speechPlayer.current.src = url;
-    void speechPlayer.current.play().catch(() => undefined);
+  const openCoachRail = () => {
+    setRailOpen(true);
+    setCoachPreview(null);
+    setCoachUnread(false);
   };
+  const closeCoachRail = () => setRailOpen(false);
 
   const askCoach = async (input?: { message?: string; audio?: CoachAudioInput }) => {
     if (coachBusy || !view.controls.canHelp) return;
@@ -191,6 +258,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
         ...(input?.audio ? { studentAudio: input.audio } : {}),
         conversation: previousConversation,
         synthesizeSpeech: true,
+        voiceModel,
       });
       runtime.applyCoach(result.directive);
       setCoachThread((current) => [
@@ -204,8 +272,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
         },
       ]);
       if (result.speech?.audioUrl) {
-        setSpeechUrl(result.speech.audioUrl);
-        window.setTimeout(() => playSpeech(result.speech!.audioUrl), 0);
+        playSpeechUrl(result.speech.audioUrl);
       }
     } catch {
       const failure: CoachDirective = {
@@ -273,6 +340,12 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     }
   };
 
+  // Translate the runtime's transient emphasis into surface-specific channels.
+  // `view.transientEmphasis` is a stable reference between changes, so these
+  // memos only recompute when a new highlight actually arrives.
+  const canvasEmphasis = useMemo(() => canvasEmphasisFrom(view.transientEmphasis), [view.transientEmphasis]);
+  const boardEmphasis = useMemo(() => boardEmphasisFrom(view.transientEmphasis), [view.transientEmphasis]);
+
   const canvasView: InteractionView = {
     prompt: view.instruction,
     entities: Object.fromEntries(Object.values(view.canvas.entities).map((entity) => [entity.id, {
@@ -286,6 +359,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     cursor: view.canvas.cursor === "crosshair" ? "crosshair" : view.canvas.cursor,
     canCancel: view.controls.canCancel,
     canGoBack: view.controls.canBack,
+    emphasis: canvasEmphasis,
     preview: view.canvas.preview?.type === "parallel" && view.canvas.preview.throughPointId && view.canvas.preview.referenceLineId
       ? { type: "parallel-fixed", throughPointId: view.canvas.preview.throughPointId, referenceLineId: view.canvas.preview.referenceLineId }
       : view.canvas.preview?.type === "intersection"
@@ -301,13 +375,32 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     <FocusWorkspace
       ariaLabel="Action 驱动学习工作台"
       className="topic-runtime-frame"
+      railOpen={railOpen}
+      railTrigger={
+        <button
+          type="button"
+          className={`topic-coach-dock-avatar${speaking ? " is-speaking" : ""}`}
+          aria-label={railOpen ? "陪练老师" : "展开陪练老师"}
+          aria-expanded={railOpen}
+          onClick={openCoachRail}
+        >
+          <span className="material-symbols-outlined">{view.coach.avatarId}</span>
+          {coachUnread ? <span className="topic-coach-dock-unread" aria-hidden /> : null}
+          {coachPreview ? (
+            <span className="topic-coach-dock-preview" role="status" aria-live="polite">
+              <MathText value={coachPreview.latex} />
+            </span>
+          ) : null}
+        </button>
+      }
       prompt={<><span>题目</span><div><h1><MathText value={snapshot.plan.metadata.promptLatex} /></h1></div></>}
       rail={
         <aside className={`topic-coach-panel tone-${view.coach.tone}`} aria-label="陪练老师" aria-live="polite">
           <div className="topic-coach-header">
             <span className="topic-coach-avatar material-symbols-outlined">{view.coach.avatarId}</span>
             <div><small>{isTeaching ? "教学拍点" : "当前动作"} {view.progress.current}/{view.progress.total}</small><strong>{snapshot.status === "complete" ? "本题讲解完成" : view.title}</strong></div>
-            <button type="button" className="topic-coach-sound" aria-label="重播老师语音" disabled={!speechUrl} onClick={() => playSpeech()}><span className="material-symbols-outlined">volume_up</span></button>
+            <button type="button" className="topic-coach-sound" aria-label="重播老师语音" disabled={!speechUrl} onClick={() => replaySpeech()}><span className="material-symbols-outlined">volume_up</span></button>
+            <button type="button" className="topic-coach-close" aria-label="收起指导栏" onClick={closeCoachRail}><span className="material-symbols-outlined">right_panel_close</span></button>
           </div>
           <div className="topic-coach-bubble"><MathText value={view.coach.messageLatex} block /></div>
           {coachThread.length ? <div className="topic-coach-thread" aria-label="答疑对话">{coachThread.map((turn) => (
@@ -316,15 +409,24 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
               {turn.role === "coach" ? <MathText value={turn.text} /> : <p>{turn.text}</p>}
             </div>
           ))}</div> : null}
+          {view.controls.canHelp ? <div className="topic-coach-voice" role="group" aria-label="语音模型">
+            <button type="button" className={`topic-coach-voice-option${voiceModel === "omni" ? " is-active" : ""}`} aria-pressed={voiceModel === "omni"} disabled={coachBusy} onClick={() => selectVoiceModel("omni")}>Omni</button>
+            <button type="button" className={`topic-coach-voice-option${voiceModel === "cosyvoice" ? " is-active" : ""}`} aria-pressed={voiceModel === "cosyvoice"} disabled={coachBusy} onClick={() => selectVoiceModel("cosyvoice")}>CosyVoice</button>
+          </div> : null}
+          {view.controls.canHelp ? <div className="topic-coach-realtime">
+            <button type="button" className={`btn ${realtime.active ? "btn-secondary" : "btn-primary"} topic-coach-realtime-toggle${realtime.active ? " is-active" : ""}`} disabled={realtime.connecting} aria-pressed={realtime.active} onClick={() => { if (realtime.active) realtime.stop(); else void realtime.start({ sessionId: local ? undefined : response.sessionId, taskId: local ? snapshot.plan.metadata.taskId : undefined, exerciseId: snapshot.plan.exerciseId }); }}><span className="material-symbols-outlined">{realtime.active ? "call_end" : "forum"}</span>{realtime.connecting ? "连接中…" : realtime.active ? "结束对话" : "实时对话"}</button>
+            {realtime.active || realtime.transcript.length ? <div className="topic-coach-realtime-transcript" aria-live="polite">{realtime.transcript.map((item) => <div key={item.id} className={`topic-coach-turn is-${item.role}`}><small>{item.role === "student" ? "学生" : "老师"}</small><p>{item.text}</p></div>)}</div> : null}
+            {realtime.active ? <p className="topic-coach-recording" role="status"><span />实时通话中，直接说话即可，说完会自动回答</p> : null}
+            {realtime.error ? <p className="topic-coach-recording" role="alert">{realtime.error}</p> : null}
+          </div> : null}
           {view.controls.canHelp ? <div className="topic-coach-composer">
-            <label className="topic-coach-question"><span className="sr-only">向老师提问</span><input value={studentMessage} placeholder="文字或语音问老师" disabled={coachBusy || recording} onKeyDown={(event) => { if (event.key === "Enter") void askCoach(); }} onChange={(event) => setStudentMessage(event.target.value)} /></label>
-            <button type="button" className={`topic-coach-mic${recording ? " is-recording" : ""}`} aria-label={recording ? "结束录音" : "语音提问"} disabled={coachBusy} onClick={() => void toggleRecording()}><span className="material-symbols-outlined">{recording ? "stop_circle" : "mic"}</span></button>
-            <button type="button" className="topic-coach-send" aria-label="发送问题" disabled={coachBusy || recording || !studentMessage.trim()} onClick={() => void askCoach()}><span className="material-symbols-outlined">send</span></button>
+            <label className="topic-coach-question"><span className="sr-only">向老师提问</span><input value={studentMessage} placeholder="文字或语音问老师" disabled={coachBusy || recording || realtime.active} onKeyDown={(event) => { if (event.key === "Enter") void askCoach(); }} onChange={(event) => setStudentMessage(event.target.value)} /></label>
+            <button type="button" className={`topic-coach-mic${recording ? " is-recording" : ""}`} aria-label={recording ? "结束录音" : "语音提问"} disabled={coachBusy || realtime.active} onClick={() => void toggleRecording()}><span className="material-symbols-outlined">{recording ? "stop_circle" : "mic"}</span></button>
+            <button type="button" className="topic-coach-send" aria-label="发送问题" disabled={coachBusy || recording || realtime.active || !studentMessage.trim()} onClick={() => void askCoach()}><span className="material-symbols-outlined">send</span></button>
           </div> : null}
           {recording ? <p className="topic-coach-recording" role="status"><span />正在听，点停止后发送（最长 45 秒）</p> : null}
           {coachBusy ? <p className="topic-coach-thinking" role="status">老师正在结合当前解题状态回答…</p> : null}
           {view.coach.agentCommand && snapshot.plan.mode === "guided-practice" ? <button type="button" className="btn btn-secondary" onClick={() => runtime.applyAgentCommand(view.coach.agentCommand!, true)}>确认执行老师建议</button> : null}
-          <audio ref={speechPlayer} preload="none" />
         </aside>
       }
       actionBarLeft={isTeaching
@@ -355,45 +457,80 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
             {model ? <GeometryCanvasSurface model={model} view={canvasView} onClickEntity={clickEntity} modelVersion={snapshot.revision + snapshot.world.commandBatches.length} /> : view.canvas.diagramAsset ? <img src={view.canvas.diagramAsset} alt="题目图形" /> : null}
           </section>
         </div>
-        {view.solutionBoard ? <SolutionBoardPanel board={view.solutionBoard} /> : null}
+        {view.solutionBoard ? <SolutionBoardPanel board={view.solutionBoard} emphasis={boardEmphasis} /> : null}
       </div>
     </FocusWorkspace>
   );
 }
 
-export function SolutionBoardPanel({ board }: { board: SolutionBoardView }) {
+// Color-only highlight (no scale) so the board layout never shifts. The reduced
+// motion variant is shorter and gentler; both avoid movement entirely.
+const BOARD_EMPHASIS_KEYFRAMES: Keyframe[] = [
+  { backgroundColor: "rgba(24,183,183,0)", boxShadow: "0 0 0 0 rgba(24,183,183,0)" },
+  { backgroundColor: "rgba(24,183,183,0.16)", boxShadow: "0 0 0 3px rgba(24,183,183,0.5)", offset: 0.4 },
+  { backgroundColor: "rgba(24,183,183,0)", boxShadow: "0 0 0 0 rgba(24,183,183,0)" },
+];
+const BOARD_EMPHASIS_KEYFRAMES_REDUCED: Keyframe[] = [
+  { backgroundColor: "rgba(24,183,183,0)" },
+  { backgroundColor: "rgba(24,183,183,0.12)" },
+  { backgroundColor: "rgba(24,183,183,0)" },
+];
+
+export function SolutionBoardPanel({ board, emphasis }: { board: SolutionBoardView; emphasis?: SolutionBoardEmphasis }) {
   const currentRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const userScrolled = useRef(false);
   const previousCount = useRef(board.visibleExpressions.length);
-  const heading = board.headingLatex.startsWith("\\") && !board.headingLatex.includes("$")
-    ? `$${board.headingLatex}$`
-    : board.headingLatex;
   useEffect(() => {
     if (board.visibleExpressions.length !== previousCount.current && !userScrolled.current) {
       currentRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
     previousCount.current = board.visibleExpressions.length;
   }, [board.visibleExpressions.length, board.currentExpressionId]);
+
+  // Play the highlight once per NEW emphasis key. The effect depends only on
+  // emphasis.key, so an ordinary re-render with the same key never restarts the
+  // animation; a new key (next accepted expression) plays it again. The existing
+  // isCurrent/isComplete semantics stay untouched — emphasis is a separate signal.
+  useEffect(() => {
+    if (!emphasis || !containerRef.current) return;
+    const reduce = typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      : false;
+    for (const id of emphasis.expressionIds) {
+      const node = containerRef.current.querySelector<HTMLElement>(`[data-expression-id="${id}"]`);
+      if (!node || typeof node.animate !== "function") continue;
+      node.animate(reduce ? BOARD_EMPHASIS_KEYFRAMES_REDUCED : BOARD_EMPHASIS_KEYFRAMES, {
+        duration: reduce ? 500 : 900,
+        easing: "ease-out",
+      });
+    }
+  }, [emphasis?.key]);
+
+  const emphasized = emphasis ? new Set(emphasis.expressionIds) : undefined;
   return (
     <section
       className="topic-answer-panel solution-board-panel"
-      aria-labelledby="solution-board-title"
+      aria-label="解题过程"
       onWheel={() => { userScrolled.current = true; }}
       onTouchMove={() => { userScrolled.current = true; }}
     >
-      <h2 id="solution-board-title"><MathText value={heading} /></h2>
-      <div className="solution-board-document">
-        {board.visibleExpressions.map((expression) => (
-          <div
-            key={expression.expressionId}
-            ref={expression.isCurrent ? currentRef : undefined}
-            className={`solution-board-line${expression.isCurrent ? " is-current" : ""}${expression.isComplete ? " is-complete" : ""}`}
-            data-expression-id={expression.expressionId}
-            data-source-step-id={expression.sourceStepId}
-          >
-            <MathText value={expression.latex} block />
-          </div>
-        ))}
+      <div className="solution-board-document" ref={containerRef}>
+        {board.visibleExpressions.map((expression) => {
+          const hasEmphasis = Boolean(emphasized?.has(expression.expressionId));
+          return (
+            <div
+              key={expression.expressionId}
+              ref={expression.isCurrent ? currentRef : undefined}
+              className={`solution-board-line${expression.isCurrent ? " is-current" : ""}${expression.isComplete ? " is-complete" : ""}${hasEmphasis ? " is-emphasis" : ""}`}
+              data-expression-id={expression.expressionId}
+              data-source-step-id={expression.sourceStepId}
+              data-emphasis-key={hasEmphasis ? emphasis?.key : undefined}
+            >
+              <MathText value={expression.latex} block />
+            </div>
+          );
+        })}
       </div>
       <span className="sr-only" aria-live="polite">{board.announcement}</span>
     </section>
