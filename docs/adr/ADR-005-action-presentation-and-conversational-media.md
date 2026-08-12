@@ -2,7 +2,19 @@
 
 ## Status
 
-Implemented（兼容窗口内）· 2026-08-12
+Accepted（remediation in progress）· 2026-08-12
+
+> 2026-08-12 ADR 一致性审核将本 ADR 由 Implemented 下调为 remediation in progress。主路径（deterministic
+> narration、turn/live coach transport、MediaSession playback 仲裁）可运行，但以下条款尚未完全落实：
+>
+> - backend hexagonal boundary 未完成：TTS 已有 port，Text/ASR/Realtime 仍直接耦合 provider，turn/live 未共享
+>   context builder 与 mode policy（§Layer Responsibilities、§Backend effect ports）；
+> - voice observability 不足：缺 provider connected、LLM first text、TTS first audio、usage/cost 与聚合 timeline
+>   （§Observability Contract）；
+> - MediaSession 仅仲裁 playback，未仲裁 capture：turn recorder 与 live 可并发持有麦克风（§Exclusive media session）；
+> - `ActionRuntimeFrame` 仍直接持有 coach 编排，未退回纯 presentation（§Layer Responsibilities）。
+>
+> 以上由并行 voice remediation（coach omni-chain）跟踪；只有门禁真实通过后才重新标记 Implemented。
 
 本 ADR 承接 [ADR-004](./ADR-004-frontend-action-runtime.md)。媒体分层本身不决定 Action Runtime 的
 判题和持久化策略；Learn / Practice / Assessment 的判定边界以后续

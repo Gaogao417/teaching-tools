@@ -2,7 +2,20 @@
 
 ## Status
 
-Implemented（旧 server-authoritative session 继续按 pinned policy 兼容）· 2026-08-12
+Accepted（remediation in progress）· 2026-08-12
+
+> 2026-08-12 ADR 一致性审核将本 ADR 由 Implemented 下调为 remediation in progress。主路径（local-training
+> 判定策略、本地推进、持久 queue、result ingest 不重判数学正确性）可运行，但以下条款尚未完全落实：
+>
+> - `trainingGuard.ts` 不存在：候选 outcome 仍在 `pageRuntime` 按执行后 snapshot 猜测，且无 `IgnoredIllegal`
+>   分类（§Module Responsibilities、§Local attempt and completion）；
+> - `actionTimer.ts` 不存在：用 `Date.now()` 墙钟差，缺单调时钟、visibility 暂停、active segments 与 BACK
+>   重入续计，违反 §Metrics Semantics 计时契约；
+> - `hitTestable` / `candidate` / `advanceEnabled` 三字段同值（= `enabled`），三层语义未实现（§Module Responsibilities）；
+> - metrics contract 不完整：缺 back/clear/hint/coach 分别计数、UTC start/completion、active duration segments
+>   与 `errorDistribution(actionStateBefore, candidate)`（§Metrics Semantics）。
+>
+> 以上由 Training remediation 分支跟踪；只有门禁真实通过后才重新标记 Implemented。
 
 本 ADR 覆盖 [ADR-004](./ADR-004-frontend-action-runtime.md) 中“Guided Practice 使用
 `ServerAuthoritative`”以及“backend 对 Practice 每个 Action 做数学判定”的旧边界。ADR-004 的
