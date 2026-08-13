@@ -17,6 +17,10 @@ import type { UsageSummary } from "./TextCoachEngine";
 /** The voice flow a correlation belongs to. */
 export type VoiceFlowKind = "turn" | "live" | "narration";
 
+/** Where deterministic narration audio was resolved. Provider means a real
+ * synthesis call occurred; memory/persistent are application cache hits. */
+export type NarrationArtifactSource = "memory" | "persistent" | "provider";
+
 /** Browser-reported playback stages (mirrors the provider-neutral
  *  `VoiceTelemetryEvent.stage` union from shared/coachMedia.ts). */
 export type BrowserPlaybackStage =
@@ -43,6 +47,15 @@ export interface VoiceCorrelationTimeline {
   llmFirstTextAt?: number;
   firstSpokenSegmentAt?: number;
   ttsFirstAudioAt?: number;
+  /** Deterministic narration cache/provider attribution. These fields are
+   * intentionally absent for turn/live flows. Durations use a monotonic clock
+   * inside the server process and therefore remain valid across clock skew. */
+  narrationArtifactSource?: NarrationArtifactSource;
+  memoryCacheLookupMs?: number;
+  persistentCacheLookupMs?: number;
+  singleFlightWaitMs?: number;
+  providerSynthesisMs?: number;
+  artifactBytes?: number;
   /** Browser first-audio moment (ADR-005 DoD: "browser first audio 可度量且关联服务端阶段"). */
   browserFirstAudioAt?: number;
   browserAutoplayBlocked?: boolean;
@@ -80,6 +93,12 @@ export interface ServerTimelineUpdate {
   llmFirstTextAt?: number;
   firstSpokenSegmentAt?: number;
   ttsFirstAudioAt?: number;
+  narrationArtifactSource?: NarrationArtifactSource;
+  memoryCacheLookupMs?: number;
+  persistentCacheLookupMs?: number;
+  singleFlightWaitMs?: number;
+  providerSynthesisMs?: number;
+  artifactBytes?: number;
   completedAt?: number;
   cancelledAt?: number;
   failedAt?: number;

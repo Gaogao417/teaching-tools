@@ -278,9 +278,10 @@ export function createApp() {
     }
   });
 
-  // Stateless direct TTS for deterministic teacher copy. Synthesized by
-  // CosyVoice via the shared LaTeX→spoken transform; never invokes the AI coach
-  // and stores no audio on disk (audio is returned inline as a data URL).
+  // Direct TTS for deterministic teacher copy. Synthesized by CosyVoice via the
+  // shared LaTeX→spoken transform; never invokes the AI coach. Completed audio
+  // is resolved through the narration L1/L2 artifact cache while this legacy
+  // response remains an inline data URL for browser-contract compatibility.
   app.post("/api/action-speech", async (req, res, next) => {
     const abort = new AbortController();
     res.on("close", () => { if (!res.writableEnded) abort.abort(); });

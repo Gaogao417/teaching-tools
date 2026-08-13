@@ -1,4 +1,6 @@
+import path from "node:path";
 import { CosyVoiceSpeechSynthesizer } from "./adapters/CosyVoiceSpeechSynthesizer";
+import { FileSystemSpeechArtifactStore } from "./adapters/FileSystemSpeechArtifactStore";
 import { ClaudeCodeTextCoachEngine } from "./adapters/ClaudeCodeTextCoachEngine";
 import { DashScopeRealtimeVoiceAdapter } from "./adapters/DashScopeRealtimeVoiceAdapter";
 import { QwenSpeechRecognizer } from "./adapters/QwenSpeechRecognizer";
@@ -28,7 +30,24 @@ const modePolicy = coachModePolicy;
  *  Contract). Provider/model names are stored server-side only. */
 export const telemetrySink: TelemetrySink = new InMemoryTelemetrySink();
 
-export const narrationApplication = new NarrationApplication(speechSynthesizer, 128, telemetrySink);
+function speechArtifactStore(): FileSystemSpeechArtifactStore | undefined {
+  const configured = process.env.ACTION_SPEECH_CACHE_DIR;
+  // Unset enables the safe local default. An explicitly empty value, `off`,
+  // `none`, or `disabled` preserves the old in-memory-only behavior.
+  if (configured !== undefined) {
+    const value = configured.trim();
+    if (!value || ["off", "none", "disabled"].includes(value.toLowerCase())) return undefined;
+    return new FileSystemSpeechArtifactStore(path.resolve(value));
+  }
+  return new FileSystemSpeechArtifactStore(path.resolve(process.cwd(), ".cache", "action-speech"));
+}
+
+export const narrationApplication = new NarrationApplication(
+  speechSynthesizer,
+  128,
+  telemetrySink,
+  speechArtifactStore(),
+);
 
 export const coachTurnApplication = new CoachTurnApplication({
   text: new ClaudeCodeTextCoachEngine(),

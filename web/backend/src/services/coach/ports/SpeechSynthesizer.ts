@@ -5,6 +5,16 @@ export interface SynthesizedSpeech {
   audioUrl: string;
 }
 
+/** Every output-affecting setting that participates in deterministic cache identity. */
+export interface SpeechSynthesisIdentity {
+  profileVersion: string;
+  provider: string;
+  model: string;
+  voice: string;
+  format: string;
+  sampleRate: number;
+}
+
 export type SpeechEvent =
   | { type: "speech-started"; segmentId: string; mimeType: string }
   | { type: "audio-delta"; segmentId: string; bytes: Buffer }
@@ -17,6 +27,13 @@ export class SpeechError extends Error {
 }
 
 export interface SpeechSynthesizer {
+  /**
+   * Stable output identity for deterministic narration caching. Optional for
+   * test doubles and non-cacheable implementations; omitted fields are mapped
+   * to conservative, versioned defaults rather than sharing provider output.
+   */
+  readonly cacheIdentity?: SpeechSynthesisIdentity;
+
   /** Whole-utterance synthesis used by deterministic narration. Optional audio
    *  chunks are surfaced through the callback so a caller can forward them, but
    *  the returned promise only resolves once the provider task is finished. */

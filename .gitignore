@@ -5,3 +5,7 @@ wxapp/project.private.config.json
 .zcode/
 __pycache__/
 *.pyc
+**/.cache/action-speech/
+**/benchmark-results/voice/
+# Reproducible voice-benchmark mic fixtures (regenerate via benchmarks/voice/fixtures/generate.sh).
+web/frontend/benchmarks/voice/fixtures/generated/

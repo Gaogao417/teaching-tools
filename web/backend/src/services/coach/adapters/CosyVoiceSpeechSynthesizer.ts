@@ -1,5 +1,5 @@
 import { synthesizeCosyVoice } from "../cosyVoiceService";
-import type { SpeechEvent, SpeechSynthesizer, SynthesizedSpeech } from "../ports/SpeechSynthesizer";
+import type { SpeechEvent, SpeechSynthesizer, SpeechSynthesisIdentity, SynthesizedSpeech } from "../ports/SpeechSynthesizer";
 import { SpeechError } from "../ports/SpeechSynthesizer";
 import type { Result, EventStream } from "../ports/TextCoachEngine";
 import type { SpokenSegment } from "../../../../../shared/coachMedia";
@@ -8,6 +8,17 @@ import { AsyncQueue } from "../application/asyncQueue";
 const MIME_TYPE = "audio/mpeg";
 
 export class CosyVoiceSpeechSynthesizer implements SpeechSynthesizer {
+  get cacheIdentity(): SpeechSynthesisIdentity {
+    return {
+      profileVersion: "teacher-zh-v1",
+      provider: "dashscope",
+      model: process.env.COACH_COSY_MODEL?.trim() || "cosyvoice-v3-plus",
+      voice: process.env.COACH_COSY_VOICE?.trim() || "longanyang",
+      format: "mp3",
+      sampleRate: 22_050,
+    };
+  }
+
   synthesize(text: string, signal?: AbortSignal, onAudioChunk?: (chunk: Buffer) => void): Promise<SynthesizedSpeech> {
     return synthesizeCosyVoice(text, signal, onAudioChunk);
   }
