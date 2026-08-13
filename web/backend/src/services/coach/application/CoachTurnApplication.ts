@@ -89,8 +89,8 @@ export class CoachTurnApplication {
     const textInput = modelInput(plan, request, studentQuestion);
     const correlationId = crypto.randomUUID();
     const sessionId = request.context.kind === "practice" ? request.context.sessionId : `learn:${request.context.taskId}`;
-    const provider = "claude-code";
-    const model = process.env.COACH_CLAUDE_MODEL?.trim() || "glm-5.2";
+    const provider = this.deps.text.telemetryIdentity?.provider;
+    const model = this.deps.text.telemetryIdentity?.model;
     const telemetry = new CoachTurnTelemetry(correlationId, sessionId, plan.mode, provider, model, this.deps.sink);
 
     const queue = new AsyncQueue<CoachTurnEvent>();

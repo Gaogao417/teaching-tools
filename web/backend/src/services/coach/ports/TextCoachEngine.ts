@@ -52,6 +52,10 @@ export class TextGenerationError extends Error {
 }
 
 export interface TextCoachEngine {
+  /** Server-only observability identity. The contract stays provider-neutral;
+   *  concrete values are supplied by the bound adapter and never reach the browser. */
+  readonly telemetryIdentity?: { provider: string; model: string };
+
   /**
    * Stream the coach's spoken reply as incremental text deltas. The adapter
    * must emit real `text-delta` events as tokens arrive from the provider — it

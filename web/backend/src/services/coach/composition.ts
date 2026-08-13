@@ -1,7 +1,6 @@
 import path from "node:path";
 import { CosyVoiceSpeechSynthesizer } from "./adapters/CosyVoiceSpeechSynthesizer";
 import { FileSystemSpeechArtifactStore } from "./adapters/FileSystemSpeechArtifactStore";
-import { ClaudeCodeTextCoachEngine } from "./adapters/ClaudeCodeTextCoachEngine";
 import { DashScopeRealtimeVoiceAdapter } from "./adapters/DashScopeRealtimeVoiceAdapter";
 import { QwenSpeechRecognizer } from "./adapters/QwenSpeechRecognizer";
 import { InMemoryTelemetrySink } from "./adapters/InMemoryTelemetrySink";
@@ -11,6 +10,7 @@ import { LiveCoachApplication } from "./application/LiveCoachApplication";
 import { SegmentPolicy } from "./application/SegmentPolicy";
 import { coachModePolicy } from "./application/coachModePolicy";
 import type { TelemetrySink } from "./ports/TelemetrySink";
+import { createTextCoachEngine } from "./textCoachEngineFactory";
 
 /**
  * Composition root for the coach services. Concrete providers are chosen here
@@ -50,7 +50,7 @@ export const narrationApplication = new NarrationApplication(
 );
 
 export const coachTurnApplication = new CoachTurnApplication({
-  text: new ClaudeCodeTextCoachEngine(),
+  text: createTextCoachEngine(),
   speech: speechSynthesizer,
   policy: new SegmentPolicy(),
   recognizer: new QwenSpeechRecognizer(),

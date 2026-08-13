@@ -10,6 +10,7 @@ import { SpeechError } from "../ports/SpeechSynthesizer";
 import type { AudioInput, SpeechRecognizer } from "../ports/SpeechRecognizer";
 import type { CoachTurnRequest } from "../../../../../shared/actionRuntime";
 import { getLearningActionPlan } from "../../learningService";
+import { InMemoryTelemetrySink } from "../adapters/InMemoryTelemetrySink";
 
 class FakeRecognizer implements SpeechRecognizer {
   async transcribe(_audio: AudioInput): Promise<{ ok: true; value: { transcript: string } }> {
@@ -21,6 +22,7 @@ type TextStreamResult = Result<EventStream<TextGenerationEvent>, TextGenerationE
 
 class FakeTextEngine implements TextCoachEngine {
   readonly queue = new AsyncQueue<TextGenerationEvent>();
+  readonly telemetryIdentity = { provider: "fake-direct-api", model: "fake-fast-model" };
   streamReply(_input: TextCoachInput, _signal: AbortSignal): Promise<TextStreamResult> {
     return Promise.resolve({ ok: true, value: this.queue });
   }
@@ -85,7 +87,8 @@ async function main(): Promise<void> {
   {
     const text = new FakeTextEngine();
     const speech = new FakeSpeech();
-    const app = new CoachTurnApplication({ text, speech, policy: new SegmentPolicy(), recognizer: new FakeRecognizer() });
+    const sink = new InMemoryTelemetrySink();
+    const app = new CoachTurnApplication({ text, speech, policy: new SegmentPolicy(), recognizer: new FakeRecognizer(), sink });
     const controller = new AbortController();
 
     const result = await app.start(buildLearnRequest(), controller.signal);
@@ -118,6 +121,9 @@ async function main(): Promise<void> {
     const segmentOrder = events.filter((event) => event.type === "turn.segment.started")
       .map((event) => (event as Extract<CoachTurnEvent, { type: "turn.segment.started" }>).segment.segmentId);
     assert.deepEqual(segmentOrder, [...new Set(segmentOrder)], "segment ids are unique and ordered");
+    const correlationId = events[0].correlationId;
+    assert.equal(sink.getTimeline(correlationId)?.provider, "fake-direct-api", "telemetry uses the bound adapter identity");
+    assert.equal(sink.getTimeline(correlationId)?.model, "fake-fast-model", "telemetry no longer hard-codes Claude/GLM");
   }
 
   // 2. Cancellation emits no further transcript/audio/directive events.

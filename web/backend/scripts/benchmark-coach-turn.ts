@@ -11,7 +11,7 @@
  * generated segment.
  *
  * This makes REAL provider calls (Claude Code + CosyVoice). It needs the same
- * environment as the backend (DASHSCOPE_API_KEY, Claude Code auth). It never
+ * environment as the backend (DASHSCOPE_API_KEY, DEEPSEEK_API_KEY). It never
  * fabricates timings: a provider failure is reported as a failed run, not a zero.
  *
  *   tsx scripts/benchmark-coach-turn.ts                  # warm(5) + cold(3), both modes

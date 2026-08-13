@@ -8,12 +8,12 @@ import type {
 import { latexToSpokenChinese } from "../../../../shared/speechText";
 import { getLearningActionPlan } from "../learningService";
 import { askActionRuntimeCoach, getActionRuntimePlan } from "../runtime/platform/sessionRuntimeService";
-import { askClaudeCodeCoach } from "./claudeCodeCoachService";
 import { transcribeStudentAudio } from "./qwenSpeechService";
 import { conductOmniCoach } from "./omniCoachService";
 import { synthesizeCosyVoice } from "./cosyVoiceService";
 import type { TextCoachInput } from "./ports/TextCoachEngine";
 import { buildCoachContext } from "./application/coachContextBuilder";
+import { generateTextCoachReply } from "./textCoachEngineFactory";
 
 /**
  * Normalize display LaTeX into plain spoken Chinese for TTS. Delegates to the
@@ -25,7 +25,8 @@ const plainSpeech = latexToSpokenChinese;
 /**
  * Server default for the speech backend, used when a request omits voiceModel.
  * "omni" = single Qwen3.5-Omni call (listens and replies with natural speech);
- * "cosyvoice" = Claude/GLM answer spoken by CosyVoice-v3-plus (the default).
+ * "cosyvoice" = streaming text-provider answer spoken by CosyVoice-v3-plus
+ * (the default).
  */
 const ANSWER_PROVIDER = (process.env.COACH_ANSWER_PROVIDER || "cosyvoice").trim();
 
@@ -197,13 +198,13 @@ export async function conductCoachTurn(request: CoachTurnRequest): Promise<Coach
 
   let directive = fallback;
   try {
-    const generated = await askClaudeCodeCoach(modelInput(plan, request, studentQuestion));
+    const generated = await generateTextCoachReply(modelInput(plan, request, studentQuestion));
     directive = {
       ...fallback,
       directiveId: crypto.randomUUID(),
-      messageLatex: generated.messageLatex,
-      spokenText: generated.spokenText,
-      tone: generated.tone,
+      messageLatex: generated.text,
+      spokenText: generated.text,
+      tone: "explain",
     };
   } catch {
     directive = { ...fallback, spokenText: fallback.spokenText || plainSpeech(fallback.messageLatex) };
