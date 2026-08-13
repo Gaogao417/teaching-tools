@@ -414,7 +414,8 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
 // motion variant is shorter and gentler; both avoid movement entirely.
 const BOARD_EMPHASIS_KEYFRAMES: Keyframe[] = [
   { backgroundColor: "rgba(24,183,183,0)", boxShadow: "0 0 0 0 rgba(24,183,183,0)" },
-  { backgroundColor: "rgba(24,183,183,0.16)", boxShadow: "0 0 0 3px rgba(24,183,183,0.5)", offset: 0.4 },
+  { backgroundColor: "rgba(24,183,183,0.24)", boxShadow: "0 0 0 4px rgba(24,183,183,0.58)", offset: 0.35 },
+  { backgroundColor: "rgba(24,183,183,0.14)", boxShadow: "0 0 0 2px rgba(24,183,183,0.32)", offset: 0.68 },
   { backgroundColor: "rgba(24,183,183,0)", boxShadow: "0 0 0 0 rgba(24,183,183,0)" },
 ];
 const BOARD_EMPHASIS_KEYFRAMES_REDUCED: Keyframe[] = [
@@ -448,7 +449,7 @@ export function SolutionBoardPanel({ board, emphasis }: { board: SolutionBoardVi
       const node = containerRef.current.querySelector<HTMLElement>(`[data-expression-id="${id}"]`);
       if (!node || typeof node.animate !== "function") continue;
       node.animate(reduce ? BOARD_EMPHASIS_KEYFRAMES_REDUCED : BOARD_EMPHASIS_KEYFRAMES, {
-        duration: reduce ? 500 : 900,
+        duration: reduce ? 650 : 1100,
         easing: "ease-out",
       });
     }
