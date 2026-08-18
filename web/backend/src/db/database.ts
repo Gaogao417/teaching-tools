@@ -218,6 +218,37 @@ db.exec(`
     updated_at TEXT NOT NULL,
     PRIMARY KEY(student_name, node_id)
   );
+
+  -- Phase 1 / P1-07：TutorSession event spine（append-only，ADR-002 §4）。
+  -- tutor_session_events 只允许 INSERT/SELECT；没有 UPDATE/DELETE 路径
+  -- （由 src/services/evidence/tutorSessionEventStore.ts 保证并测试）。
+  CREATE TABLE IF NOT EXISTS tutor_sessions (
+    session_id TEXT PRIMARY KEY,
+    student_id TEXT NOT NULL,
+    plan_artifact_id TEXT NOT NULL,
+    plan_version TEXT NOT NULL,
+    plan_content_hash TEXT NOT NULL,
+    current_mode TEXT NOT NULL DEFAULT 'teach',
+    revision INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    completed_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS tutor_session_events (
+    session_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    recorded_revision INTEGER NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, sequence),
+    FOREIGN KEY(session_id) REFERENCES tutor_sessions(session_id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_tutor_session_events_session
+    ON tutor_session_events(session_id, sequence);
 `);
 
 const sessionColumns = db.prepare("PRAGMA table_info(practice_sessions)").all() as Array<{ name: string }>;

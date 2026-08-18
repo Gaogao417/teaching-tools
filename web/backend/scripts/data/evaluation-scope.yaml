@@ -1,0 +1,82 @@
+# Phase 0 / P0-07 — Evaluation Scope 冻结：两个 SUT 与 20-case 分布
+# 依据：两仓当前实际可用的 provider/harness（代码核实，见 baseline-manifest）。
+# SUT 完整性硬规则：只换 model name 不换 harness 的运行不构成 SUT 对比；
+# 每次 Run 必须记录 model/params/harness/prompt/workflow/compiler/code SHA/dirty
+# state/environment/token usage/price table version（10 号计划 §12）。
+
+schema: ai_teaching_evaluation_scope/v1
+frozen_at: "2026-08-18"
+owner: Evaluation（Platform + Runtime 共担）
+dataset_id: similarity-mvp-benchmark-v1
+
+suts:
+
+  sut-a:
+    sut_id: sut-a-claudecode-glm52-qwen
+    label: 当前推荐 production stack
+    components:
+      intake_ocr: { provider: dashscope-qwen, model: qwen3.5-ocr, harness: skills question_transcription workflow }
+      asr:        { provider: dashscope-qwen, model: qwen3-asr-flash }
+      polish:     { provider: dashscope-qwen, model: qwen-plus }
+      tutor_coach: { provider: claude-code-harness, model: glm-5.2, engine: ClaudeCodeTextCoachEngine（流式） }
+      realtime_voice: { provider: dashscope-qwen, model: qwen3.5-omni-plus-realtime, note: live 不阻塞 MVP，scripted 先行 }
+      tts: { provider: dashscope-qwen, note: 现有 MediaSession TTS 管线，两 SUT 共享 }
+    code_baseline:
+      teaching_skills: b0a2e4ad + diff 8657ee77…
+      teaching-tools: 3e744e6 + diff 571cacbf…
+
+  sut-b:
+    sut_id: sut-b-deepseek-direct-mimo
+    label: 替代 model/harness stack
+    components:
+      intake_ocr: { provider: mimo-direct-api, model: mimo-v2.5, harness: skills workflow adapters/page_text/mimo.py }
+      asr:        { provider: dashscope-qwen, model: qwen3-asr-flash, note: 与 SUT-A 共享（语音基建非对比维度） }
+      polish:     { provider: opencode-harness, model: glm-5.2 }
+      tutor_coach: { provider: deepseek-direct-api, model: deepseek-v4-flash, engine: DeepSeekTextCoachEngine（流式） }
+      realtime_voice: { status: not_executed, note: MVP 仅 SUT-A 跑 live；SUT-B realtime 标 Not Executed，不阻塞 }
+      tts: { provider: dashscope-qwen, note: 共享 }
+    code_baseline: 同 sut-a 记录规则，Run 时按实际 checkout 记录
+    constraints:
+      - SUT-B 的差异必须覆盖至少 3 个决策层（intake OCR、polish、coach），已满足；
+      - deterministic 阶段（TutorPlan 编译、validators）两 SUT 输出必须 bit-level 一致，差异即 bug。
+
+case_distribution:   # 总计 20，五阶段全覆盖；分布沿用 10 号计划 §12
+  content_intake: 4
+  question_truth: 4
+  teaching_approach: 4
+  tutor_plan: 3
+  realtime_tutor: 5
+
+cases:
+
+  - { case_id: C-INT-01, stage: intake, target: 原生 DOCX 边界（跨页题、公式与图分离）, source: pack-A 闵行 Q18/Q23 区域, sut_slice: A+B, evaluator: deterministic（candidate 字段+页锚点） }
+  - { case_id: C-INT-02, stage: intake, target: 扫描页 OCR（低清解答页、表格公式）, source: pack-B 黄浦 006/007 区域, sut_slice: A+B, evaluator: deterministic + 字段抽样 }
+  - { case_id: C-INT-03, stage: intake, target: 图文归属（题图配对不被编辑破坏）, source: 两包含图题各 1, sut_slice: A, evaluator: deterministic（attribution 字段） }
+  - { case_id: C-INT-04, stage: intake, target: 失败降级（页缺失/hash 漂移时 fail closed 不产出假 candidate）, source: 构造自 pack-B 页 hash 篡改, sut_slice: A, evaluator: deterministic（期望=拒绝） }
+  - { case_id: C-TRU-01, stage: truth, target: 数学答案真值（数值型含根式/范围）, golden: QT-SMV-001, sut_slice: A, evaluator: deterministic（答案等价判定） }
+  - { case_id: C-TRU-02, stage: truth, target: 来源一致性（Truth 与原页逐字核对）, golden: QT-SMV-004, sut_slice: A, evaluator: deterministic + 抽样人审 }
+  - { case_id: C-TRU-03, stage: truth, target: 小问结构（3 小问拆分与分值）, golden: QT-SMV-003, sut_slice: A, evaluator: deterministic（结构 schema） }
+  - { case_id: C-TRU-04, stage: truth, target: hash 漂移拒绝 promote（不可变版本门禁）, golden: QT-SMV-005 前置, sut_slice: A, evaluator: deterministic（期望=拒绝+stale） }
+  - { case_id: C-APP-01, stage: approach, target: 教师意图 fidelity（讲解是否照录音不越界）, golden: QT-SMV-005, sut_slice: A+B, evaluator: rubric（LLM 初筛+人审复核） }
+  - { case_id: C-APP-02, stage: approach, target: 数学事实不被润色改写, golden: QT-SMV-002, sut_slice: A+B, evaluator: deterministic（数值/相似式抽取比对） }
+  - { case_id: C-APP-03, stage: approach, target: TeachingStep 结构（≥3 步、意图标注）, golden: QT-SMV-003, sut_slice: A, evaluator: deterministic（schema+计数） }
+  - { case_id: C-APP-04, stage: approach, target: common errors 与 probe 完整性, golden: QT-SMV-006, sut_slice: A, evaluator: rubric }
+  - { case_id: C-PLN-01, stage: plan, target: checkpoint 覆盖与 Hint 单调性（0–5 不跳级）, golden: QT-SMV-002, sut_slice: A, evaluator: deterministic（plan schema 校验） }
+  - { case_id: C-PLN-02, stage: plan, target: capability/answer leakage（Guided 不泄真值）, golden: QT-SMV-001, sut_slice: A, evaluator: deterministic（泄漏扫描） }
+  - { case_id: C-PLN-03, stage: plan, target: 编译确定性（同输入+compiler version 同 hash）, golden: QT-SMV-005, sut_slice: A+B（必须一致）, evaluator: deterministic（hash 相等） }
+  - { case_id: C-RT-01, stage: realtime, target: Teach 中提问打断后回原 checkpoint, golden: QT-SMV-003, sut_slice: A, evaluator: scripted runner + 事件断言 }
+  - { case_id: C-RT-02, stage: realtime, target: 正确口述 → Tutor 执行图形动作, golden: QT-SMV-004, sut_slice: A+B, evaluator: scripted + ReasoningAligned 事件 }
+  - { case_id: C-RT-03, stage: realtime, target: 错误 → Level1 → 未推进 → Level2 → 推进, golden: QT-SMV-001, sut_slice: A+B, evaluator: scripted + ledger 关联断言 }
+  - { case_id: C-RT-04, stage: realtime, target: 学生自我修正（StudentSelfCorrected 非 Tutor 纠正）, golden: QT-SMV-005, sut_slice: A, evaluator: scripted + 事件序列断言 }
+  - { case_id: C-RT-05, stage: realtime, target: alternate valid 解法接受 / 多级无效进 Repair 后回 checkpoint, golden: QT-SMV-002, sut_slice: A, evaluator: scripted + mode 状态机断言 }
+
+reporting_requirements:
+  - 每个 case 输出 pass/fail + failure class（沿用 skills failure kinds 词汇）；
+  - JSONL raw records + JSON summary + Markdown/HTML 报告（quality/latency/cost/failure 并列）；
+  - 成本按 versioned price table 折算（P7-06 建 table，本文件先冻结「必须有 table version 字段」）；
+  - 失败样本必须可下钻：case → raw output → artifact lineage → 原始 source 页（P7-09/P7-10）。
+
+open_items_for_phase7:
+  - price table 版本与单价未定（P7-06）；
+  - scripted student runner 的 turn 脚本格式（P7-05）；
+  - rubric judge prompt 版本化（P7-04）。
