@@ -8,7 +8,8 @@ export type TopicPracticeTaskId =
   | "auxiliaryTwoRatios"
   | "reverseASimilarity"
   | "nestedSimilarity"
-  | "butterflySimilarity";
+  | "butterflySimilarity"
+  | "reverseAFourSimilarity";
 
 export type TopicActionPrimitive =
   | "select"
@@ -129,6 +130,8 @@ export interface TopicGeometryInteraction {
     shareValues?: [string, string];
     knownValueLatex?: string;
   };
+  /** Authored equivalence policy for pair orders; see shared/actionAnswerEquivalence. */
+  pairOrderPolicy?: import("./actionAnswerEquivalence").PairOrderPolicy;
   presentation?: TopicInteractionPresentation;
 }
 
@@ -190,6 +193,11 @@ export interface TopicActionContract {
   interaction?: TopicGeometryInteraction;
   presentation?: TopicInteractionPresentation;
   coach?: TopicCoachScript;
+  /** Authored enter-text answer shape; see shared/actionAnswerEquivalence. */
+  textAnswer?: {
+    placeholder?: string;
+    normalization?: import("./actionAnswerEquivalence").AnswerNormalization;
+  };
   nextStepId?: string;
 }
 

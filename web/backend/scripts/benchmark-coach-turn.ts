@@ -17,8 +17,12 @@
  *   tsx scripts/benchmark-coach-turn.ts                  # warm(5) + cold(3), both modes
  *   tsx scripts/benchmark-coach-turn.ts --warm 8 --cold 0 --mode stream
  *   tsx scripts/benchmark-coach-turn.ts --single stream  # one run, prints one JSON line (used for cold runs)
+ *   tsx scripts/benchmark-coach-turn.ts --warm 30 --cold 20 --mode stream --jsonl out/runs.jsonl
+ *                                                        # also append one raw JSON line per attempt
+ *                                                        # (phase: priming|warm|cold) + a provider identity line
  */
 import { spawn } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
 import type { CoachTurnEvent } from "../../shared/coachMedia";
@@ -26,6 +30,7 @@ import type { CoachTurnRequest } from "../../shared/actionRuntime";
 import { getLearningActionPlan } from "../src/services/learningService";
 import { conductCoachTurn } from "../src/services/coach/coachTurnService";
 import { coachTurnApplication } from "../src/services/coach/composition";
+import { createTextCoachEngine } from "../src/services/coach/textCoachEngineFactory";
 
 const taskId = "auxiliaryTwoRatios" as never;
 const question = "我没听懂这一步，请换一种说法，并说明为什么这样做。";
@@ -166,7 +171,7 @@ function summarizeRR(results: RRResult[]): void {
   }, null, 2));
 }
 
-function parseArgs(): { warm: number; cold: number; mode: "stream" | "request-response" | "both"; single?: string } {
+function parseArgs(): { warm: number; cold: number; mode: "stream" | "request-response" | "both"; single?: string; jsonlPath?: string } {
   const args = process.argv.slice(2);
   const warm = Number(args[args.indexOf("--warm") + 1]) || 5;
   const cold = Number(args[args.indexOf("--cold") + 1]);
@@ -176,8 +181,18 @@ function parseArgs(): { warm: number; cold: number; mode: "stream" | "request-re
   const mode = (modeIdx >= 0 ? args[modeIdx + 1] : "both") as "stream" | "request-response" | "both";
   const singleIdx = args.indexOf("--single");
   const single = singleIdx >= 0 ? args[singleIdx + 1] : undefined;
+  const jsonlIdx = args.indexOf("--jsonl");
+  const jsonlPath = jsonlIdx >= 0 ? args[jsonlIdx + 1] : undefined;
   void warm; void cold;
-  return { warm, cold: coldCount, mode, single };
+  return { warm, cold: coldCount, mode, single, jsonlPath };
+}
+
+/** Append one lossless per-run record (never a secret; provider identity only).
+ * Benchmark-only addition so raw samples are traceable, matching the browser
+ * benchmark's runs.jsonl contract. */
+function logRun(jsonlPath: string | undefined, phase: "priming" | "warm" | "cold", result: StreamResult | RRResult): void {
+  if (!jsonlPath) return;
+  appendFileSync(jsonlPath, `${JSON.stringify({ ts: new Date().toISOString(), phase, ...result })}\n`, "utf8");
 }
 
 async function runSingle(mode: string): Promise<void> {
@@ -204,8 +219,15 @@ function runColdChild(mode: string): Promise<StreamResult | RRResult> {
 }
 
 async function main(): Promise<void> {
-  const { warm, cold, mode, single } = parseArgs();
+  const { warm, cold, mode, single, jsonlPath } = parseArgs();
   if (single) { await runSingle(single); return; }
+
+  // Provider proof for every round: log the engine's telemetry identity (no
+  // secrets). With COACH_TEXT_PROVIDER=deepseek this must print deepseek-api.
+  const identity = createTextCoachEngine().telemetryIdentity;
+  const identityLine = JSON.stringify({ meta: "provider", provider: identity.provider, model: identity.model, ts: new Date().toISOString() });
+  console.log(identityLine);
+  if (jsonlPath) appendFileSync(jsonlPath, `${identityLine}\n`, "utf8");
 
   const doStream = mode === "stream" || mode === "both";
   const doRR = mode === "request-response" || mode === "both";
@@ -214,28 +236,44 @@ async function main(): Promise<void> {
 
   if (doStream) {
     console.log("=== stream (priming, then warm) ===");
-    await runStream(); // discard (warm caches)
+    logRun(jsonlPath, "priming", await runStream()); // discard (warm caches)
     const warmResults: StreamResult[] = [];
-    for (let i = 0; i < warm; i += 1) warmResults.push(await runStream());
+    for (let i = 0; i < warm; i += 1) {
+      const result = await runStream();
+      warmResults.push(result);
+      logRun(jsonlPath, "warm", result);
+    }
     summarizeStream(warmResults);
     if (cold > 0) {
       console.log("\n=== stream (cold) ===");
       const coldResults: StreamResult[] = [];
-      for (let i = 0; i < cold; i += 1) coldResults.push(await runColdChild("stream") as Promise<StreamResult>);
+      for (let i = 0; i < cold; i += 1) {
+        const result = await runColdChild("stream") as StreamResult;
+        coldResults.push(result);
+        logRun(jsonlPath, "cold", result);
+      }
       summarizeStream(coldResults);
     }
   }
 
   if (doRR) {
     console.log("\n=== request-response (priming, then warm) ===");
-    await runRequestResponse();
+    logRun(jsonlPath, "priming", await runRequestResponse());
     const warmResults: RRResult[] = [];
-    for (let i = 0; i < warm; i += 1) warmResults.push(await runRequestResponse());
+    for (let i = 0; i < warm; i += 1) {
+      const result = await runRequestResponse();
+      warmResults.push(result);
+      logRun(jsonlPath, "warm", result);
+    }
     summarizeRR(warmResults);
     if (cold > 0) {
       console.log("\n=== request-response (cold) ===");
       const coldResults: RRResult[] = [];
-      for (let i = 0; i < cold; i += 1) coldResults.push(await runColdChild("request-response") as Promise<RRResult>);
+      for (let i = 0; i < cold; i += 1) {
+        const result = await runColdChild("request-response") as RRResult;
+        coldResults.push(result);
+        logRun(jsonlPath, "cold", result);
+      }
       summarizeRR(coldResults);
     }
   }

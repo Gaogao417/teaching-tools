@@ -118,6 +118,8 @@ export type PairSegmentsAction = ActionContractBase<"pair-segments", {
   expectedOrder?: string[];
   availableSegmentIds: string[];
   pairCount: number;
+  /** Authored equivalence policy; see shared/actionAnswerEquivalence. */
+  pairOrderPolicy?: import("./actionAnswerEquivalence").PairOrderPolicy;
 }>;
 
 export type RatioScratchAction = ActionContractBase<"ratio-scratch", {
@@ -157,6 +159,8 @@ export type SelectOptionAction = ActionContractBase<"select-option", {
 export type EnterTextAction = ActionContractBase<"enter-text", {
   placeholder: string;
   expectedValues?: string[];
+  /** Authored equivalence policy; see shared/actionAnswerEquivalence. */
+  answerNormalization?: import("./actionAnswerEquivalence").AnswerNormalization;
 }>;
 
 export type ActionContract =

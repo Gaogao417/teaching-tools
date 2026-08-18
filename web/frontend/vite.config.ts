@@ -9,6 +9,13 @@ export default defineConfig({
     fs: {
       allow: [".."],
     },
+    // Playwright voice-benchmark runs write traces/screenshots into
+    // benchmark-results/ inside this package; watching them made the dev
+    // server reload every open page mid-benchmark (found during the
+    // 2026-08-14 baseline run — it systematically killed 20-client rounds).
+    watch: {
+      ignored: ["**/benchmark-results/**"],
+    },
   },
   test: {
     // geometry machines are pure, but JSXGraph adapters touch the DOM.

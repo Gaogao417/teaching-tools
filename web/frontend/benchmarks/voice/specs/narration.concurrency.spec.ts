@@ -103,7 +103,10 @@ test.describe("deterministic Action narration concurrency benchmark", () => {
           (record as VoiceBenchmarkRecord & { providerCallCountDelta?: number }).providerCallCountDelta = fileCountDelta;
         }
       } finally {
-        await context.close();
+        // A teardown race in context.close() (context already closed) must not
+        // discard a completed measurement: swallow it so the record built above
+        // still reaches the attachment + assertions below.
+        try { await context.close(); } catch { /* teardown race; data is intact */ }
       }
     } catch (error) {
       record = failedRecord({ runId: env.runId, flow: "narration", scenario: `concurrency-${clients}-clients`, iteration: 1, taskId: env.taskId, route, error, interactionStartedAt });

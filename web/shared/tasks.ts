@@ -314,6 +314,30 @@ export const TASK_DEFINITIONS: Record<TaskId, TaskDefinition> = {
       color: "#db2777",
     },
   },
+  reverseAFourSimilarity: {
+    id: "reverseAFourSimilarity",
+    title: "反 A 一图四相似：发现候选、规划证明",
+    summary: "同一张反 A 图里交替训练正推与反推：扫图产生相似猜想，看目标选判定、找缺口，用上一问的结论补缺口。",
+    difficulty: "hard",
+    engineKind: "topic-practice",
+    contentId: "topic-practice.reverse-a-four-similarity.v1",
+    sample: {
+      prompt: "从 ∠ADE=∠ACB 出发，图中可以依次推出四对相似三角形。",
+      answerPreview: "扫图找等角 → 猜相似 → 选判定 → 补缺口 → 写格式 → 提取新结论。",
+    },
+    steps: [
+      "正推发现：扫图找公共角、对顶角，猜出可能相似的三角形并命名。",
+      "反推规划：看证明目标，盘点判定路线，反推子目标并加工上一问的结论。",
+      "在图上点出对应边（交叉对应），写出规范证明并提取新结论入库。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-8",
+      gradeName: "八年级",
+      chapterId: "chapter-similarity",
+      chapterName: "相似三角形与比例",
+      color: "#0f766e",
+    },
+  },
 };
 
 export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
@@ -645,6 +669,19 @@ export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
     },
     feedbackTemplate: { correct: ["correct"], wrong: ["wrong"], finish: ["finish"] },
   },
+  "topic-practice.reverse-a-four-similarity.v1": {
+    id: "topic-practice.reverse-a-four-similarity.v1",
+    engineKind: "topic-practice",
+    taskId: "reverseAFourSimilarity",
+    version: "v1",
+    sourceExplanation: "artifacts/2026-08-14-相似模型混合32题/02-student-explanation.tex",
+    sourceBanks: ["artifacts/题库/2026-08-15-反A一图四相似证明/question-bank.yaml"],
+    guideTemplate: {
+      banner: "反 A 一图四相似：正推发现 → 反推规划",
+      hint: "先扫图找等角猜相似；目标给定时，看目标选判定，缺什么就到上一问的结论里找。",
+    },
+    feedbackTemplate: { correct: ["correct"], wrong: ["wrong"], finish: ["finish"] },
+  },
 };
 
 export const TASK_COLORS: Record<TaskId, string> = Object.fromEntries(
@@ -697,6 +734,7 @@ export const TASK_TREE: TaskTreeResponse = {
             TASK_NODES.reverseASimilarity,
             TASK_NODES.nestedSimilarity,
             TASK_NODES.butterflySimilarity,
+            TASK_NODES.reverseAFourSimilarity,
           ],
         },
       ],

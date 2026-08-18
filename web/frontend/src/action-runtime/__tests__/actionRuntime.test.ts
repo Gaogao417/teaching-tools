@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ActionContract, ExercisePlan } from "../../../../shared/actionRuntime";
 import { assertExercisePlan, isActionEvidence, isAgentCommand, isCoachDirective } from "../../../../shared/actionRuntime";
+import { normalizedTextAccepted, pairOrdersEquivalent, similarityStatementsEquivalent } from "../../../../shared/actionAnswerEquivalence";
 import { createActionActor } from "../actionActor";
 import { createActionPageRuntime } from "../pageRuntime";
 import { actionMachineRegistry, UnsupportedActionError } from "../registry";
@@ -200,6 +201,51 @@ describe("Action Runtime v2", () => {
   it("rejects unknown action versions explicitly", () => {
     expect(actionMachineRegistry.supports("make-parallel", 1)).toBe(true);
     expect(() => actionMachineRegistry.create({ ...plan().actions[0], version: 2 } as never)).toThrow(UnsupportedActionError);
+  });
+
+  it("authored pairOrderPolicy accepts equivalent pair orders and rejects re-pairing", () => {
+    // In local-demonstration the per-index line guard still coaches the
+    // authored order, so equivalence is judged where it is reachable: the
+    // shared policy helper (also used by the backend evaluator) and the
+    // server-authoritative input guard that must not block alternative orders.
+    expect(pairOrdersEquivalent(["AD", "AC", "AE", "AB"], ["AD", "AC", "AE", "AB"])).toBe(true);
+    expect(pairOrdersEquivalent(["AC", "AD", "AE", "AB"], ["AD", "AC", "AE", "AB"])).toBe(true);
+    expect(pairOrdersEquivalent(["AE", "AB", "AD", "AC"], ["AD", "AC", "AE", "AB"])).toBe(true);
+    expect(pairOrdersEquivalent(["AD", "AE", "AC", "AB"], ["AD", "AC", "AE", "AB"])).toBe(false);
+    expect(pairOrdersEquivalent(["AD", "AC", "AE"], ["AD", "AC", "AE", "AB"])).toBe(false);
+    const base = {
+      actionId: "q1-correspondence", sourceStepId: "q1-correspondence", kind: "pair-segments" as const, version: 1 as const,
+      title: "对应", instruction: "点对应边", capabilities: [],
+      input: {
+        expectedOrder: ["AD", "AC", "AE", "AB"],
+        availableSegmentIds: ["AD", "AC", "AE", "AB"],
+        pairCount: 2,
+        pairOrderPolicy: "pair-equivalent" as const,
+      },
+      answerSlots: [{ id: "segment-pairs", label: "对应边", kind: "object" as const, required: true }],
+      validationPolicy: "server-authoritative" as const, submitOnComplete: true,
+    };
+    const actor = actionMachineRegistry.create(base);
+    ["AC", "AD", "AE", "AB"].forEach((id) => actor.send({ type: "OBJECT.SELECTED", objectKind: "line", objectId: id }));
+    actor.send({ type: "SUBMIT" });
+    expect(actor.getSnapshot().done).toBe(true);
+    expect(actor.getSnapshot().evidence).toMatchObject({ kind: "pair-segments", segmentIds: ["AC", "AD", "AE", "AB"] });
+    actor.stop();
+  });
+
+  it("authored similarity-statement normalization accepts equivalent spellings and rejects misalignment", () => {
+    for (const value of ["△ADE∽△ACB", "\\triangle AED\\sim\\triangle ABC", "三角形 DAE 相似 三角形 CAB", "$\\triangle EDA\\sim\\triangle BCA$。"]) {
+      expect(similarityStatementsEquivalent(value, "\\triangle ADE\\sim\\triangle ACB"), value).toBe(true);
+    }
+    for (const value of ["\\triangle ADE\\sim\\triangle ABC", "△ADE∽△ABC", "\\triangle ADE\\sim\\triangle AC", "ADE∽ACB"]) {
+      expect(similarityStatementsEquivalent(value, "\\triangle ADE\\sim\\triangle ACB"), value).toBe(false);
+    }
+    const expected = ["\\triangle ADE\\sim\\triangle ACB"];
+    expect(normalizedTextAccepted("△ADE∽△ACB", expected, "similarity-statement")).toBe(true);
+    expect(normalizedTextAccepted("\\triangle ADE\\sim\\triangle ABC", expected, "similarity-statement")).toBe(false);
+    expect(normalizedTextAccepted("ok", ["ok"], undefined)).toBe(true);
+    expect(normalizedTextAccepted("ok ", ["ok"], undefined)).toBe(false);
+    expect(normalizedTextAccepted(undefined, ["ok"], undefined)).toBe(false);
   });
 
   it("registry creates distinct action machines instead of one kind-switch machine", () => {

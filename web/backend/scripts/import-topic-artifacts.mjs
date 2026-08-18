@@ -62,6 +62,13 @@ const CONFIG = {
     explanations: ["artifacts/专题/2026-07-14-蝶形相似求第四边/02-student-explanation.resolved.tex"],
     banks: ["artifacts/题库/2026-07-16-蝶形相似"],
   },
+  reverseAFourSimilarity: {
+    contentId: "topic-practice.reverse-a-four-similarity.v1",
+    title: "反 A 一图四相似：发现候选、规划证明",
+    objective: "交替训练正推模型识别与反推证明规划：扫图产生相似猜想，看目标选判定、找缺口，用上一问的结论补缺口完成证明。",
+    explanations: ["artifacts/2026-08-14-相似模型混合32题/02-student-explanation.tex"],
+    banks: ["artifacts/题库/2026-08-15-反A一图四相似证明"],
+  },
 };
 
 function readYaml(file) {
@@ -904,7 +911,115 @@ function buildAuxiliaryContracts(itemId, block, assignmentFile) {
   return contracts;
 }
 
+/**
+ * Authored-contract builder for banks whose solution_steps are fully authored
+ * action contracts (id/primitive/options/accepted/expected_order/content_latex)
+ * rather than narrative prose. Every field is validated loudly: a missing id,
+ * an unsupported primitive, an empty accepted answer, a mark-ratio order that
+ * references unknown segments, a select whose accepted answer is not an
+ * option, or a discovery stem that leaks the target statement must fail the
+ * import instead of silently degrading the record.
+ */
+function buildAuthoredContracts(taskId, itemId, block, assignmentFile) {
+  const steps = block.solution_steps || [];
+  if (!steps.length) throw new Error(`${taskId}/${itemId} has no solution_steps`);
+  const promptTikz = block.diagram_col?.tikz_path;
+  const subsegments = (block.teaching?.subsegments || []).map(String);
+  const geometry = geometryFromDiagram(assignmentFile, promptTikz, subsegments);
+  if (!geometry) throw new Error(`${taskId}/${itemId} cannot derive promptGeometry from ${promptTikz || "(no diagram)"}`);
+  const geometryIds = new Set(geometry.segments.map((segment) => segment.id));
+  const missingSubsegments = [...new Set(subsegments.map(canonicalSegment))].filter((id) => !geometryIds.has(id));
+  if (missingSubsegments.length) {
+    throw new Error(`${taskId}/${itemId} promptGeometry lacks teaching subsegments: ${missingSubsegments.join(",")}`);
+  }
+  const common = { geometry, availableSegments: geometry.segments.map((segment) => segment.id) };
+  if (block.teaching?.discovery_question) {
+    const stem = block.stem_latex || "";
+    if (/求证/.test(stem)) throw new Error(`${taskId}/${itemId} discovery stem must not request a proof target`);
+    // Carrying the previous question's proven statement in the 已知 clause is
+    // legitimate; naming the triangles this question must discover is a leak.
+    const targetTriples = [...String(block.answer || "").matchAll(/\\triangle\s*([A-Z]{3})/g)].map((match) => match[1]);
+    const stemTriples = new Set([...stem.matchAll(/\\triangle\s*([A-Z]{3})/g)].map((match) => match[1]));
+    const leaked = targetTriples.filter((triple) => stemTriples.has(triple));
+    if (leaked.length) throw new Error(`${taskId}/${itemId} discovery stem names target triangle(s): ${leaked.join(",")}`);
+  }
+  const seenIds = new Set();
+  return steps.map((step, index) => {
+    const id = String(step.id || "");
+    if (!id) throw new Error(`${taskId}/${itemId} solution step ${index + 1} has no id`);
+    if (seenIds.has(id)) throw new Error(`${taskId}/${itemId} duplicate solution step id ${id}`);
+    seenIds.add(id);
+    const primitive = step.primitive;
+    if (!["select", "mark-ratio", "input"].includes(primitive)) {
+      throw new Error(`${taskId}/${itemId}/${id} has unsupported authored primitive ${JSON.stringify(primitive)}`);
+    }
+    const content = String(step.content_latex || step.content || "").trim();
+    if (!content) throw new Error(`${taskId}/${itemId}/${id} has no reviewed content_latex`);
+    const nextStepId = index < steps.length - 1 ? String(steps[index + 1].id || "") : undefined;
+    if (nextStepId === "") throw new Error(`${taskId}/${itemId} solution step ${index + 2} has no id`);
+    const contract = {
+      id,
+      title: step.title || `第 ${index + 1} 步`,
+      goal: step.goal || step.title || content,
+      primitive,
+      target: "topic-answer",
+      promptLatex: step.prompt_latex || content,
+      acceptedAnswers: [].concat(step.accepted === undefined ? [] : step.accepted).map(String),
+      expectedLatex: content,
+      successCondition: step.success_condition || (primitive === "input"
+        ? "提交内容与教师版规范答案数学等价。"
+        : "选出的数学陈述与教师版当前步骤一致。"),
+      errorDiagnosis: step.error_diagnosis || block.teaching?.expected_blocker || "当前答案与教师版当前步骤不一致。",
+      feedbackLatex: content,
+      hintLatex: step.hint_latex || block.teaching?.fallback_move || block.explanation || "只检查当前一步。",
+      nextStepId,
+      coach: coachFor(step.coach_latex || step.prompt_latex || step.title),
+    };
+    // Answer-free demonstration beat narration: promptLatex names the current
+    // step's question; the coach entry never states the correct option or the
+    // expected result, so guided Practice cannot leak the answer.
+    if (primitive === "select") {
+      const options = (step.options || []).map((option) => ({
+        value: String(option.value),
+        labelLatex: String(option.label || option.value),
+        ...(option.diagnosis ? { diagnosis: String(option.diagnosis) } : {}),
+      }));
+      const optionValues = new Set(options.map((option) => option.value));
+      if (options.length < 2) throw new Error(`${taskId}/${itemId}/${id} needs at least two options`);
+      for (const value of contract.acceptedAnswers) {
+        if (!optionValues.has(value)) throw new Error(`${taskId}/${itemId}/${id} accepted answer ${value} is not an option`);
+      }
+      if (!contract.acceptedAnswers.length) throw new Error(`${taskId}/${itemId}/${id} has no accepted option`);
+      contract.options = rotateOptions(options, itemId.charCodeAt(itemId.length - 1) + index);
+    }
+    if (primitive === "mark-ratio") {
+      const order = (step.expected_order || []).map(canonicalSegment);
+      if (order.length < 2 || order.length % 2 !== 0) {
+        throw new Error(`${taskId}/${itemId}/${id} expected_order must be an even-length segment list`);
+      }
+      const unknown = order.filter((segmentId) => !geometryIds.has(segmentId));
+      if (unknown.length) throw new Error(`${taskId}/${itemId}/${id} expected_order references unknown segments: ${unknown.join(",")}`);
+      contract.acceptedAnswers = [ratioToken(order)];
+      contract.interaction = {
+        kind: "mark-ratio",
+        ...common,
+        expectedOrder: order,
+        ...(step.pair_equivalent ? { pairOrderPolicy: "pair-equivalent" } : {}),
+      };
+    }
+    if (primitive === "input") {
+      if (!contract.acceptedAnswers.length) throw new Error(`${taskId}/${itemId}/${id} has no accepted answer variants`);
+      contract.textAnswer = {
+        ...(step.placeholder ? { placeholder: String(step.placeholder) } : {}),
+        ...(step.answer_normalization ? { normalization: String(step.answer_normalization) } : {}),
+      };
+    }
+    return contract;
+  });
+}
+
 function buildContracts(taskId, itemId, block, assignmentFile) {
+  if (taskId === "reverseAFourSimilarity") return buildAuthoredContracts(taskId, itemId, block, assignmentFile);
   if (taskId === "auxiliaryTwoRatios") return buildAuxiliaryContracts(itemId, block, assignmentFile);
   if (taskId === "parallelLineRatios") return buildThreeKnownParallelContracts(itemId, block, assignmentFile);
   if (taskId.endsWith("Similarity")) {
@@ -1062,10 +1177,17 @@ function importBank(taskId, relativeBankRoot) {
       skillTags: item.skill_tags || [],
       promptLatex: block.stem_latex,
       promptDiagramAsset: publishDiagram(assignmentFile, block.diagram_col?.tikz_path, ["bank", taskId, manifest.bank.id, item.id]),
+      // Scenario-level geometry must include authored teaching subsegments:
+      // the bootstrap plan projects this world for the whole instance, so
+      // mid-scenario geometry actions (pair-segments on subsegments) stay
+      // clickable in local-training, which advances without refetching plans.
       promptGeometry: geometryFromDiagram(
         assignmentFile,
         block.diagram_col?.tikz_path,
-        extractSegmentLabels(block.stem_latex).map((label) => label.displayName),
+        [
+          ...extractSegmentLabels(block.stem_latex).map((label) => label.displayName),
+          ...(block.teaching?.subsegments || []).map(String),
+        ],
       ),
       explanationLatex: block.explanation || "",
       teaching: {

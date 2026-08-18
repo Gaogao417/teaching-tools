@@ -2659,7 +2659,7 @@
 .topic-coach-header strong { font-size: var(--text-sm); }
 .topic-coach-sound { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: var(--color-muted); cursor: pointer; }
 .topic-coach-sound:hover { background: var(--fill-accent-soft); color: var(--color-primary-strong); }
-.topic-coach-bubble { position: relative; display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-line)); border-radius: 18px; background: color-mix(in srgb, #f4f8f1 82%, transparent); color: var(--color-ink); backdrop-filter: blur(6px); }
+.topic-coach-bubble { position: relative; display: grid; align-self: flex-start; gap: var(--space-3); width: fit-content; max-width: min(88%, 32rem); padding: var(--space-4); border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-line)); border-radius: 18px; background: color-mix(in srgb, #f4f8f1 82%, transparent); color: var(--color-ink); backdrop-filter: blur(6px); }
 .topic-coach-bubble::before { content: ""; position: absolute; top: 24px; left: -9px; width: 16px; height: 16px; border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-line)); border-left: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-line)); background: color-mix(in srgb, #f4f8f1 82%, transparent); transform: rotate(45deg); }
 .topic-coach-bubble .math-text { position: relative; font-size: var(--text-sm); line-height: 1.72; }
 .topic-coach-question { display: grid; }
@@ -2746,14 +2746,16 @@
   border: 2px solid var(--surface-card);
 }
 
-/* Transient 2-line preview bubble — pops to the left of the avatar, then fades while the dot stays */
+/* Transient preview bubble — shrink-wrap short guidance, wrap long guidance to
+   the available viewport, and always show the complete message. */
 .topic-coach-dock-preview {
   position: absolute;
   top: -4px;
   right: calc(100% + 12px);
   width: max-content;
-  max-width: 220px;
+  max-width: min(32rem, calc(100vw - 7rem));
   padding: 9px 11px;
+  box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-line));
   border-radius: var(--radius-md);
   background: var(--surface-card);
@@ -2761,8 +2763,8 @@
   color: var(--color-ink);
   font-size: var(--text-sm);
   line-height: 1.45;
-  max-height: 2.9em;
-  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
   text-align: left;
   animation: topic-coach-preview-in .15s ease;
 }

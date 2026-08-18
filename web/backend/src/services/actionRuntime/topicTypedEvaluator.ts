@@ -1,5 +1,6 @@
 import type { ActionEvidence, AuthoredActionTemplate } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
+import { normalizedTextAccepted, pairOrdersEquivalent } from "../../../../shared/actionAnswerEquivalence";
 
 export interface TypedActionDiagnosis {
   accepted: boolean;
@@ -75,8 +76,11 @@ function diagnoseOne(
     }
     case "pair-segments": {
       const wanted = target.expectedOrder as string[] | undefined;
-      evidence.segmentIds.forEach((id, index) => { if (wanted?.[index] !== id) wrongObjectIds.push(id); });
-      accepted = equal(evidence.segmentIds, wanted);
+      const orderMatches = target.pairOrderPolicy === "pair-equivalent" && wanted
+        ? pairOrdersEquivalent(evidence.segmentIds, wanted)
+        : equal(evidence.segmentIds, wanted);
+      if (!orderMatches) evidence.segmentIds.forEach((id, index) => { if (wanted?.[index] !== id) wrongObjectIds.push(id); });
+      accepted = orderMatches;
       if (accepted) {
         for (let index = 0; index + 1 < evidence.segmentIds.length; index += 2) {
           const pairIndex = index / 2;
@@ -142,7 +146,11 @@ function diagnoseOne(
       if (!accepted) wrongSlotIds.push("choice");
       break;
     case "enter-text":
-      accepted = Array.isArray(target.expectedValues) && target.expectedValues.includes(evidence.value);
+      accepted = normalizedTextAccepted(
+        evidence.value,
+        target.expectedValues as string[] | undefined,
+        target.answerNormalization as import("../../../../shared/actionAnswerEquivalence").AnswerNormalization | undefined,
+      );
       if (!accepted) wrongSlotIds.push("value");
       break;
   }

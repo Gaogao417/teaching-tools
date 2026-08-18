@@ -572,6 +572,8 @@ const DIAGNOSIS_COPY: Record<SimilarityCapabilityId, { title: string; coachingCo
   "similarity.convert-collinear-segments": { title: "共线整段与分段没有互化", coachingCopy: "先写出整段等于两个分段之和，再代入已知长度。" },
   "similarity.read-crossed-vertex-order": { title: "交叉构型的点序读反了", coachingCopy: "从交点出发，按同一转向读取两组三角形的对应顶点。" },
   "similarity.build-side-equation": { title: "按份数列式的三个位置没有对齐", coachingCopy: "固定使用：未知边 = 已知边 × 未知份数 ÷ 已知份数。" },
+  "similarity.recognize-similarity-model": { title: "还没有从结构认出相似候选", coachingCopy: "先扫图找公共角和对顶角，把等角所在的两个三角形圈出来再猜相似。" },
+  "similarity.plan-similarity-proof": { title: "证明路线还没有规划好", coachingCopy: "看目标选判定，写出还缺的条件，再回上一问的结论里找原料补缺口。" },
 };
 
 export function getChallengeDiagnosis(sessionId: string): RemediationDiagnosis {

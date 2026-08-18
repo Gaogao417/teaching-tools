@@ -58,7 +58,7 @@ function evidenceFor(action: ActionContract): ActionEvidence {
 
 async function main() {
   const allRecords = Object.values(bundle.scenarios).flat();
-  assert.equal(allRecords.length, 280);
+  assert.equal(allRecords.length, 284);
   assert.ok(allRecords.every((record) => record.promptData.actionTemplates?.length), "every published Topic record must author actionTemplates");
   const authoredCoachEntries = allRecords.flatMap((record) => (record.promptData.actionTemplates || []) as unknown as AuthoredActionTemplate[])
     .filter((action) => action.coach?.entryLatex);
@@ -121,6 +121,48 @@ async function main() {
     assert.equal(diagnosis.accepted, true, `${kind} canonical evidence must be accepted`);
     assert.ok(diagnosis.commands.length > 0, `${kind} must project a diagram teaching command`);
     assert.equal(JSON.stringify(contract).includes("boardTargets"), false, `${kind} must be board-neutral at runtime`);
+  }
+
+  // reverseAFourSimilarity deliberately has no pair-segments correspondence
+  // action. The learner demonstrates correspondence through the vertex order
+  // of the similarity statement instead. Similarity-statement normalization
+  // accepts symbol and correspondence-preserving vertex permutations and
+  // rejects positional misalignment; topics without the authored policy keep
+  // exact matching.
+  const fourFirst = bundle.scenarios.reverseAFourSimilarity[0];
+  const fourTemplates = (fourFirst.promptData.actionTemplates || []) as AuthoredActionTemplate[];
+  const fourDiagnosis = evaluateTopicEvidence(fourTemplates, fourTemplates.map((template) => evidenceFor(materializeActionTemplate(template, "guided-practice") as ActionContract)));
+  assert.equal(fourTemplates.length, 5, "Q001 must keep the five-step discovery flow without a correspondence-click action");
+  assert.equal(fourTemplates.some((action) => action.kind === "pair-segments"), false);
+  assert.equal(fourDiagnosis.accepted, true, "Q001 canonical path across all five actions must be accepted");
+  const fourWrongSelect = fourTemplates.map((template, index) => {
+    const evidence = evidenceFor(materializeActionTemplate(template, "guided-practice") as ActionContract);
+    return index === 1 && evidence.kind === "select-option" ? { ...evidence, value: "opt-hyp-sequential" } as ActionEvidence : evidence;
+  });
+  assert.equal(evaluateTopicEvidence(fourTemplates, fourWrongSelect).accepted, false, "sequential-order hypothesis must be rejected");
+
+  const butterflyPair = ((bundle.scenarios.butterflySimilarity[0].promptData.actionTemplates || []) as AuthoredActionTemplate[]).find((action) => action.kind === "pair-segments")!;
+  assert.equal(butterflyPair.input.pairOrderPolicy, undefined);
+  const butterflyExpected = (butterflyPair.teachingInput || {}).expectedOrder as string[];
+  const butterflyBase = { actionId: butterflyPair.actionId, sourceStepId: butterflyPair.sourceStepId, version: 1 as const, kind: "pair-segments" as const };
+  assert.equal(evaluateTopicEvidence([butterflyPair], [{ ...butterflyBase, segmentIds: [butterflyExpected[1], butterflyExpected[0], butterflyExpected[2], butterflyExpected[3]] }]).accepted, false, "policy-less pair-segments keeps exact-order matching");
+
+  const textAction = fourTemplates.find((action) => action.kind === "enter-text")!;
+  assert.equal(textAction.input.answerNormalization, "similarity-statement");
+  const textEvidenceBase = { actionId: textAction.actionId, sourceStepId: textAction.sourceStepId, version: 1 as const, kind: "enter-text" as const };
+  for (const variant of ["△ADE∽△ACB", "\\triangle AED\\sim\\triangle ABC", "三角形DAE相似三角形CAB", "$\\triangle EDA\\sim\\triangle BCA$。", "\\triangle ADE\\sim\\triangle ACB"]) {
+    assert.equal(evaluateTopicEvidence([textAction], [{ ...textEvidenceBase, value: variant }]).accepted, true, `equivalent variant ${variant} must be accepted`);
+  }
+  for (const misaligned of ["\\triangle ADE\\sim\\triangle ABC", "△ADE∽△ABC", "\\triangle ADE\\sim\\triangle AC", "ADE∽ACB"]) {
+    assert.equal(evaluateTopicEvidence([textAction], [{ ...textEvidenceBase, value: misaligned }]).accepted, false, `misaligned input ${misaligned} must be rejected`);
+  }
+  const plainText = ((bundle.scenarios.reverseASimilarity[0].promptData.actionTemplates || []) as AuthoredActionTemplate[]).find((action) => action.kind === "enter-text");
+  const plainExpected = plainText ? ((plainText.teachingInput || {}).expectedValues as string[] | undefined)?.[0] : undefined;
+  if (plainText && plainExpected !== undefined) {
+    assert.equal(plainText.input.answerNormalization, undefined);
+    const plainBase = { actionId: plainText.actionId, sourceStepId: plainText.sourceStepId, version: 1 as const, kind: "enter-text" as const };
+    assert.equal(evaluateTopicEvidence([plainText], [{ ...plainBase, value: plainExpected }]).accepted, true);
+    assert.equal(evaluateTopicEvidence([plainText], [{ ...plainBase, value: `${plainExpected} ` }]).accepted, false, "policy-less enter-text keeps exact matching");
   }
 
   const learningPlan = getLearningActionPlan("auxiliaryTwoRatios");

@@ -21,7 +21,18 @@ const TASK_IDS: TopicPracticeTaskId[] = [
   "reverseASimilarity",
   "nestedSimilarity",
   "butterflySimilarity",
+  "reverseAFourSimilarity",
 ];
+
+const SCENARIO_COUNTS: Record<TopicPracticeTaskId, number> = {
+  quadraticCompletion: 30,
+  parallelLineRatios: 50,
+  auxiliaryTwoRatios: 50,
+  reverseASimilarity: 50,
+  nestedSimilarity: 50,
+  butterflySimilarity: 50,
+  reverseAFourSimilarity: 4,
+};
 
 function taskContext(taskId: TopicPracticeTaskId): {
   task: TaskDefinition;
@@ -53,7 +64,7 @@ async function runTest(name: string, fn: () => void | Promise<void>) {
 }
 
 async function main() {
-  await runTest("catalog exposes six explanation and bank backed topic tasks", () => {
+  await runTest("catalog exposes seven explanation and bank backed topic tasks", () => {
     const treeTaskIds = getTaskTree().grades.flatMap((grade) =>
       grade.chapters.flatMap((chapter) => chapter.tasks.map((task) => task.id)),
     );
@@ -61,18 +72,18 @@ async function main() {
       const { task, content } = taskContext(taskId);
       assert.equal(task.engineKind, "topic-practice");
       assert.equal(content.taskId, taskId);
-      assert.match(content.sourceExplanation, /artifacts\/专题/);
+      assert.match(content.sourceExplanation, /^artifacts\//);
       assert.match(content.sourceExplanation, /\.tex$/);
       assert.ok(content.sourceBanks.every((source) => source.includes("artifacts/题库/")));
       assert.ok(treeTaskIds.includes(taskId));
     }
   });
 
-  await runTest("each topic rotates through five distinct ready-bank scenarios", () => {
+  await runTest("each topic rotates through its distinct ready-bank scenarios", () => {
     for (const taskId of TASK_IDS) {
       const { task, content } = taskContext(taskId);
       const states = Array.from({ length: 5 }, (_, index) => createTopicPracticeState(task, content, index));
-      assert.equal(new Set(states.map((state) => state.scenarioId)).size, 5);
+      assert.equal(new Set(states.map((state) => state.scenarioId)).size, Math.min(5, SCENARIO_COUNTS[taskId]));
       for (const state of states) {
         const scenario = getTopicScenario(taskId, state.scenarioId);
         assert.match(scenario.sourceQuestionId, /^Q\d{3}$/);
@@ -134,18 +145,10 @@ async function main() {
     assert.equal(restored.pinnedScenario?.id, selected.id);
   });
 
-  await runTest("all six migrated topics smoke first, middle, and last approved records", () => {
-    const counts: Record<TopicPracticeTaskId, number> = {
-      quadraticCompletion: 30,
-      parallelLineRatios: 50,
-      auxiliaryTwoRatios: 50,
-      reverseASimilarity: 50,
-      nestedSimilarity: 50,
-      butterflySimilarity: 50,
-    };
+  await runTest("all migrated topics smoke first, middle, and last approved records", () => {
     for (const taskId of TASK_IDS) {
       const { task, content } = taskContext(taskId);
-      for (const index of [0, Math.floor(counts[taskId] / 2), counts[taskId] - 1]) {
+      for (const index of [0, Math.floor(SCENARIO_COUNTS[taskId] / 2), SCENARIO_COUNTS[taskId] - 1]) {
         const record = pickTopicScenarioRecord(taskId, index);
         const scenario = resolveTopicScenarioRecord(record);
         let state = createTopicPracticeState(task, content, index, record);

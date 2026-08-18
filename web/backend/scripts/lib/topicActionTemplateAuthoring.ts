@@ -101,6 +101,7 @@ export function authorTopicActionTemplates(scenario: TopicResolvedScenario): Aut
           ...base(step, step.id, "pair-segments", capabilities, true, {
             availableSegmentIds: availableSegments,
             pairCount: Math.max(1, Math.ceil((interaction?.expectedOrder?.length || 4) / 2)),
+            ...(interaction?.pairOrderPolicy ? { pairOrderPolicy: interaction.pairOrderPolicy } : {}),
           }, { expectedOrder: interaction?.expectedOrder }),
           instruction: "按顺序点击每组对应边；配成一组后，图上会显示相同的对应刻痕。",
           answerSlots: [{ id: "segment-pairs", label: "对应边", kind: "object", required: true }],
@@ -177,9 +178,12 @@ export function authorTopicActionTemplates(scenario: TopicResolvedScenario): Aut
         }];
       case "input":
         return [{
-          ...base(step, step.id, "enter-text", capabilities, true, { placeholder: "写出规范答案" }, { expectedValues: step.acceptedAnswers }),
+          ...base(step, step.id, "enter-text", capabilities, true, {
+            placeholder: step.textAnswer?.placeholder || "写出规范答案",
+            ...(step.textAnswer?.normalization ? { answerNormalization: step.textAnswer.normalization } : {}),
+          }, { expectedValues: step.acceptedAnswers }),
           instruction: "根据图上的标注写出最终结论；确认后会补全为规范解答。",
-          answerSlots: [{ id: "value", label: step.title, kind: "text", required: true, placeholder: "写出规范答案" }],
+          answerSlots: [{ id: "value", label: step.title, kind: "text", required: true, placeholder: step.textAnswer?.placeholder || "写出规范答案" }],
         }];
     }
   });

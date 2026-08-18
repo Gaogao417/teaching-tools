@@ -2,7 +2,7 @@ import type { TaskId } from "./contracts";
 import type { TopicActionPrimitive, TopicPracticeTaskId } from "./topicPractice";
 
 export const SIMILARITY_MAP_ID = "similarity-v1" as const;
-export const CAPABILITY_RULE_VERSION = "similarity-capabilities/v2" as const;
+export const CAPABILITY_RULE_VERSION = "similarity-capabilities/v3" as const;
 
 export const SIMILARITY_CAPABILITY_IDS = [
   "similarity.mark-known-segments",
@@ -12,6 +12,8 @@ export const SIMILARITY_CAPABILITY_IDS = [
   "similarity.convert-collinear-segments",
   "similarity.read-crossed-vertex-order",
   "similarity.build-side-equation",
+  "similarity.recognize-similarity-model",
+  "similarity.plan-similarity-proof",
 ] as const;
 
 export type SimilarityCapabilityId = typeof SIMILARITY_CAPABILITY_IDS[number];
@@ -34,6 +36,8 @@ export const CAPABILITY_LABELS: Record<SimilarityCapabilityId, string> = {
   "similarity.convert-collinear-segments": "互化共线线段",
   "similarity.read-crossed-vertex-order": "读取交叉构型点序",
   "similarity.build-side-equation": "按份数列边长式",
+  "similarity.recognize-similarity-model": "看结构识别可能相似的三角形",
+  "similarity.plan-similarity-proof": "看目标规划证明路线、找缺口补条件",
 };
 
 export type SimilarityTopicNodeDefinition = {
@@ -103,6 +107,18 @@ export const SIMILARITY_TOPIC_NODES: SimilarityTopicNodeDefinition[] = [
     requiredCapabilityIds: [
       "similarity.map-corresponding-sides",
       "similarity.build-side-equation",
+    ],
+  },
+  {
+    id: "reverse-a-four-similarity",
+    kind: "topic",
+    taskId: "reverseAFourSimilarity",
+    title: "反A一图四相似",
+    actionLabel: "发现候选、规划证明",
+    primaryCapabilityId: "similarity.recognize-similarity-model",
+    requiredCapabilityIds: [
+      "similarity.map-corresponding-sides",
+      "similarity.read-crossed-vertex-order",
     ],
   },
 ];
@@ -176,6 +192,8 @@ export const SIMILARITY_MAP_EDGES = [
   { from: "parallel-line-ratios", to: "reverse-a-similarity", kind: "required" as const },
   { from: "reverse-a-similarity", to: "nested-similarity", kind: "required" as const },
   { from: "reverse-a-similarity", to: "butterfly-similarity", kind: "required" as const },
+  { from: "reverse-a-similarity", to: "reverse-a-four-similarity", kind: "required" as const },
+  { from: "butterfly-similarity", to: "reverse-a-four-similarity", kind: "required" as const },
   { from: "auxiliary-two-ratios", to: "challenge-auxiliary-comprehensive", kind: "challenge-requires" as const },
   { from: "nested-similarity", to: "challenge-crossed-configuration", kind: "challenge-requires" as const },
   { from: "butterfly-similarity", to: "challenge-crossed-configuration", kind: "challenge-requires" as const },
@@ -276,6 +294,16 @@ export function capabilityIdsForTopicStep(
   if (taskId === "butterflySimilarity" && primitive === "mark-ratio") {
     return ["similarity.read-crossed-vertex-order", "similarity.map-corresponding-sides"];
   }
+  // reverseAFourSimilarity trains two proof-planning capabilities. Current
+  // evidence rules filter by step primitive, and both capabilities hang off
+  // select steps, so any select step records evidence for both (coarse by
+  // design; per-role attribution needs an evidence-rule schema change).
+  if (taskId === "reverseAFourSimilarity" && primitive === "select") {
+    return ["similarity.recognize-similarity-model", "similarity.plan-similarity-proof"];
+  }
+  if (taskId === "reverseAFourSimilarity" && primitive === "mark-ratio") {
+    return ["similarity.read-crossed-vertex-order", "similarity.map-corresponding-sides"];
+  }
   if (primitive === "mark-ratio") return ["similarity.map-corresponding-sides"];
   if (primitive === "mark-segments") return ["similarity.mark-known-segments"];
   return [];
@@ -289,4 +317,6 @@ export const REMEDIATION_TASK_BY_CAPABILITY: Record<SimilarityCapabilityId, Topi
   "similarity.convert-collinear-segments": "nestedSimilarity",
   "similarity.read-crossed-vertex-order": "butterflySimilarity",
   "similarity.build-side-equation": "parallelLineRatios",
+  "similarity.recognize-similarity-model": "reverseAFourSimilarity",
+  "similarity.plan-similarity-proof": "reverseAFourSimilarity",
 };

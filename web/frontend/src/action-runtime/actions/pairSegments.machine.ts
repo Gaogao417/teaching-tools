@@ -1,5 +1,6 @@
 import type { PairSegmentsAction } from "../../../../shared/actionRuntime";
 import type { DomainCommand } from "../../../../shared/actionWorld";
+import { pairOrdersEquivalent } from "../../../../shared/actionAnswerEquivalence";
 import { createActorFromDefinition } from "./actionDefinition";
 import { createFormMachineDefinition } from "./formMachine";
 
@@ -25,7 +26,10 @@ export const pairSegmentsDefinition = createFormMachineDefinition<PairSegmentsAc
   expectedLineAt: (contract, index) => contract.input.expectedOrder?.[index],
   slotValue: (context, slotId) => slotId === "segment-pairs" ? context.lines.join(" · ") : "",
   structurallyReady: (context) => context.lines.length >= context.contract.input.pairCount * 2,
-  locallyCorrect: (context) => !context.contract.input.expectedOrder || context.contract.input.expectedOrder.every((id, index) => context.lines[index] === id),
+  locallyCorrect: (context) => !context.contract.input.expectedOrder
+    || (context.contract.input.pairOrderPolicy === "pair-equivalent"
+      ? pairOrdersEquivalent(context.lines, context.contract.input.expectedOrder)
+      : context.contract.input.expectedOrder.every((id, index) => context.lines[index] === id)),
   evidence: (context) => ({ actionId: context.contract.actionId, sourceStepId: context.contract.sourceStepId, kind: "pair-segments", version: 1, segmentIds: [...context.lines] }),
   commands: (contract, evidence) => evidence.kind === "pair-segments" ? pairCommands(contract, evidence.segmentIds) : [],
   previewCommands: (context) => pairCommands(context.contract, context.lines),
