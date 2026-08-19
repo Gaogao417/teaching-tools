@@ -74,7 +74,7 @@ export interface ApproachPayload {
   artifact_id: string;
   version: string;
   status: string;
-  question_ref: { artifact_id: string; version: string; content_hash: string };
+  question_ref: { artifact_id: string; version: string; content_hash: string; part_id?: string };
   title: string;
   goal: string;
   entry_signal?: string;
@@ -99,7 +99,12 @@ interface TruthPayload {
   version: string;
   status: string;
   stem: string;
-  canonical_answer: { kind: string; value: string; options?: Array<{ id: string; value: string }> };
+  canonical_answer?: { kind: string; value: string; options?: Array<{ id: string; value: string }> };
+  subquestions?: Array<{
+    part_id: string;
+    prompt: string;
+    canonical_answer: { kind: string; value: string; options?: Array<{ id: string; value: string }> };
+  }>;
   content_hash: string;
 }
 
@@ -168,8 +173,12 @@ export function resolveEvidenceFile(canonicalRoot: string, uri: string): string 
   return path.join(canonicalRoot, namespace, artifactId, version, file);
 }
 
-/** 静态答案一致性（skills teaching_approach.static_answer_consistency 的 TS 镜像）。 */
-export function staticAnswerTargets(truth: TruthPayload): string[] {
+/** 静态答案一致性（skills teaching_approach.static_answer_consistency 的 TS 镜像）。
+
+ * ADR-005：part_id 给定时目标取自该小问（prompt 求证目标 + 小问级
+ * canonical_answer）；无小问或 part_id 为空时回退整题顶层（v1 存量兼容）。
+ */
+export function staticAnswerTargets(truth: TruthPayload, partId?: string): string[] {
   const normalize = (value: string): string =>
     value
       .replace(/\$|\\,|\\;|\\!|\\ |\\left|\\right/g, "")
@@ -182,18 +191,29 @@ export function staticAnswerTargets(truth: TruthPayload): string[] {
       .replace(/[{}]/g, "")
       .replace(/\s+/g, "");
   const targets: string[] = [];
-  for (const match of truth.stem.matchAll(/求证[：:]\s*([^；;。.]+)/g)) {
+  let stem = truth.stem;
+  let answer: TruthPayload["canonical_answer"] | undefined = truth.canonical_answer;
+  if (partId) {
+    const part = (truth.subquestions ?? []).find((entry) => entry.part_id === partId);
+    if (!part) return [];
+    stem = part.prompt;
+    answer = part.canonical_answer;
+  } else if ((truth.subquestions ?? []).length > 0) {
+    stem = `${stem}；${truth.subquestions!.map((entry) => entry.prompt).join("；")}`;
+    answer = undefined;
+  }
+  for (const match of stem.matchAll(/求证[：:]\s*([^；;。.]+)/g)) {
     const captured = match[1].replace(/^[（(]\s*[0-9]\s*[）)]\s*/, "").trim();
     const normalized = normalize(captured);
     if (normalized.length >= 2) targets.push(normalized);
   }
-  if (truth.canonical_answer.kind === "choice_option") {
-    for (const option of truth.canonical_answer.options ?? []) {
+  if (answer?.kind === "choice_option") {
+    for (const option of answer.options ?? []) {
       const value = normalize(option.value);
       if (value) targets.push(value);
     }
-  } else {
-    for (const segment of truth.canonical_answer.value.matchAll(/\$([^$]+)\$/g)) {
+  } else if (answer) {
+    for (const segment of answer.value.matchAll(/\$([^$]+)\$/g)) {
       const normalized = normalize(segment[1]);
       if (normalized) targets.push(normalized);
     }
@@ -280,13 +300,24 @@ export function runApproachCases(inputs: ApproachInputs): ApproachCaseResult[] {
           problems.push(`${approach.artifact_id}: content_hash drift`);
         }
       }
-      const goldenCovered = GOLDEN_QT_IDS.filter((qt) => (byQt.get(qt) ?? []).length > 0);
+      let goldenPartsCovered = 0;
+      let goldenPartsTotal = 0;
+      for (const qt of GOLDEN_QT_IDS) {
+        const truth = readCurrentPayload<TruthPayload>(inputs.truthRegistryDir, qt);
+        const partCount = truth?.subquestions?.length ?? 1;
+        goldenPartsTotal += partCount;
+        goldenPartsCovered += (byQt.get(qt) ?? []).filter(
+          (approach) => !truth?.subquestions?.length || approach.question_ref.part_id,
+        ).length >= partCount
+          ? partCount
+          : 0;
+      }
       results.push(
         problems.length
           ? fail(caseId, FAILURE.structureInvalid, problems.join("; "))
           : pass(
               caseId,
-              `${all.length} 个 Approved Approach 全部过 canonical schema（golden ${goldenCovered.length}/6 覆盖）`,
+              `${all.length} 个 Approved Approach 全部过 canonical schema（golden 小问覆盖 ${goldenPartsCovered}/${goldenPartsTotal}，ADR-005 part 粒度）`,
             ),
       );
     }
@@ -347,20 +378,33 @@ export function runApproachCases(inputs: ApproachInputs): ApproachCaseResult[] {
         problems.push(`${qtId}: no Approved approach (fidelity 不可评)`);
         continue;
       }
-      const targets = staticAnswerTargets(truth);
-      if (!targets.length) {
-        problems.push(`${qtId}: no statically verifiable targets`);
-        continue;
-      }
-      for (const approach of approaches) {
-        const stepsText = normalizeForMatch(approachStepsText(approach));
-        const missing = targets.filter((target) => !stepsText.includes(target));
-        if (missing.length) {
-          problems.push(`${approach.artifact_id}: answer targets missing from steps: ${missing.join(" / ")}`);
+      // ADR-005：目标按 part 提取——每个小问都要有陈述其目标的 part 级 TA。
+      const partIds = (truth.subquestions ?? []).map((entry) => entry.part_id);
+      const scopeIds = partIds.length ? partIds : [undefined];
+      for (const partId of scopeIds) {
+        const partLabel = partId ? `#${partId}` : "（整题）";
+        const scoped = approaches.filter(
+          (approach) => (approach.question_ref.part_id ?? undefined) === partId,
+        );
+        if (!scoped.length) {
+          problems.push(`${qtId}${partLabel}: 无绑定该小问的 Approved Approach`);
+          continue;
         }
-        if (!approach.goal?.trim()) problems.push(`${approach.artifact_id}: goal empty`);
-        if (!approach.evidence.manual_edit_notes.length) {
-          problems.push(`${approach.artifact_id}: 无人工编辑痕迹（AI 建议未经教师触碰）`);
+        const targets = staticAnswerTargets(truth, partId);
+        if (!targets.length) {
+          problems.push(`${qtId}${partLabel}: no statically verifiable targets`);
+          continue;
+        }
+        for (const approach of scoped) {
+          const stepsText = normalizeForMatch(approachStepsText(approach));
+          const missing = targets.filter((target) => !stepsText.includes(target));
+          if (missing.length) {
+            problems.push(`${approach.artifact_id}: answer targets missing from steps: ${missing.join(" / ")}`);
+          }
+          if (!approach.goal?.trim()) problems.push(`${approach.artifact_id}: goal empty`);
+          if (!approach.evidence.manual_edit_notes.length) {
+            problems.push(`${approach.artifact_id}: 无人工编辑痕迹（AI 建议未经教师触碰）`);
+          }
         }
       }
     }
@@ -369,7 +413,7 @@ export function runApproachCases(inputs: ApproachInputs): ApproachCaseResult[] {
         ? fail(caseId, FAILURE.mathFidelity, problems.join("; "))
         : pass(
             caseId,
-            "golden 六题答案目标全部出现在教学步骤中，且每个 Approach 均有人工编辑痕迹（rubric v1: math-fidelity + human-touch）",
+            "golden 六题每个小问的答案目标均出现在绑定该问的教学步骤中，且每个 Approach 均有人工编辑痕迹（rubric v1: math-fidelity + human-touch，ADR-005 part 粒度）",
           ),
     );
   }
@@ -395,6 +439,16 @@ export function runApproachCases(inputs: ApproachInputs): ApproachCaseResult[] {
       }
       if (approach.question_ref.content_hash !== truth.content_hash) {
         problems.push(`${approach.artifact_id}: question_ref.content_hash 与当前 Truth 不符`);
+      }
+      // ADR-005：part 绑定合法性——有小问必填且命中，无小问必须省略。
+      const partIds = (truth.subquestions ?? []).map((entry) => entry.part_id);
+      const boundPart = approach.question_ref.part_id;
+      if (partIds.length && !boundPart) {
+        problems.push(`${approach.artifact_id}: Truth 含小问 ${partIds} 但 TA 未绑定 part_id`);
+      } else if (!partIds.length && boundPart) {
+        problems.push(`${approach.artifact_id}: Truth 无小问但 TA 携带 part_id`);
+      } else if (boundPart && !partIds.includes(boundPart)) {
+        problems.push(`${approach.artifact_id}: part_id ${boundPart} 不在小问列表 ${partIds}`);
       }
     }
     // 篡改检测：构造绑定旧版本的 TA，验证判定函数能识别 stale（fail closed 演练）。

@@ -8,14 +8,17 @@
 import { z } from "zod";
 
 import {
+  approachSetSchema,
   benchmarkRunSchema,
   interventionSchema,
   questionCandidateSchema,
   questionTruthSchema,
+  questionTruthV2Schema,
   skillHypothesisSchema,
   sourceEvidenceSchema,
   sutConfigSchema,
   teachingApproachSchema,
+  teachingApproachV2Schema,
   tutorPlanBundleSchema,
   tutorSessionEventSchema,
 } from "./schemas";
@@ -28,7 +31,10 @@ const SCHEMA_CONST_TO_ZOD: Record<string, z.ZodTypeAny> = {
   "ai_teaching_source_evidence/v1": sourceEvidenceSchema,
   "ai_teaching_question_candidate/v1": questionCandidateSchema,
   "ai_teaching_question_truth/v1": questionTruthSchema,
+  "ai_teaching_question_truth/v2": questionTruthV2Schema,
   "ai_teaching_teaching_approach/v1": teachingApproachSchema,
+  "ai_teaching_teaching_approach/v2": teachingApproachV2Schema,
+  "ai_teaching_approach_set/v1": approachSetSchema,
   "ai_teaching_tutor_plan_bundle/v1": tutorPlanBundleSchema,
   "ai_teaching_tutor_session_event/v1": tutorSessionEventSchema,
   "ai_teaching_skill_hypothesis/v1": skillHypothesisSchema,

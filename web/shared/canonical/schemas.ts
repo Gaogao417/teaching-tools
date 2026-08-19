@@ -221,6 +221,112 @@ export const questionTruthSchema = z
   });
 
 // --------------------------------------------------------------------------- //
+// authoring/v2/question-truth（ADR-005 小问粒度）
+// --------------------------------------------------------------------------- //
+const subquestionV2 = z
+  .object({
+    part_id: z.string().regex(/^[1-9][0-9]{0,2}$/),
+    prompt: nonEmptyString,
+    points: z.number().positive().optional(),
+    canonical_answer: z
+      .object({
+        kind: z.enum([
+          "numeric",
+          "expression",
+          "text",
+          "proof",
+          "choice_option",
+        ]),
+        value: nonEmptyString,
+        acceptance: z
+          .array(
+            z.enum([
+              "numeric_equivalence",
+              "radical_simplification",
+              "vertex_cyclic_permutation",
+              "answer_normalization",
+              "unit_conversion",
+              "manual_review",
+            ]),
+          )
+          .default([]),
+        range_constraint: z.string().optional(),
+      })
+      .strict(),
+    reviewed_solution: nonEmptyString,
+  })
+  .strict();
+
+export const questionTruthV2Schema = z
+  .object({
+    schema: z.literal("ai_teaching_question_truth/v2"),
+    artifact_id: questionId,
+    version: versionTag,
+    status: statusEnum,
+    question_type: questionTypeEnum,
+    stem: nonEmptyString,
+    subquestions: z.array(subquestionV2).default([]),
+    canonical_answer: z
+      .object({
+        kind: z.enum([
+          "numeric",
+          "expression",
+          "text",
+          "proof",
+          "choice_option",
+        ]),
+        value: nonEmptyString,
+        acceptance: z
+          .array(
+            z.enum([
+              "numeric_equivalence",
+              "radical_simplification",
+              "vertex_cyclic_permutation",
+              "answer_normalization",
+              "unit_conversion",
+              "manual_review",
+            ]),
+          )
+          .default([]),
+        range_constraint: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    reviewed_solution: nonEmptyString.optional(),
+    source_evidence_refs: z.array(evidenceRef).min(1),
+    origin_candidate_id: candidateId.optional(),
+    approval: approval.optional(),
+    superseded_by: supersededBy.optional(),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/question-truth\/[A-Za-z0-9-]+@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "Approved" && !value.approval) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Approved requires approval" });
+    }
+    if (value.status === "Superseded" && !value.superseded_by) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Superseded requires superseded_by" });
+    }
+    if (value.subquestions.length > 0) {
+      // ADR-005：有小问时小问级真值为单一事实源，顶层禁存整题答案/解答。
+      if (value.canonical_answer !== undefined || value.reviewed_solution !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "subquestions present: top-level canonical_answer/reviewed_solution forbidden",
+        });
+      }
+    } else if (value.canonical_answer === undefined || value.reviewed_solution === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "no subquestions: top-level canonical_answer/reviewed_solution required",
+      });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
 // authoring/v1/teaching-approach
 // --------------------------------------------------------------------------- //
 const questionRef = z
@@ -308,6 +414,157 @@ export const teachingApproachSchema = z
     artifact_uri: z
       .string()
       .regex(/^artifact:\/\/teaching-approach\/[A-Za-z0-9-]+@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "Approved" && !value.approval) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Approved requires approval" });
+    }
+    if (value.status === "Superseded" && !value.superseded_by) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Superseded requires superseded_by" });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
+// authoring/v2/teaching-approach（ADR-005：一个小问 × 一种解法）
+// --------------------------------------------------------------------------- //
+const partQuestionRef = z
+  .object({
+    artifact_id: questionId,
+    version: versionTag,
+    content_hash: sha256,
+    // QT 含 subquestions 时必填（跨对象校验在冻结/评测层 fail closed）。
+    part_id: z.string().regex(/^[1-9][0-9]{0,2}$/).optional(),
+  })
+  .strict();
+
+export const teachingApproachV2Schema = z
+  .object({
+    schema: z.literal("ai_teaching_teaching_approach/v2"),
+    artifact_id: approachId,
+    version: versionTag,
+    status: statusEnum,
+    question_ref: partQuestionRef,
+    title: nonEmptyString,
+    goal: nonEmptyString,
+    entry_signal: z.string().optional(),
+    steps: z
+      .array(
+        z
+          .object({
+            step_id: z.string().regex(/^S[0-9]{1,3}$/),
+            intent: nonEmptyString,
+            narration: nonEmptyString,
+            expected_student_reasoning: nonEmptyString,
+            accepted_alternatives: z.array(nonEmptyString).default([]),
+            common_errors: z.array(nonEmptyString).default([]),
+            skill_ids: z.array(skillId).min(1),
+          })
+          .strict(),
+      )
+      .min(3),
+    evidence: z
+      .object({
+        audio: z
+          .array(
+            z
+              .object({
+                artifact_uri: z.string().regex(/^artifact:\/\/audio\//),
+                content_hash: sha256,
+                recorded_at: isoDateTime,
+                duration_seconds: z.number().positive().optional(),
+              })
+              .strict(),
+          )
+          .default([]),
+        transcripts: z
+          .array(
+            z
+              .object({
+                artifact_uri: z.string().regex(/^artifact:\/\/transcript\//),
+                asr_provenance: z
+                  .object({ provider: nonEmptyString, model_id: nonEmptyString })
+                  .strict(),
+                revision: z.number().int().min(1).optional(),
+              })
+              .strict(),
+          )
+          .default([]),
+        polished: z
+          .array(
+            z
+              .object({
+                artifact_uri: z.string().regex(/^artifact:\/\/transcript\//),
+                polish_provenance: z
+                  .object({
+                    provider: nonEmptyString,
+                    model_id: nonEmptyString,
+                    prompt_version: nonEmptyString,
+                  })
+                  .strict(),
+              })
+              .strict(),
+          )
+          .default([]),
+        manual_edit_notes: z.array(z.string()).default([]),
+      })
+      .strict(),
+    approval: approval.optional(),
+    superseded_by: supersededBy.optional(),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/teaching-approach\/[A-Za-z0-9-]+@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "Approved" && !value.approval) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Approved requires approval" });
+    }
+    if (value.status === "Superseded" && !value.superseded_by) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Superseded requires superseded_by" });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
+// authoring/v1/approach-set（ADR-005 §5 跨小问组合层）
+// --------------------------------------------------------------------------- //
+const approachSetId = z.string().regex(/^AS-[A-Z0-9]+-[0-9]{3,}$/);
+
+const approachRef = z
+  .object({
+    artifact_id: approachId,
+    version: versionTag,
+    content_hash: sha256,
+  })
+  .strict();
+
+export const approachSetSchema = z
+  .object({
+    schema: z.literal("ai_teaching_approach_set/v1"),
+    artifact_id: approachSetId,
+    version: versionTag,
+    status: statusEnum,
+    question_ref: questionRef,
+    parts: z
+      .array(
+        z
+          .object({
+            part_id: z.string().regex(/^[1-9][0-9]{0,2}$/).optional(),
+            approach: approachRef,
+            alternates: z.array(approachRef).default([]),
+            note: z.string().optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+    cross_part_rhythm: z.string().optional(),
+    approval: approval.optional(),
+    superseded_by: supersededBy.optional(),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/approach-set\/[A-Za-z0-9-]+@v[0-9]+$/),
   })
   .strict()
   .superRefine((value, ctx) => {
