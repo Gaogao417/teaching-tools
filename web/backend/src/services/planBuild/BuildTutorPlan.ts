@@ -64,6 +64,8 @@ export interface BuildPlanInputs {
   readonly planId: string;
   readonly runId: string;
   readonly builtAt: string;
+  /** 本次构建的版本号（重批时递增；缺省 v1）。 */
+  readonly version?: string;
   readonly truth: TruthPayload;
   /** golden 题的跨小问组合层；缺省时按 part 逐个找 Approved TA。 */
   readonly approachSet: ApproachSetPayload | null;
@@ -342,14 +344,14 @@ export function buildTutorPlanDraft(inputs: BuildPlanInputs): BuildPlanResult {
         content: step.narration,
       });
 
-      const hintL1 = sanitizeText(
-        `先别急着算——这一步的关键是「${step.intent}」。说说你打算怎么找？`,
-        targets,
-      );
+      // 2026-08-21 教师裁定：禁用引导词包装句。L1 = 步骤意图本体（教学素材
+      // 来自 TA，不另造句）；L2 = 常见卡点本体，无卡点时用最小结构检查句。
+      // 泄题自查照跑（intent/卡点含答案值时降级为通用脚手架并留痕）。
+      const hintL1 = sanitizeText(step.intent, targets);
       const hintL2 = sanitizeText(
         step.common_errors?.length
-          ? `常见卡点是「${step.common_errors[0]}」。回到「${step.intent}」，检查还有哪个已知条件没有用上。`
-          : `提示：先写出这一步要用到的已知条件，再看它们如何组合出「${step.intent}」。`,
+          ? `常见卡点：${step.common_errors[0]}`
+          : "检查还有哪个已知条件没有用上",
         targets,
       );
       if (hintL1.sanitized) sanitizedHints.push(`${checkpointId} hint L1`);
@@ -477,10 +479,11 @@ export function buildTutorPlanDraft(inputs: BuildPlanInputs): BuildPlanResult {
     ...new Set(resources.flatMap((resource) => (resource.capability ? [resource.capability] : []))),
   ].sort();
 
+  const planVersion = inputs.version ?? "v1";
   const draft: TutorPlanV2Payload = {
     schema: "ai_teaching_tutor_plan_bundle/v2",
     artifact_id: inputs.planId,
-    version: "v1",
+    version: planVersion,
     status: "Draft",
     question_ref: {
       artifact_id: truth.artifact_id,
@@ -507,7 +510,7 @@ export function buildTutorPlanDraft(inputs: BuildPlanInputs): BuildPlanResult {
       runtime_registry_version: snapshot.runtime_registry_version,
     },
     content_hash: "",
-    artifact_uri: `artifact://tutor-plan/${inputs.planId}@v1`,
+    artifact_uri: `artifact://tutor-plan/${inputs.planId}@${planVersion}`,
   };
   draft.content_hash = canonicalHash(draft as unknown as Record<string, unknown>, "plan");
   return { ok: true, plan: draft, pendingCapabilityBindings, sanitizedHints, gaps };
