@@ -26,6 +26,7 @@ const interventionId = z.string().regex(/^IV-[0-9]{4,}$/);
 const runId = z.string().regex(/^BR-[0-9]{4,}$/);
 const caseId = z.string().regex(/^C-(INT|TRU|APP|PLN|RT)-[0-9]{2,}$/);
 
+const checkpointIdPattern = z.string().regex(/^CP[0-9]{1,3}$/);
 const statusEnum = z.enum([
   "Draft",
   "InReview",
@@ -527,6 +528,101 @@ export const teachingApproachV2Schema = z
   });
 
 // --------------------------------------------------------------------------- //
+// authoring/v3/teaching-approach（ADR-006：步骤不再强制 skill_ids）
+// --------------------------------------------------------------------------- //
+export const teachingApproachV3Schema = z
+  .object({
+    schema: z.literal("ai_teaching_teaching_approach/v3"),
+    artifact_id: approachId,
+    version: versionTag,
+    status: statusEnum,
+    question_ref: z
+      .object({
+        artifact_id: questionId,
+        version: versionTag,
+        content_hash: sha256,
+        // v3：part_id 必填（小问粒度是 v2 起的固定边界）。
+        part_id: z.string().regex(/^[1-9][0-9]{0,2}$/),
+      })
+      .strict(),
+    title: nonEmptyString,
+    goal: nonEmptyString,
+    entry_signal: z.string().optional(),
+    steps: z
+      .array(
+        z
+          .object({
+            step_id: z.string().regex(/^S[0-9]{1,3}$/),
+            intent: nonEmptyString,
+            narration: nonEmptyString,
+            expected_student_reasoning: nonEmptyString,
+            accepted_alternatives: z.array(nonEmptyString).optional(),
+            common_errors: z.array(nonEmptyString).optional(),
+            source_trace_refs: z.array(nonEmptyString).optional(),
+          })
+          .strict(),
+      )
+      .min(3),
+    evidence: z
+      .object({
+        audio: z.array(
+          z
+            .object({
+              artifact_uri: z.string().regex(/^artifact:\/\/audio\//),
+              content_hash: sha256,
+              recorded_at: isoDateTime,
+              duration_seconds: z.number().positive().optional(),
+            })
+            .strict(),
+        ),
+        transcripts: z.array(
+          z
+            .object({
+              artifact_uri: z.string().regex(/^artifact:\/\/transcript\//),
+              asr_provenance: z
+                .object({ provider: nonEmptyString, model_id: nonEmptyString })
+                .strict(),
+              revision: z.number().int().min(1).optional(),
+            })
+            .strict(),
+        ),
+        polished: z
+          .array(
+            z
+              .object({
+                artifact_uri: z.string().regex(/^artifact:\/\/transcript\//),
+                polish_provenance: z
+                  .object({
+                    provider: nonEmptyString,
+                    model_id: nonEmptyString,
+                    prompt_version: nonEmptyString,
+                  })
+                  .strict(),
+              })
+              .strict(),
+          )
+          .optional(),
+        manual_edit_notes: z.array(z.string()).optional(),
+      })
+      .strict(),
+    approval: approval.optional(),
+    superseded_by: supersededBy.optional(),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/teaching-approach\/[A-Za-z0-9-]+@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "Approved" && !value.approval) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Approved requires approval" });
+    }
+    if (value.status === "Superseded" && !value.superseded_by) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Superseded requires superseded_by" });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
 // authoring/v1/approach-set（ADR-005 §5 跨小问组合层）
 // --------------------------------------------------------------------------- //
 const approachSetId = z.string().regex(/^AS-[A-Z0-9]+-[0-9]{3,}$/);
@@ -714,10 +810,162 @@ export const tutorPlanBundleSchema = z
   .strict();
 
 // --------------------------------------------------------------------------- //
+// planning/v2/tutor-plan-bundle（ADR-006 备课资源包）
+// --------------------------------------------------------------------------- //
+const partIdPattern = z.string().regex(/^[1-9][0-9]{0,2}$/);
+const routeIdPattern = z.string().regex(/^R[0-9]{1,3}$/);
+const resourceIdPattern = z.string().regex(/^RES[0-9]{1,3}$/);
+const planApproval = z
+  .object({
+    reviewer_id: nonEmptyString,
+    approved_at: isoDateTime,
+    review_note: z.string().optional(),
+  })
+  .strict();
+
+const planSkillAnnotation = z
+  .object({
+    skill_id: skillId,
+    rationale: nonEmptyString,
+    evidence_refs: z.array(nonEmptyString).min(1),
+  })
+  .strict();
+
+export const tutorPlanBundleV2Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_plan_bundle/v2"),
+    artifact_id: planId,
+    version: versionTag,
+    status: statusEnum,
+    question_ref: questionRef,
+    approach_refs: z
+      .array(
+        z
+          .object({
+            artifact_id: approachId,
+            version: versionTag,
+            content_hash: sha256,
+            part_id: partIdPattern,
+          })
+          .strict(),
+      )
+      .min(1),
+    recommended_routes: z
+      .array(
+        z
+          .object({
+            route_id: routeIdPattern,
+            role: z.enum(["primary", "alternate"]),
+            part_id: partIdPattern.optional(),
+            entry_condition: z.string().optional(),
+            checkpoint_ids: z.array(checkpointIdPattern).min(1),
+            completion_condition: nonEmptyString,
+          })
+          .strict(),
+      )
+      .min(1),
+    checkpoints: z
+      .array(
+        z
+          .object({
+            checkpoint_id: checkpointIdPattern,
+            part_id: partIdPattern,
+            expected_reasoning: nonEmptyString,
+            accepted_alternatives: z.array(nonEmptyString).optional(),
+            common_deviations: z.array(nonEmptyString).optional(),
+            skippable: z.boolean().optional(),
+            skill_annotations: z.array(planSkillAnnotation).max(2).optional(),
+            unmapped_skill_reason: z.string().optional(),
+            resource_ids: z.array(resourceIdPattern).optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+    resources: z
+      .array(
+        z
+          .object({
+            resource_id: resourceIdPattern,
+            kind: z.enum([
+              "explanation",
+              "hint",
+              "diagnostic_probe",
+              "repair",
+              "action_template",
+              "workspace",
+              "voice_seed",
+            ]),
+            checkpoint_id: checkpointIdPattern.optional(),
+            assistance_level: z.number().int().min(0).max(5).optional(),
+            source: z.enum(["authored", "reused", "agent_generated"]),
+            content: nonEmptyString.optional(),
+            action_ref: nonEmptyString.optional(),
+            capability: nonEmptyString.optional(),
+            target_ids: z.array(nonEmptyString).optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+    policy_constraints: z
+      .object({
+        allowed_move_types: z
+          .array(
+            z.enum(["explain", "prompt", "hint", "confirm", "wait", "repair"]),
+          )
+          .min(1),
+        allowed_capabilities: z.array(nonEmptyString),
+        forbidden_content_kinds: z.array(
+          z.enum([
+            "canonical_answer",
+            "reviewed_solution",
+            "hidden_truth",
+            "unapproved_tool",
+          ]),
+        ),
+        maximum_assistance_level: z.number().int().min(0).max(5),
+        // ADR-006：资源包永不用于 Assessment（隔离投影不在此合同内）。
+        assessment_enabled: z.literal(false),
+      })
+      .strict(),
+    build_provenance: z
+      .object({
+        provider: nonEmptyString,
+        model_id: nonEmptyString,
+        workflow_version: nonEmptyString,
+        run_id: nonEmptyString,
+        built_at: isoDateTime,
+        runtime_registry_version: nonEmptyString,
+      })
+      .strict(),
+    runtime_projection: z
+      .object({
+        materializer_version: nonEmptyString,
+        runtime_registry_version: nonEmptyString,
+        projection_hash: sha256,
+        validation_status: z.literal("passed"),
+      })
+      .strict()
+      .optional(),
+    approval: planApproval.optional(),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/tutor-plan\/[A-Za-z0-9-]+@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "Approved" && (!value.approval || !value.runtime_projection)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "status=Approved requires approval and runtime_projection",
+      });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
 // runtime/v1/tutor-session-event
 // --------------------------------------------------------------------------- //
 const sessionModeEnum = z.enum(["teach", "guided_solve", "repair"]);
-const checkpointIdPattern = z.string().regex(/^CP[0-9]{1,3}$/);
 const hintLevel = z.number().int().min(0).max(5);
 
 const eventPayloadSchemas = {
@@ -823,6 +1071,231 @@ export const tutorSessionEventSchema = z
           message: issue.message,
         });
       }
+    }
+  });
+
+// --------------------------------------------------------------------------- //
+// runtime/v2/tutor-session-event（ADR-006 因果链）
+// --------------------------------------------------------------------------- //
+const decisionIdPattern = z.string().regex(/^TD-[A-Za-z0-9._:-]{4,}$/);
+const voiceActionIdPattern = z.string().regex(/^VA-[A-Za-z0-9._:-]{4,}$/);
+const workspaceActionIdPattern = z.string().regex(/^WA-[A-Za-z0-9._:-]{4,}$/);
+const purposeCodePattern = z.string().regex(/^[a-z][a-z0-9._-]*$/);
+const moveTypeEnum = z.enum(["explain", "prompt", "hint", "confirm", "wait", "repair"]);
+
+const v2EventPayloadSchemas = {
+  session_started: z
+    .object({
+      plan: z
+        .object({ artifact_id: planId, version: versionTag, content_hash: sha256 })
+        .strict(),
+      initial_mode: sessionModeEnum,
+    })
+    .strict(),
+  mode_changed: z
+    .object({ from_mode: sessionModeEnum, to_mode: sessionModeEnum })
+    .strict(),
+  student_input_recorded: z
+    .object({
+      input_kind: z.enum([
+        "reasoning_utterance",
+        "question_asked",
+        "pointing_evidence",
+        "structured_action_evidence",
+        "silence_observed",
+        "student_interrupted",
+      ]),
+      text: z.string().optional(),
+      object_id: z.string().optional(),
+      action_id: z.string().optional(),
+      action_payload: z.string().optional(),
+      duration_ms: z.number().int().min(0).optional(),
+    })
+    .strict(),
+  reasoning_aligned: z
+    .object({
+      alignment: z.enum([
+        "expected_checkpoint",
+        "alternate_valid",
+        "incorrect",
+        "unclear",
+        "no_progress",
+      ]),
+      checkpoint_id: checkpointIdPattern.optional(),
+      alternate_description: z.string().optional(),
+    })
+    .strict(),
+  tutor_move_decided: z
+    .object({
+      decision_id: decisionIdPattern,
+      move_type: moveTypeEnum,
+      purpose_code: purposeCodePattern,
+      policy_version: nonEmptyString,
+      source_event_sequence: z.number().int().min(1),
+      source_state_revision: z.number().int().min(0),
+      checkpoint_id: checkpointIdPattern.optional(),
+      assistance_level: hintLevel.optional(),
+      resource_ids: z.array(resourceIdPattern).optional(),
+      fallback: z.boolean().optional(),
+    })
+    .strict()
+    .superRefine((payload, ctx) => {
+      if (payload.move_type === "hint" && (payload.assistance_level === undefined || payload.checkpoint_id === undefined)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "move_type=hint requires assistance_level and checkpoint_id",
+        });
+      }
+    }),
+  voice_action_issued: z
+    .object({
+      action_id: voiceActionIdPattern,
+      decision_id: decisionIdPattern,
+      text: nonEmptyString,
+      interruptible: z.boolean().optional(),
+    })
+    .strict(),
+  voice_action_completed: z
+    .object({
+      action_id: nonEmptyString,
+      outcome: z.enum(["completed", "interrupted", "rejected", "failed"]),
+      failure_class: z.string().optional(),
+      message: z.string().optional(),
+    })
+    .strict(),
+  workspace_action_issued: z
+    .object({
+      action_id: workspaceActionIdPattern,
+      decision_id: decisionIdPattern,
+      capability: nonEmptyString,
+      target_ids: z.array(nonEmptyString),
+      command_payload: z.string().optional(),
+    })
+    .strict(),
+  workspace_action_completed: z
+    .object({
+      action_id: nonEmptyString,
+      outcome: z.enum(["completed", "interrupted", "rejected", "failed"]),
+      failure_class: z.string().optional(),
+      message: z.string().optional(),
+    })
+    .strict(),
+  hint_issued: z
+    .object({
+      decision_id: decisionIdPattern,
+      checkpoint_id: checkpointIdPattern,
+      level: hintLevel,
+    })
+    .strict(),
+  working_diagnosis_updated: z
+    .object({
+      summary_code: purposeCodePattern,
+      candidate_skill_ids: z.array(skillId).max(3).optional(),
+      evidence_sequences: z.array(z.number().int().min(1)).min(1),
+    })
+    .strict(),
+  policy_failed: z
+    .object({
+      policy_version: nonEmptyString,
+      failure_class: nonEmptyString,
+      fallback_used: z.boolean(),
+      fallback_resource_id: resourceIdPattern.optional(),
+    })
+    .strict(),
+  runtime_failure: z
+    .object({
+      failure_class: nonEmptyString,
+      message: z.string(),
+      related_event_sequence: z.number().int().min(1).optional(),
+    })
+    .strict(),
+} as const;
+
+/** 无 payload 条件、但要求 causation_sequence 的事件类型。 */
+const V2_FREE_PAYLOAD_EVENTS: ReadonlySet<string> = new Set([
+  "student_progressed",
+  "student_self_corrected",
+  "repair_delivered",
+  "session_completed",
+]);
+
+/** JSON Schema allOf 中显式 required: ["causation_sequence"] 的事件类型。 */
+const V2_CAUSATION_REQUIRED: ReadonlySet<string> = new Set([
+  "mode_changed",
+  "reasoning_aligned",
+  "tutor_move_decided",
+  "voice_action_issued",
+  "workspace_action_issued",
+  "voice_action_completed",
+  "workspace_action_completed",
+  "hint_issued",
+  "working_diagnosis_updated",
+  "policy_failed",
+]);
+
+export type TutorSessionEventV2Type =
+  | keyof typeof v2EventPayloadSchemas
+  | "student_progressed"
+  | "student_self_corrected"
+  | "repair_delivered"
+  | "session_completed";
+
+export const tutorSessionEventV2Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_session_event/v2"),
+    session_id: sessionId,
+    sequence: z.number().int().min(1),
+    state_revision: z.number().int().min(0),
+    occurred_at: isoDateTime,
+    event_type: z.enum([
+      "session_started",
+      "mode_changed",
+      "student_input_recorded",
+      "reasoning_aligned",
+      "tutor_move_decided",
+      "voice_action_issued",
+      "voice_action_completed",
+      "workspace_action_issued",
+      "workspace_action_completed",
+      "hint_issued",
+      "student_progressed",
+      "student_self_corrected",
+      "working_diagnosis_updated",
+      "repair_delivered",
+      "policy_failed",
+      "runtime_failure",
+      "session_completed",
+    ]),
+    payload: z.record(z.unknown()),
+    causation_sequence: z.number().int().min(1).optional(),
+    idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const payloadSchema =
+      v2EventPayloadSchemas[value.event_type as keyof typeof v2EventPayloadSchemas];
+    if (payloadSchema) {
+      const result = payloadSchema.safeParse(value.payload);
+      if (!result.success) {
+        for (const issue of result.error.issues) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+    } else if (!V2_FREE_PAYLOAD_EVENTS.has(value.event_type)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `unknown event_type: ${value.event_type}`,
+      });
+    }
+    if (V2_CAUSATION_REQUIRED.has(value.event_type) && value.causation_sequence === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `event_type=${value.event_type} requires causation_sequence`,
+      });
     }
   });
 

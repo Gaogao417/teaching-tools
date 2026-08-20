@@ -94,8 +94,9 @@ async function main(): Promise<void> {
       set.add(entry.expect_schema);
       bySchema.set(entry.object_schema, set);
     }
-    // 与 Zod 分派表一一对应（新 schema 常量即新正反例义务，ADR-005 起 13）。
-    assert.equal(bySchema.size, 13);
+    // 与 Zod 分派表一一对应（新 schema 常量即新正反例义务，Phase 4 起 16：
+    // +teaching_approach/v3、+tutor_plan_bundle/v2、+tutor_session_event/v2）。
+    assert.equal(bySchema.size, 16);
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -215,9 +216,12 @@ async function main(): Promise<void> {
       "questionTruthV2Schema",
       "teachingApproachSchema",
       "teachingApproachV2Schema",
+      "teachingApproachV3Schema",
       "approachSetSchema",
       "tutorPlanBundleSchema",
+      "tutorPlanBundleV2Schema",
       "tutorSessionEventSchema",
+      "tutorSessionEventV2Schema",
       "tutorSessionEventTypeEnum",
       "skillHypothesisSchema",
       "interventionSchema",

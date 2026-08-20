@@ -10,8 +10,10 @@ export const PUBLISHABLE_SCHEMAS: ReadonlySet<string> = new Set([
   "ai_teaching_question_truth/v2",
   "ai_teaching_teaching_approach/v1",
   "ai_teaching_teaching_approach/v2",
+  "ai_teaching_teaching_approach/v3",
   "ai_teaching_approach_set/v1",
   "ai_teaching_tutor_plan_bundle/v1",
+  "ai_teaching_tutor_plan_bundle/v2",
 ]);
 
 const NOT_PUBLISHED_STATUSES: ReadonlySet<string> = new Set([

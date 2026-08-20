@@ -19,8 +19,11 @@ import {
   sutConfigSchema,
   teachingApproachSchema,
   teachingApproachV2Schema,
+  teachingApproachV3Schema,
   tutorPlanBundleSchema,
+  tutorPlanBundleV2Schema,
   tutorSessionEventSchema,
+  tutorSessionEventV2Schema,
 } from "./schemas";
 
 export * from "./schemas";
@@ -34,9 +37,12 @@ const SCHEMA_CONST_TO_ZOD: Record<string, z.ZodTypeAny> = {
   "ai_teaching_question_truth/v2": questionTruthV2Schema,
   "ai_teaching_teaching_approach/v1": teachingApproachSchema,
   "ai_teaching_teaching_approach/v2": teachingApproachV2Schema,
+  "ai_teaching_teaching_approach/v3": teachingApproachV3Schema,
   "ai_teaching_approach_set/v1": approachSetSchema,
   "ai_teaching_tutor_plan_bundle/v1": tutorPlanBundleSchema,
+  "ai_teaching_tutor_plan_bundle/v2": tutorPlanBundleV2Schema,
   "ai_teaching_tutor_session_event/v1": tutorSessionEventSchema,
+  "ai_teaching_tutor_session_event/v2": tutorSessionEventV2Schema,
   "ai_teaching_skill_hypothesis/v1": skillHypothesisSchema,
   "ai_teaching_intervention/v1": interventionSchema,
   "ai_teaching_sut_config/v1": sutConfigSchema,

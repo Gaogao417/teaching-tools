@@ -404,6 +404,13 @@ const ACTION_KINDS: ReadonlySet<string> = new Set<ActionKind>([
   "enter-text",
 ]);
 
+/**
+ * Action vocabulary 真源的公开只读视图（Phase 4 / P4-01）。
+ * planBuild 的 RuntimeRegistrySnapshot 以此为唯一 ActionKind 清单；
+ * Build Agent 只能引用其中的 kind，缺 primitive 一律 fail closed。
+ */
+export const RUNTIME_ACTION_KINDS: readonly string[] = [...ACTION_KINDS];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

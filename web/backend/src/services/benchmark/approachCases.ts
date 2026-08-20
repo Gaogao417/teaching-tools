@@ -182,6 +182,7 @@ export function staticAnswerTargets(truth: TruthPayload, partId?: string): strin
   const normalize = (value: string): string =>
     value
       .replace(/\$|\\,|\\;|\\!|\\ |\\left|\\right/g, "")
+      .replace(/\\sqrt\s*/g, "√")
       .replace(/\\cdot/g, "·")
       .replace(/\\times/g, "×")
       .replace(/\\perp/g, "⊥")
@@ -230,6 +231,9 @@ export function approachStepsText(approach: ApproachPayload): string {
 export function normalizeForMatch(value: string): string {
   return value
     .replace(/\$|\\,|\\;|\\!|\\ |\\left|\\right/g, "")
+    // Phase 4：LaTeX 与 Unicode 根号写法等值（canonical 值是 \sqrt{3}，ASR/讲解
+    // 常写 √3）；两侧同函数归一化，不改变 Phase 3 等价判定的方向。
+    .replace(/\\sqrt\s*/g, "√")
     .replace(/\\cdot/g, "·")
     .replace(/\\times/g, "×")
     .replace(/\\perp/g, "⊥")
