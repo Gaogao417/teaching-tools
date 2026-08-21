@@ -218,7 +218,100 @@ function main(): void {
   assert.equal(assessment.ok, false);
   assert.ok(assessment.errors.join(";").includes("Assessment"));
 
-  console.log("PASS preparePresentation + workspaceActionAdapter (0..n actions, 5-fold validation, truth isolation)");
+  // ---- 2026-08-21 追加裁定 §5/§6/§8：kind 分流与生命周期隔离 ----
+  const { resolveWorkspacePresentation } = require("../PreparePresentation") as typeof import("../PreparePresentation");
+
+  // 测试 4：explain 引用 action_template → 不得把 JSON 当 Voice 文本下发
+  const explainWithTemplate = preparePresentation({
+    decision: decision("explain", { purpose_code: "explain.open", checkpoint_id: "CP1", resource_ids: ["RES1", "RES14"] }),
+    plan: PLAN as never,
+    state: STATE as never,
+    sessionId: "TS-9501",
+    voiceOrdinal: 9,
+    workspaceOrdinal: 9,
+    answerValues: ["$1$"],
+  });
+  assert.equal(explainWithTemplate.ok, true);
+  assert.equal(explainWithTemplate.presentation!.voice.length, 1, "action_template 不得成为 Voice 文本");
+  assert.equal(explainWithTemplate.presentation!.voice[0].resource_id, "RES1");
+  assert.ok(!explainWithTemplate.presentation!.voice[0].text.includes("actionId"), "Voice 不得携带模板 JSON");
+
+  // 测试 3：prompt 显式引用 action_template → Presenter 确定性解析为 workspace 草案
+  const promptWithTemplate = preparePresentation({
+    decision: decision("prompt", { purpose_code: "prompt.generic", checkpoint_id: "CP3", resource_ids: ["RES14"] }),
+    plan: PLAN as never,
+    state: STATE as never,
+    sessionId: "TS-9501",
+    voiceOrdinal: 10,
+    workspaceOrdinal: 10,
+    answerValues: ["$1$"],
+  });
+  assert.equal(promptWithTemplate.ok, true);
+  assert.equal(promptWithTemplate.presentation!.workspace.length, 1, "prompt 引用 action_template 应派生 workspace 草案");
+
+  // 测试 3b：prompt 只引用 explanation → 零 workspace（explanation 永不是 Workspace 资源）
+  const promptWithExplanation = preparePresentation({
+    decision: decision("prompt", { purpose_code: "prompt.generic", checkpoint_id: "CP1", resource_ids: ["RES1"] }),
+    plan: PLAN as never,
+    state: STATE as never,
+    sessionId: "TS-9501",
+    voiceOrdinal: 11,
+    workspaceOrdinal: 11,
+    answerValues: ["$1$"],
+  });
+  assert.equal(promptWithExplanation.ok, true);
+  assert.equal(promptWithExplanation.presentation!.workspace.length, 0, "explanation 不得解析为 WorkspaceAction");
+
+  // 测试 7/8：resolveWorkspacePresentation 生命周期——合法草案升格为
+  // ValidatedWorkspaceAction（学生安全形态），非法草案留在 failures、不进呈现
+  const goodResolution = resolveWorkspacePresentation(
+    promptWithTemplate.presentation!.workspace,
+    PLAN as never,
+    PROJECTION as never,
+  );
+  assert.equal(goodResolution.presentation.length, 1);
+  assert.equal(goodResolution.failures.length, 0);
+  const validated = goodResolution.presentation[0];
+  assert.equal(validated.resource_id, "RES14");
+  assert.equal(validated.action_ref, "tp:TP-SMV-001:1:enter-text");
+  const serializedView = JSON.stringify(validated);
+  assert.ok(!serializedView.includes("localTruth"), "已验证呈现不得含 localTruth");
+  assert.ok(!serializedView.includes("teachingInput"), "已验证呈现不得含 teachingInput");
+  assert.ok(!serializedView.includes("expectedValues"), "已验证呈现不得含 expectedValues");
+  assert.ok(!("learn_contract" in validated), "已验证呈现不得携带 learn_contract");
+
+  // 测试 5：capability 不在 plan allowlist → 不签发、不返回（只留失败记录）
+  const badCapabilityResolution = resolveWorkspacePresentation(
+    [{ ...baseAction, capability: "workspace.focus-objects" }] as never,
+    PLAN as never,
+    PROJECTION as never,
+  );
+  assert.equal(badCapabilityResolution.presentation.length, 0, "非法 capability 不得进入已验证呈现");
+  assert.equal(badCapabilityResolution.failures.length, 1);
+
+  // 测试 6：action_ref 不在确定性投影 → 不签发、不返回
+  const badRefResolution = resolveWorkspacePresentation(
+    [{ ...baseAction, command_payload: { resource_id: "RES14", action_ref: "tp:missing:9:x", mode: "learn" } }] as never,
+    PLAN as never,
+    PROJECTION as never,
+  );
+  assert.equal(badRefResolution.presentation.length, 0, "投影外 action_ref 不得进入已验证呈现");
+  assert.equal(badRefResolution.failures.length, 1);
+
+  // 测试 11：Hint/Repair 文本与批准资源逐字一致（不截断、不包装）
+  const hintVerbatim = preparePresentation({
+    decision: decision("hint", { purpose_code: "hint.escalate", checkpoint_id: "CP1", assistance_level: 1, resource_ids: ["RES2"] }),
+    plan: PLAN as never,
+    state: STATE as never,
+    sessionId: "TS-9501",
+    voiceOrdinal: 12,
+    workspaceOrdinal: 12,
+    answerValues: ["$1$"],
+  });
+  const hintResource = (PLAN as { resources: Array<{ resource_id: string; content: string }> }).resources.find((r) => r.resource_id === "RES2")!;
+  assert.equal(hintVerbatim.presentation!.voice[0].text, hintResource.content, "hint 逐字使用批准资源原文");
+
+  console.log("PASS preparePresentation + workspaceActionAdapter (0..n actions, 5-fold validation, truth isolation, adjudication lifecycle)");
 }
 
 main();

@@ -128,21 +128,11 @@ async function main(): Promise<number> {
       const payload = decision.payload as { source_event_sequence: number; source_state_revision: number };
       return events.some((event) => event.sequence === payload.source_event_sequence) && payload.source_state_revision >= 0;
     });
-    // 被拒（S9 注入演练）的 workspace 动作不参与呈现因果合同——它们从未执行。
-    const rejectedActions = new Set(
-      events
-        .filter(
-          (event) =>
-            event.event_type === "workspace_action_completed" && (event.payload as { outcome: string }).outcome === "rejected",
-        )
-        .map((event) => (event.payload as { action_id: string }).action_id),
-    );
+    // 裁定 §6（2026-08-21）：workspace issued 只可能是已验证动作（S9 非法注入
+    // 不再签发，拒绝事实记 runtime_failure），全部参与呈现因果合同。
     const issuedOk = events
       .filter(
-        (event) =>
-          event.event_type === "voice_action_issued" ||
-          (event.event_type === "workspace_action_issued" &&
-            !rejectedActions.has((event.payload as { action_id: string }).action_id)),
+        (event) => event.event_type === "voice_action_issued" || event.event_type === "workspace_action_issued",
       )
       .every((event) => {
         const decisionId = (event.payload as { decision_id: string }).decision_id;

@@ -34,3 +34,23 @@ export interface WorkspaceIssuedContext {
   /** assessment 投影合同（学生面：无 localTruth / teachingInput）。 */
   student_view: unknown;
 }
+
+/**
+ * 已验证 Workspace 呈现（2026-08-21 追加裁定 §6：生命周期隔离）。
+ *
+ * WorkspaceActionPlan 是未信任草案（Presenter 派生）；只有过 workspace
+ * adapter 五重校验并解析出学生安全投影之后，才升格为
+ * ValidatedWorkspaceAction——它是唯一允许进入学生 Presentation、
+ * workspace_action_issued 事件与前端 ActionRuntime 的形态。
+ * learn_contract / template 留在服务端私有（evaluator 侧），不出本类型。
+ */
+export interface ValidatedWorkspaceAction {
+  action_id: string;
+  decision_id: string;
+  capability: string;
+  target_ids: string[];
+  resource_id: string;
+  action_ref: string;
+  /** 学生面投影（assessment 形态：无 localTruth / teachingInput / expectedValues）。 */
+  student_view: unknown;
+}

@@ -57,12 +57,13 @@ import { createDecideTutorMove } from "../tutorPolicy/DecideTutorMove";
 import { deterministicRulesPolicy } from "../tutorPolicy/adapters/model/deterministicRulesPolicy";
 import type { TutorPolicyPort, PolicyTrigger } from "../tutorPolicy/TutorPolicyPort";
 import type { TutorDecision } from "../tutorPolicy/TutorMove";
-import { preparePresentation, type PresentationPlan } from "../tutorPresentation/PreparePresentation";
-import type { VoiceActionPlan, WorkspaceActionPlan } from "../tutorPresentation";
 import {
-  evaluateWorkspaceEvidence,
-  validateWorkspaceAction,
-} from "../tutorPresentation/adapters/legacyActionRuntime/workspaceActionAdapter";
+  preparePresentation,
+  resolveWorkspacePresentation,
+  type ValidatedPresentation,
+} from "../tutorPresentation/PreparePresentation";
+import type { VoiceActionPlan, WorkspaceActionPlan, ValidatedWorkspaceAction } from "../tutorPresentation";
+import { evaluateWorkspaceEvidence } from "../tutorPresentation/adapters/legacyActionRuntime/workspaceActionAdapter";
 
 /** feature flag 白名单（gate 6：只对 golden plan 启用新 Policy）。 */
 export const STATEFUL_TUTOR_POLICY_GOLDEN_PLANS: readonly string[] = [
@@ -122,7 +123,12 @@ export interface RecordInputResult {
 
 export interface TurnResult {
   decision: TutorDecision | null;
-  presentation: PresentationPlan;
+  /**
+   * 学生安全呈现（2026-08-21 追加裁定 §6）：workspace 只含已过五重校验的
+   * ValidatedWorkspaceAction（学生面投影，无 learn_contract/localTruth）；
+   * 未验证草案不会出现在这里，也不会签发 workspace_action_issued。
+   */
+  presentation: ValidatedPresentation;
   policy_failed?: { failure_class: string; fallback_used: boolean };
   appendedSequences: number[];
 }
@@ -507,7 +513,9 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
 
     const base = events.at(-1)?.sequence ?? 0;
     const batch: PendingV2Event[] = [];
-    let presentation: PresentationPlan = { voice: [], workspace: [] };
+    let presentation: ValidatedPresentation = { voice: [], workspace: [] };
+    /** Presenter 草案中未通过五重校验的 WorkspaceAction（记录 runtime_failure，不签发）。 */
+    let workspaceFailures: Array<{ action_id: string; errors: string[] }> = [];
     let decision: TutorDecision | null = null;
 
     if (outcome.failure && !outcome.draft) {
@@ -571,7 +579,20 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
           causation_sequence: trigger.event_sequence,
         });
       } else {
-        presentation = presentationResult.presentation;
+        // 裁定 §6 生命周期隔离：Workspace 草案先过五重校验升格为
+        // ValidatedWorkspacePresentation——未验证动作不进学生 presentation、
+        // 不签发 workspace_action_issued，只记 runtime_failure。
+        const resolution = resolveWorkspacePresentation(
+          presentationResult.presentation.workspace,
+          context.plan,
+          context.projection,
+          { registrySnapshot: context.snapshot, sessionKind: "tutoring" },
+        );
+        presentation = { voice: presentationResult.presentation.voice, workspace: resolution.presentation };
+        workspaceFailures = resolution.failures.map((failure) => ({
+          action_id: failure.action.action_id,
+          errors: failure.errors,
+        }));
         batch.push({
           event_type: "tutor_move_decided",
           payload: {
@@ -627,12 +648,9 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
           });
         });
 
+        // 只签发已验证动作（裁定 §6）：issued payload 的 command 重建自
+        // 解析出的 resource_id/action_ref（服务端私有来源，非模型输出）。
         for (const workspace of presentation.workspace) {
-          const validation = validateWorkspaceAction(workspace, context.plan, context.projection, {
-            registrySnapshot: context.snapshot,
-            sessionKind: "tutoring",
-          });
-          const issuedSequence = base + batch.length + 1;
           batch.push({
             event_type: "workspace_action_issued",
             payload: {
@@ -640,26 +658,29 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
               decision_id: decision!.decision_id,
               capability: workspace.capability,
               target_ids: workspace.target_ids,
-              ...(workspace.command_payload
-                ? { command_payload: JSON.stringify(workspace.command_payload) }
-                : {}),
+              command_payload: JSON.stringify({
+                resource_id: workspace.resource_id,
+                action_ref: workspace.action_ref,
+                mode: "learn",
+              }),
             },
             occurred_at: now(),
             causation_sequence: decisionSequence,
           });
-          if (!validation.ok) {
-            batch.push({
-              event_type: "workspace_action_completed",
-              payload: {
-                action_id: workspace.action_id,
-                outcome: "rejected",
-                failure_class: "workspace_validation_failed",
-                message: validation.errors.join("; "),
-              },
-              occurred_at: now(),
-              causation_sequence: issuedSequence,
-            });
-          }
+        }
+        // 未通过校验的 WorkspaceAction：系统失败事实（P5-14 与学生错误分离），
+        // 不签发、不下发。
+        for (const failure of workspaceFailures) {
+          batch.push({
+            event_type: "runtime_failure",
+            payload: {
+              failure_class: "workspace_action_rejected",
+              message: `${failure.action_id}: ${failure.errors.join("; ")}`,
+              related_event_sequence: decisionSequence,
+            },
+            occurred_at: now(),
+            causation_sequence: decisionSequence,
+          });
         }
 
         if (decision.move_type === "hint") {
@@ -733,42 +754,48 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     ]);
   }
 
-  /** gate 4 演练入口：注入一条待校验 WorkspaceAction（非法输入走 rejected 路径）。 */
+  /** gate 4 演练入口：注入一条待校验 WorkspaceAction（裁定 §6：非法输入
+   *  记 runtime_failure，不签发 workspace_action_issued、不进学生呈现）。 */
   function attemptWorkspaceAction(sessionId: string, action: WorkspaceActionPlan): { accepted: boolean; errors: string[] } {
     const { context, events, revision } = loadSession(sessionId);
-    const validation = validateWorkspaceAction(action, context.plan, context.projection, {
+    const resolution = resolveWorkspacePresentation([action], context.plan, context.projection, {
       registrySnapshot: context.snapshot,
       sessionKind: "tutoring",
     });
-    const batch: PendingV2Event[] = [
-      {
-        event_type: "workspace_action_issued",
+    const batch: PendingV2Event[] = [];
+    if (!resolution.presentation.length) {
+      const failure = resolution.failures[0];
+      batch.push({
+        event_type: "runtime_failure",
         payload: {
-          action_id: action.action_id,
-          decision_id: action.decision_id,
-          capability: action.capability,
-          target_ids: action.target_ids,
-          ...(action.command_payload ? { command_payload: JSON.stringify(action.command_payload) } : {}),
+          failure_class: "workspace_action_rejected",
+          message: `${action.action_id}: ${(failure?.errors ?? ["未知拒绝原因"]).join("; ")}`,
+          related_event_sequence: events.at(-1)?.sequence,
         },
         occurred_at: now(),
         causation_sequence: events.at(-1)?.sequence ?? 1,
-      },
-    ];
-    if (!validation.ok) {
+      });
+    } else {
+      const validated = resolution.presentation[0];
       batch.push({
-        event_type: "workspace_action_completed",
+        event_type: "workspace_action_issued",
         payload: {
-          action_id: action.action_id,
-          outcome: "rejected",
-          failure_class: "workspace_validation_failed",
-          message: validation.errors.join("; "),
+          action_id: validated.action_id,
+          decision_id: validated.decision_id,
+          capability: validated.capability,
+          target_ids: validated.target_ids,
+          command_payload: JSON.stringify({
+            resource_id: validated.resource_id,
+            action_ref: validated.action_ref,
+            mode: "learn",
+          }),
         },
         occurred_at: now(),
-        causation_sequence: (events.at(-1)?.sequence ?? 1) + 1,
+        causation_sequence: events.at(-1)?.sequence ?? 1,
       });
     }
     appendBatch(sessionId, revision, batch);
-    return { accepted: validation.ok, errors: validation.errors };
+    return { accepted: resolution.presentation.length > 0, errors: resolution.failures[0]?.errors ?? [] };
   }
 
   /** 学生操作：真实 typed evaluator 判定（accepted/rejected → 事实与进度）。 */

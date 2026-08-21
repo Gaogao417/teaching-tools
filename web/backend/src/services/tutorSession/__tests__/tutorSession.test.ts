@@ -85,6 +85,17 @@ async function main(): Promise<void> {
     // Action 节点：prompt.action_step 派发 workspace action，学生正确操作被接受
     const state = coordinator.restore(sid);
     assert.ok(state.workspace.active_action_id, "action 节点应已派发 workspace action");
+    // 裁定 §6/§8-9：学生面 presentation 只含已验证 Workspace 呈现——
+    // 无 learn_contract/localTruth/teachingInput/expectedValues。
+    const allEvents = coordinator.getEvents(sid);
+    const issuedWorkspace = allEvents.filter((event) => event.event_type === "workspace_action_issued");
+    for (const issued of issuedWorkspace) {
+      const serialized = JSON.stringify(issued.payload);
+      assert.ok(!serialized.includes("localTruth"), "issued payload 不得含 localTruth");
+      assert.ok(!serialized.includes("teachingInput"), "issued payload 不得含 teachingInput");
+      assert.ok(!serialized.includes("expectedValues"), "issued payload 不得含 expectedValues");
+    }
+    assert.ok(issuedWorkspace.length > 0, "closed loop 应至少签发一个 workspace action");
     const template = JSON.parse(actionResource!.content!);
     const evidence = {
       actionId: template.actionId,

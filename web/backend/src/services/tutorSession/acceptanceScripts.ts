@@ -500,15 +500,21 @@ const SCRIPTS: Record<string, ScriptRunner> = {
     assert.equal(unknownResource.accepted, false, "未知 resource target 必须被拒绝");
 
     const events = eventsOf(c, sid);
+    // 裁定 §6（2026-08-21）：非法动作不签发（无 workspace_action_issued），
+    // 拒绝事实记 runtime_failure(workspace_action_rejected)。
+    const issued = events.slice(before).filter((event) => event.event_type === "workspace_action_issued");
+    assert.equal(issued.length, 0, "非法注入不得签发 workspace_action_issued");
     const rejected = events.filter(
-      (event) => event.event_type === "workspace_action_completed" && (event.payload as { outcome: string }).outcome === "rejected",
+      (event) =>
+        event.event_type === "runtime_failure" &&
+        (event.payload as { failure_class?: string }).failure_class === "workspace_action_rejected",
     );
-    assert.equal(rejected.length, 2, "两次非法注入都必须留下 rejected 事实");
+    assert.equal(rejected.length, 2, "两次非法注入都必须留下 runtime_failure 拒绝事实");
     const pollution = events.slice(before).filter(
       (event) => event.event_type === "student_input_recorded" || event.event_type === "reasoning_aligned",
     );
     assert.equal(pollution.length, 0, "工具拒绝不得产生学生 evidence");
-    return { detail: `2 次注入全 rejected；学生事实零污染` };
+    return { detail: `2 次注入全 runtime_failure 拒绝；零签发；学生事实零污染` };
   },
 
   /** 10. Policy timeout 使用安全 fallback。 */
