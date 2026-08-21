@@ -20,6 +20,7 @@ export type SessionMode = "teach" | "guided_solve" | "repair";
 export type MoveType = "explain" | "prompt" | "hint" | "confirm" | "wait" | "repair";
 export type Alignment = "expected_checkpoint" | "alternate_valid" | "incorrect" | "unclear" | "no_progress";
 export type VoiceOutcome = "completed" | "interrupted" | "rejected" | "failed";
+export type VoiceSource = "approved-resource" | "model-generated" | "deterministic-scaffold";
 export type InputKind =
   | "reasoning_utterance"
   | "question_asked"
@@ -94,12 +95,22 @@ export interface StudentInputRecordedPayload {
   /** canonical 合同：JSON 字符串（写入侧由对象序列化）。 */
   action_payload?: string;
   duration_ms?: number;
+  /** v3：processTurn 幂等键（同 clientTurnId 重复提交返回同结果）。 */
+  client_turn_id?: string;
 }
 
 export interface ReasoningAlignedPayload {
   alignment: Alignment;
   checkpoint_id?: string;
   alternate_description?: string;
+  /** v3：alternate 命中的备选路线（投影据此真正切换路线）。 */
+  route_id?: string;
+  /** v3：置信度（expected/alternate 生效门 ≥0.85、incorrect ≥0.75）。 */
+  confidence?: number;
+  aligner_version?: string;
+  workflow_version?: string;
+  /** v3：grounding 引用（CPn.expected / CPn.alt[i] / CPn.deviation[i] / route.Rn.entry）。 */
+  grounding_refs?: string[];
 }
 
 export interface TutorMoveDecidedPayload {
@@ -113,6 +124,12 @@ export interface TutorMoveDecidedPayload {
   assistance_level?: number;
   resource_ids?: string[];
   fallback?: boolean;
+  /** v3：智能链 provenance（deterministic provider 不携带）。 */
+  model?: string;
+  workflow_version?: string;
+  prompt_versions?: string[];
+  voice_source?: VoiceSource;
+  workspace_resource_ids?: string[];
 }
 
 export interface VoiceActionIssuedPayload {
@@ -120,6 +137,11 @@ export interface VoiceActionIssuedPayload {
   decision_id: string;
   text: string;
   interruptible?: boolean;
+  /** v3：voice 文本来源（approved-resource 时携带资源 id）。 */
+  resource_ref?: string;
+  /** v3：受控动态生成批次 id（model-generated 时携带；不保存生成过程）。 */
+  generation_id?: string;
+  voice_source?: VoiceSource;
 }
 
 export interface ActionCompletedPayload {
@@ -204,7 +226,7 @@ export type V2EventPayload =
   | RepairDeliveredPayload
   | SessionCompletedPayload;
 
-/** 待追加 v2 事件（sequence/state_revision 由 store 分配，调用方不携带）。 */
+/** 待追加 v2/v3 事件（sequence/state_revision 由 store 分配，调用方不携带）。 */
 export interface PendingV2Event<P extends V2EventPayload = V2EventPayload> {
   event_type: V2EventType;
   payload: P;
@@ -213,9 +235,9 @@ export interface PendingV2Event<P extends V2EventPayload = V2EventPayload> {
   idempotency_key?: string;
 }
 
-/** 已存储 v2 事件（canonical 全形状，replay 输入）。 */
+/** 已存储 v2 事件（canonical 全形状，replay 输入）。v3 同构，仅 schema 常量不同。 */
 export interface StoredV2Event<P extends V2EventPayload = V2EventPayload> {
-  schema: "ai_teaching_tutor_session_event/v2";
+  schema: "ai_teaching_tutor_session_event/v2" | "ai_teaching_tutor_session_event/v3";
   session_id: string;
   sequence: number;
   state_revision: number;

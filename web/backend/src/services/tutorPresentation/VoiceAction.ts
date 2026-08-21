@@ -11,7 +11,7 @@
  * canonical 事件 voice_action_issued payload 是 strict 四字段；
  * resource_id 只留在进程内呈现计划，用于审计，不进事件。
  */
-import type { VoiceOutcome } from "../tutorSession/TutorSessionEvent";
+import type { VoiceOutcome, VoiceSource } from "../tutorSession/TutorSessionEvent";
 
 export interface VoiceActionPlan {
   action_id: string;
@@ -20,6 +20,9 @@ export interface VoiceActionPlan {
   interruptible: boolean;
   /** 进程内审计：voice 文本来源资源（canonocal 事件不含此字段）。 */
   resource_id?: string;
+  /** v3 provenance：文本来源与受控生成批次 id（resource_id 互斥使用）。 */
+  voice_source?: VoiceSource;
+  generation_id?: string;
 }
 
 export interface VoiceCompletion {

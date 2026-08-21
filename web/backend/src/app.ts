@@ -44,6 +44,7 @@ import { conductCoachTurn } from "./services/coach/coachTurnService";
 import { narrationApplication } from "./services/coach/composition";
 import { createTrainingRoutes } from "./transport/http/trainingRoutes";
 import { createCoachRoutes } from "./transport/http/coachRoutes";
+import { createTutorSessionRoutes } from "./transport/http/tutorSessionRoutes";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
   message: "Invalid taskId",
@@ -62,6 +63,10 @@ export function createApp() {
   app.use(express.json({ limit: "14mb" }));
   app.use("/api/training", createTrainingRoutes());
   app.use("/api/coach", createCoachRoutes());
+  // Phase 5 remediation：智能 Tutor 闭环 HTTP 合同（canonical root 走 env）。
+  if (process.env.TUTOR_CANONICAL_ROOT) {
+    app.use("/api/tutor-sessions", createTutorSessionRoutes());
+  }
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });

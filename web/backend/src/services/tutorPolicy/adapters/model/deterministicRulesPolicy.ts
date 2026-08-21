@@ -19,6 +19,7 @@
 import type { Alignment } from "../../../tutorSession/TutorSessionEvent";
 import type { TutorPlanV2Payload, PlanResourceV2 } from "../../../planBuild/canonicalInputs";
 import type { TutorRuntimeState, AssistanceLedger } from "../../../tutorSession/TutorRuntimeStateProjection";
+import { normalizeForAlignment } from "../../../tutorSession/ReasoningAligner";
 import type { PolicyContext, PolicyOutcome, PolicyTrigger, TutorPolicyPort } from "../../TutorPolicyPort";
 import type { TutorDecisionDraft, WorkingDiagnosisUpdate } from "../../TutorMove";
 
@@ -58,6 +59,51 @@ function probeResource(plan: TutorPlanV2Payload, checkpointId: string): PlanReso
   return plan.resources.find(
     (resource) => resource.kind === "diagnostic_probe" && resource.checkpoint_id === checkpointId,
   );
+}
+
+function longestCommonRunLength(a: string, b: string): number {
+  if (!a.length || !b.length) return 0;
+  let best = 0;
+  let previous = new Array<number>(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = new Array<number>(b.length + 1).fill(0);
+    for (let j = 1; j <= b.length; j += 1) {
+      if (a[i - 1] === b[j - 1]) {
+        current[j] = previous[j - 1] + 1;
+        if (current[j] > best) best = current[j];
+      }
+    }
+    previous = current;
+  }
+  return best;
+}
+
+/** 缺陷修复（Phase 5 remediation）：question 文本不再被忽略——回答学生提问时，
+ *  在本 part 的 explanation 资源里选与问题文本最相关的一篇（LCS ≥4 归一化
+ *  字符），无命中才退回当前 checkpoint 的默认讲解。 */
+function explanationForQuestion(
+  plan: TutorPlanV2Payload,
+  partId: string,
+  questionText: string | undefined,
+  fallbackCheckpointId: string,
+): PlanResourceV2 | undefined {
+  const fallback = explanationResource(plan, fallbackCheckpointId);
+  if (!questionText?.trim()) return fallback;
+  const question = normalizeForAlignment(questionText);
+  if (!question) return fallback;
+  const partCheckpointIds = new Set(
+    plan.checkpoints.filter((entry) => entry.part_id === partId).map((entry) => entry.checkpoint_id),
+  );
+  let best: { resource: PlanResourceV2; score: number } | undefined;
+  for (const resource of plan.resources) {
+    if (resource.kind !== "explanation" || !resource.content) continue;
+    if (resource.checkpoint_id && !partCheckpointIds.has(resource.checkpoint_id)) continue;
+    const score = longestCommonRunLength(question, normalizeForAlignment(resource.content));
+    if (score >= 4 && (!best || score > best.score)) {
+      best = { resource, score };
+    }
+  }
+  return best?.resource ?? fallback;
 }
 
 function ledgerOf(state: TutorRuntimeState, checkpointId: string): AssistanceLedger {
@@ -311,12 +357,22 @@ function decideStudentInput(context: PolicyContext): TutorDecisionDraft | null {
 
   switch (trigger.input_kind) {
     case "question_asked": {
-      const explanation = explanationResource(plan, checkpointId);
+      const partId = plan.checkpoints.find((entry) => entry.checkpoint_id === checkpointId)?.part_id ?? "1";
+      const matched = explanationForQuestion(
+        plan,
+        partId,
+        state.dialogue.open_question?.text,
+        checkpointId,
+      );
+      // 问题文本命中其他 checkpoint 的讲解时，答问 move 锚定到该 checkpoint
+      // （讲的是学生问的内容；不推进课程，只是讲解定位）。
+      const anchoredCheckpointId =
+        matched?.checkpoint_id && matched.checkpoint_id !== checkpointId ? matched.checkpoint_id : checkpointId;
       return {
         move_type: "explain",
         purpose_code: "explain.answer_question",
-        checkpoint_id: checkpointId,
-        resource_ids: [explanation?.resource_id].filter((id): id is string => Boolean(id)),
+        checkpoint_id: anchoredCheckpointId,
+        resource_ids: [matched?.resource_id].filter((id): id is string => Boolean(id)),
       };
     }
     case "student_interrupted":

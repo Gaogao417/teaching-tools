@@ -15,6 +15,7 @@
  * 表结构见 src/db/database.ts 的 tutor_sessions / tutor_session_events。
  * 该模块对事件表只发 INSERT/SELECT——append-only 由测试结构性自证。
  */
+import { db } from "../../db/database";
 import { validatePayload, type ValidationOutcome } from "../../../../shared/canonical";
 import {
   CAUSATION_REQUIRED,
@@ -43,8 +44,9 @@ export interface StartTutorSessionInput {
   sessionId: string;
   studentId: string;
   plan: { artifact_id: string; version: string; content_hash: string };
-  /** Phase 5：v2 会话写 ADR-006 因果链事件；默认 v2，v1 仅供遗留兼容路径。 */
-  eventSchema?: "v1" | "v2";
+  /** Phase 5：v2 会话写 ADR-006 因果链事件；remediation 起新会话写 v3
+   *  （智能链 provenance）；v1 仅供遗留兼容路径。 */
+  eventSchema?: "v1" | "v2" | "v3";
 }
 
 /** 待追加事件（v1 合同，遗留）。idempotency_key 可选：重试批次应复用首次尝试的 key。 */
@@ -76,8 +78,6 @@ interface SessionRow {
   completed_at: string | null;
   event_schema: string;
 }
-
-const { db } = require("../../db/database") as typeof import("../../db/database");
 
 const insertSessionStatement = db.prepare(`
   INSERT INTO tutor_sessions
@@ -232,18 +232,28 @@ export function appendTutorSessionEvents(
 }
 
 // --------------------------------------------------------------------------- //
-// v2 路径（Phase 5 / ADR-006 因果链）
+// v2/v3 路径（Phase 5 / ADR-006 因果链；v3 = 智能链 provenance 增量）
 // --------------------------------------------------------------------------- //
 
-function canonicalizeV2Event(
+const EVENT_SCHEMA_CONST: Record<"v2" | "v3", string> = {
+  v2: "ai_teaching_tutor_session_event/v2",
+  v3: "ai_teaching_tutor_session_event/v3",
+};
+
+function isModernEventSchema(value: string): value is "v2" | "v3" {
+  return value === "v2" || value === "v3";
+}
+
+function canonicalizeModernEvent(
   sessionId: string,
+  eventSchema: "v2" | "v3",
   event: PendingV2Event,
   sequence: number,
   stateRevision: number,
 ): { record: Record<string, unknown>; idempotencyKey: string } & ValidationOutcome {
   const idempotencyKey = event.idempotency_key ?? `${sessionId}:${sequence}`;
   const record: Record<string, unknown> = {
-    schema: "ai_teaching_tutor_session_event/v2",
+    schema: EVENT_SCHEMA_CONST[eventSchema],
     session_id: sessionId,
     sequence,
     state_revision: stateRevision,
@@ -260,7 +270,8 @@ function canonicalizeV2Event(
 }
 
 /**
- * 追加一批 v2 事件。state_revision 由 store 统一盖章为提交后 revision；
+ * 追加一批 v2/v3 事件（按会话行 event_schema 分派；v3 payload 可携带智能链
+ * provenance 增量字段）。state_revision 由 store 统一盖章为提交后 revision；
  * causation_sequence 必须指向已存在（或同批更早）事件的 sequence——本 store
  * 不做跨事件引用校验（由 coordinator 层保证），仅透传给 canonical 合同。
  */
@@ -277,12 +288,13 @@ export function appendTutorSessionEventsV2(
     if (!session) {
       throw new TutorSessionEventStoreError("SESSION_NOT_FOUND", `unknown session: ${sessionId}`);
     }
-    if (session.event_schema !== "v2") {
+    if (!isModernEventSchema(session.event_schema)) {
       throw new TutorSessionEventStoreError(
         "VALIDATION_FAILED",
-        `session ${sessionId} uses ${session.event_schema} contract; v2 append requires event_schema=v2`,
+        `session ${sessionId} uses ${session.event_schema} contract; v2/v3 append requires event_schema=v2|v3`,
       );
     }
+    const eventSchema = session.event_schema;
     if (session.revision !== expectedRevision) {
       throw new TutorSessionEventStoreError(
         "REVISION_CONFLICT",
@@ -301,7 +313,7 @@ export function appendTutorSessionEventsV2(
           `event at position ${index}: event_type=${event.event_type} requires causation_sequence`,
         );
       }
-      const canonical = canonicalizeV2Event(sessionId, event, sequence, nextRevision);
+      const canonical = canonicalizeModernEvent(sessionId, eventSchema, event, sequence, nextRevision);
       if (!canonical.ok) {
         throw new TutorSessionEventStoreError(
           "VALIDATION_FAILED",
@@ -316,6 +328,9 @@ export function appendTutorSessionEventsV2(
   });
   return appendTransaction();
 }
+
+/** v3 别名（新代码可读性）：语义与 appendTutorSessionEventsV2 完全一致。 */
+export const appendTutorSessionEventsV3 = appendTutorSessionEventsV2;
 
 // --------------------------------------------------------------------------- //
 // 会话与读取
@@ -361,18 +376,20 @@ export function readTutorSessionEvents(sessionId: string): StoredTutorSessionEve
   }));
 }
 
-/** v2 canonical 全形状读取（replay / state projection 输入）。 */
+/** v2 canonical 全形状读取（replay / state projection 输入）。
+ *  v3 会话经同一入口读取（schema 常量按会话行分派；restore 不区分版本）。 */
 export function readTutorSessionEventsV2(sessionId: string): StoredV2Event[] {
   const session = getSessionRow(sessionId);
   if (!session) {
     throw new TutorSessionEventStoreError("SESSION_NOT_FOUND", `unknown session: ${sessionId}`);
   }
-  if (session.event_schema !== "v2") {
+  if (!isModernEventSchema(session.event_schema)) {
     throw new TutorSessionEventStoreError(
       "VALIDATION_FAILED",
-      `session ${sessionId} is ${session.event_schema}; canonical v2 read requires a v2 session`,
+      `session ${sessionId} is ${session.event_schema}; canonical v2/v3 read requires a v2|v3 session`,
     );
   }
+  const schemaConst = EVENT_SCHEMA_CONST[session.event_schema];
   const rows = listEventsStatement.all(sessionId) as Array<{
     session_id: string;
     sequence: number;
@@ -386,7 +403,7 @@ export function readTutorSessionEventsV2(sessionId: string): StoredV2Event[] {
   return rows.map(
     (row) =>
       ({
-        schema: "ai_teaching_tutor_session_event/v2",
+        schema: schemaConst,
         session_id: row.session_id,
         sequence: row.sequence,
         state_revision: row.recorded_revision,
@@ -398,6 +415,9 @@ export function readTutorSessionEventsV2(sessionId: string): StoredV2Event[] {
       }) as StoredV2Event,
   );
 }
+
+/** v3 别名：按会话行分派读取（v3 会话返回 v3 schema 常量）。 */
+export const readTutorSessionEventsV3 = readTutorSessionEventsV2;
 
 /** 会话当前 revision（coordinator 乐观并发的读取端）。 */
 export function tutorSessionRevision(sessionId: string): number {

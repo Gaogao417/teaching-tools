@@ -21,6 +21,7 @@ import type { TutorPlanV2Payload } from "../planBuild/canonicalInputs";
 import type { TutorRuntimeState } from "../tutorSession/TutorRuntimeStateProjection";
 import type { TutorDecision } from "../tutorPolicy/TutorMove";
 import { normalizeForAlignment } from "../tutorSession/ReasoningAligner";
+import { validateVoiceText } from "../tutorIntelligence/proposalValidation";
 import type { RuntimeRegistrySnapshot } from "../planBuild/RuntimeRegistrySnapshot";
 import type { RuntimeProjectionBody } from "../planBuild/MaterializeTutorPlan";
 import { validateWorkspaceAction } from "./adapters/legacyActionRuntime/workspaceActionAdapter";
@@ -67,6 +68,20 @@ export interface PreparePresentationInput {
   sessionId: string;
   /** 当前 part 的 canonical answer 值（脚手架泄漏自查用）。 */
   answerValues: readonly string[];
+  /** 智能链受控动态文案（裁定 §4：仅 explain/prompt/confirm 允许；
+   *  hint/repair/wait 一律忽略；泄漏/长度自查失败时降级回批准资源/脚手架）。 */
+  dynamicVoice?: { text: string; source: "model-generated" };
+}
+
+function dynamicVoiceText(
+  input: PreparePresentationInput,
+  moveType: string,
+): { text: string; source: "model-generated" } | undefined {
+  if (!input.dynamicVoice) return undefined;
+  if (moveType !== "explain" && moveType !== "prompt" && moveType !== "confirm") return undefined;
+  const check = validateVoiceText(input.dynamicVoice.text, input.answerValues);
+  if (!check.ok) return undefined;
+  return input.dynamicVoice;
 }
 
 function resourceTexts(input: PreparePresentationInput): Array<{ resource_id: string; text: string }> {
@@ -118,6 +133,20 @@ export function preparePresentation(input: PreparePresentationInput): Presentati
     case "explain":
     case "hint":
     case "repair": {
+      const dynamic = dynamicVoiceText(input, decision.move_type);
+      if (dynamic) {
+        // 受控动态文案（explain 允许）：一次 voice，来源 model-generated；
+        // 资源仍在 decision.resource_ids 上留审计，不重复读为文本。
+        voice.push({
+          action_id: `VA-${input.sessionId}-${input.voiceOrdinal}`,
+          decision_id: decision.decision_id,
+          text: dynamic.text,
+          interruptible: true,
+          voice_source: "model-generated",
+          generation_id: `VG-${input.sessionId}-${input.voiceOrdinal}`,
+        });
+        break;
+      }
       const pairs = resourceTexts(input);
       if (!pairs.length) {
         return { ok: false, errors: [`${decision.move_type} move 无可用资源文本（资源缺失）`] };
@@ -134,19 +163,31 @@ export function preparePresentation(input: PreparePresentationInput): Presentati
       break;
     }
     case "prompt": {
+      const dynamic = dynamicVoiceText(input, decision.move_type);
       const probeResource = (decision.resource_ids ?? [])
         .map((resourceId) => plan.resources.find((entry) => entry.resource_id === resourceId))
         .find((resource) => resource?.kind === "diagnostic_probe");
-      const scaffold = VOICE_SCAFFOLDS[decision.purpose_code] ?? VOICE_SCAFFOLDS["prompt.generic"];
-      const text = probeResource?.content ?? scaffold;
-      if (!probeResource) scaffoldTexts.push(text);
-      voice.push({
-        action_id: `VA-${input.sessionId}-${input.voiceOrdinal}`,
-        decision_id: decision.decision_id,
-        text,
-        interruptible: true,
-        ...(probeResource ? { resource_id: probeResource.resource_id } : {}),
-      });
+      if (dynamic) {
+        voice.push({
+          action_id: `VA-${input.sessionId}-${input.voiceOrdinal}`,
+          decision_id: decision.decision_id,
+          text: dynamic.text,
+          interruptible: true,
+          voice_source: "model-generated",
+          generation_id: `VG-${input.sessionId}-${input.voiceOrdinal}`,
+        });
+      } else {
+        const scaffold = VOICE_SCAFFOLDS[decision.purpose_code] ?? VOICE_SCAFFOLDS["prompt.generic"];
+        const text = probeResource?.content ?? scaffold;
+        if (!probeResource) scaffoldTexts.push(text);
+        voice.push({
+          action_id: `VA-${input.sessionId}-${input.voiceOrdinal}`,
+          decision_id: decision.decision_id,
+          text,
+          interruptible: true,
+          ...(probeResource ? { resource_id: probeResource.resource_id } : {}),
+        });
+      }
 
       // Workspace 派生（裁定 §4：LLM 只选 resource_id，Presenter 确定性解析）：
       // a) 决策显式引用的 action_template 资源；b) deterministic provider 的
@@ -182,6 +223,18 @@ export function preparePresentation(input: PreparePresentationInput): Presentati
       break;
     }
     case "confirm": {
+      const dynamic = dynamicVoiceText(input, decision.move_type);
+      if (dynamic) {
+        voice.push({
+          action_id: `VA-${input.sessionId}-${input.voiceOrdinal}`,
+          decision_id: decision.decision_id,
+          text: dynamic.text,
+          interruptible: true,
+          voice_source: "model-generated",
+          generation_id: `VG-${input.sessionId}-${input.voiceOrdinal}`,
+        });
+        break;
+      }
       const scaffold = VOICE_SCAFFOLDS[decision.purpose_code] ?? VOICE_SCAFFOLDS["confirm.generic"];
       scaffoldTexts.push(scaffold);
       voice.push({

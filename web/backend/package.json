@@ -15,7 +15,9 @@
     "benchmark:approach": "tsx scripts/run-approach-cases.ts",
     "benchmark:plan": "tsx scripts/run-plan-cases.ts",
     "benchmark:realtime": "tsx scripts/run-realtime-cases.ts",
-    "tutor:sessions": "tsx scripts/run-tutor-sessions.ts"
+    "tutor:sessions": "tsx scripts/run-tutor-sessions.ts",
+    "test:vitest": "vitest run",
+    "test:vitest:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.12",
@@ -30,8 +32,10 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
+    "vitest": "^4.1.11",
     "yaml": "^2.9.0"
   }
 }

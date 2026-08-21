@@ -47,7 +47,7 @@ export interface DialogueState {
 
 export interface ReasoningState {
   current_checkpoint_id: string;
-  last_alignment?: { alignment: Alignment; checkpoint_id?: string; sequence: number };
+  last_alignment?: { alignment: Alignment; checkpoint_id?: string; sequence: number; confidence?: number };
   alternate_path?: { description: string; route_id?: string; sequence: number };
   self_corrections: Array<{ checkpoint_id: string; sequence: number; deviation_sequence: number }>;
   interruptions: number[];
@@ -138,7 +138,7 @@ function firstCheckpointOf(state: TutorRuntimeState): string {
   return part.checkpoint_ids[Math.min(part.current_index, part.checkpoint_ids.length - 1)] ?? "CP1";
 }
 
-function applyEvent(state: TutorRuntimeState, event: StoredV2Event): void {
+function applyEvent(plan: TutorPlanV2Payload, state: TutorRuntimeState, event: StoredV2Event): void {
   state.revision = event.state_revision;
   state.last_sequence = event.sequence;
   const payload = event.payload as unknown as Record<string, unknown>;
@@ -173,12 +173,35 @@ function applyEvent(state: TutorRuntimeState, event: StoredV2Event): void {
     case "reasoning_aligned": {
       const alignment = payload.alignment as Alignment;
       const checkpointId = (payload.checkpoint_id as string | undefined) ?? state.reasoning.current_checkpoint_id;
-      state.reasoning.last_alignment = { alignment, checkpoint_id: checkpointId, sequence: event.sequence };
+      const confidence = payload.confidence as number | undefined;
+      state.reasoning.last_alignment = {
+        alignment,
+        checkpoint_id: checkpointId,
+        sequence: event.sequence,
+        ...(typeof confidence === "number" ? { confidence } : {}),
+      };
       if (alignment === "alternate_valid") {
+        // 缺陷修复（Phase 5 remediation）：alternate route 真正落状态的前半——
+        // 先在 alternate_path 上挂路线 id：v3 事件显式携带；v2 事件从 plan 推导
+        // （entry 命中 = 该 part 备选路线的首节点）。student_progressed 据此切换。
+        const explicitRouteId = typeof payload.route_id === "string" ? payload.route_id : undefined;
+        const checkpointPartId = plan.checkpoints.find(
+          (entry) => entry.checkpoint_id === checkpointId,
+        )?.part_id;
+        const derivedRouteId = explicitRouteId
+          ? undefined
+          : plan.recommended_routes.find(
+              (route) =>
+                route.role === "alternate" &&
+                (route.part_id ?? "1") === (checkpointPartId ?? "1") &&
+                route.checkpoint_ids[0] === checkpointId,
+            )?.route_id;
         state.reasoning.alternate_path = {
           description: (payload.alternate_description as string | undefined) ?? "",
           sequence: event.sequence,
+          ...({ route_id: explicitRouteId ?? derivedRouteId } as { route_id?: string }),
         };
+        if (!state.reasoning.alternate_path.route_id) delete state.reasoning.alternate_path.route_id;
       }
       if (alignment === "incorrect") {
         const ledger = (state.assistance[checkpointId] ??= emptyLedger());
@@ -202,6 +225,12 @@ function applyEvent(state: TutorRuntimeState, event: StoredV2Event): void {
         ledger.promptSequences.push(event.sequence);
       }
       if (moveType === "explain") ledger.explainedSequences.push(event.sequence);
+      // 缺陷修复（Phase 5 remediation）：教师答问交付即关闭 open question——
+      // 学生提问是 dialogue 事实，回答 move 落地后不得残留为未处理。
+      if (payload.purpose_code === "explain.answer_question" && state.dialogue.open_question) {
+        state.dialogue.answered_questions.push(state.dialogue.open_question.sequence);
+        state.dialogue.open_question = undefined;
+      }
       break;
     }
     case "hint_issued": {
@@ -217,6 +246,20 @@ function applyEvent(state: TutorRuntimeState, event: StoredV2Event): void {
       const partIndex = state.curriculum.parts.findIndex((part) => part.checkpoint_ids.includes(checkpointId));
       if (partIndex >= 0) {
         const part = state.curriculum.parts[partIndex];
+        // 缺陷修复（Phase 5 remediation）：alternate route 真正落状态——学生沿
+        // 备选路线推进时，把该 part 的课程序切换到 Plan 批准的备选路线
+        // （checkpoint 顺序与完成判定都按新路线算，不只是推进 primary 节点）。
+        const alternateRouteId =
+          payload.via_alternate === true ? state.reasoning.alternate_path?.route_id : undefined;
+        const alternateRoute = alternateRouteId
+          ? plan.recommended_routes.find(
+              (route) => route.route_id === alternateRouteId && (route.part_id ?? "1") === part.part_id,
+            )
+          : undefined;
+        if (alternateRoute) {
+          part.route_id = alternateRoute.route_id;
+          part.checkpoint_ids = [...alternateRoute.checkpoint_ids];
+        }
         if (!part.completed_checkpoints.includes(checkpointId)) {
           part.completed_checkpoints.push(checkpointId);
         }
@@ -358,7 +401,7 @@ export function projectRuntimeState(
   };
   state.reasoning.current_checkpoint_id = firstCheckpointOf(state);
   for (const event of events) {
-    applyEvent(state, event);
+    applyEvent(plan, state, event);
   }
   return state;
 }
