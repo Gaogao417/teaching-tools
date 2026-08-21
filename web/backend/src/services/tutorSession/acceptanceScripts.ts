@@ -550,10 +550,19 @@ const SCRIPTS: Record<string, ScriptRunner> = {
     assert.equal(fallbackTurn.decision?.move_type, "wait", "回退动作是已批准最低风险的 Wait");
     assert.equal(fallbackTurn.presentation.voice.length + fallbackTurn.presentation.workspace.length, 0, "fallback Wait 零呈现");
 
-    // session 不卡死：下一次输入正常推进。
-    c.recordStudentInput(sid, { input_kind: "reasoning_utterance", text: expectedUtteranceFor(plan, plan.checkpoints[0].checkpoint_id) });
-    void plan;
-    return { detail: `timeout→policy_failed(fallback)→Wait 零呈现` };
+    // 修复（Phase 5 remediation）：原注释无断言——现在真实续轮验证 session 不卡死。
+    const record = c.recordStudentInput(sid, {
+      input_kind: "reasoning_utterance",
+      text: expectedUtteranceFor(plan, plan.checkpoints[0].checkpoint_id),
+    });
+    assert.equal(record.alignment?.alignment, "expected_checkpoint", "超时恢复后对齐仍正常");
+    assert.equal(record.progressed, true, "超时恢复后推进仍正常");
+    const recoveredTurn = await c.driveTutorTurn(sid);
+    assert.ok(recoveredTurn.decision, "超时恢复后下一轮必须仍有决策");
+    assert.equal(recoveredTurn.decision?.move_type, "wait", "flaky policy 第二次调用返回 wait.await_reasoning");
+    const finalState = c.restore(sid);
+    assert.ok(finalState.reasoning.current_checkpoint_id, "状态可投影，session 未卡死");
+    return { detail: `timeout→policy_failed(fallback)→Wait 零呈现→恢复续轮（${recoveredTurn.decision?.purpose_code}）` };
   },
 
   /** 11. 多级提示无效进入 Repair，完成后回原 checkpoint。 */

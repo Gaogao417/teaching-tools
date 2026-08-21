@@ -168,10 +168,10 @@ describe("FakeStructuredModel（运行时 fake 分支）", () => {
     expect(await policy({ student_fact: { input_kind: "pointing_evidence" }, current_checkpoint: "CP1" })).toMatchObject({
       move: { purpose_code: "prompt.verbalize_pointing" },
     });
-    expect(await policy({ student_fact: { input_kind: "reasoning_utterance", alignment: "incorrect" }, current_checkpoint: "CP1", assistance_ledger: { promptsIssued: 1, hintLevelsIssued: [1] }, resource_catalog: catalog, constraints: { maximum_assistance_level: 2 } })).toMatchObject({
+    expect(await policy({ student_fact: { input_kind: "reasoning_utterance", alignment: "incorrect" }, current_checkpoint: "CP1", assistance_ledger: { promptsIssued: 1, hintLevelsIssued: [1], incorrectSequences: [4] }, resource_catalog: catalog, constraints: { maximum_assistance_level: 2 } })).toMatchObject({
       move: { move_type: "hint", assistance_level: 2 },
     });
-    expect(await policy({ student_fact: { input_kind: "reasoning_utterance", alignment: "incorrect" }, current_checkpoint: "CP1", assistance_ledger: { promptsIssued: 2, hintLevelsIssued: [1, 2] }, resource_catalog: catalog, constraints: { maximum_assistance_level: 2 } })).toMatchObject({
+    expect(await policy({ student_fact: { input_kind: "reasoning_utterance", alignment: "incorrect" }, current_checkpoint: "CP1", assistance_ledger: { promptsIssued: 2, hintLevelsIssued: [1, 2], incorrectSequences: [4, 6] }, resource_catalog: catalog, constraints: { maximum_assistance_level: 2 } })).toMatchObject({
       move: { move_type: "repair", mode_change: { to_mode: "repair" } },
     });
     expect(await policy({ student_fact: { input_kind: "reasoning_utterance", alignment: "no_progress" }, current_checkpoint: "CP1" })).toMatchObject({

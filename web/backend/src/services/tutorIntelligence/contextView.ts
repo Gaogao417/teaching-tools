@@ -31,6 +31,12 @@ export interface AlignmentContextView {
   part_id: string;
   candidates: CheckpointCandidate[];
   alternate_routes: RouteCandidate[];
+  /**
+   * 全题偏差目录（Phase 5 remediation）：common_deviations 是题目级陷阱
+   * 清单——与 deterministic ReasoningAligner 同口径跨 part 参与匹配
+   * （golden plan 的错因集中在后段 part，前段挣扎同样构成偏差证据）。
+   */
+  deviation_catalog: Array<{ checkpoint_id: string; index: number; text: string }>;
 }
 
 export const EXPECTED_CONFIDENCE_THRESHOLD = 0.85;
@@ -75,7 +81,14 @@ export function buildAlignmentContext(
       completion_condition: route.completion_condition,
       checkpoint_ids: [...route.checkpoint_ids],
     }));
-  return { current_checkpoint_id: currentId, part_id: partId, candidates, alternate_routes };
+  const deviation_catalog = plan.checkpoints.flatMap((entry) =>
+    (entry.common_deviations ?? []).map((text, index) => ({
+      checkpoint_id: entry.checkpoint_id,
+      index,
+      text,
+    })),
+  );
+  return { current_checkpoint_id: currentId, part_id: partId, candidates, alternate_routes, deviation_catalog };
 }
 
 export type GroundingClassification = "expected_checkpoint" | "alternate_valid" | "incorrect";
@@ -116,11 +129,16 @@ export function validateGroundingRef(ref: string, view: AlignmentContextView): G
   if (match) {
     const checkpointId = match[1];
     const index = Number(match[2]);
+    // 偏差目录是全题范围（跨 part）；候选集内的节点沿用候选条目双查。
+    const catalogEntry = (view.deviation_catalog ?? []).find(
+      (entry) => entry.checkpoint_id === checkpointId && entry.index === index,
+    );
     const candidate = candidateOf(checkpointId);
-    if (!candidate) return { ok: false, errors: [`${ref}: 节点不在对齐候选内`] };
-    if (index >= candidate.common_deviations.length) {
+    if (!candidate && !catalogEntry) return { ok: false, errors: [`${ref}: 节点不在对齐候选内`] };
+    if (!catalogEntry && candidate && index >= candidate.common_deviations.length) {
       return { ok: false, errors: [`${ref}: common_deviations 序号越界`] };
     }
+    if (catalogEntry === undefined) return { ok: false, errors: [`${ref}: common_deviations 序号越界`] };
     return {
       ok: true,
       errors: [],

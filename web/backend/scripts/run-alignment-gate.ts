@@ -54,7 +54,7 @@ export async function runAlignmentGate(
       const dir = path.join(options.canonicalRoot, "tutor-plan", tpId);
       if (!fsModule.existsSync(dir)) continue;
       const files = fsModule.readdirSync(dir).filter((name) => name.endsWith(".json")).sort();
-      plansByTp.set(tpId, JSON.parse(fsModule.readFileSync(path.join(dir, files.at(-1)), "utf8")));
+      plansByTp.set(tpId, JSON.parse(fsModule.readFileSync(path.join(dir, files[files.length - 1]), "utf8")));
     }
   }
 

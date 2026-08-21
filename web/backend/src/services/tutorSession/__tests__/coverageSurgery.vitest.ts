@@ -14,7 +14,7 @@ import * as path from "node:path";
 import { publishSyntheticPlanVt, tempRoot } from "./vitestSupport";
 import { createTutorSessionCoordinator } from "../TutorSession";
 import { gateAlignmentProposal, createTutorPolicyGraph } from "../../tutorIntelligence/policyGraph";
-import { buildAlignmentContext } from "../../tutorIntelligence/contextView";
+import { buildAlignmentContext, validateGroundingRef } from "../../tutorIntelligence/contextView";
 import { FakeStructuredModel } from "../../tutorIntelligence/adapters/fake/FakeStructuredModel";
 import { createTutorSessionRoutes } from "../../../transport/http/tutorSessionRoutes";
 import { appendTutorSessionEventsV2, getTutorSession } from "../TutorSessionEventStore";
@@ -319,8 +319,8 @@ describe("routes 普通 Error 注入（next(unwrapped) 路径）", () => {
 
   const throwingCoordinator = () => {
     const coordinator = createTutorSessionCoordinator({ canonicalRoot: root });
-    const syncThrowers = new Set(["getSessionView", "completeSession", "submitActionEvidence", "restore", "getEvents"]);
-    const asyncThrowers = new Set(["processTurn", "completeVoiceAndContinue", "driveTutorTurn", "start", "recordStudentInput"]);
+    const syncThrowers = new Set(["getSessionView", "completeSession", "submitActionEvidence", "restore", "getEvents", "start"]);
+    const asyncThrowers = new Set(["processTurn", "completeVoiceAndContinue", "driveTutorTurn", "recordStudentInput"]);
     return new Proxy(coordinator, {
       get(target, prop) {
         if (syncThrowers.has(String(prop))) {
@@ -496,5 +496,66 @@ describe("终针：HTTP 500 漂移 / repair 后自答 / fake 空串 / DeepSeek �
     await expect(
       slow.complete({ systemPrompt: "s", promptVersion: "p", userPayload: {}, timeoutMs: 30 }),
     ).rejects.toMatchObject({ code: "timeout", retryable: true });
+  });
+});
+
+describe("fake 新阶梯分支与跨 part 偏差目录", () => {
+  const multiPartPlan = {
+    artifact_id: "TP-MP",
+    version: "v1",
+    content_hash: `sha256:${"d".repeat(64)}`,
+    checkpoints: [
+      { checkpoint_id: "CP1", part_id: "1", expected_reasoning: "part1 推理" },
+      { checkpoint_id: "CP4", part_id: "2", expected_reasoning: "part2 推理", common_deviations: ["范围写成开区间"] },
+    ],
+    recommended_routes: [
+      { route_id: "R1", role: "primary", part_id: "1", checkpoint_ids: ["CP1"] },
+      { route_id: "R3", role: "primary", part_id: "2", checkpoint_ids: ["CP4"] },
+    ],
+    resources: [],
+    policy_constraints: { allowed_move_types: [], maximum_assistance_level: 3, allowed_capabilities: [] },
+  };
+  const runPolicy = async (payload: Record<string, unknown>) => {
+    const model = new FakeStructuredModel();
+    const result = await model.complete<Record<string, unknown>>({
+      systemPrompt: "s",
+      promptVersion: "p",
+      userPayload: payload,
+      timeoutMs: 100,
+    });
+    return result.value as { move: Record<string, unknown> };
+  };
+  const catalog = [
+    { resource_id: "RES5", kind: "diagnostic_probe", checkpoint_id: "CP1" },
+    { resource_id: "RES2", kind: "hint", checkpoint_id: "CP1", assistance_level: 1 },
+    { resource_id: "RES3", kind: "hint", checkpoint_id: "CP1", assistance_level: 2 },
+    { resource_id: "RES4", kind: "repair" },
+  ];
+
+  it("unclear 阶梯：clarify → probe → hint → repair", async () => {
+    expect(await runPolicy({ student_fact: { input_kind: "reasoning_utterance" }, current_checkpoint: "CP1", assistance_ledger: {}, resource_catalog: catalog, constraints: { maximum_assistance_level: 2 } })).toMatchObject({ move: { purpose_code: "prompt.clarify" } });
+    expect(await runPolicy({ student_fact: { input_kind: "reasoning_utterance" }, current_checkpoint: "CP1", assistance_ledger: { promptsIssued: 1 }, resource_catalog: catalog, constraints: { maximum_assistance_level: 2 } })).toMatchObject({ move: { purpose_code: "prompt.diagnostic_probe", move_type: "prompt" } });
+    expect(await runPolicy({ student_fact: { input_kind: "reasoning_utterance" }, current_checkpoint: "CP1", assistance_ledger: { promptsIssued: 3 }, resource_catalog: catalog, constraints: { maximum_assistance_level: 2 } })).toMatchObject({ move: { move_type: "hint", assistance_level: 1 } });
+    expect(await runPolicy({ student_fact: { input_kind: "reasoning_utterance" }, current_checkpoint: "CP1", assistance_ledger: { promptsIssued: 3, hintLevelsIssued: [1, 2] }, resource_catalog: catalog, constraints: { maximum_assistance_level: 2 } })).toMatchObject({ move: { move_type: "repair" } });
+  });
+
+  it("expected 分支：repair 模式完成 / 自我修正 / 协助后推进", async () => {
+    expect(await runPolicy({ mode: "repair", student_fact: { input_kind: "reasoning_utterance", alignment: "expected_checkpoint", alignment_checkpoint_id: "CP1" }, current_checkpoint: "CP1", assistance_ledger: {} })).toMatchObject({ move: { purpose_code: "confirm.repair_complete" } });
+    expect(await runPolicy({ student_fact: { input_kind: "reasoning_utterance", alignment: "expected_checkpoint", alignment_checkpoint_id: "CP1" }, current_checkpoint: "CP1", assistance_ledger: { incorrectSequences: [4] } })).toMatchObject({ move: { purpose_code: "confirm.self_correction" } });
+    expect(await runPolicy({ student_fact: { input_kind: "reasoning_utterance", alignment: "expected_checkpoint", alignment_checkpoint_id: "CP1" }, current_checkpoint: "CP1", assistance_ledger: { incorrectSequences: [4], lastHintSequence: 9, hintLevelsIssued: [1] } })).toMatchObject({ move: { purpose_code: "confirm.assisted_progress" } });
+    expect(await runPolicy({ student_fact: { input_kind: "reasoning_utterance", alignment: "alternate_valid", route_id: "R2" }, current_checkpoint: "CP1", assistance_ledger: {} })).toMatchObject({ move: { purpose_code: "confirm.alternate_path" } });
+  });
+
+  it("validateGroundingRef：跨 part 偏差 ref 合法 / 未知偏差拒绝", () => {
+    const wideView = buildAlignmentContext(multiPartPlan as never, { reasoning: { current_checkpoint_id: "CP1" } } as never);
+    const far = (multiPartPlan as { checkpoints: Array<{ common_deviations?: string[]; part_id: string; checkpoint_id: string }> }).checkpoints.find((entry) => (entry.common_deviations ?? []).length > 0 && entry.part_id !== "1");
+    if (far) {
+      const ref = `${far.checkpoint_id}.deviation[0]`;
+      const resolution = validateGroundingRef(ref, wideView);
+      expect(resolution.ok).toBe(true);
+      expect(resolution.classification).toBe("incorrect");
+      expect(resolution.checkpoint_id).toBe("CP1");
+    }
+    expect(validateGroundingRef("CP99.deviation[0]", wideView).ok).toBe(false);
   });
 });

@@ -256,9 +256,23 @@ async function runHintLadderCase(c: TutorSessionCoordinator, plan: TutorPlanV2Pa
     (event) => event.event_type === "student_progressed" && (event.payload as { checkpoint_id: string }).checkpoint_id === hintCheckpoint,
   );
   if (!progressed) throw new Error("未在 hint 同一 checkpoint 推进");
+  // 修复（Phase 5 remediation）：原为空断言——现在真实核对 decision 的因果源。
   const decision = decisionsOf(c, sid).at(-1)!;
-  if (decision.source_event_sequence !== (progressed.causation_sequence ?? -1) && decision.source_event_sequence !== progressed.sequence - 1) {
-    // source = 对齐事件（progressed 的 causation 前驱）
+  const alignment = events.find(
+    (event) => event.sequence === (progressed.causation_sequence ?? -1),
+  );
+  if (!alignment || alignment.event_type !== "reasoning_aligned") {
+    throw new Error("progressed 的 causation 必须指向对齐事件");
+  }
+  if (decision.source_event_sequence !== alignment.sequence) {
+    throw new Error(
+      `决策 source_event_sequence=${decision.source_event_sequence} 必须等于对齐事件 ${alignment.sequence}`,
+    );
+  }
+  if (decision.source_state_revision !== alignment.state_revision) {
+    throw new Error(
+      `决策 source_state_revision=${decision.source_state_revision} 必须等于对齐事件所在 revision ${alignment.state_revision}`,
+    );
   }
   assertDecisionCausality(events);
   return "错误→prompt→L1→L2→推进（档位/同 checkpoint/因果链）";

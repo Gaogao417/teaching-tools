@@ -43,8 +43,15 @@ interface FakePolicyPayload {
   };
   current_checkpoint?: string;
   provisional?: { progressed_checkpoint_id?: string };
-  assistance_ledger?: { hintLevelsIssued?: number[]; promptsIssued?: number };
-  resource_catalog?: Array<{ resource_id: string; kind: string; checkpoint_id?: string }>;
+  mode?: string;
+  assistance_ledger?: {
+    hintLevelsIssued?: number[];
+    promptsIssued?: number;
+    incorrectSequences?: number[];
+    lastHintSequence?: number;
+    explainedSequences?: number[];
+  };
+  resource_catalog?: Array<{ resource_id: string; kind: string; checkpoint_id?: string; assistance_level?: number }>;
   constraints?: { maximum_assistance_level?: number };
 }
 
@@ -138,10 +145,13 @@ function alignerOutput(payload: FakeAlignerPayload): Record<string, unknown> {
       });
     });
   }
+  const currentId = payload.current_checkpoint?.checkpoint_id;
   for (const deviation of payload.common_deviations ?? []) {
     scored.push({
       classification: "incorrect",
-      checkpoint_id: deviation.checkpoint_id,
+      // 与 deterministic alignReasoning 同口径：偏差事实记在当前节点
+      // （题目级陷阱清单命中，不切换节点归属）。
+      checkpoint_id: currentId,
       ref: `${deviation.checkpoint_id}.deviation[${deviation.index}]`,
       score: lcs(utterance, normalize(deviation.text)),
       priority: 2,
@@ -216,17 +226,63 @@ function policyOutput(payload: FakePolicyPayload): Record<string, unknown> {
     case "expected_checkpoint":
     case "alternate_valid": {
       const progressed = payload.provisional?.progressed_checkpoint_id;
+      const targetCheckpoint = progressed ?? fact.alignment_checkpoint_id ?? currentCheckpoint;
+      if (alignment === "alternate_valid") {
+        return {
+          move: {
+            move_type: "confirm",
+            purpose_code: "confirm.alternate_path",
+            checkpoint_id: targetCheckpoint,
+          },
+          voice: { source: "model-generated", text: DYNAMIC_VOICE.confirm },
+        };
+      }
+      // repair 模式下答对 → 完成修复退回原模式。
+      if (payload.mode === "repair") {
+        return {
+          move: {
+            move_type: "confirm",
+            purpose_code: "confirm.repair_complete",
+            checkpoint_id: targetCheckpoint,
+            mode_change: { to_mode: "guided_solve" },
+          },
+          voice: { source: "model-generated", text: "这次对了。回到原步骤，继续。" },
+        };
+      }
+      // 自我修正：偏差之后无实质协助（hint/explain）而答对。
+      const ledger2 = payload.assistance_ledger ?? {};
+      const lastDeviation = Math.max(-1, ...(ledger2.incorrectSequences ?? []));
+      const assistedSince =
+        lastDeviation >= 0 &&
+        ((ledger2.lastHintSequence ?? -1) > lastDeviation ||
+          (ledger2.explainedSequences ?? []).some((sequence: number) => sequence > lastDeviation));
+      if (lastDeviation >= 0 && !assistedSince) {
+        return {
+          move: {
+            move_type: "confirm",
+            purpose_code: "confirm.self_correction",
+            checkpoint_id: targetCheckpoint,
+          },
+          voice: { source: "model-generated", text: DYNAMIC_VOICE.confirm },
+        };
+      }
+      const assisted = (ledger2.hintLevelsIssued ?? []).length > 0 || (ledger2.explainedSequences ?? []).length > 0;
       return {
         move: {
           move_type: "confirm",
-          purpose_code: "confirm.progress",
-          checkpoint_id: progressed ?? fact.alignment_checkpoint_id ?? currentCheckpoint,
+          purpose_code: assisted ? "confirm.assisted_progress" : "confirm.progress",
+          checkpoint_id: targetCheckpoint,
         },
         voice: { source: "model-generated", text: DYNAMIC_VOICE.confirm },
       };
     }
     case "incorrect": {
-      const promptsIssued = ledger.promptsIssued ?? 0;
+      // 与 deterministic assistAfterIncorrect 同口径：本轮 incorrect 即挣扎
+      // 基线（此前 prompt 属于开场交接，不计入）；既有 incorrect 后按累计
+      // prompt 升档；hint 按档位取资源；耗尽转 Repair。
+      const ledger3 = payload.assistance_ledger ?? {};
+      const priorIncorrect = (ledger3.incorrectSequences ?? []).length;
+      const promptsIssued = priorIncorrect === 0 ? 0 : ledger3.promptsIssued ?? 0;
       if (promptsIssued === 0) {
         return {
           move: {
@@ -237,7 +293,7 @@ function policyOutput(payload: FakePolicyPayload): Record<string, unknown> {
           voice: { source: "model-generated", text: DYNAMIC_VOICE.prompt },
         };
       }
-      const issued = new Set(ledger.hintLevelsIssued ?? []);
+      const issued = new Set(ledger3.hintLevelsIssued ?? []);
       let level: number | null = null;
       for (let candidate = 1; candidate <= maxLevel; candidate += 1) {
         if (!issued.has(candidate)) {
@@ -246,14 +302,17 @@ function policyOutput(payload: FakePolicyPayload): Record<string, unknown> {
         }
       }
       if (level !== null) {
-        const hint = catalog.find(
-          (entry) => entry.kind === "hint" && entry.checkpoint_id === (fact.alignment_checkpoint_id ?? currentCheckpoint),
-        );
+        const hintCheckpoint = fact.alignment_checkpoint_id ?? currentCheckpoint;
+        const hint =
+          catalog.find(
+            (entry) =>
+              entry.kind === "hint" && entry.checkpoint_id === hintCheckpoint && entry.assistance_level === level,
+          ) ?? catalog.find((entry) => entry.kind === "hint" && entry.checkpoint_id === hintCheckpoint);
         return {
           move: {
             move_type: "hint",
             purpose_code: "hint.escalate",
-            checkpoint_id: fact.alignment_checkpoint_id ?? currentCheckpoint,
+            checkpoint_id: hintCheckpoint,
             assistance_level: level,
             resource_ids: hint ? [hint.resource_id] : [],
           },
@@ -277,11 +336,67 @@ function policyOutput(payload: FakePolicyPayload): Record<string, unknown> {
         move: { move_type: "wait", purpose_code: "wait.silence_first", checkpoint_id: currentCheckpoint },
         voice: { source: "approved-resource" },
       };
-    default:
+    default: {
+      // unclear 阶梯：澄清 → 诊断探针 → 帮助阶梯（与 deterministic 同口径）。
+      const ledger4 = payload.assistance_ledger ?? {};
+      const prompts = ledger4.promptsIssued ?? 0;
+      if (prompts === 0) {
+        return {
+          move: { move_type: "prompt", purpose_code: "prompt.clarify", checkpoint_id: currentCheckpoint },
+          voice: { source: "model-generated", text: DYNAMIC_VOICE.prompt },
+        };
+      }
+      if (prompts === 1) {
+        const probe = catalog.find((entry) => entry.kind === "diagnostic_probe" && entry.checkpoint_id === currentCheckpoint);
+        if (probe) {
+          return {
+            move: {
+              move_type: "prompt",
+              purpose_code: "prompt.diagnostic_probe",
+              checkpoint_id: currentCheckpoint,
+              resource_ids: [probe.resource_id],
+            },
+            voice: { source: "approved-resource" },
+          };
+        }
+      }
+      // 探针后仍含糊 → 按 incorrect 阶梯（prompt 已计 2+）。
+      const issuedHints = new Set(ledger4.hintLevelsIssued ?? []);
+      let hintLevel: number | null = null;
+      for (let candidate = 1; candidate <= maxLevel; candidate += 1) {
+        if (!issuedHints.has(candidate)) {
+          hintLevel = candidate;
+          break;
+        }
+      }
+      if (hintLevel !== null) {
+        const hint =
+          catalog.find(
+            (entry) => entry.kind === "hint" && entry.checkpoint_id === currentCheckpoint && entry.assistance_level === hintLevel,
+          ) ?? catalog.find((entry) => entry.kind === "hint" && entry.checkpoint_id === currentCheckpoint);
+        return {
+          move: {
+            move_type: "hint",
+            purpose_code: "hint.escalate",
+            checkpoint_id: currentCheckpoint,
+            assistance_level: hintLevel,
+            resource_ids: hint ? [hint.resource_id] : [],
+          },
+          voice: { source: "approved-resource" },
+        };
+      }
+      const repair2 = catalog.find((entry) => entry.kind === "repair");
       return {
-        move: { move_type: "prompt", purpose_code: "prompt.clarify", checkpoint_id: currentCheckpoint },
-        voice: { source: "model-generated", text: DYNAMIC_VOICE.prompt },
+        move: {
+          move_type: "repair",
+          purpose_code: "repair.ladder_exhausted",
+          checkpoint_id: currentCheckpoint,
+          resource_ids: repair2 ? [repair2.resource_id] : [],
+          mode_change: { to_mode: "repair" },
+        },
+        voice: { source: "approved-resource" },
       };
+    }
   }
 }
 

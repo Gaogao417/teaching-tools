@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T08:23:07.422Z",
+  "generated_at": "2026-08-21T08:52:25.791Z",
   "dataset": "/Users/gaochong/develop/teaching-tools-mvp/web/backend/data/alignment/alignment-dataset.jsonl",
   "model": "fake-structured/v1（LCS 对齐，确定性）",
   "thresholds": {
@@ -11,7 +11,7 @@
     "total": 463,
     "correct": 455,
     "accuracy": 0.9827213822894169,
-    "macro_f1": 0.9908318339100346,
+    "macro_f1": 0.9823931242326152,
     "precision": {
       "expected_checkpoint": 0.9827586206896551,
       "alternate_valid": 1
@@ -37,19 +37,19 @@
       },
       "incorrect": {
         "tp": 19,
-        "fp": 0,
+        "fp": 2,
         "fn": 0,
-        "precision": 1,
+        "precision": 0.9047619047619048,
         "recall": 1,
-        "f1": 1
+        "f1": 0.9500000000000001
       },
       "unclear": {
         "tp": 121,
-        "fp": 3,
+        "fp": 1,
         "fn": 5,
-        "precision": 0.9758064516129032,
+        "precision": 0.9918032786885246,
         "recall": 0.9603174603174603,
-        "f1": 0.9680000000000001
+        "f1": 0.9758064516129032
       },
       "no_progress": {
         "tp": 6,
@@ -73,14 +73,14 @@
       "id": "TP-SMV-005-A024",
       "utterance": "学生能指出平行线截哪两条线产生这对内错角。",
       "expected": "expected_checkpoint",
-      "predicted": "unclear",
+      "predicted": "incorrect",
       "source": "cross-checkpoint-far"
     },
     {
       "id": "TP-SMV-005-A035",
       "utterance": "学生能指出平行线截哪两条线产生这对内错角。",
       "expected": "expected_checkpoint",
-      "predicted": "unclear",
+      "predicted": "incorrect",
       "source": "cross-checkpoint-near"
     },
     {

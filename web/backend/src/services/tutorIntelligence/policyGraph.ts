@@ -437,13 +437,7 @@ export function createTutorPolicyGraph(options: PolicyGraphOptions): TutorPolicy
         neighbor_checkpoints: view.candidates.filter(
           (candidate) => candidate.checkpoint_id !== view.current_checkpoint_id,
         ),
-        common_deviations: view.candidates.flatMap((candidate) =>
-          candidate.common_deviations.map((deviation, index) => ({
-            checkpoint_id: candidate.checkpoint_id,
-            index,
-            text: deviation,
-          })),
-        ),
+        common_deviations: view.deviation_catalog ?? [],
         alternate_routes: view.alternate_routes.map((route) => ({
           route_id: route.route_id,
           entry_condition: route.entry_condition,
