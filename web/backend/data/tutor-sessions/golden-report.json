@@ -1,8 +1,8 @@
 {
   "schema": "ai_teaching_tutor_sessions_report/v1",
   "run": "phase5-golden-tutor-sessions",
-  "started_at": "2026-08-21T03:10:22.504Z",
-  "completed_at": "2026-08-21T03:10:22.991Z",
+  "started_at": "2026-08-21T04:21:00.471Z",
+  "completed_at": "2026-08-21T04:21:00.954Z",
   "canonical_root": "/Users/gaochong/develop/teaching-skills-mvp/artifacts/canonical-authoring",
   "scripts": [
     "S1",
@@ -28,12 +28,12 @@
   ],
   "totals": {
     "script_runs": 72,
-    "script_passes": 70,
-    "script_skipped": 2,
+    "script_passes": 72,
+    "script_skipped": 0,
     "script_failures": 0,
-    "sessions": 64,
-    "events": 1568,
-    "decisions": 268,
+    "sessions": 66,
+    "events": 1638,
+    "decisions": 276,
     "audit_failures": 0
   },
   "outcomes": [
@@ -331,7 +331,7 @@
       "status": "pass",
       "failures": [],
       "session_ids": [],
-      "detail": "答对→confirm；卡住（vague）→prompt→…→hint"
+      "detail": "答对→confirm；卡住（deviation）→prompt→…→hint"
     },
     {
       "script_id": "S10",
@@ -379,7 +379,7 @@
       "status": "pass",
       "failures": [],
       "session_ids": [],
-      "detail": "阶梯 1→2 严格递增（vague 路径），L2=plan 资源原文"
+      "detail": "阶梯 1→2 严格递增（deviation 路径），L2=plan 资源原文"
     },
     {
       "script_id": "S5",
@@ -392,10 +392,10 @@
     {
       "script_id": "S6",
       "plan_id": "TP-SMV-004",
-      "status": "skipped",
+      "status": "pass",
       "failures": [],
       "session_ids": [],
-      "detail": "not_applicable：plan 无 authored common_deviations，自我修正剧本需要偏差数据（数据缺口登记于退场报告）"
+      "detail": "student_self_corrected 关联偏差证据；确认 purpose=self_correction"
     },
     {
       "script_id": "S7",
@@ -427,7 +427,7 @@
       "status": "pass",
       "failures": [],
       "session_ids": [],
-      "detail": "答对→confirm；卡住（vague）→prompt→…→hint"
+      "detail": "答对→confirm；卡住（deviation）→prompt→…→hint"
     },
     {
       "script_id": "S10",
@@ -475,7 +475,7 @@
       "status": "pass",
       "failures": [],
       "session_ids": [],
-      "detail": "阶梯 1→2 严格递增（vague 路径），L2=plan 资源原文"
+      "detail": "阶梯 1→2 严格递增（deviation 路径），L2=plan 资源原文"
     },
     {
       "script_id": "S5",
@@ -488,10 +488,10 @@
     {
       "script_id": "S6",
       "plan_id": "TP-SMV-005",
-      "status": "skipped",
+      "status": "pass",
       "failures": [],
       "session_ids": [],
-      "detail": "not_applicable：plan 无 authored common_deviations，自我修正剧本需要偏差数据（数据缺口登记于退场报告）"
+      "detail": "student_self_corrected 关联偏差证据；确认 purpose=self_correction"
     },
     {
       "script_id": "S7",
@@ -959,7 +959,7 @@
       "session_id": "TS-7041",
       "script_id": "S1",
       "plan_id": "TP-SMV-004",
-      "events": 21,
+      "events": 23,
       "decisions": 4,
       "replay_deterministic": true,
       "decision_causality_ok": true,
@@ -969,7 +969,7 @@
       "session_id": "TS-7043",
       "script_id": "S11",
       "plan_id": "TP-SMV-004",
-      "events": 42,
+      "events": 46,
       "decisions": 7,
       "replay_deterministic": true,
       "decision_causality_ok": true,
@@ -999,7 +999,7 @@
       "session_id": "TS-7047",
       "script_id": "S4",
       "plan_id": "TP-SMV-004",
-      "events": 27,
+      "events": 30,
       "decisions": 5,
       "replay_deterministic": true,
       "decision_causality_ok": true,
@@ -1009,7 +1009,7 @@
       "session_id": "TS-7048",
       "script_id": "S5",
       "plan_id": "TP-SMV-004",
-      "events": 28,
+      "events": 30,
       "decisions": 5,
       "replay_deterministic": true,
       "decision_causality_ok": true,
@@ -1017,7 +1017,7 @@
     },
     {
       "session_id": "TS-7049",
-      "script_id": "S7",
+      "script_id": "S6",
       "plan_id": "TP-SMV-004",
       "events": 24,
       "decisions": 4,
@@ -1027,6 +1027,16 @@
     },
     {
       "session_id": "TS-7050",
+      "script_id": "S7",
+      "plan_id": "TP-SMV-004",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7051",
       "script_id": "S8",
       "plan_id": "TP-SMV-004",
       "events": 19,
@@ -1036,7 +1046,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7051",
+      "session_id": "TS-7052",
       "script_id": "S9",
       "plan_id": "TP-SMV-004",
       "events": 14,
@@ -1046,7 +1056,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7052",
+      "session_id": "TS-7053",
       "script_id": "S1",
       "plan_id": "TP-SMV-005",
       "events": 17,
@@ -1056,27 +1066,27 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7053",
+      "session_id": "TS-7054",
       "script_id": "S1",
       "plan_id": "TP-SMV-005",
-      "events": 21,
+      "events": 23,
       "decisions": 4,
       "replay_deterministic": true,
       "decision_causality_ok": true,
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7055",
+      "session_id": "TS-7056",
       "script_id": "S11",
       "plan_id": "TP-SMV-005",
-      "events": 42,
+      "events": 46,
       "decisions": 7,
       "replay_deterministic": true,
       "decision_causality_ok": true,
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7057",
+      "session_id": "TS-7058",
       "script_id": "S2",
       "plan_id": "TP-SMV-005",
       "events": 15,
@@ -1086,7 +1096,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7058",
+      "session_id": "TS-7059",
       "script_id": "S3",
       "plan_id": "TP-SMV-005",
       "events": 31,
@@ -1096,20 +1106,10 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7059",
+      "session_id": "TS-7060",
       "script_id": "S4",
       "plan_id": "TP-SMV-005",
-      "events": 27,
-      "decisions": 5,
-      "replay_deterministic": true,
-      "decision_causality_ok": true,
-      "issued_linked_to_decision": true
-    },
-    {
-      "session_id": "TS-7060",
-      "script_id": "S5",
-      "plan_id": "TP-SMV-005",
-      "events": 28,
+      "events": 30,
       "decisions": 5,
       "replay_deterministic": true,
       "decision_causality_ok": true,
@@ -1117,6 +1117,26 @@
     },
     {
       "session_id": "TS-7061",
+      "script_id": "S5",
+      "plan_id": "TP-SMV-005",
+      "events": 30,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7062",
+      "script_id": "S6",
+      "plan_id": "TP-SMV-005",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7063",
       "script_id": "S7",
       "plan_id": "TP-SMV-005",
       "events": 24,
@@ -1126,7 +1146,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7062",
+      "session_id": "TS-7064",
       "script_id": "S8",
       "plan_id": "TP-SMV-005",
       "events": 19,
@@ -1136,7 +1156,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7063",
+      "session_id": "TS-7065",
       "script_id": "S9",
       "plan_id": "TP-SMV-005",
       "events": 14,
@@ -1146,7 +1166,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7064",
+      "session_id": "TS-7066",
       "script_id": "S1",
       "plan_id": "TP-SMV-006",
       "events": 17,
@@ -1156,7 +1176,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7065",
+      "session_id": "TS-7067",
       "script_id": "S1",
       "plan_id": "TP-SMV-006",
       "events": 23,
@@ -1166,7 +1186,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7067",
+      "session_id": "TS-7069",
       "script_id": "S11",
       "plan_id": "TP-SMV-006",
       "events": 46,
@@ -1176,7 +1196,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7069",
+      "session_id": "TS-7071",
       "script_id": "S2",
       "plan_id": "TP-SMV-006",
       "events": 15,
@@ -1186,7 +1206,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7070",
+      "session_id": "TS-7072",
       "script_id": "S3",
       "plan_id": "TP-SMV-006",
       "events": 31,
@@ -1196,7 +1216,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7071",
+      "session_id": "TS-7073",
       "script_id": "S4",
       "plan_id": "TP-SMV-006",
       "events": 30,
@@ -1206,7 +1226,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7072",
+      "session_id": "TS-7074",
       "script_id": "S5",
       "plan_id": "TP-SMV-006",
       "events": 30,
@@ -1216,7 +1236,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7073",
+      "session_id": "TS-7075",
       "script_id": "S6",
       "plan_id": "TP-SMV-006",
       "events": 24,
@@ -1226,7 +1246,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7074",
+      "session_id": "TS-7076",
       "script_id": "S7",
       "plan_id": "TP-SMV-006",
       "events": 24,
@@ -1236,7 +1256,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7075",
+      "session_id": "TS-7077",
       "script_id": "S8",
       "plan_id": "TP-SMV-006",
       "events": 19,
@@ -1246,7 +1266,7 @@
       "issued_linked_to_decision": true
     },
     {
-      "session_id": "TS-7076",
+      "session_id": "TS-7078",
       "script_id": "S9",
       "plan_id": "TP-SMV-006",
       "events": 14,
