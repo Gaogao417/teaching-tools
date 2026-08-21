@@ -1300,6 +1300,147 @@ export const tutorSessionEventV2Schema = z
   });
 
 // --------------------------------------------------------------------------- //
+// runtime/v3/tutor-session-event（Phase 5 remediation 智能链 provenance）
+//
+// 只增量：payload 在 v2 基础上追加可选字段（client_turn_id / route_id /
+// confidence / aligner/workflow version / grounding_refs / model /
+// prompt_versions / voice_source / workspace_resource_ids / resource_ref /
+// generation_id）；不保存 chain-of-thought（strict 拒绝额外字段）。
+// --------------------------------------------------------------------------- //
+const eventRouteIdPattern = z.string().regex(/^R[0-9]{1,3}$/);
+const generationIdPattern = z.string().regex(/^VG-[A-Za-z0-9._:-]{4,}$/);
+const clientTurnIdPattern = z.string().regex(/^[A-Za-z0-9._:-]{4,128}$/);
+const groundingRefPattern = z.string().regex(/^[A-Za-z0-9_.\[\]-]{3,64}$/);
+const voiceSourceEnum = z.enum([
+  "approved-resource",
+  "model-generated",
+  "deterministic-scaffold",
+]);
+
+const v3StudentInputRecordedPayload = v2EventPayloadSchemas.student_input_recorded
+  .extend({ client_turn_id: clientTurnIdPattern.optional() })
+  .strict();
+
+const v3ReasoningAlignedPayload = v2EventPayloadSchemas.reasoning_aligned
+  .extend({
+    route_id: eventRouteIdPattern.optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    aligner_version: nonEmptyString.optional(),
+    workflow_version: nonEmptyString.optional(),
+    grounding_refs: z.array(groundingRefPattern).max(8).optional(),
+  })
+  .strict();
+
+const v3TutorMoveDecidedPayload = z
+  .object({
+    decision_id: decisionIdPattern,
+    move_type: moveTypeEnum,
+    purpose_code: purposeCodePattern,
+    policy_version: nonEmptyString,
+    source_event_sequence: z.number().int().min(1),
+    source_state_revision: z.number().int().min(0),
+    checkpoint_id: checkpointIdPattern.optional(),
+    assistance_level: hintLevel.optional(),
+    resource_ids: z.array(resourceIdPattern).optional(),
+    fallback: z.boolean().optional(),
+    model: nonEmptyString.optional(),
+    workflow_version: nonEmptyString.optional(),
+    prompt_versions: z.array(nonEmptyString).max(8).optional(),
+    voice_source: voiceSourceEnum.optional(),
+    workspace_resource_ids: z.array(resourceIdPattern).optional(),
+  })
+  .strict()
+  .superRefine((payload, ctx) => {
+    if (payload.move_type === "hint" && (payload.assistance_level === undefined || payload.checkpoint_id === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "move_type=hint requires assistance_level and checkpoint_id",
+      });
+    }
+  });
+
+const v3VoiceActionIssuedPayload = v2EventPayloadSchemas.voice_action_issued
+  .extend({
+    resource_ref: resourceIdPattern.optional(),
+    generation_id: generationIdPattern.optional(),
+    voice_source: voiceSourceEnum.optional(),
+  })
+  .strict();
+
+const V3_PAYLOAD_OVERRIDES: Partial<
+  Record<keyof typeof v2EventPayloadSchemas, z.ZodTypeAny>
+> = {
+  student_input_recorded: v3StudentInputRecordedPayload,
+  reasoning_aligned: v3ReasoningAlignedPayload,
+  tutor_move_decided: v3TutorMoveDecidedPayload,
+  voice_action_issued: v3VoiceActionIssuedPayload,
+};
+
+const v3EventPayloadSchemas = {
+  ...v2EventPayloadSchemas,
+  ...V3_PAYLOAD_OVERRIDES,
+} as const;
+
+export const tutorSessionEventV3Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_session_event/v3"),
+    session_id: sessionId,
+    sequence: z.number().int().min(1),
+    state_revision: z.number().int().min(0),
+    occurred_at: isoDateTime,
+    event_type: z.enum([
+      "session_started",
+      "mode_changed",
+      "student_input_recorded",
+      "reasoning_aligned",
+      "tutor_move_decided",
+      "voice_action_issued",
+      "voice_action_completed",
+      "workspace_action_issued",
+      "workspace_action_completed",
+      "hint_issued",
+      "student_progressed",
+      "student_self_corrected",
+      "working_diagnosis_updated",
+      "repair_delivered",
+      "policy_failed",
+      "runtime_failure",
+      "session_completed",
+    ]),
+    payload: z.record(z.unknown()),
+    causation_sequence: z.number().int().min(1).optional(),
+    idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const payloadSchema =
+      v3EventPayloadSchemas[value.event_type as keyof typeof v3EventPayloadSchemas];
+    if (payloadSchema) {
+      const result = payloadSchema.safeParse(value.payload);
+      if (!result.success) {
+        for (const issue of result.error.issues) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+    } else if (!V2_FREE_PAYLOAD_EVENTS.has(value.event_type)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `unknown event_type: ${value.event_type}`,
+      });
+    }
+    if (V2_CAUSATION_REQUIRED.has(value.event_type) && value.causation_sequence === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `event_type=${value.event_type} requires causation_sequence`,
+      });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
 // learning/v1/skill-hypothesis
 // --------------------------------------------------------------------------- //
 const eventEvidenceRef = z
