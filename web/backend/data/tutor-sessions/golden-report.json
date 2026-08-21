@@ -1,0 +1,1259 @@
+{
+  "schema": "ai_teaching_tutor_sessions_report/v1",
+  "run": "phase5-golden-tutor-sessions",
+  "started_at": "2026-08-21T03:10:22.504Z",
+  "completed_at": "2026-08-21T03:10:22.991Z",
+  "canonical_root": "/Users/gaochong/develop/teaching-skills-mvp/artifacts/canonical-authoring",
+  "scripts": [
+    "S1",
+    "S10",
+    "S11",
+    "S12",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6",
+    "S7",
+    "S8",
+    "S9"
+  ],
+  "plans": [
+    "TP-SMV-001",
+    "TP-SMV-002",
+    "TP-SMV-003",
+    "TP-SMV-004",
+    "TP-SMV-005",
+    "TP-SMV-006"
+  ],
+  "totals": {
+    "script_runs": 72,
+    "script_passes": 70,
+    "script_skipped": 2,
+    "script_failures": 0,
+    "sessions": 64,
+    "events": 1568,
+    "decisions": 268,
+    "audit_failures": 0
+  },
+  "outcomes": [
+    {
+      "script_id": "S1",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "答对→confirm；卡住（deviation）→prompt→…→hint"
+    },
+    {
+      "script_id": "S10",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "timeout→policy_failed(fallback)→Wait 零呈现"
+    },
+    {
+      "script_id": "S11",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "L1→L2→repair→恢复→progressed@CP1"
+    },
+    {
+      "script_id": "S12",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "assessment 启动拒绝 + tool 拒绝 + 学生面无 truth"
+    },
+    {
+      "script_id": "S2",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "打断→interrupted 记录；回答→prompt.hand_over"
+    },
+    {
+      "script_id": "S3",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "4 个 guided 决策全为 confirm/prompt；workspace×1"
+    },
+    {
+      "script_id": "S4",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "阶梯 1→2 严格递增（deviation 路径），L2=plan 资源原文"
+    },
+    {
+      "script_id": "S5",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "hint→aligned→progressed→decision 因果链闭合（cp=CP1）"
+    },
+    {
+      "script_id": "S6",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "student_self_corrected 关联偏差证据；确认 purpose=self_correction"
+    },
+    {
+      "script_id": "S7",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "alternate_valid→confirm→progressed（plan 未改写）"
+    },
+    {
+      "script_id": "S8",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "confirm=voice-only；wait=零动作"
+    },
+    {
+      "script_id": "S9",
+      "plan_id": "TP-SMV-001",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "2 次注入全 rejected；学生事实零污染"
+    },
+    {
+      "script_id": "S1",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "答对→confirm；卡住（deviation）→prompt→…→hint"
+    },
+    {
+      "script_id": "S10",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "timeout→policy_failed(fallback)→Wait 零呈现"
+    },
+    {
+      "script_id": "S11",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "L1→L2→repair→恢复→progressed@CP1"
+    },
+    {
+      "script_id": "S12",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "assessment 启动拒绝 + tool 拒绝 + 学生面无 truth"
+    },
+    {
+      "script_id": "S2",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "打断→interrupted 记录；回答→prompt.hand_over"
+    },
+    {
+      "script_id": "S3",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "4 个 guided 决策全为 confirm/prompt；workspace×1"
+    },
+    {
+      "script_id": "S4",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "阶梯 1→2 严格递增（deviation 路径），L2=plan 资源原文"
+    },
+    {
+      "script_id": "S5",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "hint→aligned→progressed→decision 因果链闭合（cp=CP1）"
+    },
+    {
+      "script_id": "S6",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "student_self_corrected 关联偏差证据；确认 purpose=self_correction"
+    },
+    {
+      "script_id": "S7",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "alternate_valid→confirm→progressed（plan 未改写）"
+    },
+    {
+      "script_id": "S8",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "confirm=voice-only；wait=零动作"
+    },
+    {
+      "script_id": "S9",
+      "plan_id": "TP-SMV-002",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "2 次注入全 rejected；学生事实零污染"
+    },
+    {
+      "script_id": "S1",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "答对→confirm；卡住（deviation）→prompt→…→hint"
+    },
+    {
+      "script_id": "S10",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "timeout→policy_failed(fallback)→Wait 零呈现"
+    },
+    {
+      "script_id": "S11",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "L1→L2→repair→恢复→progressed@CP1"
+    },
+    {
+      "script_id": "S12",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "assessment 启动拒绝 + tool 拒绝 + 学生面无 truth"
+    },
+    {
+      "script_id": "S2",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "打断→interrupted 记录；回答→prompt.hand_over"
+    },
+    {
+      "script_id": "S3",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "4 个 guided 决策全为 confirm/prompt；workspace×1"
+    },
+    {
+      "script_id": "S4",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "阶梯 1→2 严格递增（deviation 路径），L2=plan 资源原文"
+    },
+    {
+      "script_id": "S5",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "hint→aligned→progressed→decision 因果链闭合（cp=CP1）"
+    },
+    {
+      "script_id": "S6",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "student_self_corrected 关联偏差证据；确认 purpose=self_correction"
+    },
+    {
+      "script_id": "S7",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "alternate_valid→confirm→progressed（plan 未改写）"
+    },
+    {
+      "script_id": "S8",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "confirm=voice-only；wait=零动作"
+    },
+    {
+      "script_id": "S9",
+      "plan_id": "TP-SMV-003",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "2 次注入全 rejected；学生事实零污染"
+    },
+    {
+      "script_id": "S1",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "答对→confirm；卡住（vague）→prompt→…→hint"
+    },
+    {
+      "script_id": "S10",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "timeout→policy_failed(fallback)→Wait 零呈现"
+    },
+    {
+      "script_id": "S11",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "L1→L2→repair→恢复→progressed@CP1"
+    },
+    {
+      "script_id": "S12",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "assessment 启动拒绝 + tool 拒绝 + 学生面无 truth"
+    },
+    {
+      "script_id": "S2",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "打断→interrupted 记录；回答→prompt.hand_over"
+    },
+    {
+      "script_id": "S3",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "4 个 guided 决策全为 confirm/prompt；workspace×1"
+    },
+    {
+      "script_id": "S4",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "阶梯 1→2 严格递增（vague 路径），L2=plan 资源原文"
+    },
+    {
+      "script_id": "S5",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "hint→aligned→progressed→decision 因果链闭合（cp=CP1）"
+    },
+    {
+      "script_id": "S6",
+      "plan_id": "TP-SMV-004",
+      "status": "skipped",
+      "failures": [],
+      "session_ids": [],
+      "detail": "not_applicable：plan 无 authored common_deviations，自我修正剧本需要偏差数据（数据缺口登记于退场报告）"
+    },
+    {
+      "script_id": "S7",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "alternate_valid→confirm→progressed（plan 未改写）"
+    },
+    {
+      "script_id": "S8",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "confirm=voice-only；wait=零动作"
+    },
+    {
+      "script_id": "S9",
+      "plan_id": "TP-SMV-004",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "2 次注入全 rejected；学生事实零污染"
+    },
+    {
+      "script_id": "S1",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "答对→confirm；卡住（vague）→prompt→…→hint"
+    },
+    {
+      "script_id": "S10",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "timeout→policy_failed(fallback)→Wait 零呈现"
+    },
+    {
+      "script_id": "S11",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "L1→L2→repair→恢复→progressed@CP1"
+    },
+    {
+      "script_id": "S12",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "assessment 启动拒绝 + tool 拒绝 + 学生面无 truth"
+    },
+    {
+      "script_id": "S2",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "打断→interrupted 记录；回答→prompt.hand_over"
+    },
+    {
+      "script_id": "S3",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "4 个 guided 决策全为 confirm/prompt；workspace×1"
+    },
+    {
+      "script_id": "S4",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "阶梯 1→2 严格递增（vague 路径），L2=plan 资源原文"
+    },
+    {
+      "script_id": "S5",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "hint→aligned→progressed→decision 因果链闭合（cp=CP1）"
+    },
+    {
+      "script_id": "S6",
+      "plan_id": "TP-SMV-005",
+      "status": "skipped",
+      "failures": [],
+      "session_ids": [],
+      "detail": "not_applicable：plan 无 authored common_deviations，自我修正剧本需要偏差数据（数据缺口登记于退场报告）"
+    },
+    {
+      "script_id": "S7",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "alternate_valid→confirm→progressed（plan 未改写）"
+    },
+    {
+      "script_id": "S8",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "confirm=voice-only；wait=零动作"
+    },
+    {
+      "script_id": "S9",
+      "plan_id": "TP-SMV-005",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "2 次注入全 rejected；学生事实零污染"
+    },
+    {
+      "script_id": "S1",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "答对→confirm；卡住（deviation）→prompt→…→hint"
+    },
+    {
+      "script_id": "S10",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "timeout→policy_failed(fallback)→Wait 零呈现"
+    },
+    {
+      "script_id": "S11",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "L1→L2→repair→恢复→progressed@CP1"
+    },
+    {
+      "script_id": "S12",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "assessment 启动拒绝 + tool 拒绝 + 学生面无 truth"
+    },
+    {
+      "script_id": "S2",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "打断→interrupted 记录；回答→prompt.hand_over"
+    },
+    {
+      "script_id": "S3",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "4 个 guided 决策全为 confirm/prompt；workspace×1"
+    },
+    {
+      "script_id": "S4",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "阶梯 1→2 严格递增（deviation 路径），L2=plan 资源原文"
+    },
+    {
+      "script_id": "S5",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "hint→aligned→progressed→decision 因果链闭合（cp=CP1）"
+    },
+    {
+      "script_id": "S6",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "student_self_corrected 关联偏差证据；确认 purpose=self_correction"
+    },
+    {
+      "script_id": "S7",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "alternate_valid→confirm→progressed（plan 未改写）"
+    },
+    {
+      "script_id": "S8",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "confirm=voice-only；wait=零动作"
+    },
+    {
+      "script_id": "S9",
+      "plan_id": "TP-SMV-006",
+      "status": "pass",
+      "failures": [],
+      "session_ids": [],
+      "detail": "2 次注入全 rejected；学生事实零污染"
+    }
+  ],
+  "session_audits": [
+    {
+      "session_id": "TS-7001",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-001",
+      "events": 17,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7002",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-001",
+      "events": 23,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7004",
+      "script_id": "S11",
+      "plan_id": "TP-SMV-001",
+      "events": 46,
+      "decisions": 7,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7006",
+      "script_id": "S2",
+      "plan_id": "TP-SMV-001",
+      "events": 15,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7007",
+      "script_id": "S3",
+      "plan_id": "TP-SMV-001",
+      "events": 31,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7008",
+      "script_id": "S4",
+      "plan_id": "TP-SMV-001",
+      "events": 30,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7009",
+      "script_id": "S5",
+      "plan_id": "TP-SMV-001",
+      "events": 30,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7010",
+      "script_id": "S6",
+      "plan_id": "TP-SMV-001",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7011",
+      "script_id": "S7",
+      "plan_id": "TP-SMV-001",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7012",
+      "script_id": "S8",
+      "plan_id": "TP-SMV-001",
+      "events": 19,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7013",
+      "script_id": "S9",
+      "plan_id": "TP-SMV-001",
+      "events": 14,
+      "decisions": 2,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7014",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-002",
+      "events": 17,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7015",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-002",
+      "events": 23,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7017",
+      "script_id": "S11",
+      "plan_id": "TP-SMV-002",
+      "events": 46,
+      "decisions": 7,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7019",
+      "script_id": "S2",
+      "plan_id": "TP-SMV-002",
+      "events": 15,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7020",
+      "script_id": "S3",
+      "plan_id": "TP-SMV-002",
+      "events": 31,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7021",
+      "script_id": "S4",
+      "plan_id": "TP-SMV-002",
+      "events": 30,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7022",
+      "script_id": "S5",
+      "plan_id": "TP-SMV-002",
+      "events": 30,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7023",
+      "script_id": "S6",
+      "plan_id": "TP-SMV-002",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7024",
+      "script_id": "S7",
+      "plan_id": "TP-SMV-002",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7025",
+      "script_id": "S8",
+      "plan_id": "TP-SMV-002",
+      "events": 19,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7026",
+      "script_id": "S9",
+      "plan_id": "TP-SMV-002",
+      "events": 14,
+      "decisions": 2,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7027",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-003",
+      "events": 17,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7028",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-003",
+      "events": 23,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7030",
+      "script_id": "S11",
+      "plan_id": "TP-SMV-003",
+      "events": 46,
+      "decisions": 7,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7032",
+      "script_id": "S2",
+      "plan_id": "TP-SMV-003",
+      "events": 15,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7033",
+      "script_id": "S3",
+      "plan_id": "TP-SMV-003",
+      "events": 31,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7034",
+      "script_id": "S4",
+      "plan_id": "TP-SMV-003",
+      "events": 30,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7035",
+      "script_id": "S5",
+      "plan_id": "TP-SMV-003",
+      "events": 30,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7036",
+      "script_id": "S6",
+      "plan_id": "TP-SMV-003",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7037",
+      "script_id": "S7",
+      "plan_id": "TP-SMV-003",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7038",
+      "script_id": "S8",
+      "plan_id": "TP-SMV-003",
+      "events": 19,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7039",
+      "script_id": "S9",
+      "plan_id": "TP-SMV-003",
+      "events": 14,
+      "decisions": 2,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7040",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-004",
+      "events": 17,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7041",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-004",
+      "events": 21,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7043",
+      "script_id": "S11",
+      "plan_id": "TP-SMV-004",
+      "events": 42,
+      "decisions": 7,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7045",
+      "script_id": "S2",
+      "plan_id": "TP-SMV-004",
+      "events": 15,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7046",
+      "script_id": "S3",
+      "plan_id": "TP-SMV-004",
+      "events": 31,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7047",
+      "script_id": "S4",
+      "plan_id": "TP-SMV-004",
+      "events": 27,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7048",
+      "script_id": "S5",
+      "plan_id": "TP-SMV-004",
+      "events": 28,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7049",
+      "script_id": "S7",
+      "plan_id": "TP-SMV-004",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7050",
+      "script_id": "S8",
+      "plan_id": "TP-SMV-004",
+      "events": 19,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7051",
+      "script_id": "S9",
+      "plan_id": "TP-SMV-004",
+      "events": 14,
+      "decisions": 2,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7052",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-005",
+      "events": 17,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7053",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-005",
+      "events": 21,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7055",
+      "script_id": "S11",
+      "plan_id": "TP-SMV-005",
+      "events": 42,
+      "decisions": 7,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7057",
+      "script_id": "S2",
+      "plan_id": "TP-SMV-005",
+      "events": 15,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7058",
+      "script_id": "S3",
+      "plan_id": "TP-SMV-005",
+      "events": 31,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7059",
+      "script_id": "S4",
+      "plan_id": "TP-SMV-005",
+      "events": 27,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7060",
+      "script_id": "S5",
+      "plan_id": "TP-SMV-005",
+      "events": 28,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7061",
+      "script_id": "S7",
+      "plan_id": "TP-SMV-005",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7062",
+      "script_id": "S8",
+      "plan_id": "TP-SMV-005",
+      "events": 19,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7063",
+      "script_id": "S9",
+      "plan_id": "TP-SMV-005",
+      "events": 14,
+      "decisions": 2,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7064",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-006",
+      "events": 17,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7065",
+      "script_id": "S1",
+      "plan_id": "TP-SMV-006",
+      "events": 23,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7067",
+      "script_id": "S11",
+      "plan_id": "TP-SMV-006",
+      "events": 46,
+      "decisions": 7,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7069",
+      "script_id": "S2",
+      "plan_id": "TP-SMV-006",
+      "events": 15,
+      "decisions": 3,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7070",
+      "script_id": "S3",
+      "plan_id": "TP-SMV-006",
+      "events": 31,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7071",
+      "script_id": "S4",
+      "plan_id": "TP-SMV-006",
+      "events": 30,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7072",
+      "script_id": "S5",
+      "plan_id": "TP-SMV-006",
+      "events": 30,
+      "decisions": 5,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7073",
+      "script_id": "S6",
+      "plan_id": "TP-SMV-006",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7074",
+      "script_id": "S7",
+      "plan_id": "TP-SMV-006",
+      "events": 24,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7075",
+      "script_id": "S8",
+      "plan_id": "TP-SMV-006",
+      "events": 19,
+      "decisions": 4,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    },
+    {
+      "session_id": "TS-7076",
+      "script_id": "S9",
+      "plan_id": "TP-SMV-006",
+      "events": 14,
+      "decisions": 2,
+      "replay_deterministic": true,
+      "decision_causality_ok": true,
+      "issued_linked_to_decision": true
+    }
+  ]
+}

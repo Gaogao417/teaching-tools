@@ -11,7 +11,7 @@ if (existsSync(sqlitePath)) rmSync(sqlitePath, { force: true });
 process.env.SQLITE_PATH = sqlitePath;
 
 const { db } = require("../../../db/database") as typeof import("../../../db/database");
-const store = require("../tutorSessionEventStore") as typeof import("../tutorSessionEventStore");
+const store = require("../TutorSessionEventStore") as typeof import("../TutorSessionEventStore");
 const {
   TutorSessionEventStoreError,
   appendTutorSessionEvents,
@@ -20,7 +20,7 @@ const {
   startTutorSession,
 } = store;
 
-type PendingEvent = import("../tutorSessionEventStore").PendingTutorSessionEvent;
+type PendingEvent = import("../TutorSessionEventStore").PendingTutorSessionEvent;
 
 function revisionOf(sessionId: string): number {
   const session = getTutorSession(sessionId);
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   });
 
   await runTest("start + append assigns sequences and bumps revision", () => {
-    startTutorSession({ sessionId: "TS-9001", studentId: "student-001", plan: PLAN });
+    startTutorSession({ sessionId: "TS-9001", studentId: "student-001", plan: PLAN , eventSchema: "v1"});
     const result = appendTutorSessionEvents("TS-9001", 0, [bootEvent()]);
     assert.equal(result.revision, 1);
     assert.deepEqual(result.appendedSequences, [1]);
@@ -131,7 +131,7 @@ async function main(): Promise<void> {
   });
 
   await runTest("duplicate idempotency key is rejected and batch rolls back", () => {
-    startTutorSession({ sessionId: "TS-9002", studentId: "student-002", plan: PLAN });
+    startTutorSession({ sessionId: "TS-9002", studentId: "student-002", plan: PLAN , eventSchema: "v1"});
     const first = appendTutorSessionEvents("TS-9002", 0, [
       { ...bootEvent(), idempotency_key: "TS-9002:boot:1" },
     ]);
@@ -156,7 +156,7 @@ async function main(): Promise<void> {
   });
 
   await runTest("server-derived idempotency keys are unique per session:sequence", () => {
-    startTutorSession({ sessionId: "TS-9003", studentId: "student-003", plan: PLAN });
+    startTutorSession({ sessionId: "TS-9003", studentId: "student-003", plan: PLAN , eventSchema: "v1"});
     appendTutorSessionEvents("TS-9003", 0, [bootEvent()]);
     // 未显式带 key 的批次由 store 派生 <session>:<sequence>，跨批次严格递增不碰撞；
     // 因此「同一逻辑批次重放」总是先撞 revision（上一测试）或在带自定义 key 时撞
@@ -188,7 +188,7 @@ async function main(): Promise<void> {
   });
 
   await runTest("non-canonical event payloads are rejected (fail closed)", () => {
-    startTutorSession({ sessionId: "TS-9004", studentId: "student-004", plan: PLAN });
+    startTutorSession({ sessionId: "TS-9004", studentId: "student-004", plan: PLAN , eventSchema: "v1"});
     // hint_issued 缺 level；event_type 非法
     assert.throws(
       () =>
@@ -231,7 +231,7 @@ async function main(): Promise<void> {
   });
 
   await runTest("batch is atomic: failure at position N rolls back earlier events", () => {
-    startTutorSession({ sessionId: "TS-9005", studentId: "student-005", plan: PLAN });
+    startTutorSession({ sessionId: "TS-9005", studentId: "student-005", plan: PLAN , eventSchema: "v1"});
     assert.throws(
       () =>
         appendTutorSessionEvents("TS-9005", 0, [
@@ -256,7 +256,7 @@ async function main(): Promise<void> {
   await runTest("event store module issues no UPDATE/DELETE against tutor_session_events (append-only)", () => {
     const fs = require("node:fs") as typeof import("node:fs");
     const source = fs.readFileSync(
-      path.resolve(process.cwd(), "src/services/evidence/tutorSessionEventStore.ts"),
+      path.resolve(process.cwd(), "src/services/tutorSession/TutorSessionEventStore.ts"),
       "utf8",
     );
     for (const statement of ["UPDATE tutor_session_events", "DELETE FROM tutor_session_events", "DROP TABLE"]) {

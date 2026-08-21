@@ -220,8 +220,10 @@ db.exec(`
   );
 
   -- Phase 1 / P1-07：TutorSession event spine（append-only，ADR-002 §4）。
+  -- Phase 5 / P5-01：v2 事件合同（ADR-006 因果链）——event_schema 标记会话级
+  -- 合同版本，causation_sequence 存事件的因果前驱；v1 会话保持原样可读。
   -- tutor_session_events 只允许 INSERT/SELECT；没有 UPDATE/DELETE 路径
-  -- （由 src/services/evidence/tutorSessionEventStore.ts 保证并测试）。
+  -- （由 src/services/tutorSession/TutorSessionEventStore.ts 保证并测试）。
   CREATE TABLE IF NOT EXISTS tutor_sessions (
     session_id TEXT PRIMARY KEY,
     student_id TEXT NOT NULL,
@@ -231,7 +233,8 @@ db.exec(`
     current_mode TEXT NOT NULL DEFAULT 'teach',
     revision INTEGER NOT NULL DEFAULT 0,
     started_at TEXT NOT NULL,
-    completed_at TEXT
+    completed_at TEXT,
+    event_schema TEXT NOT NULL DEFAULT 'v1'
   );
 
   CREATE TABLE IF NOT EXISTS tutor_session_events (
@@ -243,6 +246,7 @@ db.exec(`
     idempotency_key TEXT NOT NULL UNIQUE,
     recorded_revision INTEGER NOT NULL,
     recorded_at TEXT NOT NULL,
+    causation_sequence INTEGER,
     PRIMARY KEY(session_id, sequence),
     FOREIGN KEY(session_id) REFERENCES tutor_sessions(session_id) ON DELETE CASCADE
   );
@@ -300,4 +304,15 @@ if (!checkpointColumns.some((column) => column.name === "draft_json")) {
 const actionWorldColumns = db.prepare("PRAGMA table_info(practice_action_worlds_v2)").all() as Array<{ name: string }>;
 if (!actionWorldColumns.some((column) => column.name === "source_step_id")) {
   db.exec("ALTER TABLE practice_action_worlds_v2 ADD COLUMN source_step_id TEXT NOT NULL DEFAULT ''");
+}
+
+// Phase 5 / P5-01：既有库补 v2 事件合同列（新库已含在 CREATE TABLE 内）。
+const tutorSessionColumns = db.prepare("PRAGMA table_info(tutor_sessions)").all() as Array<{ name: string }>;
+if (!tutorSessionColumns.some((column) => column.name === "event_schema")) {
+  db.exec("ALTER TABLE tutor_sessions ADD COLUMN event_schema TEXT NOT NULL DEFAULT 'v1'");
+}
+
+const tutorSessionEventColumns = db.prepare("PRAGMA table_info(tutor_session_events)").all() as Array<{ name: string }>;
+if (!tutorSessionEventColumns.some((column) => column.name === "causation_sequence")) {
+  db.exec("ALTER TABLE tutor_session_events ADD COLUMN causation_sequence INTEGER");
 }
