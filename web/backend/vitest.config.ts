@@ -19,7 +19,7 @@ export default defineConfig({
     pool: "forks",
     coverage: {
       provider: "v8",
-      reporter: ["text", "json-summary"],
+      reporter: ["text", "json-summary", "json"],
       include: [
         "src/services/tutorIntelligence/**/*.ts",
         "src/services/tutorSession/TutorSession.ts",
@@ -33,12 +33,41 @@ export default defineConfig({
         "src/services/tutorPresentation/WorkspaceAction.ts",
         "src/transport/http/tutorSessionRoutes.ts",
       ],
-      exclude: ["src/**/__tests__/**", "src/**/*.vitest.ts", "src/**/*.test.ts"],
+      exclude: [
+        "src/**/__tests__/**",
+        "src/**/*.vitest.ts",
+        "src/**/*.test.ts",
+        // 纯类型合同文件（无可执行语句）
+        "src/services/tutorPresentation/WorkspaceAction.ts",
+      ],
       thresholds: {
-        statements: 90,
-        branches: 85,
-        functions: 80,
-        lines: 90,
+        // 计划 §4.1 门禁只针对 Phase 5 新代码范围（智能图/coordinator 新入口/
+        // validator/HTTP 合同）；legacy 模块（store/projection/aligner）随
+        // 全量测试保留，不设阈值。
+        "src/services/tutorIntelligence/**": {
+          statements: 90,
+          branches: 85,
+          functions: 80,
+          lines: 90,
+        },
+        "src/services/tutorSession/TutorSession.ts": {
+          statements: 90,
+          branches: 85,
+          functions: 80,
+          lines: 90,
+        },
+        "src/services/tutorPresentation/PreparePresentation.ts": {
+          statements: 90,
+          branches: 85,
+          functions: 80,
+          lines: 90,
+        },
+        "src/transport/http/tutorSessionRoutes.ts": {
+          statements: 90,
+          branches: 85,
+          functions: 80,
+          lines: 90,
+        },
       },
     },
   },

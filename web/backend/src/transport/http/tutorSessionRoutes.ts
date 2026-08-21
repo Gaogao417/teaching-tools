@@ -15,6 +15,8 @@
 import { Router } from "express";
 import { z } from "zod";
 
+
+import { SpeechProviderError, transcribeForTutor } from "../../services/tutorSession/asrService";
 import {
   createDefaultTutorSessionCoordinator,
   STATEFUL_TUTOR_POLICY_GOLDEN_PLANS,
@@ -109,6 +111,8 @@ export interface TutorSessionRoutesOptions {
   canonicalRoot?: string;
   /** 测试注入 coordinator；提供时忽略 canonicalRoot。 */
   coordinator?: TutorSessionCoordinator;
+  /** 测试注入 ASR 转写器（默认 coach 侧 Qwen ASR 链路）。 */
+  transcriber?: (input: { dataUrl: string; durationMs?: number }) => Promise<{ transcript: string; model: string }>;
 }
 
 export function createTutorSessionRoutes(options: TutorSessionRoutesOptions = {}): Router {
@@ -287,12 +291,10 @@ export function createTutorSessionRoutes(options: TutorSessionRoutesOptions = {}
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = asrSchema.parse(req.body);
-      // 复用 coach 侧 Qwen ASR 链路（DASHSCOPE_API_KEY / qwen3-asr-flash）；
+      // 复用 coach 侧 Qwen ASR 链路（经 tutorSession/asrService，ADR-005 层边界）；
       // 未配置 key → 503（前端降级文字输入，不伪装成功）。
-      const { transcribeStudentAudio, SpeechProviderError } = await import(
-        "../../services/coach/qwenSpeechService"
-      );
-      const transcript = await transcribeStudentAudio({
+      const transcribe = options.transcriber ?? transcribeForTutor;
+      const transcript = await transcribe({
         dataUrl: body.audio.dataUrl,
         durationMs: body.audio.durationMs,
       });
@@ -303,7 +305,9 @@ export function createTutorSessionRoutes(options: TutorSessionRoutesOptions = {}
         return;
       }
       if (error instanceof SpeechProviderError) {
-        res.status(503).json({ error: { code: "ASR_UNAVAILABLE", message: error.message } });
+        res.status(503).json({
+          error: { code: "ASR_UNAVAILABLE", message: (error as Error).message },
+        });
         return;
       }
       next(error);

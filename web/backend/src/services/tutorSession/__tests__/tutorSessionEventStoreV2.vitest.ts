@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import * as store from "../TutorSessionEventStore";
+import type { V2EventPayload } from "../TutorSessionEvent";
 
 const plan = { artifact_id: "TP-SMV-001", version: "v2", content_hash: `sha256:${"a".repeat(64)}` };
 const at = () => new Date().toISOString();
@@ -13,6 +14,19 @@ const at = () => new Date().toISOString();
 function revisionOf(sessionId: string): number {
   const session = store.getTutorSession(sessionId) as { revision: number } | undefined;
   return session?.revision ?? -1;
+}
+
+function expectStoreError(fn: () => unknown, code: store.EventStoreErrorCode): void {
+  let thrown: unknown;
+  try {
+    fn();
+  } catch (error) {
+    thrown = error;
+  }
+  if (!(thrown instanceof store.TutorSessionEventStoreError)) {
+    throw new Error(`expected TutorSessionEventStoreError, got ${String(thrown)}`);
+  }
+  expect(thrown.code).toBe(code);
 }
 
 describe("TutorSessionEventStore v2/v3", () => {
@@ -106,26 +120,28 @@ describe("TutorSessionEventStore v2/v3", () => {
     expect(events[4].payload).toMatchObject({ generation_id: "VG-TS-9151-1" });
   });
 
-  it("v3 会话拒绝 v2-only 违规字段（strict fail closed）", () => {
+  it("v3 会话拒绝 chain_of_thought（strict fail closed）", () => {
     store.startTutorSession({ sessionId: "TS-9152", studentId: "s", plan, eventSchema: "v3" });
     store.appendTutorSessionEventsV2("TS-9152", 0, [
       { event_type: "session_started", payload: { plan, initial_mode: "teach" }, occurred_at: at() },
     ]);
-    expect(() =>
-      store.appendTutorSessionEventsV2("TS-9152", 1, [
-        {
-          event_type: "voice_action_issued",
-          payload: {
-            action_id: "VA-TS-9152-1",
-            decision_id: "TD-TS-9152-1",
-            text: "x",
-            chain_of_thought: "不得进入事件流",
+    expectStoreError(
+      () =>
+        store.appendTutorSessionEventsV2("TS-9152", 1, [
+          {
+            event_type: "voice_action_issued",
+            payload: {
+              action_id: "VA-TS-9152-1",
+              decision_id: "TD-TS-9152-1",
+              text: "x",
+              chain_of_thought: "不得进入事件流",
+            } as unknown as V2EventPayload,
+            occurred_at: at(),
+            causation_sequence: 1,
           },
-          occurred_at: at(),
-          causation_sequence: 1,
-        },
-      ]),
-    ).toThrowError(/VALIDATION_FAILED|chain_of_thought/);
+        ]),
+      "VALIDATION_FAILED",
+    );
   });
 
   it("v2 append enforces causation_sequence on required event types", () => {
@@ -133,25 +149,25 @@ describe("TutorSessionEventStore v2/v3", () => {
     store.appendTutorSessionEventsV2("TS-9102", 0, [
       { event_type: "session_started", payload: { plan, initial_mode: "teach" }, occurred_at: at() },
     ]);
-    expect(() =>
-      store.appendTutorSessionEventsV2("TS-9102", 1, [
-        {
-          event_type: "tutor_move_decided",
-          payload: {
-            decision_id: "TD-TS-9102-1",
-            move_type: "hint",
-            purpose_code: "hint.escalate",
-            policy_version: "tutor-policy-deterministic-rules/v1",
-            source_event_sequence: 1,
-            source_state_revision: 1,
-            checkpoint_id: "CP1",
-            assistance_level: 1,
+    expectStoreError(
+      () =>
+        store.appendTutorSessionEventsV2("TS-9102", 1, [
+          {
+            event_type: "tutor_move_decided",
+            payload: {
+              decision_id: "TD-TS-9102-1",
+              move_type: "hint",
+              purpose_code: "hint.escalate",
+              policy_version: "tutor-policy-deterministic-rules/v1",
+              source_event_sequence: 1,
+              source_state_revision: 1,
+              checkpoint_id: "CP1",
+              assistance_level: 1,
+            },
+            occurred_at: at(),
           },
-          occurred_at: at(),
-        },
-      ]),
-    ).toThrowError(
-      (error: unknown) => error instanceof store.TutorSessionEventStoreError && error.code === "VALIDATION_FAILED",
+        ]),
+      "VALIDATION_FAILED",
     );
   });
 
@@ -160,44 +176,45 @@ describe("TutorSessionEventStore v2/v3", () => {
     store.appendTutorSessionEventsV2("TS-9103", 0, [
       { event_type: "session_started", payload: { plan, initial_mode: "teach" }, occurred_at: at() },
     ]);
-    expect(() =>
-      store.appendTutorSessionEventsV2("TS-9103", 1, [
-        {
-          event_type: "tutor_move_decided",
-          payload: {
-            decision_id: "TD-TS-9103-1",
-            move_type: "hint",
-            purpose_code: "hint.escalate",
-            policy_version: "tutor-policy-deterministic-rules/v1",
-            source_event_sequence: 1,
-            source_state_revision: 1,
+    expectStoreError(
+      () =>
+        store.appendTutorSessionEventsV2("TS-9103", 1, [
+          {
+            event_type: "tutor_move_decided",
+            payload: {
+              decision_id: "TD-TS-9103-1",
+              move_type: "hint",
+              // 缺 assistance_level / checkpoint_id → canonical superRefine 拒绝
+              purpose_code: "hint.escalate",
+              policy_version: "tutor-policy-deterministic-rules/v1",
+              source_event_sequence: 1,
+              source_state_revision: 1,
+            },
+            occurred_at: at(),
+            causation_sequence: 1,
           },
-          occurred_at: at(),
-          causation_sequence: 1,
-        },
-      ]),
-    ).toThrowError(
-      (error: unknown) => error instanceof store.TutorSessionEventStoreError && error.code === "VALIDATION_FAILED",
+        ]),
+      "VALIDATION_FAILED",
     );
     expect(store.readTutorSessionEventsV2("TS-9103").length).toBe(1);
   });
 
   it("contract isolation: v2 append rejected on v1 session and vice versa", () => {
     store.startTutorSession({ sessionId: "TS-9104", studentId: "s", plan, eventSchema: "v1" });
-    expect(() =>
-      store.appendTutorSessionEventsV2("TS-9104", 0, [
-        { event_type: "session_started", payload: { plan, initial_mode: "teach" }, occurred_at: at() },
-      ]),
-    ).toThrowError(
-      (error: unknown) => error instanceof store.TutorSessionEventStoreError && error.code === "VALIDATION_FAILED",
+    expectStoreError(
+      () =>
+        store.appendTutorSessionEventsV2("TS-9104", 0, [
+          { event_type: "session_started", payload: { plan, initial_mode: "teach" }, occurred_at: at() },
+        ]),
+      "VALIDATION_FAILED",
     );
     store.startTutorSession({ sessionId: "TS-9105", studentId: "s", plan, eventSchema: "v2" });
-    expect(() =>
-      store.appendTutorSessionEvents("TS-9105", 0, [
-        { event_type: "session_started", payload: { plan, initial_mode: "teach" }, occurred_at: at() },
-      ]),
-    ).toThrowError(
-      (error: unknown) => error instanceof store.TutorSessionEventStoreError && error.code === "VALIDATION_FAILED",
+    expectStoreError(
+      () =>
+        store.appendTutorSessionEvents("TS-9105", 0, [
+          { event_type: "session_started", payload: { plan, initial_mode: "teach" }, occurred_at: at() },
+        ]),
+      "VALIDATION_FAILED",
     );
   });
 
@@ -206,24 +223,24 @@ describe("TutorSessionEventStore v2/v3", () => {
     store.appendTutorSessionEventsV2("TS-9106", 0, [
       { event_type: "session_started", payload: { plan, initial_mode: "teach" }, occurred_at: at() },
     ]);
-    expect(() =>
-      store.appendTutorSessionEventsV2("TS-9106", 0, [
-        { event_type: "student_input_recorded", payload: { input_kind: "silence_observed", duration_ms: 3000 }, occurred_at: at() },
-      ]),
-    ).toThrowError(
-      (error: unknown) => error instanceof store.TutorSessionEventStoreError && error.code === "REVISION_CONFLICT",
+    expectStoreError(
+      () =>
+        store.appendTutorSessionEventsV2("TS-9106", 0, [
+          { event_type: "student_input_recorded", payload: { input_kind: "silence_observed", duration_ms: 3000 }, occurred_at: at() },
+        ]),
+      "REVISION_CONFLICT",
     );
-    expect(() =>
-      store.appendTutorSessionEventsV2("TS-9106", 1, [
-        {
-          event_type: "student_input_recorded",
-          payload: { input_kind: "silence_observed", duration_ms: 3000 },
-          occurred_at: at(),
-          idempotency_key: "TS-9106:1",
-        },
-      ]),
-    ).toThrowError(
-      (error: unknown) => error instanceof store.TutorSessionEventStoreError && error.code === "DUPLICATE_EVENT",
+    expectStoreError(
+      () =>
+        store.appendTutorSessionEventsV2("TS-9106", 1, [
+          {
+            event_type: "student_input_recorded",
+            payload: { input_kind: "silence_observed", duration_ms: 3000 },
+            occurred_at: at(),
+            idempotency_key: "TS-9106:1",
+          },
+        ]),
+      "DUPLICATE_EVENT",
     );
     expect(revisionOf("TS-9106")).toBe(1);
   });

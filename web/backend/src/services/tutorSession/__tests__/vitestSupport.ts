@@ -55,7 +55,12 @@ function makeTruth(qtId: string, partCount: number): Record<string, unknown> {
     status: "Approved",
     question_type: "solution",
     stem: `如图（${qtId}），$AB \\parallel CD$。求证：$\\triangle AOB \\sim \\triangle DOC$。`,
-    ...(partCount > 0 ? { subquestions } : {}),
+    ...(partCount > 0
+      ? { subquestions }
+      : {
+          canonical_answer: { kind: "proof", value: "$\\triangle AOB \\sim \\triangle DOC$" },
+          reviewed_solution: "由平行得内错角相等，AA 判定。",
+        }),
     source_evidence_refs: [{ evidence_id: "SE-TST-001", artifact_uri: "artifact://source-evidence/SE-TST-001" }],
     approval: { reviewer_id: "tst", approved_at: "2026-08-21T00:00:00Z" },
     content_hash: "",
