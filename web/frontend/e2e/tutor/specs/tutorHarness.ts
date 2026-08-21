@@ -52,12 +52,15 @@ export function alternateUtterance(plan: GoldenPlanShape): string | undefined {
   return route?.entry_condition;
 }
 
-/** 只拦 TTS；其余网络原样放行并全程嗅探 truth 泄漏。 */
+/** 只拦 TTS（真实 exit run 时 TUTOR_E2E_REAL=1 放行真实 CosyVoice）；
+ *  其余网络原样放行并全程嗅探 truth 泄漏。 */
 export async function installTutorHarness(page: Page, testInfo: TestInfo): Promise<void> {
   const violations: string[] = [];
-  await page.route(/\/api\/action-speech(-stream)?$/, async (route) => {
-    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "TTS_UNAVAILABLE", message: "CI stub" } }) });
-  });
+  if (!process.env.TUTOR_E2E_REAL) {
+    await page.route(/\/api\/action-speech(-stream)?$/, async (route) => {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "TTS_UNAVAILABLE", message: "CI stub" } }) });
+    });
+  }
   page.on("response", async (response) => {
     const url = response.url();
     if (!url.includes("/api/tutor-sessions") && !url.includes("/api/action-speech")) return;
@@ -79,9 +82,12 @@ export function expectNoTruthLeak(page: Page): void {
   expect(violations, `前端收到答案真值：${violations.join("; ")}`).toHaveLength(0);
 }
 
-/** 等 tutor 进入某个状态（speaking 瞬态可能跳过，轮询等待）。 */
+/** 等 tutor 进入某个状态（speaking 瞬态可能跳过，轮询等待）。真实 exit run
+ *  的 CosyVoice 播放是真时长——超时按 5× 放宽（TUTOR_E2E_REAL=1）。 */
+export const e2eTimeout = (ms: number): number => (process.env.TUTOR_E2E_REAL ? ms * 5 : ms);
+
 export async function waitForTutorState(page: Page, state: string, timeout = 20_000): Promise<void> {
-  await expect(page.getByTestId("tutor-state")).toContainText(state === "awaitingInput" ? "等你发言" : stateLabel(state), { timeout });
+  await expect(page.getByTestId("tutor-state")).toContainText(state === "awaitingInput" ? "等你发言" : stateLabel(state), { timeout: e2eTimeout(timeout) });
 }
 
 function stateLabel(state: string): string {
@@ -133,7 +139,7 @@ export async function progressUntilWorkspace(
     if (await page.locator(".tutor-workspace").count()) return;
     const texts = await readTranscriptTexts(page);
     if (texts.some((text) => text.includes("交给你操作"))) {
-      await expect(page.locator(".tutor-workspace")).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator(".tutor-workspace")).toBeVisible({ timeout: e2eTimeout(15_000) });
       return;
     }
     if ((await page.getByTestId("tutor-state").innerText()).includes("等你发言")) {
@@ -144,5 +150,5 @@ export async function progressUntilWorkspace(
     }
     await page.waitForTimeout(300);
   }
-  await expect(page.locator(".tutor-workspace")).toBeVisible();
+  await expect(page.locator(".tutor-workspace")).toBeVisible({ timeout: e2eTimeout(15_000) });
 }

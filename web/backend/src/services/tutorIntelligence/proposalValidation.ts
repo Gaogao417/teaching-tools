@@ -127,6 +127,59 @@ export function validateProposal(
       );
     }
   }
+  // ---- unclear 阶梯护栏：首个含糊输入先澄清，不直接 hint ----
+  if (proposal.alignment?.classification === "unclear" && move.move_type === "hint") {
+    const checkpointId = move.checkpoint_id ?? state.reasoning.current_checkpoint_id;
+    const ledger = state.assistance[checkpointId];
+    if (!ledger || ledger.promptsIssued === 0) {
+      errors.push(
+        `首个 unclear 必须先 prompt（澄清或诊断探针），不得直接 hint（${checkpointId} 台账尚无 prompt）`,
+      );
+    }
+  }
+  // ---- 自我修正确认护栏：错误后无协助而答对 → confirm.self_correction ----
+  if (proposal.alignment?.classification === "expected_checkpoint" && move.move_type === "confirm") {
+    const checkpointId = move.checkpoint_id ?? state.reasoning.current_checkpoint_id;
+    const ledger = state.assistance[checkpointId];
+    const lastDeviation = ledger?.incorrectSequences.at(-1);
+    if (lastDeviation !== undefined && ledger) {
+      const assistedSince =
+        (ledger.lastHintSequence ?? -1) > lastDeviation ||
+        ledger.explainedSequences.some((sequence) => sequence > lastDeviation);
+      const inRepair = state.mode === "repair";
+      if (!assistedSince && !inRepair && move.purpose_code !== "confirm.self_correction") {
+        errors.push(
+          `错误 ${lastDeviation} 之后无 hint/explain 协助而答对 → 必须 purpose=confirm.self_correction（got ${move.purpose_code}）`,
+        );
+      }
+    }
+  }
+  // ---- 挣扎基线（确定性护栏）：本轮 incorrect 即挣扎起点——台账尚无 incorrect
+  // 证据时必须先自查 prompt，不得直接 hint/repair（与 deterministic
+  // assistAfterIncorrect 同口径；早于本次错误的 prompt 属开场交接，不算自查）。
+  if (
+    proposal.alignment?.classification === "incorrect" &&
+    (move.move_type === "hint" || move.move_type === "repair" || move.move_type === "explain")
+  ) {
+    const checkpointId = move.checkpoint_id ?? state.reasoning.current_checkpoint_id;
+    const ledger = state.assistance[checkpointId];
+    if (!ledger || ledger.incorrectSequences.length === 0) {
+      errors.push(
+        `首个 incorrect 必须先 prompt.self_check（${checkpointId} 台账尚无 incorrect 证据；更早的 prompt 属开场交接不算自查；explain 属实质协助会吞掉自我修正），不得直接 ${move.move_type}`,
+      );
+    }
+  }
+  // ---- 档位耗尽护栏：hint 台账已覆盖 1..maximum_assistance_level → 必须 repair ----
+  if (proposal.alignment?.classification === "incorrect" && move.move_type === "hint") {
+    const maxLevel = plan.policy_constraints.maximum_assistance_level;
+    const checkpointId = move.checkpoint_id ?? state.reasoning.current_checkpoint_id;
+    const ledger = state.assistance[checkpointId];
+    if (ledger && ledger.hintLevelsIssued.length >= maxLevel) {
+      errors.push(
+        `hint 档位已耗尽（${checkpointId} 台账 ${ledger.hintLevelsIssued.join(",")} ≥ max ${maxLevel}）→ 必须 move_type=repair（repair.ladder_exhausted + mode_change）`,
+      );
+    }
+  }
 
   // ---- diagnosis evidence / skills ----
   const studentSequences = new Set(facts.filter((fact) => fact.student_fact).map((fact) => fact.sequence));

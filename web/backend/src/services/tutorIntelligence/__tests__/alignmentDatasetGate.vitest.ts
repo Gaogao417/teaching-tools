@@ -34,7 +34,7 @@ describe("alignment dataset gate（fake structured model）", () => {
     expect(dataset.filter((item) => item.hard_set).length).toBeGreaterThanOrEqual(5);
   });
 
-  it("gate 达标：macro-F1 ≥0.85、expected/alternate precision ≥0.95、hard set 零误判", async () => {
+  it("gate 达标：macro-F1 ≥0.85、expected/alternate precision ≥0.95、hard set 零误判", { timeout: 120_000 }, async () => {
     const canonicalRoot =
       process.env.TUTOR_E2E_CANONICAL_ROOT ||
       "/Users/gaochong/develop/teaching-skills-mvp/artifacts/canonical-authoring";

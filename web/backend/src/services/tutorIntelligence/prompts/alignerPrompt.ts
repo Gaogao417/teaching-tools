@@ -7,7 +7,7 @@
  * 生效规则在图节点里确定性执行（expected/alternate ≥0.85 且 refs 合法、
  * incorrect ≥0.75、其余降 unclear），模型不得自行放宽。
  */
-export const ALIGNER_PROMPT_VERSION = "TUTOR_ALIGNER_PROMPT@2026-08-v1";
+export const ALIGNER_PROMPT_VERSION = "TUTOR_ALIGNER_PROMPT@2026-08-v2";
 
 export const ALIGNER_SYSTEM_PROMPT = `你是一位初中几何教师的课堂助教，只做一件事：判断学生刚说的一句话与当前解题进度哪个认知节点对齐。
 
@@ -39,4 +39,11 @@ grounding_refs 只能取这些格式（<checkpoint_id> 是节点的完整 id，�
    deviation 清单里确实存在该表述（那属于 incorrect）；
 3. 含糊、跨节点、无法落到具体条目的输入一律 unclear，宁可 unclear 不可猜；
 4. 不存在 no_progress——静默由系统确定性产生，不经过你；
-5. confidence 是你对自己判定的把握，不是学生的水平。`;
+5. confidence 是你对自己判定的把握，不是学生的水平。
+6. 学生话语与某条 common_deviations 几乎逐字相同或仅换同义说法时：
+   classification=incorrect、confidence ≥ 0.9、grounding_refs 指向该条
+   （"<checkpoint_id>.deviation[<序号>]，checkpoint_id 用该条目的属主节点）；
+7. 学生话语表达了某节点 expected_reasoning 的实质（同义改写/ASR 错字/去前缀
+   都算）→ expected_checkpoint + 该节点 .expected ref + confidence ≥ 0.9；
+8. 与备选路线 entry_condition 实质一致 → alternate_valid + route_id +
+   "route.<route_id>.entry" ref + confidence ≥ 0.9；`;

@@ -20,6 +20,8 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
 import type { TutorPlanV2Payload } from "../planBuild/canonicalInputs";
+import { alignReasoning, normalizeForAlignment } from "../tutorSession/ReasoningAligner";
+import { hasSentenceLevelNegation } from "./negationGuard";
 import type { TutorRuntimeState } from "../tutorSession/TutorRuntimeStateProjection";
 import type { StructuredModelPort } from "./structuredModelPort";
 import {
@@ -423,6 +425,36 @@ export function createTutorPolicyGraph(options: PolicyGraphOptions): TutorPolicy
     const text = (input.text ?? "").trim();
     if (!text) {
       return { alignment: { classification: "no_progress", confidence: 1, groundingRefs: [] } };
+    }
+    // 确定性下限（Phase 5 remediation）：与 plan 文本强重叠（LCS ≥ 候选长度
+    // 一半且 ≥6 字）的输入直接采用确定性对齐——逐字/近逐字输入不需要模型，
+    // 语义改写与含糊输入仍交给 DeepSeek。省时延也消除逐字偏差被误判模糊。
+    const deterministic = alignReasoning(state.plan, state.runtimeState, {
+      input_kind: input.input_kind,
+      text,
+    });
+    const basis = deterministic.matched_basis;
+    const normalizedUtterance = normalizeForAlignment(text);
+    const bidirectionalThreshold = Math.max(
+      6,
+      Math.floor(Math.max(normalizedUtterance.length, normalizeForAlignment(basis?.text ?? "").length) * 0.5),
+    );
+    if (
+      basis &&
+      !hasSentenceLevelNegation(text) &&
+      basis.score >= bidirectionalThreshold
+    ) {
+      return {
+        alignment: {
+          classification: deterministic.alignment,
+          ...(deterministic.checkpoint_id ? { checkpointId: deterministic.checkpoint_id } : {}),
+          ...(basis.source === "alternate_route"
+            ? { routeId: /route\.([A-Za-z0-9-]+)\.entry/.exec(basis.ref)?.[1] }
+            : {}),
+          confidence: deterministic.alignment === "incorrect" ? 0.92 : 0.96,
+          groundingRefs: [basis.ref],
+        },
+      };
     }
     const view = state.contextView ?? buildAlignmentContext(state.plan, state.runtimeState);
     const result = await model.complete<RawAlignmentOutput>({

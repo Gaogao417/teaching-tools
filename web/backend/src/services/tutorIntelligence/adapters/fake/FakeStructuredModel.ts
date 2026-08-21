@@ -18,6 +18,7 @@ import type {
   StructuredModelPort,
 } from "../../structuredModelPort";
 import { StructuredModelError } from "../../structuredModelPort";
+import { hasSentenceLevelNegation } from "../../negationGuard";
 
 interface FakeCandidate {
   checkpoint_id: string;
@@ -84,28 +85,6 @@ function lcs(a: string, b: string): number {
     previous = current;
   }
   return best;
-}
-
-/** 句级否定/拒绝/含糊标记（hard set 守卫）：命中即 unclear——
- *  绝不因引用了期望表述本身而判 expected/alternate。标记表避开偏差文本
- *  的正常用词（如「不指出」不是句级否定）。 */
-const NEGATION_OR_REFUSAL_MARKERS = [
-  "是错的",
-  "不对",
-  "不想",
-  "不会",
-  "不知道",
-  "不确定",
-  "没思路",
-  "说不清",
-  "说不清楚",
-  "根本不",
-  "根本没",
-  "有问题",
-];
-
-function hasSentenceLevelNegation(text: string): boolean {
-  return NEGATION_OR_REFUSAL_MARKERS.some((marker) => text.includes(marker));
 }
 
 function alignerOutput(payload: FakeAlignerPayload): Record<string, unknown> {

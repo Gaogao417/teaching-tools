@@ -21,8 +21,14 @@ export interface AlignmentOutcome {
   alignment: Alignment;
   checkpoint_id?: string;
   alternate_description?: string;
-  /** 判定依据（哪条 plan 文本命中）——供 hint 台账与诊断引用，不进 canonical 事件。 */
-  matched_basis?: { source: "expected" | "accepted_alternative" | "deviation" | "alternate_route"; text: string; score: number };
+  /** 判定依据（哪条 plan 文本命中）——供 hint 台账与诊断引用，不进 canonical 事件；
+   *  ref 为 grounding 引用形态（智能链图据此跳过冗余模型调用）。 */
+  matched_basis?: {
+    source: "expected" | "accepted_alternative" | "deviation" | "alternate_route";
+    text: string;
+    score: number;
+    ref: string;
+  };
 }
 
 const NORMALIZE_PUNCTUATION = /[，。、；：？！,.;:?!\s()（）【】\[\]$]/g;
@@ -62,6 +68,7 @@ interface Candidate {
   score: number;
   checkpoint_id?: string;
   alternate_description?: string;
+  ref: string;
 }
 
 /** 五分类主入口。state 提供 current checkpoint / part 上下文。 */
@@ -91,8 +98,9 @@ export function alignReasoning(
       text: checkpoint.expected_reasoning,
       score: expectedScore,
       checkpoint_id: checkpoint.checkpoint_id,
+      ref: `${checkpoint.checkpoint_id}.expected`,
     });
-    for (const alternative of checkpoint.accepted_alternatives ?? []) {
+    (checkpoint.accepted_alternatives ?? []).forEach((alternative, index) => {
       candidates.push({
         alignment: "alternate_valid",
         source: "accepted_alternative",
@@ -100,8 +108,9 @@ export function alignReasoning(
         score: longestCommonRun(text, normalizeForAlignment(alternative)),
         checkpoint_id: checkpoint.checkpoint_id,
         alternate_description: alternative,
+        ref: `${checkpoint.checkpoint_id}.alt[${index}]`,
       });
-    }
+    });
   }
 
   // common_deviations 是题目级陷阱清单：当前 checkpoint 优先，其余全题节点
@@ -111,23 +120,24 @@ export function alignReasoning(
     ...plan.checkpoints.filter((entry) => entry.checkpoint_id !== checkpointId && (entry.common_deviations ?? []).length > 0),
   ];
   for (const entry of deviationCheckpoints) {
-    for (const deviation of entry.common_deviations ?? []) {
+    (entry.common_deviations ?? []).forEach((deviation, index) => {
       candidates.push({
         alignment: "incorrect",
         source: "deviation",
         text: deviation,
         score: longestCommonRun(text, normalizeForAlignment(deviation)),
         checkpoint_id: checkpointId,
+        ref: `${entry.checkpoint_id}.deviation[${index}]`,
       });
-    }
+    });
   }
 
   // 备选路线：plan 批准的 alternate route（entry_condition / completion_condition）
   // 是「数学上合法的另一条路」的载体（golden plan 无 accepted_alternatives 数据）。
   for (const route of plan.recommended_routes) {
     if (route.role !== "alternate" || (route.part_id ?? "1") !== partId) continue;
-    for (const routeText of [route.entry_condition, route.completion_condition]) {
-      if (!routeText) continue;
+    [route.entry_condition, route.completion_condition].forEach((routeText) => {
+      if (!routeText) return;
       const score = longestCommonRun(text, normalizeForAlignment(routeText));
       candidates.push({
         alignment: "alternate_valid",
@@ -136,8 +146,9 @@ export function alignReasoning(
         score,
         checkpoint_id: route.checkpoint_ids[0],
         alternate_description: routeText,
+        ref: `route.${route.route_id}.entry`,
       });
-    }
+    });
   }
 
   const viable = candidates
@@ -155,6 +166,6 @@ export function alignReasoning(
     alignment: best.alignment,
     ...(best.checkpoint_id ? { checkpoint_id: best.checkpoint_id } : {}),
     ...(best.alternate_description ? { alternate_description: best.alternate_description } : {}),
-    matched_basis: { source: best.source, text: best.text, score: best.score },
+    matched_basis: { source: best.source, text: best.text, score: best.score, ref: best.ref },
   };
 }

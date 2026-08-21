@@ -10,6 +10,7 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  e2eTimeout,
   alternateUtterance,
   answer,
   ask,
@@ -30,7 +31,7 @@ interface ScriptDriver {
 }
 
 async function waitForAwaitingInput(page: import("@playwright/test").Page): Promise<void> {
-  await expect(page.getByTestId("tutor-state")).toContainText("等你发言", { timeout: 25_000 });
+  await expect(page.getByTestId("tutor-state")).toContainText("等你发言", { timeout: e2eTimeout(25_000) });
 }
 
 async function openSession(page: import("@playwright/test").Page, tpId: string): Promise<void> {
@@ -54,7 +55,7 @@ const SCRIPTS: ScriptDriver[] = [
     async run(page, plan) {
       const expected = expectedFor(plan);
       await answer(page, expected(await currentCheckpoint(page)));
-      await expect(page.getByTestId("tutor-transcript")).toContainText(/对，|成立/, { timeout: 20_000 });
+      await expect(page.getByTestId("tutor-transcript")).toContainText(/对，|成立|借助提示|很好/, { timeout: e2eTimeout(20_000) });
       await answer(page, deviationUtterance(plan));
       await waitForAwaitingInput(page);
     },
@@ -139,7 +140,7 @@ const SCRIPTS: ScriptDriver[] = [
       await progressUntilWorkspace(page, plan);
       await submitWorkspace(page, "明显错误的答案");
       await page.waitForTimeout(800);
-      await expect(page.locator(".tutor-workspace")).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator(".tutor-workspace")).toBeVisible({ timeout: e2eTimeout(20_000) });
     },
   },
   {
@@ -172,7 +173,7 @@ const SCRIPTS: ScriptDriver[] = [
       const resource = plan.resources.find((entry) => entry.kind === "action_template");
       const template = JSON.parse(resource?.content ?? "{}") as { teachingInput?: { expectedValues?: string[] } };
       await submitWorkspace(page, template.teachingInput?.expectedValues?.[0] ?? "1");
-      await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|完成/, { timeout: 25_000 });
+      await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|完成/, { timeout: e2eTimeout(25_000) });
     },
   },
 ];

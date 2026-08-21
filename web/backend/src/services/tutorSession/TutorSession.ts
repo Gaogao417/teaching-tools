@@ -1427,7 +1427,36 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         ? { alignment: alignment.alignment, ...(alignment.checkpoint_id ? { alignment_checkpoint_id: alignment.checkpoint_id } : {}) }
         : {}),
     };
-    const fallbackOutcome = await decide({ plan: context.plan, state, trigger, session_kind: "tutoring" });
+    // 降级决策必须以「本次对齐已发生」的视角进行（prefixBatch 尚未 append，
+    // 但 deterministic 的挣扎基线 incorrectSequences[0] 正是本次对齐）——
+    // 否则首个错误会被误判为已过自查阶段而直接升 hint。
+    const pendingIncorrectSequence = alignment?.alignment === "incorrect" && alignment.checkpoint_id
+      ? args.inputSequence + 1
+      : undefined;
+    const stateForDecision: TutorRuntimeState =
+      pendingIncorrectSequence !== undefined && alignment?.checkpoint_id
+        ? {
+            ...state,
+            assistance: {
+              ...state.assistance,
+              [alignment.checkpoint_id]: {
+                ...(state.assistance[alignment.checkpoint_id] ?? {
+                  hintLevelsIssued: [],
+                  incorrectSequences: [],
+                  failedActionSequences: [],
+                  promptsIssued: 0,
+                  promptSequences: [],
+                  explainedSequences: [],
+                }),
+                incorrectSequences: [
+                  ...(state.assistance[alignment.checkpoint_id]?.incorrectSequences ?? []),
+                  pendingIncorrectSequence,
+                ],
+              },
+            },
+          }
+        : state;
+    const fallbackOutcome = await decide({ plan: context.plan, state: stateForDecision, trigger, session_kind: "tutoring" });
     const turn = await commitTutorDecision({
       sessionId,
       context,

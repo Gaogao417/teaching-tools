@@ -159,7 +159,7 @@ class FakeStructuredModel implements StructuredModelPort {
   }
 
   get policyCalls(): number {
-    return this.calls.filter((call) => call.promptVersion.startsWith("TUTOR_POLICY_VOICE")).length;
+    return this.calls.filter((call) => call.promptVersion.startsWith("TUTOR_POLICY")).length;
   }
 }
 
@@ -540,7 +540,7 @@ async function testModelCatalogSanitization(): Promise<void> {
     facts: FACTS,
     answerValuesByPart: ANSWER_VALUES,
   });
-  const policyCall = model.calls.find((call) => call.promptVersion.startsWith("TUTOR_POLICY_VOICE"));
+  const policyCall = model.calls.find((call) => call.promptVersion.startsWith("TUTOR_POLICY"));
   assert.ok(policyCall, "policy 节点必须被调用");
   const payload = policyCall.userPayload as { resource_catalog: Array<Record<string, unknown>> };
   const serialized = JSON.stringify(payload.resource_catalog);
