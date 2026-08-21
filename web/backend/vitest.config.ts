@@ -33,7 +33,7 @@ export default defineConfig({
         "src/services/tutorPresentation/WorkspaceAction.ts",
         "src/transport/http/tutorSessionRoutes.ts",
       ],
-      exclude: ["src/**/*.vitest.ts"],
+      exclude: ["src/**/__tests__/**", "src/**/*.vitest.ts", "src/**/*.test.ts"],
       thresholds: {
         statements: 90,
         branches: 85,

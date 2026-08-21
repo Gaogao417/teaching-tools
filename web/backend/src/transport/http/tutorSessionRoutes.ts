@@ -78,6 +78,14 @@ const completeSchema = z.object({
   reason: z.string().max(128).optional(),
 });
 
+const asrSchema = z.object({
+  audio: z.object({
+    dataUrl: z.string().regex(/^data:audio\/[a-z0-9.+-]+(?:;codecs=[^;,]+)?;base64,[a-z0-9+/=]+$/i),
+    durationMs: z.number().int().min(0).max(60_000).optional(),
+  }),
+  correlationId: z.string().max(128).optional(),
+});
+
 function coordinatorErrorStatus(code: string): number {
   if (code === "SESSION_NOT_FOUND") return 404;
   if (code === "REVISION_CONFLICT" || code === "NO_ACTIVE_ACTION") return 409;
@@ -272,6 +280,33 @@ export function createTutorSessionRoutes(options: TutorSessionRoutesOptions = {}
       } catch (unwrapped) {
         next(unwrapped);
       }
+    }
+  });
+
+  router.post("/:sessionId/asr", async (req, res, next) => {
+    try {
+      const sessionId = sessionIdParam.parse(req.params.sessionId);
+      const body = asrSchema.parse(req.body);
+      // 复用 coach 侧 Qwen ASR 链路（DASHSCOPE_API_KEY / qwen3-asr-flash）；
+      // 未配置 key → 503（前端降级文字输入，不伪装成功）。
+      const { transcribeStudentAudio, SpeechProviderError } = await import(
+        "../../services/coach/qwenSpeechService"
+      );
+      const transcript = await transcribeStudentAudio({
+        dataUrl: body.audio.dataUrl,
+        durationMs: body.audio.durationMs,
+      });
+      res.json({ session_id: sessionId, transcript: transcript.transcript, model: transcript.model });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        next(error);
+        return;
+      }
+      if (error instanceof SpeechProviderError) {
+        res.status(503).json({ error: { code: "ASR_UNAVAILABLE", message: error.message } });
+        return;
+      }
+      next(error);
     }
   });
 

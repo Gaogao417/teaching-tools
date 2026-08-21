@@ -15,5 +15,5 @@
     "baseUrl": "."
   },
   "include": ["src", "../shared/**/*.ts"],
-  "exclude": ["src/poc/geometry-actions/__tests__"]
+  "exclude": ["src/poc/geometry-actions/__tests__", "../shared/canonical/**"]
 }

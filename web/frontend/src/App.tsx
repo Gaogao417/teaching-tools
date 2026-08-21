@@ -9,6 +9,7 @@ import { SimilarityLearningMapPage } from "./pages/SimilarityLearningMapPage";
 import GeometryActionsPocPage from "./poc/geometry-actions/PocPage";
 import GeometryCanvasPocPage from "./geometry/react/PocPage";
 import { PocErrorBoundary } from "./geometry/react/PocErrorBoundary";
+import { TutorSessionPage } from "./features/tutor-session/TutorSessionPage";
 
 export default function App() {
   return (
@@ -21,6 +22,8 @@ export default function App() {
         <Route path="review/:taskId" element={<ReviewPage />} />
         <Route path="result/:sessionId" element={<ResultPage />} />
       </Route>
+      {/* Phase 5 remediation：智能 Tutor 闭环（独立全屏页，无工作台壳）。 */}
+      <Route path="/tutor/:tpId" element={<TutorSessionPage />} />
       {/* Self-contained POC for the XState-driven geometry canvas. */}
       <Route
         path="/poc/geometry"
