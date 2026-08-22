@@ -45,8 +45,9 @@ export interface StartTutorSessionInput {
   studentId: string;
   plan: { artifact_id: string; version: string; content_hash: string };
   /** Phase 5：v2 会话写 ADR-006 因果链事件；remediation 起新会话写 v3
-   *  （智能链 provenance）；v1 仅供遗留兼容路径。 */
-  eventSchema?: "v1" | "v2" | "v3";
+   *  （智能链 provenance）；UI 集成起 v3 plan 新会话写 v4（Topic/Question/
+   *  讲法 provenance + profile snapshot）；v1 仅供遗留兼容路径。 */
+  eventSchema?: "v1" | "v2" | "v3" | "v4";
 }
 
 /** 待追加事件（v1 合同，遗留）。idempotency_key 可选：重试批次应复用首次尝试的 key。 */
@@ -235,18 +236,21 @@ export function appendTutorSessionEvents(
 // v2/v3 路径（Phase 5 / ADR-006 因果链；v3 = 智能链 provenance 增量）
 // --------------------------------------------------------------------------- //
 
-const EVENT_SCHEMA_CONST: Record<"v2" | "v3", string> = {
+const EVENT_SCHEMA_CONST: Record<"v2" | "v3" | "v4", string> = {
   v2: "ai_teaching_tutor_session_event/v2",
   v3: "ai_teaching_tutor_session_event/v3",
+  // Phase 5 UI 集成：session_started 固定 Topic/Question/讲法 provenance +
+  // policy_profile_snapshot；其余 payload 与 v3 一致。
+  v4: "ai_teaching_tutor_session_event/v4",
 };
 
-function isModernEventSchema(value: string): value is "v2" | "v3" {
-  return value === "v2" || value === "v3";
+function isModernEventSchema(value: string): value is "v2" | "v3" | "v4" {
+  return value === "v2" || value === "v3" || value === "v4";
 }
 
 function canonicalizeModernEvent(
   sessionId: string,
-  eventSchema: "v2" | "v3",
+  eventSchema: "v2" | "v3" | "v4",
   event: PendingV2Event,
   sequence: number,
   stateRevision: number,
@@ -270,8 +274,9 @@ function canonicalizeModernEvent(
 }
 
 /**
- * 追加一批 v2/v3 事件（按会话行 event_schema 分派；v3 payload 可携带智能链
- * provenance 增量字段）。state_revision 由 store 统一盖章为提交后 revision；
+ * 追加一批 v2/v3/v4 事件（按会话行 event_schema 分派；v3 payload 可携带智能链
+ * provenance 增量字段，v4 session_started 携带 Topic/Question/讲法 provenance
+ * 与 policy_profile_snapshot）。state_revision 由 store 统一盖章为提交后 revision；
  * causation_sequence 必须指向已存在（或同批更早）事件的 sequence——本 store
  * 不做跨事件引用校验（由 coordinator 层保证），仅透传给 canonical 合同。
  */
@@ -291,7 +296,7 @@ export function appendTutorSessionEventsV2(
     if (!isModernEventSchema(session.event_schema)) {
       throw new TutorSessionEventStoreError(
         "VALIDATION_FAILED",
-        `session ${sessionId} uses ${session.event_schema} contract; v2/v3 append requires event_schema=v2|v3`,
+        `session ${sessionId} uses ${session.event_schema} contract; v2/v3/v4 append requires event_schema=v2|v3|v4`,
       );
     }
     const eventSchema = session.event_schema;
@@ -386,7 +391,7 @@ export function readTutorSessionEventsV2(sessionId: string): StoredV2Event[] {
   if (!isModernEventSchema(session.event_schema)) {
     throw new TutorSessionEventStoreError(
       "VALIDATION_FAILED",
-      `session ${sessionId} is ${session.event_schema}; canonical v2/v3 read requires a v2|v3 session`,
+      `session ${sessionId} is ${session.event_schema}; canonical v2/v3/v4 read requires a v2|v3|v4 session`,
     );
   }
   const schemaConst = EVENT_SCHEMA_CONST[session.event_schema];

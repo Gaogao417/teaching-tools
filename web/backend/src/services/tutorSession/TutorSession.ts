@@ -52,10 +52,12 @@ import {
   type TruthPayload,
   canonicalHash,
   loadApprovedApproach,
+  loadApprovedApproachSet,
   loadApprovedTruth,
   loadCurrentPlan,
   truthAnswerForPart,
 } from "../planBuild/canonicalInputs";
+import type { PolicyProfileSnapshot, PolicyProviderKind } from "./topicQuestionExperience";
 import { projectApprovedPlan, type RuntimeProjectionBody } from "../planBuild/MaterializeTutorPlan";
 import { buildRuntimeRegistrySnapshot, type RuntimeRegistrySnapshot } from "../planBuild/RuntimeRegistrySnapshot";
 import { createDecideTutorMove } from "../tutorPolicy/DecideTutorMove";
@@ -114,12 +116,28 @@ export interface TutorSessionDeps {
   intelligence?: TutorPolicyGraph;
 }
 
+/** v3 Plan 会话的 Topic 体验上下文（事件 v4 session_started 固定记录；
+ *  由 /experience 路由（Approved Binding）或内部 benchmark 提供）。 */
+export interface StartExperienceContext {
+  task_id: string;
+  scenario_id: string;
+  approach_set_ref: { artifact_id: string; version: string; content_hash: string };
+  policy_profile_snapshot: PolicyProfileSnapshot;
+  provider: PolicyProviderKind;
+  previous_session_id?: string;
+  switch_reason?: "alternate_approach";
+}
+
 export interface StartTutorSessionOptions {
   sessionId: string;
   studentId: string;
   tpId: string;
   initialMode?: SessionMode;
   sessionKind?: "tutoring" | "assessment";
+  /** v3 Plan 必填（v4 事件合同）；v2 Plan 不得携带（fail closed）。 */
+  experience?: StartExperienceContext;
+  /** 访问面：golden 白名单（隔离路由）或 Approved Binding（/experience）。 */
+  access?: "golden-whitelist" | "binding";
 }
 
 export interface StudentInput {
@@ -202,7 +220,11 @@ interface SessionContext {
   snapshot: RuntimeRegistrySnapshot;
   truth: TruthPayload;
   answerValuesByPart: Map<string, string[]>;
-  eventSchema: "v2" | "v3";
+  eventSchema: "v2" | "v3" | "v4";
+  /** v4 会话：session_started 固定的 profile snapshot（restore 按 it 路由，不读 env）。 */
+  profileSnapshot?: PolicyProfileSnapshot;
+  /** v4 会话：Plan 级 Provider（profile.primary_provider）。 */
+  provider?: PolicyProviderKind;
 }
 
 export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
@@ -222,7 +244,35 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     return [answer.value, ...(answer.acceptance ?? [])].filter((value) => typeof value === "string" && value.length > 0);
   }
 
-  function buildContext(plan: TutorPlanV2Payload, eventSchema: "v2" | "v3" = "v3"): SessionContext {
+  function buildContext(plan: TutorPlanV2Payload, eventSchema: "v2" | "v3" | "v4" = "v3"): SessionContext {
+    const approachSetRef = (plan as { approach_set_ref?: { artifact_id: string } }).approach_set_ref;
+    if (approachSetRef) {
+      // §1 传递依赖对账：plan.approach_refs 必须与 ApproachSet 小问选择完全一致。
+      const setResult = loadApprovedApproachSet({ canonicalRoot: deps.canonicalRoot }, approachSetRef.artifact_id);
+      if (!setResult.ok) {
+        throw new TutorSessionCoordinatorError(
+          "APPROACH_SET_MISMATCH",
+          `plan ${plan.artifact_id} 的 approach_set ${approachSetRef.artifact_id} 不可读：${setResult.errors.join("; ")}`,
+        );
+      }
+      const setPayload = setResult.payload;
+      const chosen = new Map(setPayload.parts.map((part) => [part.part_id ?? "1", part.approach]));
+      const planRefs = plan.approach_refs;
+      const consistent =
+        planRefs.length === setPayload.parts.length &&
+        planRefs.every(
+          (ref) =>
+            chosen.get(ref.part_id)?.artifact_id === ref.artifact_id &&
+            chosen.get(ref.part_id)?.version === ref.version &&
+            chosen.get(ref.part_id)?.content_hash === ref.content_hash,
+        );
+      if (!consistent) {
+        throw new TutorSessionCoordinatorError(
+          "APPROACH_SET_MISMATCH",
+          `plan ${plan.artifact_id} 的 approach_refs 与 approach set ${setPayload.artifact_id} 的小问选择不一致（fail closed）`,
+        );
+      }
+    }
     const truthResult = loadApprovedTruth({ canonicalRoot: deps.canonicalRoot }, plan.question_ref.artifact_id);
     if (!truthResult.ok) {
       throw new TutorSessionCoordinatorError(
@@ -260,7 +310,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       | { plan_artifact_id: string; plan_version: string; plan_content_hash: string; event_schema: string }
       | undefined;
     if (!row) throw new TutorSessionCoordinatorError("SESSION_NOT_FOUND", `unknown session: ${sessionId}`);
-    if (row.event_schema !== "v2" && row.event_schema !== "v3") {
+    if (row.event_schema !== "v2" && row.event_schema !== "v3" && row.event_schema !== "v4") {
       throw new TutorSessionCoordinatorError("LEGACY_SESSION", `session ${sessionId} 是 v1 合同，走遗留读取路径`);
     }
     // pinned restore：按会话行记录的版本装载（Superseded 也可恢复，hash 必须一致）
@@ -279,6 +329,24 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       throw new TutorSessionCoordinatorError("PLAN_HASH_DRIFT", `pinned plan ${row.plan_artifact_id}@${row.plan_version} hash 不一致`);
     }
     const context = buildContext(plan, row.event_schema);
+    if (row.event_schema === "v4") {
+      // v4 restore：profile snapshot 只来自 session_started 事件；
+      // 恢复会话不得随当前环境配置偷偷换模型（计划 §2）。
+      const started = readTutorSessionEventsV2(sessionId).find(
+        (event) => event.event_type === "session_started",
+      );
+      const snapshot = (started?.payload as { policy_profile_snapshot?: PolicyProfileSnapshot } | undefined)
+        ?.policy_profile_snapshot;
+      const provider = snapshot?.primary_provider;
+      if (!snapshot || (provider !== "deepseek-langgraph" && provider !== "deterministic-rules")) {
+        throw new TutorSessionCoordinatorError(
+          "POLICY_PROFILE_INVALID",
+          `session ${sessionId} 缺少合法 policy_profile_snapshot（v4 事件损坏）`,
+        );
+      }
+      context.profileSnapshot = snapshot;
+      context.provider = provider;
+    }
     contexts.set(sessionId, context);
     return context;
   }
@@ -307,7 +375,10 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         "Assessment 会话禁止启动生成式教学闭环（ADR-006 不变量 6）",
       );
     }
-    if (!statefulTutorPolicyEnabled(options.tpId)) {
+    // 访问面二分（Phase 5 UI 集成）：隔离路由仍走 golden TP-ID 白名单；
+    // /experience 走 Approved Binding（取代硬编码白名单，计划 §1）。
+    const access = options.access ?? "golden-whitelist";
+    if (access === "golden-whitelist" && !statefulTutorPolicyEnabled(options.tpId)) {
       throw new TutorSessionCoordinatorError(
         "FEATURE_FLAG_OFF",
         `stateful tutor policy 未对 ${options.tpId} 开放（feature flag gate）`,
@@ -318,31 +389,68 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       throw new TutorSessionCoordinatorError("PLAN_NOT_APPROVED", planResult.errors.join("; "));
     }
     const plan = planResult.payload;
-    // Phase 5 remediation：新会话一律 event_schema=v3（智能链 provenance）；
-    // v1/v2 旧会话只读可恢复（readTutorSessionEventsV2 按会话行分派）。
-    const context = buildContext(plan, "v3");
+    const planSchema = (plan as { schema?: string }).schema;
+    const isV3 = planSchema === "ai_teaching_tutor_plan_bundle/v3";
+    if (isV3 && !options.experience) {
+      throw new TutorSessionCoordinatorError(
+        "INVALID_INPUT",
+        `v3 plan ${options.tpId} 必须携带 experience 上下文（task/scenario/approach_set/profile）`,
+      );
+    }
+    if (!isV3 && options.experience) {
+      throw new TutorSessionCoordinatorError(
+        "INVALID_INPUT",
+        `plan ${options.tpId} 非 v3（${String(planSchema)}），不携带 experience 上下文`,
+      );
+    }
+    const eventSchema: "v3" | "v4" = isV3 ? "v4" : "v3";
+    // Phase 5 remediation：v2 plan 新会话写 v3 事件（智能链 provenance）；
+    // Phase 5 UI 集成：v3 plan 新会话写 v4（Topic/Question/讲法 provenance +
+    // profile snapshot）。v1/v2 旧会话只读可恢复（按会话行 event_schema 分派）。
+    const context = buildContext(plan, eventSchema);
+    if (isV3) {
+      context.profileSnapshot = options.experience!.policy_profile_snapshot;
+      context.provider = options.experience!.provider;
+    }
     startTutorSession({
       sessionId: options.sessionId,
       studentId: options.studentId,
       plan: { artifact_id: plan.artifact_id, version: plan.version, content_hash: plan.content_hash },
-      eventSchema: "v3",
+      eventSchema,
     });
     contexts.set(options.sessionId, context);
     const initialMode = options.initialMode ?? "teach";
+    const planRef = { artifact_id: plan.artifact_id, version: plan.version, content_hash: plan.content_hash };
+    const startedPayload = (isV3
+      ? {
+          plan: planRef,
+          initial_mode: initialMode,
+          task_id: options.experience!.task_id,
+          scenario_id: options.experience!.scenario_id,
+          question_ref: plan.question_ref,
+          approach_set_ref: options.experience!.approach_set_ref,
+          tutor_plan_ref: planRef,
+          policy_profile_snapshot: options.experience!.policy_profile_snapshot,
+          ...(options.experience!.previous_session_id
+            ? { previous_session_id: options.experience!.previous_session_id }
+            : {}),
+          ...(options.experience!.switch_reason ? { switch_reason: options.experience!.switch_reason } : {}),
+        }
+      : {
+          plan: planRef,
+          initial_mode: initialMode,
+        }) as PendingV2Event["payload"];
     appendBatch(options.sessionId, 0, [
       {
         event_type: "session_started",
-        payload: {
-          plan: { artifact_id: plan.artifact_id, version: plan.version, content_hash: plan.content_hash },
-          initial_mode: initialMode,
-        },
+        payload: startedPayload,
         occurred_at: now(),
       },
     ]);
     if (initialMode !== "teach") setTutorSessionMode(options.sessionId, initialMode);
     return {
       session_id: options.sessionId,
-      plan_ref: { artifact_id: plan.artifact_id, version: plan.version, content_hash: plan.content_hash },
+      plan_ref: planRef,
     };
   }
 
@@ -1626,7 +1734,17 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       });
     }
 
-    if (intelligent && context.eventSchema === "v3") {
+    // Provider 路由门（Phase 5 UI 集成 §2）：v3 会话保持 remediation 口径
+    // （配了图就走图）；v4 会话按 session_started 固定的 profile snapshot 路由——
+    // profile.primary=deterministic-rules 时走确定性端口；FORCE 只在紧急回滚时
+    // 全局降级 Provider，不改变 Plan/Question/教学状态语义。
+    const forcedDeterministic = process.env.TUTOR_POLICY_FORCE_PROVIDER?.trim() === "deterministic";
+    const usesIntelligentPath =
+      intelligent &&
+      !forcedDeterministic &&
+      (context.eventSchema === "v3" ||
+        (context.eventSchema === "v4" && context.provider === "deepseek-langgraph"));
+    if (usesIntelligentPath) {
       // 事实先行（一个 revision），对齐+决策+呈现合并为第二个原子事务。
       const batch: PendingV2Event[] = [];
       const inputSequence = (events.at(-1)?.sequence ?? 0) + 1;

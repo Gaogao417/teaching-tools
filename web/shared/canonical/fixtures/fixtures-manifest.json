@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-22T00:00:00Z",
-  "fixture_count": 48,
+  "fixture_count": 50,
   "fixtures": [
     {
       "file": "approach-set.v1.negative.missing-ref-hash.json",
@@ -306,6 +306,22 @@
       "expect_schema": "valid",
       "expect_publication": "valid",
       "sha256": "sha256:f803adc3c6bc2ec2a3a8371bfe5052bbd6e8faa17e00c4942bed650d4b4e756f"
+    },
+    {
+      "file": "tutor-policy-profile.negative.missing-profile-version.json",
+      "object_schema": "ai_teaching_tutor_policy_profile/v1",
+      "schema_ref": "../schemas/planning/v1/tutor-policy-profile.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:26e2368d138ecdba20165ea78a0d28530e453b09ec483970ae1ac4b75bb9c7c0"
+    },
+    {
+      "file": "tutor-policy-profile.positive.json",
+      "object_schema": "ai_teaching_tutor_policy_profile/v1",
+      "schema_ref": "../schemas/planning/v1/tutor-policy-profile.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:43b3828aa67347a3e12a49d8e57c126920ca94a2a090e4b914ec711167a78835"
     },
     {
       "file": "tutor-session-event.negative.payload-missing-level.json",

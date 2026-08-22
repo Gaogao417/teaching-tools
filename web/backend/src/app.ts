@@ -45,6 +45,7 @@ import { narrationApplication } from "./services/coach/composition";
 import { createTrainingRoutes } from "./transport/http/trainingRoutes";
 import { createCoachRoutes } from "./transport/http/coachRoutes";
 import { createTutorSessionRoutes } from "./transport/http/tutorSessionRoutes";
+import { createLearnExperienceRoutes } from "./transport/http/learnExperienceRoutes";
 
 const taskIdSchema = z.custom<TaskId>((value) => typeof value === "string" && hasTaskDefinition(value), {
   message: "Invalid taskId",
@@ -67,6 +68,9 @@ export function createApp() {
   if (process.env.TUTOR_CANONICAL_ROOT) {
     app.use("/api/tutor-sessions", createTutorSessionRoutes());
   }
+  // Phase 5 UI 集成：原产品学习入口体验路由（无 canonical root / 无 Approved
+  // Binding 时 kind=legacy，原 LearnPage 照常工作；端点恒挂载）。
+  app.use("/api/learn", createLearnExperienceRoutes());
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });

@@ -13,6 +13,7 @@ export const PUBLISHABLE_SCHEMAS: ReadonlySet<string> = new Set([
   "ai_teaching_teaching_approach/v3",
   "ai_teaching_approach_set/v1",
   "ai_teaching_topic_question_binding/v1",
+  "ai_teaching_tutor_policy_profile/v1",
   "ai_teaching_tutor_plan_bundle/v1",
   "ai_teaching_tutor_plan_bundle/v2",
   "ai_teaching_tutor_plan_bundle/v3",

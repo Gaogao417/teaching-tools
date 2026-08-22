@@ -1,0 +1,12 @@
+{
+  "schema": "ai_teaching_tutor_policy_profile/v1",
+  "artifact_id": "PP-SMV-002",
+  "version": "v1",
+  "status": "Approved",
+  "primary_provider": "deepseek-langgraph",
+  "fallback_provider": "deterministic-rules",
+  "model_id": "deepseek-v4-flash",
+  "prompt_version": "policy-voice-deepseek/v1",
+  "content_hash": "sha256:9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a",
+  "artifact_uri": "artifact://tutor-policy-profile/PP-SMV-002@v1"
+}

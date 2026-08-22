@@ -30,10 +30,12 @@ export default defineConfig({
         "src/services/tutorSession/decisionInvariants.ts",
         "src/services/tutorSession/ReasoningAligner.ts",
         "src/services/tutorSession/turnTelemetry.ts",
+        "src/services/tutorSession/topicQuestionExperience.ts",
         "src/services/tutorPresentation/PreparePresentation.ts",
         "src/services/tutorPresentation/VoiceAction.ts",
         "src/services/tutorPresentation/WorkspaceAction.ts",
         "src/transport/http/tutorSessionRoutes.ts",
+        "src/transport/http/learnExperienceRoutes.ts",
       ],
       exclude: [
         "src/**/__tests__/**",
@@ -65,6 +67,18 @@ export default defineConfig({
           lines: 90,
         },
         "src/transport/http/tutorSessionRoutes.ts": {
+          statements: 90,
+          branches: 85,
+          functions: 80,
+          lines: 90,
+        },
+        "src/services/tutorSession/topicQuestionExperience.ts": {
+          statements: 90,
+          branches: 85,
+          functions: 80,
+          lines: 90,
+        },
+        "src/transport/http/learnExperienceRoutes.ts": {
           statements: 90,
           branches: 85,
           functions: 80,

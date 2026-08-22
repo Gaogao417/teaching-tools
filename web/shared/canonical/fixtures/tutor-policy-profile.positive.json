@@ -1,0 +1,18 @@
+{
+  "schema": "ai_teaching_tutor_policy_profile/v1",
+  "artifact_id": "PP-SMV-001",
+  "version": "v1",
+  "status": "Approved",
+  "profile_version": "2026-08-22.1",
+  "primary_provider": "deepseek-langgraph",
+  "fallback_provider": "deterministic-rules",
+  "model_id": "deepseek-v4-flash",
+  "prompt_version": "policy-voice-deepseek/v1",
+  "approval": {
+    "reviewer_id": "teacher-001",
+    "approved_at": "2026-08-22T04:30:00Z",
+    "review_note": "golden 默认智能链 profile；回滚仅切 deterministic-rules。"
+  },
+  "content_hash": "sha256:9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a",
+  "artifact_uri": "artifact://tutor-policy-profile/PP-SMV-001@v1"
+}

@@ -4,7 +4,7 @@
  * publish）。SQLITE_PATH 已由 vitest.setup.ts 在模块图加载前落好。
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -182,4 +182,203 @@ export function publishSyntheticPlanVt(root: string, options: SyntheticPlanOptio
   if (!materialized.ok) throw new Error(materialized.errors.join(";"));
   writeVersioned(root, "tutor-plan", tpId, materialized.plan as unknown as Record<string, unknown>);
   return materialized.plan;
+}
+
+// --------------------------------------------------------------------------- //
+// Phase 5 UI 集成（波次 B）：v3 plan + ApproachSet + Binding + PolicyProfile
+// 合成发布（在 publishSyntheticPlanVt 的 v2 管线之上升级为 v3 并登记周边合同）。
+// --------------------------------------------------------------------------- //
+
+export interface SyntheticV3ExperienceOptions {
+  qtId: string;
+  tpId: string;
+  /** alternate 讲法的第二个 plan（同一题、独立 ApproachSet 由测试自行改造时用）。 */
+  alternateTpId?: string;
+  taskId: string;
+  scenarioId: string;
+  profileId?: string;
+}
+
+export interface SyntheticV3Experience {
+  binding: Record<string, unknown>;
+  approachSet: Record<string, unknown>;
+  profile: Record<string, unknown>;
+  planV3: Record<string, unknown>;
+  alternatePlanV3?: Record<string, unknown>;
+}
+
+function makeApproachSetPayload(qtId: string, asId: string, truth: Record<string, unknown>, parts: number): Record<string, unknown> {
+  const truthHash = (truth as { content_hash: string }).content_hash;
+  const payload: Record<string, unknown> = {
+    schema: "ai_teaching_approach_set/v1",
+    artifact_id: asId,
+    version: "v1",
+    status: "Approved",
+    question_ref: { artifact_id: qtId, version: "v1", content_hash: truthHash },
+    parts: Array.from({ length: parts === 0 ? 1 : parts }, (_, index) => ({
+      ...(parts === 0 ? {} : { part_id: String(index + 1) }),
+      approach: {
+        artifact_id: `TA-TST-${qtId.slice(-1)}0${index + 1}`,
+        version: "v1",
+        content_hash: SHA(`ta-${qtId}-${index + 1}`),
+      },
+      alternates: [],
+    })),
+    approval: { reviewer_id: "tst", approved_at: "2026-08-22T00:00:00Z" },
+    content_hash: "",
+    artifact_uri: `artifact://approach-set/${asId}@v1`,
+  };
+  payload.content_hash = canonicalHash(payload, "authoring");
+  return payload;
+}
+
+function makePolicyProfilePayload(ppId: string): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    schema: "ai_teaching_tutor_policy_profile/v1",
+    artifact_id: ppId,
+    version: "v1",
+    status: "Approved",
+    profile_version: "2026-08-22.1",
+    primary_provider: "deepseek-langgraph",
+    fallback_provider: "deterministic-rules",
+    model_id: "deepseek-v4-flash",
+    prompt_version: "policy-voice-deepseek/v1",
+    approval: { reviewer_id: "tst", approved_at: "2026-08-22T00:00:00Z" },
+    content_hash: "",
+    artifact_uri: `artifact://tutor-policy-profile/${ppId}@v1`,
+  };
+  payload.content_hash = canonicalHash(payload, "authoring");
+  return payload;
+}
+
+function upgradePlanToV3(
+  v2Plan: TutorPlanV2Payload,
+  asId: string,
+  asHash: string,
+  ppId: string,
+  profileVersion: string,
+  profileHash: string,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = {
+    ...(v2Plan as unknown as Record<string, unknown>),
+    schema: "ai_teaching_tutor_plan_bundle/v3",
+    approach_set_ref: { artifact_id: asId, version: "v1", content_hash: asHash },
+    policy_profile_ref: { profile_id: ppId, version: profileVersion, content_hash: profileHash },
+  };
+  next.content_hash = canonicalHash(next, "plan");
+  return next;
+}
+
+
+/** v3 新增字段会改变 materializer 投影：升级后重算 projection_hash 并回填。 */
+function refreshV3Projection(
+  root: string,
+  qtId: string,
+  planV3: Record<string, unknown>,
+  v2Plan: TutorPlanV2Payload,
+): void {
+  const truth = JSON.parse(
+    readFileSync(path.join(root, "question-truth", qtId, "v1.json"), "utf8"),
+  ) as TruthPayload;
+  const taId = `TA-TST-${qtId.slice(-1)}01`;
+  const approach = JSON.parse(
+    readFileSync(path.join(root, "teaching-approach", taId, "v1.json"), "utf8"),
+  ) as ApproachPayload;
+  const inputs = {
+    truth,
+    approaches: new Map([[taId, approach]] as const),
+    snapshot: buildRuntimeRegistrySnapshot(),
+  };
+  const { projection_hash } = projectApprovedPlan(planV3 as unknown as TutorPlanV2Payload, inputs);
+  planV3.runtime_projection = {
+    ...(v2Plan.runtime_projection as Record<string, unknown>),
+    projection_hash,
+  };
+  planV3.content_hash = canonicalHash(planV3, "plan");
+}
+
+export function publishSyntheticV3Experience(
+  root: string,
+  options: SyntheticV3ExperienceOptions,
+): SyntheticV3Experience {
+  const { qtId, tpId, taskId, scenarioId } = options;
+  const ppId = options.profileId ?? "PP-TST-001";
+  const v2 = publishSyntheticPlanVt(root, { qtId, tpId, parts: 0 });
+  const asId = `AS-TST-${qtId.slice(-1)}01`;
+  const approachSet = makeApproachSetPayload(qtId, asId, v2 as unknown as Record<string, unknown>, 0);
+  // AS 引用的 TA hash 必须与真实发布的 TA 一致（对账用 truth.content_hash
+  // 无关；approach hash 直接取注册表内 TA 的 content_hash）。
+  const taId = `TA-TST-${qtId.slice(-1)}01`;
+  const taPath = path.join(root, "teaching-approach", taId, "v1.json");
+  const taPayload = JSON.parse(readFileSync(taPath, "utf8")) as { content_hash: string };
+  (approachSet.parts as Array<{ approach: { content_hash: string } }>)[0].approach.content_hash = taPayload.content_hash;
+  approachSet.content_hash = canonicalHash(approachSet, "authoring");
+  writeVersioned(root, "approach-set", asId, approachSet);
+
+  const profile = makePolicyProfilePayload(ppId);
+  writeVersioned(root, "tutor-policy-profile", ppId, profile);
+
+  const planV3 = upgradePlanToV3(
+    v2,
+    asId,
+    approachSet.content_hash as string,
+    ppId,
+    profile.profile_version as string,
+    profile.content_hash as string,
+  );
+  // v3 作为该 plan registry 的 v2 版本发布（v1 保留为 v2-schema 历史版本）。
+  // 投影 body 含 plan.version，必须先改版本号再重算 projection_hash。
+  (planV3 as { version: string }).version = "v2";
+  refreshV3Projection(root, qtId, planV3, v2);
+  writeVersioned(root, "tutor-plan", tpId, planV3);
+
+  let alternatePlanV3: Record<string, unknown> | undefined;
+  const variants: Array<Record<string, unknown>> = [
+    {
+      approach_set_ref: { artifact_id: asId, version: "v1", content_hash: approachSet.content_hash },
+      tutor_plan_ref: { artifact_id: tpId, version: "v2", content_hash: planV3.content_hash },
+      role: "default",
+    },
+  ];
+  if (options.alternateTpId) {
+    const altV2 = publishSyntheticPlanVt(root, { qtId, tpId: options.alternateTpId, parts: 0 });
+    alternatePlanV3 = upgradePlanToV3(
+      altV2,
+      asId,
+      approachSet.content_hash as string,
+      ppId,
+      profile.profile_version as string,
+      profile.content_hash as string,
+    );
+    (alternatePlanV3 as { version: string }).version = "v2";
+    refreshV3Projection(root, qtId, alternatePlanV3, altV2);
+    writeVersioned(root, "tutor-plan", options.alternateTpId, alternatePlanV3);
+    variants.push({
+      approach_set_ref: { artifact_id: asId, version: "v1", content_hash: approachSet.content_hash },
+      tutor_plan_ref: { artifact_id: options.alternateTpId, version: "v2", content_hash: alternatePlanV3.content_hash },
+      role: "alternate",
+    });
+  }
+
+  const binding: Record<string, unknown> = {
+    schema: "ai_teaching_topic_question_binding/v1",
+    artifact_id: `TB-TST-${qtId.slice(-1)}01`,
+    version: "v1",
+    status: "Approved",
+    task_id: taskId,
+    scenario_id: scenarioId,
+    question_ref: {
+      artifact_id: qtId,
+      version: "v1",
+      content_hash: (v2 as unknown as { question_ref: { content_hash: string } }).question_ref.content_hash,
+    },
+    teaching_variants: variants,
+    approval: { reviewer_id: "tst", approved_at: "2026-08-22T00:00:00Z" },
+    content_hash: "",
+    artifact_uri: `artifact://topic-question-binding/TB-TST-${qtId.slice(-1)}01@v1`,
+  };
+  binding.content_hash = canonicalHash(binding, "authoring");
+  writeVersioned(root, "topic-question-binding", binding.artifact_id as string, binding);
+
+  return { binding, approachSet, profile, planV3, ...(alternatePlanV3 ? { alternatePlanV3 } : {}) };
 }

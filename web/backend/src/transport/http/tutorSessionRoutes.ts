@@ -106,6 +106,39 @@ function fail(res: import("express").Response, error: unknown): void {
   throw error;
 }
 
+/** 开场回合响应体（POST /tutor-sessions 与 /learn/:taskId/experience 共用的学生安全面）。 */
+export function tutorOpeningBody(
+  coordinator: TutorSessionCoordinator,
+  sessionId: string,
+  turn: Awaited<ReturnType<TutorSessionCoordinator["driveTutorTurn"]>>,
+): Record<string, unknown> {
+  const view = coordinator.getSessionView(sessionId);
+  return {
+    session_id: sessionId,
+    revision: view.revision,
+    client_turn_id: "system.open",
+    idempotent_replay: false,
+    mode: view.mode,
+    current_checkpoint: view.current_checkpoint,
+    decision: turn.decision
+      ? {
+          decision_id: turn.decision.decision_id,
+          move_type: turn.decision.move_type,
+          purpose_code: turn.decision.purpose_code,
+          policy_version: turn.decision.policy_version,
+          ...(turn.decision.fallback ? { fallback: true } : {}),
+        }
+      : null,
+    voice: turn.presentation.voice.map((voice) => ({
+      action_id: voice.action_id,
+      text: voice.text,
+      interruptible: voice.interruptible,
+    })),
+    workspace: turn.presentation.workspace,
+    event_cursor: view.event_cursor,
+  };
+}
+
 export interface TutorSessionRoutesOptions {
   /** canonical authoring 根目录（默认 env TUTOR_CANONICAL_ROOT）。 */
   canonicalRoot?: string;
@@ -150,33 +183,9 @@ export function createTutorSessionRoutes(options: TutorSessionRoutesOptions = {}
       // 开场回合（session_started 系统触发，不产生学生输入事实）：
       // 调用方立即拿到第一段教学呈现。
       const turn = await coordinator.driveTutorTurn(sessionId, { kind: "system", reason: "session_started" });
-      const view = coordinator.getSessionView(sessionId);
       res.status(201).json({
         session_id: sessionId,
-        opening: {
-          session_id: sessionId,
-          revision: view.revision,
-          client_turn_id: "system.open",
-          idempotent_replay: false,
-          mode: view.mode,
-          current_checkpoint: view.current_checkpoint,
-          decision: turn.decision
-            ? {
-                decision_id: turn.decision.decision_id,
-                move_type: turn.decision.move_type,
-                purpose_code: turn.decision.purpose_code,
-                policy_version: turn.decision.policy_version,
-                ...(turn.decision.fallback ? { fallback: true } : {}),
-              }
-            : null,
-          voice: turn.presentation.voice.map((voice) => ({
-            action_id: voice.action_id,
-            text: voice.text,
-            interruptible: voice.interruptible,
-          })),
-          workspace: turn.presentation.workspace,
-          event_cursor: view.event_cursor,
-        },
+        opening: tutorOpeningBody(coordinator, sessionId, turn),
       });
     } catch (error) {
       if (error instanceof z.ZodError) {

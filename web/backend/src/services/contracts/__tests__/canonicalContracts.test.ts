@@ -96,9 +96,10 @@ async function main(): Promise<void> {
     }
     // 与 Zod 分派表一一对应（新 schema 常量即新正反例义务，Phase 5 remediation 起 17：
     // +teaching_approach/v3、+tutor_plan_bundle/v2、+tutor_session_event/v2、
-    // +tutor_session_event/v3；Phase 5 UI 集成起 20：+tutor_plan_bundle/v3、
-    // +topic_question_binding/v1、+tutor_session_event/v4）。
-    assert.equal(bySchema.size, 20);
+    // +tutor_session_event/v3；Phase 5 UI 集成起 21：+tutor_plan_bundle/v3、
+    // +topic_question_binding/v1、+tutor_session_event/v4、
+    // +tutor_policy_profile/v1）。
+    assert.equal(bySchema.size, 21);
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -221,6 +222,7 @@ async function main(): Promise<void> {
       "teachingApproachV3Schema",
       "approachSetSchema",
       "topicQuestionTeachingBindingSchema",
+      "tutorPolicyProfileSchema",
       "tutorPlanBundleSchema",
       "tutorPlanBundleV2Schema",
       "tutorPlanBundleV3Schema",

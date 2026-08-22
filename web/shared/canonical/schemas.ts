@@ -743,6 +743,47 @@ export const topicQuestionTeachingBindingSchema = z
   });
 
 // --------------------------------------------------------------------------- //
+// planning/v1/tutor-policy-profile（Phase 5 UI 集成：Plan 级 Provider 路由）
+//
+// version-pinned 内容对象：plan v3 的 policy_profile_ref 指向本 artifact 的
+// current Approved 版本（profile_version 与 ref.version 必须一致，hash 匹配）。
+// API key/endpoint/凭据仍来自环境变量，不进本合同；本合同只决定业务路由。
+// --------------------------------------------------------------------------- //
+export const tutorPolicyProfileSchema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_policy_profile/v1"),
+    artifact_id: policyProfileId,
+    version: versionTag,
+    status: statusEnum,
+    profile_version: nonEmptyString,
+    primary_provider: z.enum(["deepseek-langgraph", "deterministic-rules"]),
+    fallback_provider: z.enum(["deepseek-langgraph", "deterministic-rules"]),
+    model_id: nonEmptyString,
+    prompt_version: nonEmptyString,
+    approval: approval.optional(),
+    superseded_by: supersededBy.optional(),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/tutor-policy-profile\/[A-Za-z0-9-]+@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "Approved" && !value.approval) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Approved requires approval" });
+    }
+    if (value.status === "Superseded" && !value.superseded_by) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Superseded requires superseded_by" });
+    }
+    if (value.primary_provider === value.fallback_provider) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "fallback_provider must differ from primary_provider",
+      });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
 // planning/v1/tutor-plan-bundle
 // --------------------------------------------------------------------------- //
 const actionKindEnum = z.enum([

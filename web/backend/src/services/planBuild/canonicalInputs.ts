@@ -195,6 +195,41 @@ export interface TutorPlanV2Payload {
   artifact_uri: string;
 }
 
+export interface TutorPlanV3Payload extends Omit<TutorPlanV2Payload, "schema"> {
+  schema: "ai_teaching_tutor_plan_bundle/v3";
+  approach_set_ref: { artifact_id: string; version: string; content_hash: string };
+  policy_profile_ref: { profile_id: string; version: string; content_hash: string };
+}
+
+export interface TopicQuestionTeachingBindingPayload {
+  schema: "ai_teaching_topic_question_binding/v1";
+  artifact_id: string;
+  version: string;
+  status: string;
+  task_id: string;
+  scenario_id: string;
+  question_ref: { artifact_id: string; version: string; content_hash: string };
+  teaching_variants: Array<{
+    approach_set_ref: { artifact_id: string; version: string; content_hash: string };
+    tutor_plan_ref: { artifact_id: string; version: string; content_hash: string };
+    role: "default" | "alternate";
+  }>;
+  content_hash: string;
+}
+
+export interface TutorPolicyProfilePayload {
+  schema: "ai_teaching_tutor_policy_profile/v1";
+  artifact_id: string;
+  version: string;
+  status: string;
+  profile_version: string;
+  primary_provider: "deepseek-langgraph" | "deterministic-rules";
+  fallback_provider: "deepseek-langgraph" | "deterministic-rules";
+  model_id: string;
+  prompt_version: string;
+  content_hash: string;
+}
+
 // --------------------------------------------------------------------------- //
 // 注册表读取
 // --------------------------------------------------------------------------- //
@@ -318,4 +353,56 @@ export function findApproachSetForQuestion(
     if (result.ok && result.payload.question_ref.artifact_id === qtId) return result.payload;
   }
   return null;
+}
+
+/**
+ * 装载 current Approved TutorPlan v3（Phase 5 UI 集成）。
+ * 在 loadCurrentPlan 的 hash/status 规则之上增加 schema 常量校验：
+ * v3 Plan 必须携带 approach_set_ref 与 policy_profile_ref（fail closed）。
+ */
+export function loadCurrentPlanV3(inputs: CanonicalRegistries, tpId: string): LoadResult<TutorPlanV3Payload> {
+  const result = loadCurrentApproved<TutorPlanV3Payload>(
+    registryDir(inputs.canonicalRoot, "tutor-plan"),
+    tpId,
+    "plan",
+  );
+  if (!result.ok) return result;
+  if (result.payload.schema !== "ai_teaching_tutor_plan_bundle/v3") {
+    return {
+      ok: false,
+      errors: [`${tpId}: 期望 tutor_plan_bundle/v3（集成 UI 只开放 v3），实际 ${result.payload.schema}`],
+    };
+  }
+  return result;
+}
+
+/** 装载 current Approved TutorPolicyProfile（Plan 级 Provider 路由）。 */
+export function loadApprovedPolicyProfile(
+  inputs: CanonicalRegistries,
+  ppId: string,
+): LoadResult<TutorPolicyProfilePayload> {
+  return loadCurrentApproved<TutorPolicyProfilePayload>(
+    path.join(inputs.canonicalRoot, "tutor-policy-profile"),
+    ppId,
+    "authoring",
+  );
+}
+
+/**
+ * 扫描 topic-question-binding 注册表，返回绑定该 taskId 且 current Approved
+ * 的全部 Binding（发现与过滤；stale/hash 对账在 topicQuestionExperience 层）。
+ */
+export function approvedBindingsForTask(
+  inputs: CanonicalRegistries,
+  taskId: string,
+): TopicQuestionTeachingBindingPayload[] {
+  const root = path.join(inputs.canonicalRoot, "topic-question-binding");
+  if (!existsSync(root)) return [];
+  const found: TopicQuestionTeachingBindingPayload[] = [];
+  for (const entry of readdirSync(root)) {
+    if (!/^TB-[A-Z0-9]+-\d+$/.test(entry)) continue;
+    const result = loadCurrentApproved<TopicQuestionTeachingBindingPayload>(root, entry, "authoring");
+    if (result.ok && result.payload.task_id === taskId) found.push(result.payload);
+  }
+  return found.sort((a, b) => a.artifact_id.localeCompare(b.artifact_id));
 }
