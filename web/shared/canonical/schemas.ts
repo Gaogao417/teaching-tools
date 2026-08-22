@@ -25,6 +25,8 @@ const hypothesisId = z.string().regex(/^SH-[0-9]{4,}$/);
 const interventionId = z.string().regex(/^IV-[0-9]{4,}$/);
 const runId = z.string().regex(/^BR-[0-9]{4,}$/);
 const caseId = z.string().regex(/^C-(INT|TRU|APP|PLN|RT)-[0-9]{2,}$/);
+const policyProfileId = z.string().regex(/^PP-[A-Z0-9]+-[0-9]{3,}$/);
+const topicQuestionBindingId = z.string().regex(/^TB-[A-Z0-9]+-[0-9]{3,}$/);
 
 const checkpointIdPattern = z.string().regex(/^CP[0-9]{1,3}$/);
 const statusEnum = z.enum([
@@ -673,6 +675,74 @@ export const approachSetSchema = z
   });
 
 // --------------------------------------------------------------------------- //
+// authoring/v1/topic-question-binding（Phase 5 UI 集成：Topic–Question 适配合同）
+//
+// Binding 是可审核、不可原地修改的内容对象：把原产品 Topic（taskId）+
+// Scenario 绑定到一道 Question 的一套默认讲法（ApproachSet + TutorPlan）与
+// 零到多个 alternate 讲法。只允许绑定 Approved、current、hash 匹配的
+// Question、ApproachSet 和 TutorPlan（装载时校验，fail closed）。
+// Approved Binding 取代 STATEFUL_TUTOR_POLICY_GOLDEN_PLANS 硬编码白名单。
+// --------------------------------------------------------------------------- //
+const approachSetRef = z
+  .object({
+    artifact_id: approachSetId,
+    version: versionTag,
+    content_hash: sha256,
+  })
+  .strict();
+
+const planArtifactRef = z
+  .object({
+    artifact_id: planId,
+    version: versionTag,
+    content_hash: sha256,
+  })
+  .strict();
+
+export const topicQuestionTeachingBindingSchema = z
+  .object({
+    schema: z.literal("ai_teaching_topic_question_binding/v1"),
+    artifact_id: topicQuestionBindingId,
+    version: versionTag,
+    status: statusEnum,
+    task_id: nonEmptyString,
+    scenario_id: nonEmptyString,
+    question_ref: questionRef,
+    teaching_variants: z
+      .array(
+        z
+          .object({
+            approach_set_ref: approachSetRef,
+            tutor_plan_ref: planArtifactRef,
+            role: z.enum(["default", "alternate"]),
+          })
+          .strict(),
+      )
+      .min(1),
+    approval: approval.optional(),
+    superseded_by: supersededBy.optional(),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/topic-question-binding\/[A-Za-z0-9-]+@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "Approved" && !value.approval) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Approved requires approval" });
+    }
+    if (value.status === "Superseded" && !value.superseded_by) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Superseded requires superseded_by" });
+    }
+    if (value.teaching_variants.filter((v) => v.role === "default").length !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "exactly one teaching_variants entry with role=default is required",
+      });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
 // planning/v1/tutor-plan-bundle
 // --------------------------------------------------------------------------- //
 const actionKindEnum = z.enum([
@@ -850,6 +920,158 @@ export const tutorPlanBundleV2Schema = z
           .strict(),
       )
       .min(1),
+    recommended_routes: z
+      .array(
+        z
+          .object({
+            route_id: routeIdPattern,
+            role: z.enum(["primary", "alternate"]),
+            part_id: partIdPattern.optional(),
+            entry_condition: z.string().optional(),
+            checkpoint_ids: z.array(checkpointIdPattern).min(1),
+            completion_condition: nonEmptyString,
+          })
+          .strict(),
+      )
+      .min(1),
+    checkpoints: z
+      .array(
+        z
+          .object({
+            checkpoint_id: checkpointIdPattern,
+            part_id: partIdPattern,
+            expected_reasoning: nonEmptyString,
+            accepted_alternatives: z.array(nonEmptyString).optional(),
+            common_deviations: z.array(nonEmptyString).optional(),
+            skippable: z.boolean().optional(),
+            skill_annotations: z.array(planSkillAnnotation).max(2).optional(),
+            unmapped_skill_reason: z.string().optional(),
+            resource_ids: z.array(resourceIdPattern).optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+    resources: z
+      .array(
+        z
+          .object({
+            resource_id: resourceIdPattern,
+            kind: z.enum([
+              "explanation",
+              "hint",
+              "diagnostic_probe",
+              "repair",
+              "action_template",
+              "workspace",
+              "voice_seed",
+            ]),
+            checkpoint_id: checkpointIdPattern.optional(),
+            assistance_level: z.number().int().min(0).max(5).optional(),
+            source: z.enum(["authored", "reused", "agent_generated"]),
+            content: nonEmptyString.optional(),
+            action_ref: nonEmptyString.optional(),
+            capability: nonEmptyString.optional(),
+            target_ids: z.array(nonEmptyString).optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+    policy_constraints: z
+      .object({
+        allowed_move_types: z
+          .array(
+            z.enum(["explain", "prompt", "hint", "confirm", "wait", "repair"]),
+          )
+          .min(1),
+        allowed_capabilities: z.array(nonEmptyString),
+        forbidden_content_kinds: z.array(
+          z.enum([
+            "canonical_answer",
+            "reviewed_solution",
+            "hidden_truth",
+            "unapproved_tool",
+          ]),
+        ),
+        maximum_assistance_level: z.number().int().min(0).max(5),
+        // ADR-006：资源包永不用于 Assessment（隔离投影不在此合同内）。
+        assessment_enabled: z.literal(false),
+      })
+      .strict(),
+    build_provenance: z
+      .object({
+        provider: nonEmptyString,
+        model_id: nonEmptyString,
+        workflow_version: nonEmptyString,
+        run_id: nonEmptyString,
+        built_at: isoDateTime,
+        runtime_registry_version: nonEmptyString,
+      })
+      .strict(),
+    runtime_projection: z
+      .object({
+        materializer_version: nonEmptyString,
+        runtime_registry_version: nonEmptyString,
+        projection_hash: sha256,
+        validation_status: z.literal("passed"),
+      })
+      .strict()
+      .optional(),
+    approval: planApproval.optional(),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/tutor-plan\/[A-Za-z0-9-]+@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "Approved" && (!value.approval || !value.runtime_projection)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "status=Approved requires approval and runtime_projection",
+      });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
+// planning/v3/tutor-plan-bundle（Phase 5 UI 集成：Plan 只投影一个 ApproachSet）
+//
+// - 增加单一 approach_set_ref：一个 TutorPlan 只投影一道 Question 的一套
+//   ApproachSet；同题不同讲法对应不同 Plan。
+// - approach_refs 仅保留为 ApproachSet 的不可变传递依赖，必须与其小问选择
+//   完全一致（装载时与 ApproachSet.parts 对账，fail closed）。
+// - Plan ID 分配键改为 (question_ref, approach_set_ref)，允许同题多 Plan
+//   （registry/build 层执行，schema 层不编码分配键）。
+// - 增加 version-pinned policy_profile_ref：每个 Plan 通过 profile 选择
+//   Tutor Provider；Session 启动时固定 profile snapshot。
+// - v2 Plan 保留用于历史 replay；集成 UI 只开放重新审核发布的 v3 Plan。
+// --------------------------------------------------------------------------- //
+export const tutorPlanBundleV3Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_plan_bundle/v3"),
+    artifact_id: planId,
+    version: versionTag,
+    status: statusEnum,
+    question_ref: questionRef,
+    approach_set_ref: approachSetRef,
+    approach_refs: z
+      .array(
+        z
+          .object({
+            artifact_id: approachId,
+            version: versionTag,
+            content_hash: sha256,
+            part_id: partIdPattern,
+          })
+          .strict(),
+      )
+      .min(1),
+    policy_profile_ref: z
+      .object({
+        profile_id: policyProfileId,
+        version: nonEmptyString,
+        content_hash: sha256,
+      })
+      .strict(),
     recommended_routes: z
       .array(
         z
@@ -1415,6 +1637,106 @@ export const tutorSessionEventV3Schema = z
   .superRefine((value, ctx) => {
     const payloadSchema =
       v3EventPayloadSchemas[value.event_type as keyof typeof v3EventPayloadSchemas];
+    if (payloadSchema) {
+      const result = payloadSchema.safeParse(value.payload);
+      if (!result.success) {
+        for (const issue of result.error.issues) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+    } else if (!V2_FREE_PAYLOAD_EVENTS.has(value.event_type)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `unknown event_type: ${value.event_type}`,
+      });
+    }
+    if (V2_CAUSATION_REQUIRED.has(value.event_type) && value.causation_sequence === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `event_type=${value.event_type} requires causation_sequence`,
+      });
+    }
+  });
+
+// --------------------------------------------------------------------------- //
+// runtime/v4/tutor-session-event（Phase 5 UI 集成：Topic/Question/讲法 provenance）
+//
+// 只增量：session_started 固定记录 task_id / scenario_id / question_ref /
+// approach_set_ref / tutor_plan_ref / policy_profile_snapshot，可选
+// previous_session_id 与 switch_reason（同题换讲法关联）。其余事件 payload
+// 与 v3 完全一致（v3 智能链 provenance 字段全部保留）。
+// plan 字段保留为 v1–v3 reader 兼容（与 tutor_plan_ref 同值）；v1–v3 历史
+// 事件不改写。
+// --------------------------------------------------------------------------- //
+const v4PolicyProfileSnapshot = z
+  .object({
+    profile_id: policyProfileId,
+    version: nonEmptyString,
+    primary_provider: nonEmptyString,
+    fallback_provider: nonEmptyString,
+    model_id: nonEmptyString,
+    prompt_version: nonEmptyString,
+  })
+  .strict();
+
+const v4SessionStartedPayload = z
+  .object({
+    plan: planArtifactRef,
+    initial_mode: sessionModeEnum,
+    task_id: nonEmptyString,
+    scenario_id: nonEmptyString,
+    question_ref: questionRef,
+    approach_set_ref: approachSetRef,
+    tutor_plan_ref: planArtifactRef,
+    policy_profile_snapshot: v4PolicyProfileSnapshot,
+    previous_session_id: sessionId.optional(),
+    switch_reason: z.enum(["alternate_approach"]).optional(),
+  })
+  .strict();
+
+const v4EventPayloadSchemas = {
+  ...v3EventPayloadSchemas,
+  session_started: v4SessionStartedPayload,
+} as const;
+
+export const tutorSessionEventV4Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_session_event/v4"),
+    session_id: sessionId,
+    sequence: z.number().int().min(1),
+    state_revision: z.number().int().min(0),
+    occurred_at: isoDateTime,
+    event_type: z.enum([
+      "session_started",
+      "mode_changed",
+      "student_input_recorded",
+      "reasoning_aligned",
+      "tutor_move_decided",
+      "voice_action_issued",
+      "voice_action_completed",
+      "workspace_action_issued",
+      "workspace_action_completed",
+      "hint_issued",
+      "student_progressed",
+      "student_self_corrected",
+      "working_diagnosis_updated",
+      "repair_delivered",
+      "policy_failed",
+      "runtime_failure",
+      "session_completed",
+    ]),
+    payload: z.record(z.unknown()),
+    causation_sequence: z.number().int().min(1).optional(),
+    idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const payloadSchema =
+      v4EventPayloadSchemas[value.event_type as keyof typeof v4EventPayloadSchemas];
     if (payloadSchema) {
       const result = payloadSchema.safeParse(value.payload);
       if (!result.success) {

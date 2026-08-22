@@ -1,0 +1,44 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v4",
+  "session_id": "TS-3001",
+  "sequence": 1,
+  "state_revision": 0,
+  "occurred_at": "2026-08-22T05:00:00Z",
+  "event_type": "session_started",
+  "payload": {
+    "plan": {
+      "artifact_id": "TP-SMV-201",
+      "version": "v1",
+      "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "initial_mode": "teach",
+    "task_id": "task-smv-jfx-01",
+    "scenario_id": "SC-SMV-001",
+    "question_ref": {
+      "artifact_id": "QT-SMV-001",
+      "version": "v2",
+      "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "approach_set_ref": {
+      "artifact_id": "AS-SMV-001",
+      "version": "v1",
+      "content_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "tutor_plan_ref": {
+      "artifact_id": "TP-SMV-201",
+      "version": "v1",
+      "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "policy_profile_snapshot": {
+      "profile_id": "PP-SMV-001",
+      "version": "2026-08-22.1",
+      "primary_provider": "deepseek-langgraph",
+      "fallback_provider": "deterministic-rules",
+      "model_id": "deepseek-v4-flash",
+      "prompt_version": "policy-voice-deepseek/v1"
+    },
+    "previous_session_id": "TS-2999",
+    "switch_reason": "alternate_approach"
+  },
+  "idempotency_key": "TS-3001:1"
+}

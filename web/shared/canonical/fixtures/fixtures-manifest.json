@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
-  "generated_at": "2026-08-21T00:00:00Z",
-  "fixture_count": 42,
+  "generated_at": "2026-08-22T00:00:00Z",
+  "fixture_count": 48,
   "fixtures": [
     {
       "file": "approach-set.v1.negative.missing-ref-hash.json",
@@ -236,6 +236,22 @@
       "sha256": "sha256:5d33efb2ad06f2b5ee438aa0f2c15b9c12c05c91b45ba9099c4d1e704913055d"
     },
     {
+      "file": "topic-question-binding.negative.duplicate-default.json",
+      "object_schema": "ai_teaching_topic_question_binding/v1",
+      "schema_ref": "../schemas/authoring/v1/topic-question-binding.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:3a8886988542a723c7dd6630499c2e3028ac8c6109da7a701a6448451a788699"
+    },
+    {
+      "file": "topic-question-binding.positive.json",
+      "object_schema": "ai_teaching_topic_question_binding/v1",
+      "schema_ref": "../schemas/authoring/v1/topic-question-binding.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:d7ef2cd07d65043426bcd77ed30b9c89c5c8ff28bcbfd9cb5bf016fba64efa9a"
+    },
+    {
       "file": "tutor-plan-bundle.assessment.positive.json",
       "object_schema": "ai_teaching_tutor_plan_bundle/v1",
       "schema_ref": "../schemas/planning/v1/tutor-plan-bundle.schema.json",
@@ -274,6 +290,22 @@
       "expect_schema": "valid",
       "expect_publication": "valid",
       "sha256": "sha256:2a187e3cd8e933669812d4613403e97c46b86beae96afb014759aa4427255bfd"
+    },
+    {
+      "file": "tutor-plan-bundle.v3.negative.missing-approach-set-ref.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v3",
+      "schema_ref": "../schemas/planning/v3/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:b201c7013a01d8e5d5120fddf5e6a0de389e0ac5a26c0f7c6cc2bdc9bd665f15"
+    },
+    {
+      "file": "tutor-plan-bundle.v3.positive.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v3",
+      "schema_ref": "../schemas/planning/v3/tutor-plan-bundle.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:f803adc3c6bc2ec2a3a8371bfe5052bbd6e8faa17e00c4942bed650d4b4e756f"
     },
     {
       "file": "tutor-session-event.negative.payload-missing-level.json",
@@ -316,6 +348,14 @@
       "sha256": "sha256:cda7f68558c9c08376353fb88140293e1754d40424a320552a7540fb5fbca011"
     },
     {
+      "file": "tutor-session-event.v3.negative.voice-chain-of-thought.json",
+      "object_schema": "ai_teaching_tutor_session_event/v3",
+      "schema_ref": "../schemas/runtime/v3/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:6d3491e03f05f71fdba95aa3e91a20cbcf7e0b1be41b8d5d2c914b841e34777e"
+    },
+    {
       "file": "tutor-session-event.v3.positive.reasoning-aligned.json",
       "object_schema": "ai_teaching_tutor_session_event/v3",
       "schema_ref": "../schemas/runtime/v3/tutor-session-event.schema.json",
@@ -332,12 +372,20 @@
       "sha256": "sha256:288269c34d36fba427258e6a4c841a773f240b0a90678d2b6baadbee92acc2fc"
     },
     {
-      "file": "tutor-session-event.v3.negative.voice-chain-of-thought.json",
-      "object_schema": "ai_teaching_tutor_session_event/v3",
-      "schema_ref": "../schemas/runtime/v3/tutor-session-event.schema.json",
+      "file": "tutor-session-event.v4.negative.session-started-missing-profile.json",
+      "object_schema": "ai_teaching_tutor_session_event/v4",
+      "schema_ref": "../schemas/runtime/v4/tutor-session-event.schema.json",
       "expect_schema": "invalid",
       "expect_publication": "n/a",
-      "sha256": "sha256:6d3491e03f05f71fdba95aa3e91a20cbcf7e0b1be41b8d5d2c914b841e34777e"
+      "sha256": "sha256:c67330b7937af87f3ef4a93878f3264873a5301ea7f33bddfad70ddfce015ba5"
+    },
+    {
+      "file": "tutor-session-event.v4.positive.session-started.json",
+      "object_schema": "ai_teaching_tutor_session_event/v4",
+      "schema_ref": "../schemas/runtime/v4/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:5fbff66cb4c51c328530b4e8ddb7aefe62db022d2d6e9da2a49f9a31fd5113b6"
     }
   ],
   "assessment_scan": {

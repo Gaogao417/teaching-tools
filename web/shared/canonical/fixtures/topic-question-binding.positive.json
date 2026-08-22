@@ -1,0 +1,48 @@
+{
+  "schema": "ai_teaching_topic_question_binding/v1",
+  "artifact_id": "TB-SMV-001",
+  "version": "v1",
+  "status": "Approved",
+  "task_id": "task-smv-jfx-01",
+  "scenario_id": "SC-SMV-001",
+  "question_ref": {
+    "artifact_id": "QT-SMV-001",
+    "version": "v2",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "teaching_variants": [
+    {
+      "approach_set_ref": {
+        "artifact_id": "AS-SMV-001",
+        "version": "v1",
+        "content_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "tutor_plan_ref": {
+        "artifact_id": "TP-SMV-201",
+        "version": "v1",
+        "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "role": "default"
+    },
+    {
+      "approach_set_ref": {
+        "artifact_id": "AS-SMV-002",
+        "version": "v1",
+        "content_hash": "sha256:abababababababababababababababababababababababababababababababab"
+      },
+      "tutor_plan_ref": {
+        "artifact_id": "TP-SMV-202",
+        "version": "v1",
+        "content_hash": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "role": "alternate"
+    }
+  ],
+  "approval": {
+    "reviewer_id": "teacher-001",
+    "approved_at": "2026-08-22T04:00:00Z",
+    "review_note": "默认讲法与换一种讲法均通过课堂预览，hash 与 current Approved 一致。"
+  },
+  "content_hash": "sha256:efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+  "artifact_uri": "artifact://topic-question-binding/TB-SMV-001@v1"
+}

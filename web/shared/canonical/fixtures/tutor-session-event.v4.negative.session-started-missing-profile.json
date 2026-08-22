@@ -1,0 +1,36 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v4",
+  "session_id": "TS-3002",
+  "sequence": 1,
+  "state_revision": 0,
+  "occurred_at": "2026-08-22T05:00:00Z",
+  "event_type": "session_started",
+  "payload": {
+    "plan": {
+      "artifact_id": "TP-SMV-201",
+      "version": "v1",
+      "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "initial_mode": "teach",
+    "task_id": "task-smv-jfx-01",
+    "scenario_id": "SC-SMV-001",
+    "question_ref": {
+      "artifact_id": "QT-SMV-001",
+      "version": "v2",
+      "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "approach_set_ref": {
+      "artifact_id": "AS-SMV-001",
+      "version": "v1",
+      "content_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "tutor_plan_ref": {
+      "artifact_id": "TP-SMV-201",
+      "version": "v1",
+      "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "previous_session_id": "TS-2999",
+    "switch_reason": "alternate_approach"
+  },
+  "idempotency_key": "TS-3002:1"
+}
