@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import express from "express";
 
-import { publishSyntheticPlanVt, tempRoot } from "./vitestSupport";
+import { publishSyntheticPlanVt, startViaCoordinator, tempRoot } from "./vitestSupport";
 import {
   createTutorSessionCoordinator,
   createDefaultTutorSessionCoordinator,
@@ -235,9 +235,9 @@ describe("DeepSeekStructuredModel 错误分支", () => {
 describe("HTTP routes 错误分支", () => {
   let baseUrl = "";
   let server: import("node:http").Server | undefined;
+  const coordinator = createTutorSessionCoordinator({ canonicalRoot: root });
 
   beforeEach(async () => {
-    const coordinator = createTutorSessionCoordinator({ canonicalRoot: root });
     const app = express();
     app.use(express.json({ limit: "1mb" }));
     app.use("/api/tutor-sessions", createTutorSessionRoutes({ coordinator }));
@@ -267,9 +267,9 @@ describe("HTTP routes 错误分支", () => {
     return { status: response.status, body: await response.json().catch(() => null) };
   };
 
-  it("非法 sessionId 参数 → 400；非法 turn 输入 → 400；非法 start → 400", async () => {
+  it("非法 sessionId 参数 → 400；非法 turn 输入 → 400；start 直启路由已下线 → 404", async () => {
     expect((await call("GET", "/api/tutor-sessions/not-a-session")).status).toBe(400);
-    expect((await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-006" })).status).toBe(400);
+    expect((await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-006" })).status).toBe(404);
     expect(
       (
         await call("POST", "/api/tutor-sessions/TS-8301/turns", {
@@ -282,12 +282,12 @@ describe("HTTP routes 错误分支", () => {
   });
 
   it("revision 冲突（并发推进后旧 revision 提交新 turnId）自动重算成功", async () => {
-    const start = await call("POST", "/api/tutor-sessions", {
+    const start = await startViaCoordinator(coordinator, {
       tpId: "TP-SMV-006",
       studentId: "s",
       sessionId: "TS-8302",
     });
-    expect(start.status).toBe(201);
+    expect(start.session_id).toBe("TS-8302");
     // 用开场时 revision 之外的陈旧值提交——第一次冲突自动重算后成功。
     const stale = await call("POST", "/api/tutor-sessions/TS-8302/turns", {
       clientTurnId: "turn-stale-1",

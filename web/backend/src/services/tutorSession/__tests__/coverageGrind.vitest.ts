@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import express from "express";
 
-import { publishSyntheticPlanVt, tempRoot } from "./vitestSupport";
+import { publishSyntheticPlanVt, startViaCoordinator, tempRoot } from "./vitestSupport";
 import {
   createTutorSessionCoordinator,
 } from "../TutorSession";
@@ -226,16 +226,12 @@ describe("HTTP 响应形状矩阵", () => {
     workflowVersion: "tutor-policy-deepseek-langgraph/v1",
     proposeTurn: async () => ({ ok: false as const, failure: { kind: "timeout" as const, detail: "grind" } }),
   };
+  const coordinator = createTutorSessionCoordinator({ canonicalRoot: root, intelligence: failingGraph as never });
 
   beforeEach(async () => {
     const app = express();
     app.use(express.json({ limit: "1mb" }));
-    app.use(
-      "/api/tutor-sessions",
-      createTutorSessionRoutes({
-        coordinator: createTutorSessionCoordinator({ canonicalRoot: root, intelligence: failingGraph as never }),
-      }),
-    );
+    app.use("/api/tutor-sessions", createTutorSessionRoutes({ coordinator }));
     app.use(((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
       res.status(400).json({ error: { code: "BAD_REQUEST", message: error?.message ?? "Invalid request" } });
     }) as express.ErrorRequestHandler);
@@ -262,9 +258,8 @@ describe("HTTP 响应形状矩阵", () => {
   };
 
   it("降级回合：fallback 字段呈现 + policy_failed 可见；correlation header 传递", async () => {
-    const start = await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-004", studentId: "s", sessionId: "TS-8701" });
-    expect(start.status).toBe(201);
-    for (const voice of start.body.opening.voice) {
+    const start = await startViaCoordinator(coordinator, { tpId: "TP-SMV-004", studentId: "s", sessionId: "TS-8701" });
+    for (const voice of start.opening.voice) {
       await call("POST", "/api/tutor-sessions/TS-8701/voice-completions", { action_id: voice.action_id, outcome: "completed" }, { "x-correlation-id": "corr-hdr-1" });
     }
     const view = await call("GET", "/api/tutor-sessions/TS-8701");
@@ -287,8 +282,8 @@ describe("HTTP 响应形状矩阵", () => {
   });
 
   it("提问回合：explain + 提问后 view 完整；complete 无 reason 体", async () => {
-    const start = await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-004", studentId: "s", sessionId: "TS-8702" });
-    for (const voice of start.body.opening.voice) {
+    const start = await startViaCoordinator(coordinator, { tpId: "TP-SMV-004", studentId: "s", sessionId: "TS-8702" });
+    for (const voice of start.opening.voice) {
       await call("POST", "/api/tutor-sessions/TS-8702/voice-completions", { action_id: voice.action_id, outcome: "completed" });
     }
     const view = await call("GET", "/api/tutor-sessions/TS-8702");
@@ -303,9 +298,9 @@ describe("HTTP 响应形状矩阵", () => {
     expect(done.status).toBe(200);
   });
 
-  it("zod 错误面：complete 非法 reason / start 非法 sessionId / asr 缺 duration", async () => {
+  it("zod 错误面：complete 非法 reason / start 路由已下线 / asr 缺 duration", async () => {
     expect((await call("POST", "/api/tutor-sessions/TS-8703/complete", { reason: 123 })).status).toBe(400);
-    expect((await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-004", studentId: "s", sessionId: "bad id" })).status).toBe(400);
+    expect((await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-004", studentId: "s", sessionId: "bad id" })).status).toBe(404);
     expect((await call("POST", "/api/tutor-sessions/TS-8703/asr", { audio: { dataUrl: "data:audio/webm;codecs=opus;base64,AAAA", durationMs: "x" } })).status).toBe(400);
   });
 });

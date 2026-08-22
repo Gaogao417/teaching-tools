@@ -170,26 +170,24 @@ describe("routes PLAN_NOT_APPROVED / FEATURE_FLAG", () => {
     await new Promise<void>((resolve) => server?.close(() => resolve()));
   });
 
-  it("白名单内 plan 未发布 → 403 PLAN_NOT_APPROVED", async () => {
+  it("白名单内 plan 未发布 → coordinator 层 PLAN_NOT_APPROVED（公开直启已下线 404）", async () => {
     const response = await fetch(`${baseUrl}/api/tutor-sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tpId: "TP-SMV-002", studentId: "s" }),
     });
-    expect(response.status).toBe(403);
-    const body = (await response.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("PLAN_NOT_APPROVED");
+    expect(response.status).toBe(404);
+    const local = createTutorSessionCoordinator({ canonicalRoot: root });
+    expect(() => local.start({ tpId: "TP-SMV-002", studentId: "s", sessionId: "TS-8979" })).toThrowError(
+      /registry\/current_version/,
+    );
   });
 
-  it("feature flag off → 403 FEATURE_FLAG_OFF；空 correlation header 走 fallback", async () => {
+  it("feature flag off → coordinator 层 FEATURE_FLAG_OFF", async () => {
     process.env.STATEFUL_TUTOR_POLICY_V1 = "off";
-    const response = await fetch(`${baseUrl}/api/tutor-sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-correlation-id": "  " },
-      body: JSON.stringify({ tpId: "TP-SMV-001", studentId: "s", sessionId: "TS-8980" }),
-    });
-    expect(response.status).toBe(403);
-    const body = (await response.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("FEATURE_FLAG_OFF");
+    const local = createTutorSessionCoordinator({ canonicalRoot: root });
+    expect(() => local.start({ tpId: "TP-SMV-001", studentId: "s", sessionId: "TS-8980" })).toThrowError(
+      /stateful tutor policy/,
+    );
   });
 });

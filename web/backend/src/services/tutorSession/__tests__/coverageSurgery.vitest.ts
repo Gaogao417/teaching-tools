@@ -359,14 +359,8 @@ describe("routes 普通 Error 注入（next(unwrapped) 路径）", () => {
     await new Promise<void>((resolve) => server?.close(() => resolve()));
   });
 
-  it("GET/turns/voice-completions/complete/start 遇普通错误 → 500 透传 next", async () => {
+  it("GET/turns/voice-completions/complete 遇普通错误 → 500 透传 next", async () => {
     const sessionId = "TS-8610";
-    const startErr = await fetch(`${baseUrl}/api/tutor-sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tpId: "TP-SMV-001", studentId: "s", sessionId: "TS-8611" }),
-    });
-    expect(startErr.status).toBe(500);
     const get = await fetch(`${baseUrl}/api/tutor-sessions/${sessionId}`);
     expect(get.status).toBe(500);
     const turn = await fetch(`${baseUrl}/api/tutor-sessions/${sessionId}/turns`, {

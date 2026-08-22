@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import express from "express";
 
-import { publishSyntheticPlanVt, tempRoot } from "./vitestSupport";
+import { publishSyntheticPlanVt, startViaCoordinator, tempRoot } from "./vitestSupport";
 import { createTutorSessionCoordinator } from "../TutorSession";
 import { createTutorSessionRoutes } from "../../../transport/http/tutorSessionRoutes";
 
@@ -47,8 +47,11 @@ const call = async (method: string, url: string, body?: unknown) => {
 };
 
 describe("五端点错误面", () => {
-  it("start：非白名单 403；plan 不存在（白名单内无 canonical）500 映射", async () => {
-    expect((await call("POST", "/api/tutor-sessions", { tpId: "TP-XXX-001", studentId: "s" })).status).toBe(403);
+  it("start：公开直启已下线（404）；非白名单 plan 由 coordinator 层 fail closed", async () => {
+    expect((await call("POST", "/api/tutor-sessions", { tpId: "TP-XXX-001", studentId: "s" })).status).toBe(404);
+    expect(() =>
+      coordinator.start({ tpId: "TP-XXX-001", studentId: "s", sessionId: "TS-8400" }),
+    ).toThrowError(/FEATURE_FLAG_OFF|stateful tutor policy/);
   });
 
   it("turns：缺 body 字段 400；未知会话 404；无 active action 409", async () => {
@@ -62,11 +65,10 @@ describe("五端点错误面", () => {
         })
       ).status,
     ).toBe(404);
-    const start = await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-005", studentId: "s", sessionId: "TS-8401" });
-    expect(start.status).toBe(201);
+    const start = await startViaCoordinator(coordinator, { tpId: "TP-SMV-005", studentId: "s", sessionId: "TS-8401" });
     const noAction = await call("POST", "/api/tutor-sessions/TS-8401/turns", {
       clientTurnId: "turn-no-action",
-      expectedRevision: start.body.opening.revision,
+      expectedRevision: start.opening.revision,
       input: {
         input_kind: "structured_action_evidence",
         action_evidence: { actionId: "a", sourceStepId: "s", kind: "enter-text", version: 1, value: "1" },

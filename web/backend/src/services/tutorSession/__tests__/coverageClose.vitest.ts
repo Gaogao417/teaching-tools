@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import express from "express";
 
-import { publishSyntheticPlanVt, tempRoot } from "./vitestSupport";
+import { publishSyntheticPlanVt, startViaCoordinator, tempRoot } from "./vitestSupport";
 import { createTutorSessionCoordinator } from "../TutorSession";
 import { preparePresentation } from "../../tutorPresentation/PreparePresentation";
 import { createTutorPolicyGraph } from "../../tutorIntelligence/policyGraph";
@@ -143,19 +143,15 @@ describe("presenter prompt.action_step workspace 派生", () => {
 describe("intelligent routes 响应（voice_source/confidence/route_id 呈现）", () => {
   let baseUrl = "";
   let server: import("node:http").Server | undefined;
+  const coordinator = createTutorSessionCoordinator({
+    canonicalRoot: root,
+    intelligence: createTutorPolicyGraph({ model: new FakeStructuredModel() }),
+  });
 
   beforeEach(async () => {
     const app = express();
     app.use(express.json({ limit: "1mb" }));
-    app.use(
-      "/api/tutor-sessions",
-      createTutorSessionRoutes({
-        coordinator: createTutorSessionCoordinator({
-          canonicalRoot: root,
-          intelligence: createTutorPolicyGraph({ model: new FakeStructuredModel() }),
-        }),
-      }),
-    );
+    app.use("/api/tutor-sessions", createTutorSessionRoutes({ coordinator }));
     app.use(((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
       res.status(400).json({ error: { code: "BAD_REQUEST", message: error?.message ?? "Invalid request" } });
     }) as express.ErrorRequestHandler);
@@ -182,8 +178,8 @@ describe("intelligent routes 响应（voice_source/confidence/route_id 呈现）
   };
 
   it("expected 回合：model-generated voice_source 进响应；alternate 带 route/confidence", async () => {
-    const start = await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-006", studentId: "s", sessionId: "TS-8960" });
-    for (const voice of start.body.opening.voice) {
+    const start = await startViaCoordinator(coordinator, { tpId: "TP-SMV-006", studentId: "s", sessionId: "TS-8960" });
+    for (const voice of start.opening.voice) {
       await call("POST", "/api/tutor-sessions/TS-8960/voice-completions", { action_id: voice.action_id, outcome: "completed" });
     }
     const view = await call("GET", "/api/tutor-sessions/TS-8960");

@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import express from "express";
 
-import { publishSyntheticPlanVt, tempRoot } from "./vitestSupport";
+import { publishSyntheticPlanVt, startViaCoordinator, tempRoot } from "./vitestSupport";
 import { createTutorSessionCoordinator } from "../TutorSession";
 import { gateAlignmentProposal, createTutorPolicyGraph } from "../../tutorIntelligence/policyGraph";
 import { buildAlignmentContext } from "../../tutorIntelligence/contextView";
@@ -172,10 +172,10 @@ describe("routes 剩余响应分支", () => {
   };
 
   it("structured_action_evidence 缺 action_evidence → 400 INVALID_INPUT", async () => {
-    const start = await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-002", studentId: "s", sessionId: "TS-8901" });
+    const start = await startViaCoordinator(coordinator, { tpId: "TP-SMV-002", studentId: "s", sessionId: "TS-8901" });
     const bad = await call("POST", "/api/tutor-sessions/TS-8901/turns", {
       clientTurnId: "turn-bad-ev",
-      expectedRevision: start.body.opening.revision,
+      expectedRevision: start.opening.revision,
       input: { input_kind: "structured_action_evidence" },
     });
     expect(bad.status).toBe(400);
@@ -183,8 +183,8 @@ describe("routes 剩余响应分支", () => {
   });
 
   it("object_id/duration_ms 输入经 turns 接受；提示回合 decision 有值", async () => {
-    const start = await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-002", studentId: "s", sessionId: "TS-8902" });
-    for (const voice of start.body.opening.voice) {
+    const start = await startViaCoordinator(coordinator, { tpId: "TP-SMV-002", studentId: "s", sessionId: "TS-8902" });
+    for (const voice of start.opening.voice) {
       await call("POST", "/api/tutor-sessions/TS-8902/voice-completions", { action_id: voice.action_id, outcome: "completed" });
     }
     const view = await call("GET", "/api/tutor-sessions/TS-8902");
@@ -199,9 +199,9 @@ describe("routes 剩余响应分支", () => {
   });
 
   it("voice-completions 的 follow-up 无决策时 decision=null 且仍返回视图", async () => {
-    const start = await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-002", studentId: "s", sessionId: "TS-8903" });
+    const start = await startViaCoordinator(coordinator, { tpId: "TP-SMV-002", studentId: "s", sessionId: "TS-8903" });
     // 完成第二段 voice（hand_over 之前只完成第一段）。
-    const second = start.body.opening.voice[1] ?? start.body.opening.voice[0];
+    const second = start.opening.voice[1] ?? start.opening.voice[0];
     const after = await call("POST", "/api/tutor-sessions/TS-8903/voice-completions", {
       action_id: second.action_id,
       outcome: "completed",

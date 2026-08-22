@@ -185,6 +185,22 @@ export function publishSyntheticPlanVt(root: string, options: SyntheticPlanOptio
 }
 
 // --------------------------------------------------------------------------- //
+// Phase 5 UI 集成（波次 C）：公开 tpId 直启 HTTP 路由下线后，测试用协调器
+// 内部启动路径（benchmark/runner 等价面）准备会话，返回与原 POST / 响应同形
+// 的 { session_id, opening } 学生安全面。
+// --------------------------------------------------------------------------- //
+
+export async function startViaCoordinator(
+  coordinator: import("../TutorSession").TutorSessionCoordinator,
+  options: { sessionId: string; tpId: string; studentId: string; initialMode?: "teach" | "guided_solve" | "repair" },
+): Promise<{ session_id: string; opening: any }> {
+  const { tutorOpeningBody } = await import("../../../transport/http/tutorSessionRoutes");
+  coordinator.start(options);
+  const turn = await coordinator.driveTutorTurn(options.sessionId, { kind: "system", reason: "session_started" });
+  return { session_id: options.sessionId, opening: tutorOpeningBody(coordinator, options.sessionId, turn) };
+}
+
+// --------------------------------------------------------------------------- //
 // Phase 5 UI 集成（波次 B）：v3 plan + ApproachSet + Binding + PolicyProfile
 // 合成发布（在 publishSyntheticPlanVt 的 v2 管线之上升级为 v3 并登记周边合同）。
 // --------------------------------------------------------------------------- //
