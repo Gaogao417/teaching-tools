@@ -9,7 +9,9 @@
  * canonical 事件 workspace_action_issued payload 是 strict 五字段；
  * resource_id 上下文放 command_payload（free record）。
  */
+import type { ExercisePlan } from "../../../../shared/actionRuntime";
 import type { VoiceOutcome } from "../tutorSession/TutorSessionEvent";
+import type { TutorWorkspacePlanContext } from "./adapters/legacyActionRuntime/workspacePlanProjector";
 
 export interface WorkspaceActionPlan {
   action_id: string;
@@ -51,6 +53,19 @@ export interface ValidatedWorkspaceAction {
   target_ids: string[];
   resource_id: string;
   action_ref: string;
-  /** 学生面投影（assessment 形态：无 localTruth / teachingInput / expectedValues）。 */
+  /** 学生面投影（assessment 形态：无 localTruth/teachingInput/expectedValues）。 */
   student_view: unknown;
+  /**
+   * 服务端投影的完整学生安全 ExercisePlan（Phase 5 UI 集成 §3：Presenter
+   * 下发完整 ActionPlanResponse 计划体，页面不解析 student_view/action_template；
+   * 单 action、server-authoritative、无 truth）。调用方未提供题目上下文时缺省。
+   */
+  action_plan?: ExercisePlan;
+}
+
+/** workspace 解析的会话级上下文（action_plan 投影需要；缺省则不下发计划体）。 */
+export interface WorkspacePresentationOptions {
+  registrySnapshot?: import("../planBuild/RuntimeRegistrySnapshot").RuntimeRegistrySnapshot;
+  sessionKind?: "tutoring" | "assessment";
+  question?: TutorWorkspacePlanContext;
 }

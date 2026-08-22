@@ -25,8 +25,10 @@ import { validateVoiceText } from "../tutorIntelligence/proposalValidation";
 import type { RuntimeRegistrySnapshot } from "../planBuild/RuntimeRegistrySnapshot";
 import type { RuntimeProjectionBody } from "../planBuild/MaterializeTutorPlan";
 import { validateWorkspaceAction } from "./adapters/legacyActionRuntime/workspaceActionAdapter";
+import { buildTutorWorkspacePlan, type TutorWorkspacePlanContext } from "./adapters/legacyActionRuntime/workspacePlanProjector";
 import { VOICE_SCAFFOLDS, type VoiceActionPlan } from "./VoiceAction";
 import type { ValidatedWorkspaceAction, WorkspaceActionPlan } from "./WorkspaceAction";
+import type { ActionContract } from "../../../../shared/actionRuntime";
 
 export interface PresentationPlan {
   voice: VoiceActionPlan[];
@@ -279,7 +281,7 @@ export function resolveWorkspacePresentation(
   plans: readonly WorkspaceActionPlan[],
   plan: TutorPlanV2Payload,
   projection: RuntimeProjectionBody,
-  options?: { registrySnapshot?: RuntimeRegistrySnapshot; sessionKind?: "tutoring" | "assessment" },
+  options?: { registrySnapshot?: RuntimeRegistrySnapshot; sessionKind?: "tutoring" | "assessment"; question?: TutorWorkspacePlanContext },
 ): WorkspaceResolution {
   const presentation: ValidatedWorkspaceAction[] = [];
   const failures: WorkspaceResolutionFailure[] = [];
@@ -297,6 +299,16 @@ export function resolveWorkspacePresentation(
       resource_id: validation.resource_id ?? "",
       action_ref: validation.action_ref ?? "",
       student_view: validation.student_view,
+      ...(options?.question && validation.template
+        ? {
+            action_plan: buildTutorWorkspacePlan(
+              plan,
+              validation.template,
+              validation.student_view as ActionContract,
+              options.question,
+            ),
+          }
+        : {}),
     });
   }
   return { presentation, failures };

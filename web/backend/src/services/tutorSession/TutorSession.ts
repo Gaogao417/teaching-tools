@@ -20,7 +20,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 
-import type { ActionEvidence, AuthoredActionTemplate } from "../../../../shared/actionRuntime";
+import type { ActionEvidence, ActionEvaluationResponse, AuthoredActionTemplate } from "../../../../shared/actionRuntime";
 import {
   type Alignment,
   type InputKind,
@@ -50,6 +50,7 @@ import { alignReasoning, type AlignmentOutcome } from "./ReasoningAligner";
 import {
   type TutorPlanV2Payload,
   type TruthPayload,
+  approvedBindingsForTask,
   canonicalHash,
   loadApprovedApproach,
   loadApprovedApproachSet,
@@ -58,6 +59,7 @@ import {
   truthAnswerForPart,
 } from "../planBuild/canonicalInputs";
 import type { PolicyProfileSnapshot, PolicyProviderKind } from "./topicQuestionExperience";
+import type { TutorWorkspacePlanContext } from "../tutorPresentation/adapters/legacyActionRuntime/workspacePlanProjector";
 import { projectApprovedPlan, type RuntimeProjectionBody } from "../planBuild/MaterializeTutorPlan";
 import { buildRuntimeRegistrySnapshot, type RuntimeRegistrySnapshot } from "../planBuild/RuntimeRegistrySnapshot";
 import { createDecideTutorMove } from "../tutorPolicy/DecideTutorMove";
@@ -71,6 +73,7 @@ import {
 } from "../tutorPresentation/PreparePresentation";
 import type { VoiceActionPlan, WorkspaceActionPlan, ValidatedWorkspaceAction } from "../tutorPresentation";
 import { evaluateWorkspaceEvidence } from "../tutorPresentation/adapters/legacyActionRuntime/workspaceActionAdapter";
+import type { TypedActionDiagnosis } from "../actionRuntime/topicTypedEvaluator";
 import type { TutorPolicyGraph } from "../tutorIntelligence/policyGraph";
 import { createTutorPolicyGraph } from "../tutorIntelligence/policyGraph";
 import type { StudentTurnInput, RecentEventFact } from "../tutorIntelligence/proposal";
@@ -126,6 +129,8 @@ export interface StartExperienceContext {
   provider: PolicyProviderKind;
   previous_session_id?: string;
   switch_reason?: "alternate_approach";
+  /** Binding 是否登记 alternate 讲法（学生安全视图/换讲法 UI 用，不进事件）。 */
+  alternates_available?: boolean;
 }
 
 export interface StartTutorSessionOptions {
@@ -211,6 +216,14 @@ export interface TutorTurnResponse {
   voice: Array<{ action_id: string; text: string; interruptible: boolean; voice_source?: VoiceSource }>;
   workspace: ValidatedWorkspaceAction[];
   fallback?: { used: boolean; failure_class?: string };
+  /**
+   * Phase 5 UI 集成 §3：structured_action_evidence 回合附带 typed evaluator
+   * 判定（ActionEvaluationResponse，学生安全）——前端 ActionRuntimeFrame 用
+   * 它更新 Action 状态（错误高亮/完成），Tutor 回应继续驱动 Tutor state。
+   */
+  action_evaluation?: ActionEvaluationResponse;
+  /** 当前 Question 全部小问完成（curriculum 投影；题目完成推进信号）。 */
+  question_completed?: boolean;
   event_cursor: number;
 }
 
@@ -225,6 +238,17 @@ interface SessionContext {
   profileSnapshot?: PolicyProfileSnapshot;
   /** v4 会话：Plan 级 Provider（profile.primary_provider）。 */
   provider?: PolicyProviderKind;
+  /**
+   * v4 会话的 Topic 体验上下文（内存缓存；restore 从 session_started 事件
+   * 重建 task/scenario/approach_set——不新增事件字段，alternates 由 binding
+   * 当前态重查）。供 workspace action_plan 投影与学生安全视图使用。
+   */
+  experience?: {
+    task_id: string;
+    scenario_id: string;
+    approach_set_ref: { artifact_id: string; version: string; content_hash: string };
+    alternates_available?: boolean;
+  };
 }
 
 export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
@@ -303,6 +327,14 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     return { plan, projection, snapshot, truth: truthResult.payload, answerValuesByPart, eventSchema };
   }
 
+  /** workspace action_plan 投影的题目上下文（无 truth 泄漏面：stem 是学生可见题干）。 */
+  function questionContextOf(context: SessionContext): TutorWorkspacePlanContext | undefined {
+    return {
+      taskId: context.experience?.task_id ?? context.plan.artifact_id,
+      promptLatex: context.truth.stem,
+    };
+  }
+
   function contextFor(sessionId: string): SessionContext {
     const cached = contexts.get(sessionId);
     if (cached) return cached;
@@ -346,6 +378,24 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       }
       context.profileSnapshot = snapshot;
       context.provider = provider;
+      // Topic 体验上下文（task/scenario/approach_set 是 v4 事件既有字段；
+      // alternates 按当前 Approved Binding 重查，查不到就缺省——UI 降级隐藏）。
+      const startedPayload = started?.payload as {
+        task_id?: string;
+        scenario_id?: string;
+        approach_set_ref?: { artifact_id: string; version: string; content_hash: string };
+      } | undefined;
+      if (startedPayload?.task_id && startedPayload.approach_set_ref) {
+        context.experience = {
+          task_id: startedPayload.task_id,
+          scenario_id: startedPayload.scenario_id ?? "",
+          approach_set_ref: startedPayload.approach_set_ref,
+          alternates_available: approvedBindingsForTask(
+            { canonicalRoot: deps.canonicalRoot },
+            startedPayload.task_id,
+          ).some((binding) => binding.teaching_variants.some((variant) => variant.role === "alternate")),
+        };
+      }
     }
     contexts.set(sessionId, context);
     return context;
@@ -411,6 +461,14 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     if (isV3) {
       context.profileSnapshot = options.experience!.policy_profile_snapshot;
       context.provider = options.experience!.provider;
+      context.experience = {
+        task_id: options.experience!.task_id,
+        scenario_id: options.experience!.scenario_id,
+        approach_set_ref: options.experience!.approach_set_ref,
+        ...(options.experience!.alternates_available !== undefined
+          ? { alternates_available: options.experience!.alternates_available }
+          : {}),
+      };
     }
     startTutorSession({
       sessionId: options.sessionId,
@@ -874,7 +932,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
           presentationResult.presentation.workspace,
           context.plan,
           context.projection,
-          { registrySnapshot: context.snapshot, sessionKind: "tutoring" },
+          { registrySnapshot: context.snapshot, sessionKind: "tutoring", question: questionContextOf(context) },
         );
         presentation = { voice: presentationResult.presentation.voice, workspace: resolution.presentation };
         workspaceFailures = resolution.failures.map((failure) => ({
@@ -1129,7 +1187,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     sessionId: string,
     evidence: ActionEvidence,
     clientTurnId?: string,
-  ): { accepted: boolean; appendedSequences: number[] } {
+  ): { accepted: boolean; appendedSequences: number[]; diagnosis: TypedActionDiagnosis; checkpointId: string } {
     const { context, events, state, revision } = loadSession(sessionId);
     const activeActionId = state.workspace.active_action_id;
     const issued = activeActionId
@@ -1219,7 +1277,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       // 学生操作错误是学生事实（P5-14），与工具失败分离——不写 workspace rejected。
     }
     const appendedSequences = appendBatch(sessionId, revision, batch);
-    return { accepted, appendedSequences };
+    return { accepted, appendedSequences, diagnosis, checkpointId };
   }
 
   function completeSession(sessionId: string, reason = "finished"): number[] {
@@ -1268,6 +1326,31 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     };
   }
 
+  /** typed evaluator 判定 → ActionEvaluationResponse（单 action 计划口径：
+   *  接受即 group_finished/nextIndex 1；拒绝走 wrong 反馈，evidence 可重试）。 */
+  function evidenceOutcomeToResponse(
+    outcome: { accepted: boolean; diagnosis: TypedActionDiagnosis },
+    revision: number,
+  ): ActionEvaluationResponse {
+    return {
+      outcome: outcome.accepted ? "accepted" : "rejected",
+      evaluation: outcome.accepted ? "correct" : "wrong",
+      revision,
+      ...(outcome.accepted
+        ? {}
+        : {
+            diagnosis: {
+              messageLatex: "这一步的答案还不对，检查一下再试。",
+              wrongObjectIds: outcome.diagnosis.wrongObjectIds,
+              wrongActionIds: outcome.diagnosis.wrongActionIds,
+              wrongSlotIds: outcome.diagnosis.wrongSlotIds,
+            },
+          }),
+      phase: outcome.accepted ? "group_finished" : "wrong_feedback",
+      nextIndex: outcome.accepted ? 1 : 0,
+    };
+  }
+
   function toTurnResponse(args: {
     sessionId: string;
     clientTurnId: string;
@@ -1277,6 +1360,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     state: TutorRuntimeState;
     revision: number;
     lastSequence: number;
+    actionEvidence?: { accepted: boolean; diagnosis: TypedActionDiagnosis };
   }): TutorTurnResponse {
     const { turn } = args;
     return {
@@ -1304,6 +1388,8 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       })),
       workspace: turn.presentation.workspace,
       ...(turn.policy_failed ? { fallback: { used: turn.policy_failed.fallback_used, failure_class: turn.policy_failed.failure_class } } : {}),
+      ...(args.actionEvidence ? { action_evaluation: evidenceOutcomeToResponse(args.actionEvidence, args.revision) } : {}),
+      question_completed: args.state.curriculum.completed,
       event_cursor: args.lastSequence,
     };
   }
@@ -1400,7 +1486,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
           ],
           context.plan,
           context.projection,
-          { registrySnapshot: context.snapshot, sessionKind: "tutoring" },
+          { registrySnapshot: context.snapshot, sessionKind: "tutoring", question: questionContextOf(context) },
         );
         return resolution.presentation;
       }),
@@ -1412,6 +1498,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
             },
           }
         : {}),
+      question_completed: state.curriculum.completed,
       event_cursor: events.at(-1)?.sequence ?? 0,
     };
   }
@@ -1715,7 +1802,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     const intelligent = Boolean(deps.intelligence);
 
     if (input.input_kind === "structured_action_evidence") {
-      submitActionEvidence(sessionId, input.action_evidence!, args.clientTurnId);
+      const evidenceOutcome = submitActionEvidence(sessionId, input.action_evidence!, args.clientTurnId);
       const afterEvidence = loadSession(sessionId);
       const turn = await driveTutorTurn(sessionId);
       return toTurnResponse({
@@ -1731,6 +1818,9 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         state: loadSession(sessionId).state,
         revision: loadSession(sessionId).revision,
         lastSequence: loadSession(sessionId).events.at(-1)?.sequence ?? 0,
+        // typed evaluator 判定随回合下发（ActionRuntimeTransport 契约）：
+        // 错误 evidence 走原 Runtime 反馈（wrong 高亮/重试），不污染 Tutor state。
+        actionEvidence: evidenceOutcome,
       });
     }
 
@@ -1848,10 +1938,14 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     revision: number;
     mode: SessionMode;
     completed: boolean;
+    question_completed?: boolean;
     current_checkpoint: TutorTurnResponse["current_checkpoint"];
     pending_voice: Array<{ action_id: string; text: string; interruptible: boolean }>;
     pending_workspace: ValidatedWorkspaceAction[];
     event_cursor: number;
+    task_id?: string;
+    question?: { artifact_id: string; stem: string; subquestions: Array<{ part_id: string; prompt: string }> };
+    alternates_available?: boolean;
   } {
     const { context, events, state, revision } = loadSession(sessionId);
     const pendingVoice = pendingVoiceActions(events).map((pending) => {
@@ -1893,7 +1987,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
           ],
           context.plan,
           context.projection,
-          { registrySnapshot: context.snapshot, sessionKind: "tutoring" },
+          { registrySnapshot: context.snapshot, sessionKind: "tutoring", question: questionContextOf(context) },
         );
         pendingWorkspace.push(...resolution.presentation);
       }
@@ -1903,10 +1997,28 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       revision,
       mode: state.mode,
       completed: state.completed,
+      question_completed: state.curriculum.completed,
       current_checkpoint: currentCheckpointView(state),
       pending_voice: pendingVoice,
       pending_workspace: pendingWorkspace,
       event_cursor: events.at(-1)?.sequence ?? 0,
+      // 刷新恢复的题目/讲法上下文（v4 binding 会话；truth 学生安全面）。
+      ...(context.experience
+        ? {
+            task_id: context.experience.task_id,
+            question: {
+              artifact_id: context.truth.artifact_id,
+              stem: context.truth.stem,
+              subquestions: (context.truth.subquestions ?? []).map((entry) => ({
+                part_id: entry.part_id,
+                prompt: entry.prompt,
+              })),
+            },
+            ...(context.experience.alternates_available !== undefined
+              ? { alternates_available: context.experience.alternates_available }
+              : {}),
+          }
+        : {}),
     };
   }
 
