@@ -137,6 +137,12 @@ describe("ActionRuntimeFrame tutor transport", () => {
     // wrong 反馈可见（工作区 Runtime 反馈横幅），提交入口仍可重试。
     await vi.waitFor(() => expect(container.querySelector("[data-testid='runtime-wrong-feedback']")).toBeTruthy());
     expect(container.querySelector("[data-testid='runtime-wrong-feedback']")?.textContent).toContain("这一步的答案还不对");
+    // 波次 C-2 验收发现 3：横幅挂 is-wrong 错误态且锚在工作区（覆盖层不参与
+    // 两列 grid，不重排画布）。
+    const banner = container.querySelector("[data-testid='runtime-wrong-feedback']");
+    expect(banner?.classList.contains("topic-coach-message")).toBe(true);
+    expect(banner?.classList.contains("is-wrong")).toBe(true);
+    expect(banner?.closest("[data-testid='action-runtime-workspace']")).toBeTruthy();
     expect(evaluateAction).not.toHaveBeenCalled();
     unmount();
   });
