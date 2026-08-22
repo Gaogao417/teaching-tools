@@ -20,6 +20,7 @@ export type TurnTelemetryStage =
   | "tts"
   | "validation"
   | "fallback"
+  | "invariant"
   | "restore";
 
 export interface TurnTelemetryEntry {

@@ -44,6 +44,8 @@ import {
   TutorSessionEventStoreError,
 } from "./TutorSessionEventStore";
 import { projectRuntimeState, type TutorRuntimeState } from "./TutorRuntimeStateProjection";
+import { projectCandidateState } from "./candidateState";
+import { enforceDecisionInvariants } from "./decisionInvariants";
 import { alignReasoning, type AlignmentOutcome } from "./ReasoningAligner";
 import {
   type TutorPlanV2Payload,
@@ -73,6 +75,7 @@ import type { StudentTurnInput, RecentEventFact } from "../tutorIntelligence/pro
 import type { StructuredModelPort } from "../tutorIntelligence/structuredModelPort";
 import { DeepSeekStructuredModel } from "../tutorIntelligence/adapters/deepseek/DeepSeekStructuredModel";
 import { FakeStructuredModel } from "../tutorIntelligence/adapters/fake/FakeStructuredModel";
+import { createCachedStructuredModel } from "../tutorIntelligence/adapters/cachedStructuredModel";
 import { recordTurnTelemetry } from "./turnTelemetry";
 
 /** feature flag 白名单（gate 6：只对 golden plan 启用新 Policy）。 */
@@ -443,8 +446,15 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         });
       }
       const ledger = state.assistance[checkpointId];
+      // assisted 口径（计划 §3：ledger 区分 Prompt 与实质帮助）：有偏差证据时
+      // 只看偏差之后的 hint/explain/repair（Prompt 不算——TS-7075 修复：开场
+      // 讲解先于偏差，不得把「仅自查 prompt 后改对」记成 assisted）；无偏差
+      // 史时沿用全量台账（首答即对但听过讲解仍是 assisted）。
+      const lastDeviation = ledger?.incorrectSequences.at(-1);
       const assisted = Boolean(
-        ledger && (ledger.hintLevelsIssued.length > 0 || ledger.explainedSequences.length > 0),
+        lastDeviation !== undefined
+          ? assistanceSinceDeviation(state, events, checkpointId, lastDeviation)
+          : ledger && (ledger.hintLevelsIssued.length > 0 || ledger.explainedSequences.length > 0),
       );
       progressed = true;
       batch.push({
@@ -691,10 +701,31 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
           causation_sequence: trigger.event_sequence,
         });
       }
+      // 统一不变量层（计划 §3）：模型提案 / deterministic / fallback 共用同一
+      // 出口——candidate state 含本轮 pending 对齐事实后确定性改写（B1 族 +
+      // 护栏盲区闭合：TS-7075 fallback confirm、TS-7004 阶梯耗尽不进 repair）。
+      const candidateState = projectCandidateState(context.plan, events, batch);
+      const enforced = enforceDecisionInvariants({
+        draft: outcome.draft,
+        plan: context.plan,
+        candidateState,
+        trigger,
+      });
+      if (enforced.rewrites.length && args.correlationId) {
+        recordTurnTelemetry({
+          correlation_id: args.correlationId,
+          session_id: sessionId,
+          stage: "invariant",
+          outcome: enforced.rewrites.join(","),
+          detail: { move_type: outcome.draft.move_type, purpose_code: outcome.draft.purpose_code },
+        });
+      }
+      // 改写后的 move 与模型文案不再对应：丢弃动态文案，回退 Presenter 确定性呈现。
+      const dynamicVoice = enforced.dropDynamicVoice ? undefined : args.dynamicVoice;
       const decisionSequence = base + batch.length + 1;
       const ordinal = events.filter((event) => event.event_type === "tutor_move_decided").length + 1;
       decision = {
-        ...outcome.draft,
+        ...enforced.draft,
         decision_id: decisionId(sessionId, ordinal),
         policy_version: outcome.policy_version,
         source_event_sequence: trigger.event_sequence,
@@ -713,7 +744,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         voiceOrdinal,
         workspaceOrdinal,
         answerValues: context.answerValuesByPart.get(partId) ?? [],
-        ...(args.dynamicVoice ? { dynamicVoice: args.dynamicVoice } : {}),
+        ...(dynamicVoice ? { dynamicVoice } : {}),
       });
       if (!presentationResult.ok || !presentationResult.presentation) {
         batch.push({
@@ -759,7 +790,9 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
             ...(isV3 && args.provenance?.model ? { model: args.provenance.model } : {}),
             ...(isV3 && args.provenance?.workflowVersion ? { workflow_version: args.provenance.workflowVersion } : {}),
             ...(isV3 && args.provenance?.promptVersions?.length ? { prompt_versions: args.provenance.promptVersions } : {}),
-            ...(isV3 && args.provenance?.voiceSource ? { voice_source: args.provenance.voiceSource } : {}),
+            ...(!enforced.dropDynamicVoice && isV3 && args.provenance?.voiceSource
+              ? { voice_source: args.provenance.voiceSource }
+              : {}),
             ...(isV3 && presentation.workspace.length
               ? {
                   workspace_resource_ids: presentation.workspace.map(
@@ -1048,7 +1081,8 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       const checkpoint = context.plan.checkpoints.find((entry) => entry.checkpoint_id === checkpointId);
       const ledger = state.assistance[checkpointId];
       // 自我修正检测同 utterance 路径：上次错误证据之后无 hint/explain/repair
-      // 协助（Prompt 不算实质性帮助）→ 学生自己改对，不记为 Tutor 纠正。
+      // 协助（Prompt 不算实质性帮助）→ 学生自己改对，不记为 Tutor 纠正；
+      // assisted 与 alignmentFactBatch 同口径（偏差后实质协助）。
       const deviation = ledger?.incorrectSequences.at(-1);
       if (deviation !== undefined && !assistanceSinceDeviation(state, events, checkpointId, deviation)) {
         batch.push({
@@ -1063,7 +1097,11 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         payload: {
           checkpoint_id: checkpointId,
           part_id: checkpoint?.part_id ?? "1",
-          assisted: Boolean(ledger && (ledger.hintLevelsIssued.length > 0 || ledger.explainedSequences.length > 0)),
+          assisted: Boolean(
+            deviation !== undefined
+              ? assistanceSinceDeviation(state, events, checkpointId, deviation)
+              : ledger && (ledger.hintLevelsIssued.length > 0 || ledger.explainedSequences.length > 0),
+          ),
           via_action_evidence: true,
         },
         occurred_at: now(),
@@ -1372,6 +1410,11 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         trigger,
         draft: proposal.move,
         policyVersion: proposal.workflowVersion,
+        // 图内 Wait 兜底（校验两次失败/预算耗尽但图仍有提案）：对齐事实保留
+        // 在提案上，失败事实同批落 policy_failed（fallback_used=true）。
+        ...(outcome.failure
+          ? { failure: { failure_class: `policy_${outcome.failure.kind}`, fallback_used: true } }
+          : {}),
         ...(proposal.voiceText && proposal.voiceSource === "model-generated"
           ? { dynamicVoice: { text: proposal.voiceText, source: "model-generated" as const } }
           : {}),
@@ -1427,35 +1470,10 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         ? { alignment: alignment.alignment, ...(alignment.checkpoint_id ? { alignment_checkpoint_id: alignment.checkpoint_id } : {}) }
         : {}),
     };
-    // 降级决策必须以「本次对齐已发生」的视角进行（prefixBatch 尚未 append，
-    // 但 deterministic 的挣扎基线 incorrectSequences[0] 正是本次对齐）——
-    // 否则首个错误会被误判为已过自查阶段而直接升 hint。
-    const pendingIncorrectSequence = alignment?.alignment === "incorrect" && alignment.checkpoint_id
-      ? args.inputSequence + 1
-      : undefined;
-    const stateForDecision: TutorRuntimeState =
-      pendingIncorrectSequence !== undefined && alignment?.checkpoint_id
-        ? {
-            ...state,
-            assistance: {
-              ...state.assistance,
-              [alignment.checkpoint_id]: {
-                ...(state.assistance[alignment.checkpoint_id] ?? {
-                  hintLevelsIssued: [],
-                  incorrectSequences: [],
-                  failedActionSequences: [],
-                  promptsIssued: 0,
-                  promptSequences: [],
-                  explainedSequences: [],
-                }),
-                incorrectSequences: [
-                  ...(state.assistance[alignment.checkpoint_id]?.incorrectSequences ?? []),
-                  pendingIncorrectSequence,
-                ],
-              },
-            },
-          }
-        : state;
+    // 降级决策以 canonical candidate state 为视角（计划 §3：删除手工拼接
+    // stateForDecision——pending 对齐/自我修正/推进事实全部进入投影，B1 族
+    // 簿记错误在结构上闭合）。
+    const stateForDecision = projectCandidateState(context.plan, events, prefixBatch);
     const fallbackOutcome = await decide({ plan: context.plan, state: stateForDecision, trigger, session_kind: "tutoring" });
     const turn = await commitTutorDecision({
       sessionId,
@@ -1826,7 +1844,7 @@ export function createDefaultTutorSessionCoordinator(
       options.structuredModel ??
       (process.env.TUTOR_FAKE_STRUCTURED_MODEL === "1"
         ? new FakeStructuredModel()
-        : new DeepSeekStructuredModel());
+        : createCachedStructuredModel(new DeepSeekStructuredModel()));
     const graph = createTutorPolicyGraph({ model });
     return {
       coordinator: createTutorSessionCoordinator({

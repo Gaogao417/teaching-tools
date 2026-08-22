@@ -26,6 +26,8 @@ export default defineConfig({
         "src/services/tutorSession/TutorSessionEvent.ts",
         "src/services/tutorSession/TutorSessionEventStore.ts",
         "src/services/tutorSession/TutorRuntimeStateProjection.ts",
+        "src/services/tutorSession/candidateState.ts",
+        "src/services/tutorSession/decisionInvariants.ts",
         "src/services/tutorSession/ReasoningAligner.ts",
         "src/services/tutorSession/turnTelemetry.ts",
         "src/services/tutorPresentation/PreparePresentation.ts",

@@ -13,9 +13,9 @@
  *
  * 子图无 checkpointer（stateless）：SQLite SessionEvent 是唯一状态真源，本图
  * 每轮从固定版本 Plan + 事件投影 State 重建。模型节点挂 retryPolicy（最多
- * 2 次尝试，仅限可重试网络错误，退避上限远小于总预算）。预算：总计 3.5s、
- * 单次调用 ≤1.5s、修复重试 ≤1 次；deadline 由 proposeTurn 的 AbortController
- * 与各节点剩余时间计算共同强制，耗尽立即 Wait fallback。
+ * 2 次尝试，仅限可重试网络错误，退避上限远小于总预算）。预算：总计 12s、
+ * 单次调用 ≤8s（env 可调）、修复重试 ≤1 次；deadline 由 proposeTurn 的
+ * AbortController 与各节点剩余时间计算共同强制，耗尽立即 Wait fallback。
  */
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
@@ -44,8 +44,18 @@ import {
   type TutorTurnProposal,
 } from "./proposal";
 
-export const POLICY_TOTAL_BUDGET_MS = 3_500;
-export const POLICY_PER_CALL_TIMEOUT_MS = 1_500;
+/** 正整数环境变量（缺省/非法值回退默认）。 */
+function positiveEnvInt(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+// 降级噪音压降（失败分析报告 §四.3）：真实 DeepSeek flash 结构化调用 p75≈2s、
+// p95≈3.5s，旧默认 1.5s/3.5s 必然产生 timeout/budget 降级（每轮全量跑 ~20
+// 次）并放大 B1 族缺陷。默认放宽到单次 ≤8s / 总预算 12s；可用
+// TUTOR_POLICY_PER_CALL_TIMEOUT_MS / TUTOR_POLICY_TOTAL_BUDGET_MS 覆盖。
+export const POLICY_TOTAL_BUDGET_MS = positiveEnvInt("TUTOR_POLICY_TOTAL_BUDGET_MS", 12_000);
+export const POLICY_PER_CALL_TIMEOUT_MS = positiveEnvInt("TUTOR_POLICY_PER_CALL_TIMEOUT_MS", 8_000);
 const MIN_REMAINING_FOR_RETRY_MS = 250;
 
 // --------------------------------------------------------------------------- //
@@ -385,7 +395,14 @@ export function createTutorPolicyGraph(options: PolicyGraphOptions): TutorPolicy
     failure: PolicyFailure,
   ): GraphUpdate {
     return {
-      proposal: waitFallbackProposal(state.runtimeState, provenance),
+      // 图内降级（Wait 兜底）必须保留 align 节点已产出的对齐事实——对齐是
+      // 学生输入的事实，不随 policy 失败消失（TS-7004 run1 缺陷：对齐被丢弃
+      // → incorrect 不进台账 → 阶梯耗尽判定失真 + commit 层不变量拿不到
+      // incorrect trigger）。failure 同时透传给协调器落 policy_failed。
+      proposal: {
+        ...waitFallbackProposal(state.runtimeState, provenance),
+        ...(state.alignment ? { alignment: state.alignment } : {}),
+      },
       failure,
     };
   }
@@ -676,6 +693,7 @@ export function createTutorPolicyGraph(options: PolicyGraphOptions): TutorPolicy
             usage: result.usage,
             latencyMs: Date.now() - startedAt,
           },
+          ...(result.failure ? { failure: result.failure } : {}),
         };
       } catch (error) {
         const deadlineHit = Date.now() >= deadlineAt;

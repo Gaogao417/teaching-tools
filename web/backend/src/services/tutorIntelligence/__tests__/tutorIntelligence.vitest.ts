@@ -462,11 +462,14 @@ async function testGraphFallbackAfterTwoFailures(): Promise<void> {
     answerValuesByPart: ANSWER_VALUES,
   });
   // 两次校验失败 → Wait fallback 提案（fallback:true），failure 保留 invalid_proposal
+  // 且对齐事实不随降级丢失（TS-7004 run1 缺陷回归锚）
   assert.equal(outcome.ok, true);
   if (!outcome.ok) return;
   assert.equal(outcome.proposal.move.move_type, "wait");
   assert.equal(outcome.proposal.move.fallback, true);
   assert.equal(model.policyCalls, 2);
+  assert.equal(outcome.proposal.alignment?.classification, "expected_checkpoint");
+  assert.equal(outcome.failure?.kind, "invalid_proposal");
 }
 
 async function testGraphDeterministicPaths(): Promise<void> {

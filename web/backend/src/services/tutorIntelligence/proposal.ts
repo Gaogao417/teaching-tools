@@ -73,7 +73,7 @@ export interface RecentEventFact {
 }
 
 export type ProposeTurnOutcome =
-  | { ok: true; proposal: TutorTurnProposal }
+  | { ok: true; proposal: TutorTurnProposal; failure?: PolicyFailure }
   | { ok: false; failure: PolicyFailure };
 
 export const POLICY_GRAPH_WORKFLOW_VERSION = "tutor-policy-deepseek-langgraph/v1";

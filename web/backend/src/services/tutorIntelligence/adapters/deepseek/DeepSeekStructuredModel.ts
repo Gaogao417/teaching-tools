@@ -18,7 +18,9 @@ import {
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_MODEL = "deepseek-v4-flash";
-const DEFAULT_TIMEOUT_MS = 1_500;
+// 与 policyGraph 预算同步放宽（失败分析报告 §四.3：1.5s 上限裁掉了 p75+ 的
+// 真实延迟，是 timeout 降级噪音的直接来源）；TUTOR_DEEPSEEK_TIMEOUT_MS 覆盖。
+const DEFAULT_TIMEOUT_MS = 8_000;
 const DEFAULT_MAX_TOKENS = 512;
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
