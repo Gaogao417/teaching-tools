@@ -1,6 +1,9 @@
 /**
- * 波次 D HTTP 合同测试：五个端点（真实 express 监听 + fetch），断言学生安全面
- * （无 truth/teachingInput/expectedValues）与错误映射（403/404/409/400）。
+ * 波次 D HTTP 合同测试（Phase 5 UI 集成波次 C 更新：公开 tpId 直启已下线，
+ * 会话创建统一走 /experience——本文件用注入 coordinator 的内部启动路径
+ * （benchmark/runner 等价面）准备会话，只测会话级端点）。
+ * 断言学生安全面（无 truth/teachingInput/expectedValues）与错误映射
+ * （403/404/409/400）。
  */
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -12,6 +15,12 @@ import { createTutorSessionRoutes } from "../tutorSessionRoutes";
 const root = tempRoot("routes");
 publishSyntheticPlanVt(root, { qtId: "QT-SMV-003", tpId: "TP-SMV-003", parts: 0 });
 const coordinator = createTutorSessionCoordinator({ canonicalRoot: root });
+
+/** 内部启动路径（golden-whitelist 访问面，benchmark/runner 等价；非公开 HTTP）。 */
+async function startSession(sessionId: string, studentId: string): Promise<void> {
+  coordinator.start({ sessionId, studentId, tpId: "TP-SMV-003" });
+  await coordinator.driveTutorTurn(sessionId, { kind: "system", reason: "session_started" });
+}
 
 let baseUrl = "";
 let server: import("node:http").Server | undefined;
@@ -49,34 +58,24 @@ async function call(method: string, url: string, body?: unknown): Promise<{ stat
   return { status: response.status, body: await response.json().catch(() => null) };
 }
 
-describe("波次 D：tutor-sessions HTTP 合同", () => {
-  it("POST / 启动 golden 会话并返回开场回合；非白名单 plan 403", async () => {
-    const bad = await call("POST", "/api/tutor-sessions", { tpId: "TP-XXX-999", studentId: "s" });
-    expect(bad.status).toBe(403);
-    expect(bad.body.error.code).toBe("PLAN_NOT_GOLDEN");
-
-    const start = await call("POST", "/api/tutor-sessions", {
-      tpId: "TP-SMV-003",
-      studentId: "student-http",
-      sessionId: "TS-8201",
-    });
-    expect(start.status).toBe(201);
-    expect(start.body.session_id).toBe("TS-8201");
-    expect(start.body.opening.decision.move_type).toBe("explain");
-    expect(start.body.opening.voice.length).toBeGreaterThanOrEqual(1);
-    const serialized = JSON.stringify(start.body);
-    expect(serialized).not.toContain("localTruth");
-    expect(serialized).not.toContain("teachingInput");
-    expect(serialized).not.toContain("expectedValues");
+describe("tutor-sessions HTTP 合同（会话级端点）", () => {
+  it("公开 tpId 直启已下线：POST /api/tutor-sessions 404（会话创建走 /experience）", async () => {
+    const gone = await call("POST", "/api/tutor-sessions", { tpId: "TP-SMV-003", studentId: "s" });
+    expect(gone.status).toBe(404);
   });
 
   it("GET /:sessionId 恢复学生安全视图（pending voice + revision）", async () => {
+    await startSession("TS-8201", "student-http");
     const view = await call("GET", "/api/tutor-sessions/TS-8201");
     expect(view.status).toBe(200);
     expect(view.body.revision).toBeGreaterThan(0);
     expect(view.body.pending_voice.length).toBeGreaterThanOrEqual(1);
     expect(view.body.current_checkpoint.checkpoint_id).toBeTruthy();
     expect(view.body).not.toHaveProperty("truth");
+    const serialized = JSON.stringify(view.body);
+    expect(serialized).not.toContain("localTruth");
+    expect(serialized).not.toContain("teachingInput");
+    expect(serialized).not.toContain("expectedValues");
   });
 
   it("GET 未知会话 404", async () => {
@@ -121,18 +120,15 @@ describe("波次 D：tutor-sessions HTTP 合同", () => {
   });
 
   it("POST /voice-completions → 自动续走系统回合；POST /complete 完成会话", async () => {
-    const start = await call("POST", "/api/tutor-sessions", {
-      tpId: "TP-SMV-003",
-      studentId: "student-http",
-      sessionId: "TS-8202",
-    });
-    const voiceActionId = start.body.opening.voice[0].action_id;
+    await startSession("TS-8202", "student-http");
+    const view = await call("GET", "/api/tutor-sessions/TS-8202");
+    const voiceActionId = view.body.pending_voice[0].action_id;
     const afterVoice = await call("POST", "/api/tutor-sessions/TS-8202/voice-completions", {
       action_id: voiceActionId,
       outcome: "completed",
     });
     expect(afterVoice.status).toBe(200);
-    expect(afterVoice.body.revision).toBeGreaterThan(start.body.opening.revision);
+    expect(afterVoice.body.revision).toBeGreaterThan(view.body.revision);
     const done = await call("POST", "/api/tutor-sessions/TS-8202/complete", { reason: "finished" });
     expect(done.status).toBe(200);
     expect(done.body.completed).toBe(true);

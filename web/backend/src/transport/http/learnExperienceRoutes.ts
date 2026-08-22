@@ -13,8 +13,8 @@
  * - 明确错误    ：Binding stale、Plan/Profile 非 Approved、hash 不匹配时
  *                 fail closed（409/403），不静默换题或换讲法。
  *
- * 前端不再调用公开的 POST /api/tutor-sessions {tpId}（隔离路由保留至波次 C
- * 删除隔离页时一并下线）；Coordinator 内部仍可按 Plan ref 启动。
+ * 前端不再调用公开的 POST /api/tutor-sessions {tpId}（波次 C 已随隔离页下线）；
+ * Coordinator 内部仍可按 Plan ref 启动。
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -142,6 +142,7 @@ export function createLearnExperienceRoutes(options: LearnExperienceRoutesOption
           policy_profile_snapshot: selection.profileSnapshot,
           provider,
           ...(previous ? { previous_session_id: previous, switch_reason: "alternate_approach" as const } : {}),
+          alternates_available: selection.binding.teaching_variants.some((entry) => entry.role === "alternate"),
         },
       });
       const turn = await coordinator.driveTutorTurn(sessionId, { kind: "system", reason: "session_started" });

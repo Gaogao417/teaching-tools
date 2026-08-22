@@ -1,16 +1,22 @@
 /**
- * Tutor session HTTP 合同（Phase 5 remediation / 完整收口计划 §2.5）。
+ * Tutor session HTTP 合同（Phase 5 remediation / 完整收口计划 §2.5；
+ * Phase 5 UI 集成波次 C：公开 tpId 直启下线）。
  *
- * - POST /api/tutor-sessions                     启动 golden plan 会话（含开场回合）
  * - GET  /api/tutor-sessions/:sessionId          恢复学生安全视图 + pending actions + revision
  * - POST /api/tutor-sessions/:sessionId/turns    clientTurnId + expectedRevision + 六类输入
  * - POST /api/tutor-sessions/:sessionId/voice-completions
  * - POST /api/tutor-sessions/:sessionId/complete
+ * - POST /api/tutor-sessions/:sessionId/asr
+ *
+ * 会话创建统一走 POST /api/learn/:taskId/experience（Approved Binding，
+ * learnExperienceRoutes）；公开 POST /api/tutor-sessions {tpId} 已随隔离
+ * 演示页下线。Coordinator 的 golden-whitelist 访问面与
+ * STATEFUL_TUTOR_POLICY_GOLDEN_PLANS 保留（benchmark/runner 内部使用）。
  *
  * TutorTurnResponse 只含学生安全面（revision/mode/checkpoint+route/alignment/
  * decision/Voice+Workspace actions/fallback/event cursor）；答案真值与模型
  * 私有推理绝不出现在任何响应（结构性由 coordinator 类型保证）。
- * Assessment / 非 golden plan 拒绝（coordinator fail closed + 路由层白名单）。
+ * Assessment / 非 golden plan 拒绝（coordinator fail closed）。
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -19,7 +25,6 @@ import { z } from "zod";
 import { SpeechProviderError, transcribeForTutor } from "../../services/tutorSession/asrService";
 import {
   createDefaultTutorSessionCoordinator,
-  STATEFUL_TUTOR_POLICY_GOLDEN_PLANS,
   TutorSessionCoordinatorError,
   type ProcessTurnInput,
   type TutorSessionCoordinator,
@@ -45,13 +50,6 @@ const actionEvidenceSchema = z
     targetId: z.string().optional(),
   })
   .passthrough();
-
-const startSchema = z.object({
-  tpId: z.string().regex(/^TP-[A-Z0-9]+-[0-9]{3,}$/),
-  studentId: z.string().trim().min(1).max(64),
-  sessionId: sessionIdParam.optional(),
-  initialMode: z.enum(["teach", "guided_solve", "repair"]).optional(),
-});
 
 const turnSchema = z.object({
   clientTurnId: z.string().regex(/^[A-Za-z0-9._:-]{4,128}$/),
@@ -135,6 +133,7 @@ export function tutorOpeningBody(
       interruptible: voice.interruptible,
     })),
     workspace: turn.presentation.workspace,
+    question_completed: view.question_completed ?? false,
     event_cursor: view.event_cursor,
   };
 }
@@ -159,46 +158,6 @@ export function createTutorSessionRoutes(options: TutorSessionRoutesOptions = {}
   const correlationOf = (headerValue: unknown, fallback: string): string => {
     return (typeof headerValue === "string" && headerValue.trim() ? headerValue.trim() : fallback).slice(0, 128);
   };
-
-  router.post("/", async (req, res, next) => {
-    try {
-      const body = startSchema.parse(req.body);
-      if (!STATEFUL_TUTOR_POLICY_GOLDEN_PLANS.includes(body.tpId)) {
-        res.status(403).json({
-          error: {
-            code: "PLAN_NOT_GOLDEN",
-            message: `tutor 闭环只对 golden 白名单 plan 开放：${STATEFUL_TUTOR_POLICY_GOLDEN_PLANS.join(", ")}`,
-          },
-        });
-        return;
-      }
-      const sessionId =
-        body.sessionId ?? `TS-${String(Date.now()).padStart(4, "0").slice(0, 10)}`;
-      coordinator.start({
-        sessionId,
-        studentId: body.studentId,
-        tpId: body.tpId,
-        ...(body.initialMode ? { initialMode: body.initialMode } : {}),
-      });
-      // 开场回合（session_started 系统触发，不产生学生输入事实）：
-      // 调用方立即拿到第一段教学呈现。
-      const turn = await coordinator.driveTutorTurn(sessionId, { kind: "system", reason: "session_started" });
-      res.status(201).json({
-        session_id: sessionId,
-        opening: tutorOpeningBody(coordinator, sessionId, turn),
-      });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        next(error);
-        return;
-      }
-      try {
-        fail(res, error);
-      } catch (unwrapped) {
-        next(unwrapped);
-      }
-    }
-  });
 
   router.get("/:sessionId", (req, res, next) => {
     try {
