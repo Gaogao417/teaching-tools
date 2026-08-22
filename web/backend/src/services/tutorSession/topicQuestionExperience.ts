@@ -20,6 +20,9 @@ import {
   type TutorPlanV3Payload,
   type TutorPolicyProfilePayload,
 } from "../planBuild/canonicalInputs";
+import { approachRefsMatchSet, refEquals } from "../planBuild/approachSetReconciliation";
+
+export { approachRefsMatchSet, refEquals };
 
 export type PolicyProviderKind = "deepseek-langgraph" | "deterministic-rules";
 
@@ -62,17 +65,6 @@ export interface TopicQuestionSelectorDeps {
   readonly canonicalRoot: string;
 }
 
-export function refEquals(
-  ref: { artifact_id: string; version: string; content_hash: string },
-  current: { artifact_id: string; version: string; content_hash: string },
-): boolean {
-  return (
-    ref.artifact_id === current.artifact_id &&
-    ref.version === current.version &&
-    ref.content_hash === current.content_hash
-  );
-}
-
 function snapshotOf(profile: TutorPolicyProfilePayload): PolicyProfileSnapshot {
   return {
     profile_id: profile.artifact_id,
@@ -82,24 +74,6 @@ function snapshotOf(profile: TutorPolicyProfilePayload): PolicyProfileSnapshot {
     model_id: profile.model_id,
     prompt_version: profile.prompt_version,
   };
-}
-
-/**
- * Plan v3 的 approach_refs 必须与其 ApproachSet 的小问选择完全一致
- * （§1：传递依赖不可变）。逐 part 对账 artifact_id/version/hash。
- */
-export function approachRefsMatchSet(plan: TutorPlanV3Payload, approachSet: ApproachSetPayload): boolean {
-  const setParts = approachSet.parts.map((part) => ({
-    part_id: part.part_id ?? "1",
-    approach: part.approach,
-  }));
-  if (plan.approach_refs.length !== setParts.length) return false;
-  const byPart = new Map(setParts.map((part) => [part.part_id, part.approach]));
-  for (const ref of plan.approach_refs) {
-    const chosen = byPart.get(ref.part_id);
-    if (!chosen || !refEquals(ref, chosen)) return false;
-  }
-  return true;
 }
 
 /**

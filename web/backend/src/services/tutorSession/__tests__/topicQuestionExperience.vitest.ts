@@ -83,6 +83,23 @@ describe("selectTopicQuestionTeaching（fail-closed 对账）", () => {
     });
   });
 
+  it("Draft Binding（建议未审）→ legacy：未审核不开放学生流量（波次 D 口径）", () => {
+    const { root } = freshRoot();
+    // registry current 版本标 Draft（建议清单态）：approvedBindingsForTask
+    // 只读 Approved，装载层必须当作无绑定处理，不静默开放学生流量。
+    const bindingId = `TB-TST-${BASE.qtId.slice(-1)}01`;
+    mutate(root, "topic-question-binding", bindingId, (payload) => {
+      payload.status = "Draft";
+    });
+    const registryFile = path.join(root, "topic-question-binding", bindingId, "registry.yaml");
+    const registryText = readFileSync(registryFile, "utf8").replace(/status: Approved/g, "status: Draft");
+    writeFileSync(registryFile, registryText);
+    expect(selectTopicQuestionTeaching({ canonicalRoot: root }, BASE.taskId)).toEqual({
+      kind: "legacy",
+      reason: "no_approved_binding",
+    });
+  });
+
   it("同 Task 两个 Approved Binding → AMBIGUOUS_BINDING（不静默挑选）", () => {
     const { root, published } = freshRoot();
     const second = JSON.parse(JSON.stringify(published.binding)) as Record<string, unknown>;
