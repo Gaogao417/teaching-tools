@@ -1,10 +1,13 @@
 /**
- * Phase 5 UI 集成（波次 C）：useTutorLearning 控制器测试（mock api/narration）。
+ * Phase 5 UI 集成（波次 C / C-2）：useTutorLearning 控制器测试（mock
+ * api/narration）。
  *
  * 覆盖：/experience 启动（tutor/legacy）、opening narration（TTS 不可用 →
  * failed 上报 + 续走）、回答/提交通一输入合同、SubmitEvidence transport、
  * 刷新恢复（pending workspace）、换讲法（switchFromSessionId）、题目完成
- * （question_completed → /complete）。
+ * （question_completed → /complete）；波次 C-2 裁定 2 phase 推导回归——
+ * 播放期间标签与画布形态一致、restore 后 workspaceActive 不被空回合清掉、
+ * barge-in → interrupted → resume 链。
  */
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -17,6 +20,16 @@ const getTutorSession = vi.fn();
 const submitTutorTurn = vi.fn();
 const completeTutorVoice = vi.fn();
 const completeTutorSession = vi.fn();
+
+/** 波次 C-2：可控 narration/media——audioUrl 置值后 enter 返回 URL 且播放
+ *  挂起（media 不主动发状态），测试经 emit() 推进 loading/playing/idle。 */
+const narrationHarness = vi.hoisted(() => ({
+  audioUrl: undefined as string | undefined,
+  listeners: new Set<(state: { status: string }) => void>(),
+  emit(status: string) {
+    for (const listener of this.listeners) listener({ status });
+  },
+}));
 vi.mock("../../../api/client", () => ({
   api: {
     startLearnExperience,
@@ -31,7 +44,10 @@ vi.mock("../../../api/client", () => ({
 }));
 vi.mock("../../../presentation/audio/MediaSessionController", () => ({
   MediaSessionController: class {
-    subscribe() { return () => undefined; }
+    subscribe(listener: (state: { status: string }) => void) {
+      narrationHarness.listeners.add(listener);
+      return () => narrationHarness.listeners.delete(listener);
+    }
     stop() {}
     dispose() {}
     replay() {}
@@ -39,7 +55,7 @@ vi.mock("../../../presentation/audio/MediaSessionController", () => ({
 }));
 vi.mock("../../../presentation/narration/NarrationController", () => ({
   NarrationController: class {
-    enter = vi.fn().mockResolvedValue(undefined);
+    enter = vi.fn(async () => (narrationHarness.audioUrl ? { audioUrl: narrationHarness.audioUrl } : undefined));
     stop = vi.fn();
     replay = vi.fn();
   },
@@ -102,6 +118,8 @@ function mountHarness(props: { taskId: TaskId; studentId: string; restoreSession
 describe("useTutorLearning", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    narrationHarness.audioUrl = undefined;
+    narrationHarness.listeners.clear();
   });
 
   it("start：tutor 体验 → 会话/题目就位；TTS 不可用 → voice failed 上报并回到等输入", async () => {
@@ -281,6 +299,134 @@ describe("useTutorLearning", () => {
     const result = await tutor().start();
     expect(result?.kind).toBe("legacy");
     expect(tutor().sessionId).toBeUndefined();
+    unmount();
+  });
+
+  // ----------------------------------------------------------------- //
+  // 波次 C-2 裁定 2：phase 推导回归
+  // ----------------------------------------------------------------- //
+
+  function workspaceAction(overrides: Record<string, unknown> = {}): TutorTurnResponse["workspace"][number] {
+    return {
+      action_id: "WA-9",
+      decision_id: "TD-9",
+      capability: "action.enter-text",
+      target_ids: [],
+      resource_id: "RES9",
+      action_ref: "tp:TP-1:1:enter-text",
+      student_view: {
+        actionId: "tp:TP-1:1:enter-text", sourceStepId: "S3", kind: "enter-text", version: 1,
+        title: "本题结论", instruction: "写出结论", input: { placeholder: "写出结论" },
+        capabilities: [], answerSlots: [], validationPolicy: "server-authoritative", submitOnComplete: true,
+      },
+      action_plan: {
+        planVersion: 5, exerciseId: "tutor:TP-1:a", revision: 1, mode: "assessment",
+        metadata: { taskId: "task-tutor-1", title: "t", promptLatex: "p", skillTags: [] },
+        world: { revision: 1 },
+        coach: { profileId: "c", displayName: "老师", avatarId: "school", tone: "supportive" },
+        actions: [{
+          actionId: "tp:TP-1:1:enter-text", sourceStepId: "S3", kind: "enter-text", version: 1,
+          title: "本题结论", instruction: "写出结论", input: { placeholder: "写出结论" },
+          capabilities: [], answerSlots: [{ id: "value", label: "本题结论", kind: "text", required: true }],
+          validationPolicy: "server-authoritative", submitOnComplete: true,
+        }],
+        currentActionId: "tp:TP-1:1:enter-text", completedActionIds: [],
+        runtimeCapabilities: {
+          practiceValidation: "server-authoritative", trainingSync: "local-only",
+          narrationTransport: "off", coachTurnTransport: "request-response", liveCoach: false,
+        },
+      },
+      ...overrides,
+    } as TutorTurnResponse["workspace"][number];
+  }
+
+  function sessionViewWithPendingWorkspace(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      session_id: "TS-5002", revision: 7, mode: "teach", completed: false, question_completed: false,
+      current_checkpoint: { checkpoint_id: "CP3", part_id: "1", route_id: "R1" },
+      pending_voice: [],
+      pending_workspace: [workspaceAction()],
+      event_cursor: 20,
+      task_id: "task-tutor-1",
+      question: { artifact_id: "QT-1", stem: "如图，求证相似。", subquestions: [] },
+      alternates_available: false,
+      ...overrides,
+    };
+  }
+
+  it("phase 推导：播放期间 speaking、播完后标签追上画布（workspace 不因空回合标签脱节）", async () => {
+    narrationHarness.audioUrl = "blob:tts";
+    startLearnExperience.mockResolvedValue(experience());
+    completeTutorVoice.mockResolvedValue(null);
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
+    await act(async () => { await tutor().start(); });
+    // opening narration 挂起播放 → phase speaking。
+    await vi.waitFor(() => expect(tutor().phase).toBe("speaking"));
+    narrationHarness.emit("playing");
+    narrationHarness.emit("idle");
+    await vi.waitFor(() => expect(tutor().phase).toBe("awaitingInput"));
+
+    // 回合 A：签发 workspace（无 voice）→ workspaceActive。
+    const action = workspaceAction();
+    submitTutorTurn.mockResolvedValue(turn({ client_turn_id: "t-ws", voice: [], workspace: [action] }));
+    await act(async () => { await tutor().submitStudentInput({ input_kind: "reasoning_utterance", text: "看到了" }); });
+    expect(tutor().phase).toBe("workspaceActive");
+    expect(tutor().workspace).toHaveLength(1);
+
+    // 回合 B：老师只讲（voice、workspace 空），pending 重读仍有待操作步——
+    // 播放期间标签 speaking 且画布仍在（同一份事实）。
+    getTutorSession.mockResolvedValue(sessionViewWithPendingWorkspace());
+    submitTutorTurn.mockResolvedValue(turn({
+      client_turn_id: "t-talk",
+      voice: [{ action_id: "VA-2", text: "注意这两个角。", interruptible: true }],
+      workspace: [],
+    }));
+    // 播放会挂起（media 不主动发状态）：提交链不进 act（act 会缓冲作用域内
+    // 更新，中途观察不到 speaking），观察后再推进播放。
+    const submission = tutor().submitStudentInput({ input_kind: "reasoning_utterance", text: "内错角" });
+    await vi.waitFor(() => expect(tutor().phase).toBe("speaking"));
+    expect(tutor().workspace).toHaveLength(1);
+    // 播完：标签追上画布 → workspaceActive（旧实现的 turn.workspace 尾判
+    // 会给出 awaitingInput，与画布脱节）。
+    narrationHarness.emit("playing");
+    narrationHarness.emit("idle");
+    await submission;
+    await vi.waitFor(() => expect(tutor().phase).toBe("workspaceActive"));
+    expect(tutor().workspace).toHaveLength(1);
+    unmount();
+  });
+
+  it("restore 后 workspaceActive：空 workspace 回合不清画布、标签保持一致", async () => {
+    getTutorSession.mockResolvedValue(sessionViewWithPendingWorkspace());
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1", restoreSessionId: "TS-5002" });
+    let restored = false;
+    await act(async () => { restored = await tutor().restore("TS-5002"); });
+    expect(restored).toBe(true);
+    expect(tutor().phase).toBe("workspaceActive");
+    expect(tutor().workspace).toHaveLength(1);
+
+    // 学生回答 → 回应回合 workspace 为空，但服务端 pending_workspace 仍在：
+    // 画布保留，标签仍是 workspaceActive（不被空回合清成 awaitingInput）。
+    completeTutorVoice.mockResolvedValue(null);
+    submitTutorTurn.mockResolvedValue(turn({ client_turn_id: "t-after-restore", voice: [], workspace: [] }));
+    await act(async () => { await tutor().submitStudentInput({ input_kind: "reasoning_utterance", text: "AA 判定" }); });
+    expect(tutor().workspace).toHaveLength(1);
+    expect(tutor().phase).toBe("workspaceActive");
+    unmount();
+  });
+
+  it("barge-in → interrupted → resume：显式 UI 事件链（播放挂起中打断）", async () => {
+    narrationHarness.audioUrl = "blob:tts";
+    startLearnExperience.mockResolvedValue(experience());
+    completeTutorVoice.mockResolvedValue(null);
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
+    await act(async () => { await tutor().start(); });
+    await vi.waitFor(() => expect(tutor().phase).toBe("speaking"));
+    await act(async () => { await tutor().bargeIn(); });
+    expect(tutor().phase).toBe("interrupted");
+    expect(completeTutorVoice).toHaveBeenCalledWith("TS-5001", "VA-1", "interrupted");
+    await act(async () => { tutor().resumeFromInterrupt(); });
+    expect(tutor().phase).toBe("awaitingInput");
     unmount();
   });
 });

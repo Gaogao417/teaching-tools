@@ -8,6 +8,12 @@
  * `action_plan`（真实 ActionRuntimeFrame 渲染），evidence 经
  * SubmitEvidence 送回 TutorSession typed evaluator——Action Runtime 与
  * Tutor state 共享同一 decision/revision。
+ *
+ * phase 是推导值（波次 C-2 裁定 2）：由 narration 播放状态 + 在途请求状态 +
+ * 权威 turn/workspace/completed 投影经 useMemo 计算，不落 useState、不散点
+ * setPhase——标签与画布形态永远读同一份事实。业务事实（revision/turn/
+ * workspace/checkpoint/completed）全部来自 TutorSession 服务端响应，单一
+ * 权威不动；不为 phase 建后端下发、不把 UI 事件回写会话状态。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -101,7 +107,6 @@ export interface UseTutorLearningOptions {
 }
 
 export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTutorLearningOptions) {
-  const [phase, setPhase] = useState<TutorPhase>("starting");
   const [sessionId, setSessionId] = useState<string | undefined>(restoreSessionId);
   const [revision, setRevision] = useState(0);
   const [experience, setExperience] = useState<TutorExperienceResponse | undefined>();
@@ -113,6 +118,14 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  // phase 的推导输入（波次 C-2 裁定 2）——只记录事实，不直接命名 phase：
+  const [speechActive, setSpeechActive] = useState(false);
+  const [turnPending, setTurnPending] = useState(false);
+  const [bootstrapPending, setBootstrapPending] = useState(false);
+  /** barge-in 是真实 UI 事件，无法从 narration/请求状态推导（停播有多重原因：
+   *  自然结束、TTS 失败、换讲法代际作废——只有学生点击「打断」这个意图值得
+   *  进入 interrupted；由 resumeFromInterrupt 显式清除）。 */
+  const [interrupted, setInterrupted] = useState(false);
 
   const revisionRef = useRef(0);
   const sessionIdRef = useRef<string | undefined>(restoreSessionId);
@@ -148,6 +161,21 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
       if (state.status === "blocked-by-autoplay") setAutoplayBlocked(true);
     });
   }, [media]);
+
+  /** phase 投影（8 态语义与 PHASE_LABELS 不变）：权威事实 → 展示标签。
+   *  优先级：完成 > 打断 > 错误恢复 > 启动/恢复 > 在途回合 > 讲解播放 >
+   *  待操作 > 等输入。与画布形态读同一份 workspace/completed 状态，
+   *  不可能出现「标签 awaitingInput 而画布仍渲染」的脱节。 */
+  const phase: TutorPhase = useMemo(() => {
+    if (completed || questionCompleted) return "completed";
+    if (interrupted) return "interrupted";
+    if (error) return "recovering";
+    if (bootstrapPending || !sessionId) return "starting";
+    if (turnPending) return "thinking";
+    if (speechActive) return "speaking";
+    if (workspace.length > 0) return "workspaceActive";
+    return "awaitingInput";
+  }, [completed, questionCompleted, interrupted, error, bootstrapPending, sessionId, turnPending, speechActive, workspace.length]);
 
   const appendTranscript = useCallback((role: "tutor" | "student", text: string) => {
     setTranscript((entries) => [
@@ -228,30 +256,31 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
             await speakTurn(followUp, generation);
             return;
           }
-          setPhase(followUp.workspace.length ? "workspaceActive" : "awaitingInput");
           playingRef.current = false;
           return;
         }
       }
       if (generation !== generationRef.current) return;
-      setPhase(turn.workspace.length ? "workspaceActive" : "awaitingInput");
       playingRef.current = false;
     },
     [appendTranscript, afterTurnCommon, media, narration, syncActiveWorkspace],
   );
 
+  /** 消费一回合：同步 workspace 投影，再走 narration；播放事实交给 speechActive
+   *  （phase 由 useMemo 推导，speakTurn 内不再散点设置标签）。 */
   const consumeTurn = useCallback(
     async (turn: TutorTurnResponse, generation: number): Promise<void> => {
       afterTurnCommon(turn);
+      if (turn.voice.length) setSpeechActive(true);
       await syncActiveWorkspace(turn.session_id, turn);
       if (turn.voice.length) {
-        setPhase("speaking");
-        await speakTurn(turn, generation);
-      } else if (turn.workspace.length) {
-        setPhase("workspaceActive");
-        playingRef.current = false;
+        try {
+          await speakTurn(turn, generation);
+        } finally {
+          // 换讲法/重开后旧代际的播放不让新回合的 speaking 标签闪断。
+          if (generation === generationRef.current) setSpeechActive(false);
+        }
       } else {
-        setPhase("awaitingInput");
         playingRef.current = false;
       }
     },
@@ -263,19 +292,20 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     async (input: TutorStudentInput): Promise<void> => {
       const activeSession = sessionIdRef.current;
       if (!activeSession) return;
-      setPhase("thinking");
+      setTurnPending(true);
       if (input.text !== undefined) {
         appendTranscript("student", input.input_kind === "question_asked" ? `（问）${input.text}` : input.text);
       }
       try {
         playingRef.current = true;
         const turn = await api.submitTutorTurn(activeSession, newTurnId(), revisionRef.current, input);
+        setTurnPending(false);
         await consumeTurn(turn, generationRef.current);
       } catch (turnError) {
         playingRef.current = false;
+        setTurnPending(false);
         const message = turnError instanceof Error ? turnError.message : String(turnError);
         setError(message);
-        setPhase("recovering");
       }
     },
     [appendTranscript, consumeTurn],
@@ -304,13 +334,16 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     [consumeTurn],
   );
 
-  /** barge-in：立即停播并上报 interrupted（目标 <150ms 停止播放）。 */
+  /** barge-in：立即停播并上报 interrupted（目标 <150ms 停止播放）。
+   *  interrupted 是保留的显式 UI 事件状态（见 useState 声明处注释）；
+   *  speechActive 是播放事实更新（停播即不再播放），不是 phase 赋值。 */
   const bargeIn = useCallback(async () => {
     const activeSession = sessionIdRef.current;
     narration.stop();
     media.stop("narration");
     playingRef.current = false;
-    setPhase("interrupted");
+    setSpeechActive(false);
+    setInterrupted(true);
     const pending = lastTurnRef.current?.voice.find((voice) => voice.interruptible)
       ?? lastTurnRef.current?.voice[0];
     if (activeSession && pending) {
@@ -318,7 +351,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     }
   }, [media, narration]);
 
-  const resumeFromInterrupt = useCallback(() => setPhase("awaitingInput"), []);
+  const resumeFromInterrupt = useCallback(() => setInterrupted(false), []);
 
   const adoptExperience = useCallback(
     (next: TutorExperienceResponse, generation: number) => {
@@ -331,6 +364,10 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
       setQuestionCompleted(false);
       setCompleted(false);
       setWorkspace([]);
+      // 新会话接管：清掉上一会话遗留的 UI 事件/播放事实（phase 随之重推导）。
+      setInterrupted(false);
+      setSpeechActive(false);
+      setTurnPending(false);
       applySession(next.session_id, next.opening.revision);
       playingRef.current = true;
       void consumeTurn(next.opening, generation);
@@ -349,8 +386,8 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
   /** /experience 启动（或换讲法：switchFromSessionId）。 */
   const start = useCallback(
     async (options?: { switchFromSessionId?: string }): Promise<LearnExperienceResponse | undefined> => {
-      setPhase("starting");
       setError(undefined);
+      setBootstrapPending(true);
       const generation = generationRef.current + 1;
       try {
         const result = await api.startLearnExperience(taskId, {
@@ -364,8 +401,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
         playingRef.current = false;
         const message = startError instanceof Error ? startError.message : String(startError);
         setError(message);
-        setPhase("recovering");
         return undefined;
+      } finally {
+        setBootstrapPending(false);
       }
     },
     [adoptExperience, studentId, taskId],
@@ -374,8 +412,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
   /** 刷新恢复：GET 学生安全视图，pending voice 重播、pending workspace 重建。
    *  返回是否恢复成功（404/损坏 → false，调用方按默认 Binding 重开新会话）。 */
   const restore = useCallback(async (targetSessionId: string): Promise<boolean> => {
-    setPhase("starting");
     setError(undefined);
+    setBootstrapPending(true);
+    setInterrupted(false);
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     try {
@@ -386,7 +425,6 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
       if (view.question_completed) setQuestionCompleted(true);
       if (view.completed) {
         setCompleted(true);
-        setPhase("completed");
         return true;
       }
       // 与 syncActiveWorkspace 的「此前有待操作步」口径对齐：恢复出的 pending
@@ -395,37 +433,41 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
       setWorkspace(view.pending_workspace);
       playingRef.current = true;
       if (view.pending_workspace.length && !view.pending_voice.length) {
-        setPhase("workspaceActive");
         playingRef.current = false;
         return true;
       }
       if (view.pending_voice.length) {
-        await speakTurn(
-          {
-            session_id: view.session_id,
-            revision: view.revision,
-            client_turn_id: "restore",
-            idempotent_replay: true,
-            mode: view.mode,
-            current_checkpoint: view.current_checkpoint,
-            decision: null,
-            voice: view.pending_voice,
-            workspace: view.pending_workspace,
-            event_cursor: view.event_cursor,
-          },
-          generation,
-        );
+        setSpeechActive(true);
+        try {
+          await speakTurn(
+            {
+              session_id: view.session_id,
+              revision: view.revision,
+              client_turn_id: "restore",
+              idempotent_replay: true,
+              mode: view.mode,
+              current_checkpoint: view.current_checkpoint,
+              decision: null,
+              voice: view.pending_voice,
+              workspace: view.pending_workspace,
+              event_cursor: view.event_cursor,
+            },
+            generation,
+          );
+        } finally {
+          if (generation === generationRef.current) setSpeechActive(false);
+        }
         return true;
       }
-      setPhase("awaitingInput");
       playingRef.current = false;
       return true;
     } catch (restoreError) {
       playingRef.current = false;
       const message = restoreError instanceof Error ? restoreError.message : String(restoreError);
       setError(message);
-      setPhase("recovering");
       return false;
+    } finally {
+      setBootstrapPending(false);
     }
   }, [applySession, speakTurn]);
 
@@ -435,7 +477,6 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     if (!activeSession) return;
     await api.completeTutorSession(activeSession, "finished").catch(() => undefined);
     setCompleted(true);
-    setPhase("completed");
   }, []);
 
   const replayNarration = useCallback(() => {
