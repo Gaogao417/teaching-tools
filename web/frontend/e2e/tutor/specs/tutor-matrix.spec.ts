@@ -1,15 +1,16 @@
 /**
- * tutor E2E 矩阵（Phase 5 UI 集成波次 C）：12 剧本 × 6 合成 plan = 72 场景，
- * 全部从原产品 /learn/:taskId 进入（/experience + Approved Binding + 合成
- * canonical root + fake structured model），无 skip。
+ * tutor E2E 矩阵（Phase 5 UI 集成波次 C/D）：12 剧本 × 6 plan = 72 场景，
+ * 全部从原产品 /learn/:taskId 进入（/experience + Approved Binding + fake
+ * structured model），无 skip。
  *
- * 剧本是 acceptanceScripts S1–S12 的浏览器可驱动版本（输入派生自合成 plan
- * 数据）。对真实 golden v2 root 的复跑留给波次 D/E（内容就绪后）。
+ * 任务集：默认合成 root（波次 C）；TUTOR_E2E_TASK_SET=golden + 预构建
+ * golden root（波次 D）时对六个真实 golden v3 Plan 复跑同一矩阵（严格
+ * 断言口径；golden 内容全部 enter-text，无 authored geometry/alternate）。
  */
 import { expect, test } from "@playwright/test";
 
 import {
-  E2E_TASKS,
+  ACTIVE_TASKS,
   alternateUtterance,
   answer,
   ask,
@@ -28,7 +29,7 @@ import {
 interface ScriptDriver {
   id: string;
   title: string;
-  run(page: import("@playwright/test").Page, task: (typeof E2E_TASKS)[number], plan: ReturnType<typeof loadGoldenPlan>): Promise<void>;
+  run(page: import("@playwright/test").Page, task: (typeof ACTIVE_TASKS)[number], plan: ReturnType<typeof loadGoldenPlan>): Promise<void>;
 }
 
 async function openSession(page: import("@playwright/test").Page, taskId: string): Promise<void> {
@@ -198,8 +199,8 @@ const SCRIPTS: ScriptDriver[] = [
   },
 ];
 
-test.describe("tutor E2E 矩阵（12 剧本 × 6 合成 plan = 72 场景，/learn/:taskId 驱动）", () => {
-  for (const task of E2E_TASKS) {
+test.describe("tutor E2E 矩阵（12 剧本 × 6 plan = 72 场景，/learn/:taskId 驱动）", () => {
+  for (const task of ACTIVE_TASKS) {
     for (const script of SCRIPTS) {
       test(`${task.taskId} ${script.id}：${script.title}`, async ({ page }, testInfo) => {
         const plan = loadGoldenPlan(task.tpId);

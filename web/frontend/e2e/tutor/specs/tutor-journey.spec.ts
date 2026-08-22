@@ -1,13 +1,18 @@
 /**
- * tutor 完整旅程 E2E（Phase 5 UI 集成波次 C）：原产品页面闭环——
+ * tutor 完整旅程 E2E（Phase 5 UI 集成波次 C/D）：原产品页面闭环——
  * /learn/:taskId 进入 → 回答推进 → 提问 → 挣扎后自答 → 操作步（真实
  * ActionRuntimeFrame）→ 刷新恢复 → 换讲法 → 题目完成 → 无 Binding 走旧
  * LearnPage；全程断言前端从未收到 truth 且不硬编码内容 id。
+ *
+ * 任务集（TUTOR_E2E_TASK_SET）：默认合成集（5 用例全跑）；golden 集为
+ * 真实 golden v3 Plan（全部 enter-text、无 alternate、无 authored
+ * geometry 模板）——「换讲法」与「Geometry 操作步」两用例按内容缺口
+ * skip（登记口径：golden 内容无该能力面，合成集 5/5 基线不回归）。
  */
 import { expect, test } from "@playwright/test";
 
 import {
-  E2E_TASKS,
+  ACTIVE_TASKS,
   answer,
   ask,
   currentCheckpoint,
@@ -23,8 +28,9 @@ import {
   waitForTutorState,
 } from "./tutorHarness";
 
-const enterTextTask = E2E_TASKS[0];
-const geometryTask = E2E_TASKS[5];
+const enterTextTask = ACTIVE_TASKS.find((task) => task.action === "enter-text")!;
+const geometryTask = ACTIVE_TASKS.find((task) => task.action === "make-parallel");
+const switchTask = ACTIVE_TASKS.find((task) => task.alternateTpId);
 
 test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () => {
   test("进入 → 回答推进 → 提问 → 挣扎自答 → 操作步 → 刷新恢复 → 完成", async ({ page }, testInfo) => {
@@ -95,11 +101,12 @@ test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () =>
   });
 
   test("换讲法：Question 不变、Plan 改变、previous_session_id 关联", async ({ page }, testInfo) => {
+    test.skip(!switchTask, "当前任务集无 alternate 讲法（golden 集内容缺口：无第二套 Approved ApproachSet）");
     const plan = loadGoldenPlan(enterTextTask.tpId);
     void plan;
     await prepareStudent(page);
     await installTutorHarness(page, testInfo);
-    await page.goto(`/learn/${enterTextTask.taskId}`);
+    await page.goto(`/learn/${switchTask!.taskId}`);
     await expect(page.getByTestId("tutor-state")).toContainText("等你发言", { timeout: 30_000 });
 
     const stemBefore = await page.locator(".ks-focus-prompt h1, .tutor-learn-question").first().innerText();
@@ -113,15 +120,16 @@ test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () =>
     // Question 不变（同题换讲法）；URL 仍指向同一 task。
     const stemAfter = await page.locator(".ks-focus-prompt h1, .tutor-learn-question").first().innerText();
     expect(stemAfter).toContain(stemBefore.replace(/\s+/g, "").slice(0, 10));
-    expect(page.url()).toContain(`/learn/${enterTextTask.taskId}`);
+    expect(page.url()).toContain(`/learn/${switchTask!.taskId}`);
     expectNoTruthLeak(page);
   });
 
   test("Geometry 操作步（make-parallel）：画布点选 → evidence 被判定", async ({ page }, testInfo) => {
-    const plan = loadGoldenPlan(geometryTask.tpId);
+    test.skip(!geometryTask, "当前任务集无 make-parallel 任务（golden 集内容缺口：自动模板仅 enter-text）");
+    const plan = loadGoldenPlan(geometryTask!.tpId);
     await prepareStudent(page);
     await installTutorHarness(page, testInfo);
-    await page.goto(`/learn/${geometryTask.taskId}`);
+    await page.goto(`/learn/${geometryTask!.taskId}`);
     // 波次 C-2 裁定 1：opening 阶段（workspace 出现前）题目画布已可见——
     // 只读 GeometryCanvasSurface 渲染 /experience 下发的 question.geometry。
     await expect(page.getByTestId("tutor-session-id")).toBeVisible({ timeout: 90_000 });
@@ -134,7 +142,7 @@ test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () =>
 
     // 先交一个错选（点 B + AB → reference 对但 through 错）。
     const wrong = JSON.stringify({ pointId: "B", lineId: "AB" });
-    await submitWorkspace(page, geometryTask, wrong);
+    await submitWorkspace(page, geometryTask!, wrong);
     // 波次 F：画布点选按渲染元素锚定（Y 翻转修复后真实提交）——错选被
     // typed evaluator 拒绝，Runtime 反馈横幅出现，会话不崩。
     await expect(page.getByTestId("runtime-wrong-feedback")).toBeVisible({ timeout: e2eTimeout(15_000) });
@@ -148,7 +156,7 @@ test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () =>
       pointId: template.teachingInput?.throughPointId ?? "C",
       lineId: template.teachingInput?.referenceLineId ?? "AB",
     });
-    await submitWorkspace(page, geometryTask, correct);
+    await submitWorkspace(page, geometryTask!, correct);
     await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|完成/, { timeout: 25_000 });
     expectNoTruthLeak(page);
   });

@@ -39,6 +39,25 @@ export const E2E_TASKS: E2eTaskSpec[] = [
   { taskId: "reverseAFourSimilarity", scenarioId: "SC-E2E-006", qtId: "QT-E2E-006", tpId: "TP-E2E-006", action: "make-parallel" },
 ];
 
+/**
+ * 波次 D golden 任务集：与 backend scripts/build-tutor-golden-root.ts 的
+ * GOLDEN_TASKS 保持一致（真实 golden v3 Plan——全部 enter-text、无
+ * alternate 讲法、无 authored geometry 模板）。TUTOR_E2E_TASK_SET=golden
+ * 时启用（TUTOR_E2E_CANONICAL_ROOT 需指向预构建 golden root）；默认合成集。
+ */
+export const GOLDEN_TASKS: E2eTaskSpec[] = [
+  { taskId: "parallelLineRatios", scenarioId: "SC-GOLDEN-001", qtId: "QT-SMV-001", tpId: "TP-SMV-001", action: "enter-text" },
+  { taskId: "butterflySimilarity", scenarioId: "SC-GOLDEN-002", qtId: "QT-SMV-002", tpId: "TP-SMV-002", action: "enter-text" },
+  { taskId: "nestedSimilarity", scenarioId: "SC-GOLDEN-003", qtId: "QT-SMV-003", tpId: "TP-SMV-003", action: "enter-text" },
+  { taskId: "reverseASimilarity", scenarioId: "SC-GOLDEN-004", qtId: "QT-SMV-004", tpId: "TP-SMV-004", action: "enter-text" },
+  { taskId: "auxiliaryTwoRatios", scenarioId: "SC-GOLDEN-005", qtId: "QT-SMV-005", tpId: "TP-SMV-005", action: "enter-text" },
+  { taskId: "reverseAFourSimilarity", scenarioId: "SC-GOLDEN-006", qtId: "QT-SMV-006", tpId: "TP-SMV-006", action: "enter-text" },
+];
+
+/** 当前任务集（TUTOR_E2E_TASK_SET=golden → golden 真实内容；否则合成集）。 */
+export const ACTIVE_TASKS: E2eTaskSpec[] =
+  process.env.TUTOR_E2E_TASK_SET === "golden" ? GOLDEN_TASKS : E2E_TASKS;
+
 export interface GoldenPlanShape {
   artifact_id: string;
   checkpoints: Array<{
