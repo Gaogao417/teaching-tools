@@ -29,6 +29,7 @@ import {
   approvedApproachesForQuestion,
   canonicalHash,
   findApproachSetForQuestion,
+  loadApprovedPolicyProfile,
   loadApprovedTruth,
   type CanonicalRegistries,
   type TutorPlanV2Payload,
@@ -41,6 +42,7 @@ import {
   projectApprovedPlan,
   validateApprovedPlan,
 } from "../src/services/planBuild/MaterializeTutorPlan";
+import { upgradeTutorPlanToV3 } from "../src/services/planBuild/UpgradeTutorPlanV3";
 import { buildRuntimeRegistrySnapshot } from "../src/services/planBuild/RuntimeRegistrySnapshot";
 
 const GOLDEN_QT_IDS = [
@@ -76,6 +78,9 @@ interface CliArgs {
   runId: string;
   force: boolean;
   dryRun: boolean;
+  /** 目标合同版本（Phase 5 UI 集成波次 D）：v3 时按 ApproachSet/Profile 升级。 */
+  planSchema: "v2" | "v3";
+  policyProfile: string;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -88,12 +93,23 @@ function parseArgs(argv: string[]): CliArgs {
     runId: `plan-build-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`,
     force: false,
     dryRun: false,
+    planSchema: "v2",
+    policyProfile: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     switch (arg) {
       case "--canonical-root":
         args.canonicalRoot = argv[++index];
+        break;
+      case "--plan-schema": {
+        const value = argv[++index];
+        if (value !== "v2" && value !== "v3") throw new Error(`--plan-schema 只接受 v2|v3，收到 ${value}`);
+        args.planSchema = value;
+        break;
+      }
+      case "--policy-profile":
+        args.policyProfile = argv[++index];
         break;
       case "--questions":
       case "--approve": {
@@ -130,6 +146,9 @@ function parseArgs(argv: string[]): CliArgs {
   if (!args.canonicalRoot) throw new Error("--canonical-root 必填");
   if (!args.questions.length) args.questions = [...GOLDEN_QT_IDS, ...SUPPLEMENTARY_QT_IDS];
   if (args.approve.length && !args.reviewer) throw new Error("--approve 需要 --reviewer");
+  if (args.planSchema === "v3" && !args.policyProfile) {
+    throw new Error("--plan-schema v3 需要 --policy-profile（version-pinned TutorPolicyProfile id）");
+  }
   return args;
 }
 
@@ -265,20 +284,44 @@ function main(): void {
       continue;
     }
 
+    // Phase 5 UI 集成波次 D：v3 合同在 draft 阶段升级（refs 注入 + 对账 +
+    // content_hash 重算；发布门禁 approve/materialize 按 v3 schema 分派）。
+    let draftPlan: TutorPlanV2Payload = build.plan;
+    if (args.planSchema === "v3") {
+      if (!approachSet) {
+        console.error(`FAIL ${qtId}: 无 Approved ApproachSet，v3 重建要求每题一套（缺失走创作/审核流程）`);
+        process.exitCode = 1;
+        continue;
+      }
+      const profile = loadApprovedPolicyProfile(registries, args.policyProfile);
+      if (!profile.ok) {
+        console.error(`FAIL ${qtId}: policy profile ${args.policyProfile} 不可用：${profile.errors.join("; ")}`);
+        process.exitCode = 1;
+        continue;
+      }
+      const upgrade = upgradeTutorPlanToV3(build.plan, { approachSet, profile: profile.payload });
+      if (!upgrade.ok) {
+        console.error(`FAIL ${qtId} v3 upgrade: ${upgrade.errors.join("; ")}`);
+        process.exitCode = 1;
+        continue;
+      }
+      draftPlan = upgrade.plan as unknown as TutorPlanV2Payload;
+    }
+
     const approachesById = new Map(approaches.map((approach) => [approach.artifact_id, approach]));
     const materializationInputs = {
       truth: truth.payload,
       approaches: approachesById,
       snapshot,
     };
-    const draftCheck = validateApprovedPlan(build.plan, materializationInputs, { requireApproved: false });
+    const draftCheck = validateApprovedPlan(draftPlan, materializationInputs, { requireApproved: false });
     if (!draftCheck.ok) {
       console.error(`FAIL ${qtId} draft validation: ${draftCheck.errors.join("; ")}`);
       process.exitCode = 1;
       continue;
     }
 
-    const preview = buildPlanPreview(build.plan, {
+    const preview = buildPlanPreview(draftPlan, {
       truth: truth.payload,
       pendingCapabilityBindings: build.pendingCapabilityBindings,
       sanitizedHints: build.sanitizedHints,
@@ -286,7 +329,7 @@ function main(): void {
     if (!args.dryRun) {
       writeFileSync(
         path.join(tutorPlanRoot, "drafts", `${planId}.draft.json`),
-        `${JSON.stringify(build.plan, null, 2)}\n`,
+        `${JSON.stringify(draftPlan, null, 2)}\n`,
       );
       writeFileSync(
         path.join(tutorPlanRoot, "previews", `${planId}@${nextVersion}.md`),
@@ -295,21 +338,22 @@ function main(): void {
       if (!existingTp) newAllocations.push({ qtId, tpId: planId });
     }
     console.log(
-      `DRAFT ${qtId} → ${planId}@${nextVersion}: ${build.plan.checkpoints.length} checkpoints / ` +
-        `${build.plan.resources.length} resources / ${build.plan.recommended_routes.length} routes` +
+      `DRAFT ${qtId} → ${planId}@${nextVersion}${args.planSchema === "v3" ? "（v3）" : ""}: ` +
+        `${draftPlan.checkpoints.length} checkpoints / ` +
+        `${draftPlan.resources.length} resources / ${draftPlan.recommended_routes.length} routes` +
         `${build.sanitizedHints.length ? `（泄漏自查降级 ${build.sanitizedHints.length}）` : ""}`,
     );
 
     if (!args.approve.includes(qtId)) continue;
 
     // 幂等：语义内容与 current Approved 一致 → 不产生空版本。
-    if (currentPayload && semanticHash(currentPayload) === semanticHash(build.plan)) {
+    if (currentPayload && semanticHash(currentPayload) === semanticHash(draftPlan)) {
       console.log(`SKIP ${planId}: 语义内容与 ${registryState.currentVersion} 一致，无需新版本`);
       continue;
     }
 
-    const { projection_hash } = projectApprovedPlan(build.plan, materializationInputs);
-    const approval = approveTutorPlan(build.plan, {
+    const { projection_hash } = projectApprovedPlan(draftPlan, materializationInputs);
+    const approval = approveTutorPlan(draftPlan, {
       reviewer_id: args.reviewer,
       approved_at: new Date().toISOString(),
       review_note: args.note || `路线/提示/Action 来源经预览审核（${preview.flags.annotation_count} 个 skill 标注）`,

@@ -110,11 +110,59 @@ function wrapIntelligentScripts(base: ReturnType<typeof createTutorSessionCoordi
   } as ReturnType<typeof createTutorSessionCoordinator>;
 }
 const { ACCEPTANCE_SCRIPT_IDS, runAcceptanceScript } = require("../src/services/tutorSession/acceptanceScripts") as typeof import("../src/services/tutorSession/acceptanceScripts");
-const { loadCurrentPlan } = require("../src/services/planBuild/canonicalInputs") as typeof import("../src/services/planBuild/canonicalInputs");
+const { loadCurrentPlan, findApproachSetForQuestion, loadApprovedPolicyProfile } = require("../src/services/planBuild/canonicalInputs") as typeof import("../src/services/planBuild/canonicalInputs");
 const { projectRuntimeState } = require("../src/services/tutorSession/TutorRuntimeStateProjection") as typeof import("../src/services/tutorSession/TutorRuntimeStateProjection");
 const { db, close } = require("../src/db/database") as typeof import("../src/db/database") & { close: () => void };
 
 const GOLDEN_TP_IDS = ["TP-SMV-001", "TP-SMV-002", "TP-SMV-003", "TP-SMV-004", "TP-SMV-005", "TP-SMV-006"];
+
+/**
+ * Phase 5 UI 集成波次 D：golden plan current 已是 v3 合同，startTutorSession
+ * 对 v3 必须携带 experience 上下文（计划 §2：Coordinator 内部按 Plan ref
+ * 启动，供测试与 benchmark 使用）。按 plan 的 question/approach_set_ref/
+ * policy_profile_ref 装载合成 benchmark 上下文（task/scenario 为显式
+ * benchmark 标签，不冒充产品 Topic）；provider 如实记录本 runner 实际装配
+ * 的 Provider（智能链 = profile.primary，deterministic 回滚口径 = 
+ * deterministic-rules，不随环境偷换）。
+ */
+const experienceCache = new Map<string, Record<string, unknown> | null>();
+function benchmarkExperienceFor(tpId: string): Record<string, unknown> | null {
+  if (experienceCache.has(tpId)) return experienceCache.get(tpId)!;
+  const plan = loadCurrentPlan({ canonicalRoot }, tpId);
+  let experience: Record<string, unknown> | null = null;
+  if (plan.ok && (plan.payload as { schema?: string }).schema === "ai_teaching_tutor_plan_bundle/v3") {
+    const v3 = plan.payload as unknown as {
+      question_ref: { artifact_id: string };
+      approach_set_ref: { artifact_id: string; version: string; content_hash: string };
+      policy_profile_ref: { profile_id: string };
+    };
+    const approachSet = findApproachSetForQuestion({ canonicalRoot }, v3.question_ref.artifact_id);
+    const profile = loadApprovedPolicyProfile({ canonicalRoot }, v3.policy_profile_ref.profile_id);
+    if (!approachSet || !profile.ok) {
+      throw new Error(`${tpId}: v3 plan 的 ApproachSet/PolicyProfile 装载失败（benchmark 启动 fail closed）`);
+    }
+    const provider =
+      providerArg === "deepseek-langgraph" && process.env.TUTOR_POLICY_FORCE_PROVIDER?.trim() !== "deterministic"
+        ? profile.payload.primary_provider
+        : "deterministic-rules";
+    experience = {
+      task_id: `benchmark-task-${tpId}`,
+      scenario_id: `benchmark-scenario-${tpId}`,
+      approach_set_ref: v3.approach_set_ref,
+      policy_profile_snapshot: {
+        profile_id: profile.payload.artifact_id,
+        version: profile.payload.profile_version,
+        primary_provider: profile.payload.primary_provider,
+        fallback_provider: profile.payload.fallback_provider,
+        model_id: profile.payload.model_id,
+        prompt_version: profile.payload.prompt_version,
+      },
+      provider,
+    };
+  }
+  experienceCache.set(tpId, experience);
+  return experience;
+}
 
 interface SessionAudit {
   session_id: string;
@@ -155,18 +203,29 @@ async function main(): Promise<number> {
     makeCoordinatorWithPolicy: (policy: unknown) =>
       createTutorSessionCoordinator({ canonicalRoot, policy: policy as never, policyTimeoutMs: 50 }),
   };
-  // 追踪会话创建（audit 用）：包一层 start。
-  const originalStart = coordinator.start.bind(coordinator);
+  // 追踪会话创建（audit 用）+ v3 plan 透明注入 benchmark experience 上下文
+  // （acceptanceScripts 的 c.start 调用面保持不变；对 harness 交出的每个
+  // 协调器实例统一包装——含 makeCoordinatorWithPolicy 的新实例）。
+  const wrapStart = (target: ReturnType<typeof createTutorSessionCoordinator>): void => {
+    const original = target.start.bind(target);
+    (target as unknown as { start: typeof target.start }).start = (options => {
+      const experience = benchmarkExperienceFor(options.tpId);
+      const result = original(experience ? ({ ...options, experience } as typeof options) : options);
+      createdSessions.push({
+        sessionId: options.sessionId,
+        scriptId: currentScriptTag.scriptId,
+        planId: options.tpId,
+      });
+      return result;
+    }) as typeof target.start;
+  };
   let currentScriptTag = { scriptId: "?", planId: "?" };
-  (coordinator as unknown as { start: typeof coordinator.start }).start = (options => {
-    const result = originalStart(options);
-    createdSessions.push({
-      sessionId: options.sessionId,
-      scriptId: currentScriptTag.scriptId,
-      planId: options.tpId,
-    });
-    return result;
-  }) as typeof coordinator.start;
+  wrapStart(coordinator);
+  (harness as { makeCoordinatorWithPolicy: (policy: unknown) => ReturnType<typeof createTutorSessionCoordinator> }).makeCoordinatorWithPolicy = (policy: unknown) => {
+    const made = createTutorSessionCoordinator({ canonicalRoot, policy: policy as never, policyTimeoutMs: 50 });
+    wrapStart(made);
+    return made;
+  };
 
   const outcomes = [];
   for (const tpId of GOLDEN_TP_IDS) {
