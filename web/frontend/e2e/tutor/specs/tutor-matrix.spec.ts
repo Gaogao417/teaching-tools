@@ -1,47 +1,41 @@
 /**
- * tutor E2E 矩阵：12 剧本 × 6 golden plan = 72 场景（Phase 5 remediation §4.4
- * CI 口径——fake structured model，不访问外部模型、无 skip）。
+ * tutor E2E 矩阵（Phase 5 UI 集成波次 C）：12 剧本 × 6 合成 plan = 72 场景，
+ * 全部从原产品 /learn/:taskId 进入（/experience + Approved Binding + 合成
+ * canonical root + fake structured model），无 skip。
  *
- * 剧本是 acceptanceScripts S1–S12 的浏览器可驱动版本（同一输入派生规则：
- * 全部来自 canonical plan 数据）。S9/S10 在浏览器面等价为「错答被拒后
- * 重试」「连续无进度输入走 wait/prompt 阶梯」（注入非法动作/真实超时属
- * backend 演练，golden runner 已覆盖）——偏差在 exit report 登记。
+ * 剧本是 acceptanceScripts S1–S12 的浏览器可驱动版本（输入派生自合成 plan
+ * 数据）。对真实 golden v2 root 的复跑留给波次 D/E（内容就绪后）。
  */
 import { expect, test } from "@playwright/test";
 
 import {
-  e2eTimeout,
+  E2E_TASKS,
   alternateUtterance,
   answer,
   ask,
+  currentCheckpoint,
   deviationUtterance,
+  e2eTimeout,
   expectNoTruthLeak,
   installTutorHarness,
   loadGoldenPlan,
+  prepareStudent,
   progressUntilWorkspace,
   submitWorkspace,
+  waitForTutorState,
 } from "./tutorHarness";
-
-const GOLDEN_TP_IDS = ["TP-SMV-001", "TP-SMV-002", "TP-SMV-003", "TP-SMV-004", "TP-SMV-005", "TP-SMV-006"];
 
 interface ScriptDriver {
   id: string;
   title: string;
-  run(page: import("@playwright/test").Page, plan: ReturnType<typeof loadGoldenPlan>): Promise<void>;
+  run(page: import("@playwright/test").Page, task: (typeof E2E_TASKS)[number], plan: ReturnType<typeof loadGoldenPlan>): Promise<void>;
 }
 
-async function waitForAwaitingInput(page: import("@playwright/test").Page): Promise<void> {
-  await expect(page.getByTestId("tutor-state")).toContainText("等你发言", { timeout: e2eTimeout(25_000) });
-}
-
-async function openSession(page: import("@playwright/test").Page, tpId: string): Promise<void> {
-  await page.goto(`/tutor/${tpId}`);
+async function openSession(page: import("@playwright/test").Page, taskId: string): Promise<void> {
+  await page.goto(`/learn/${taskId}`);
   await expect(page.getByTestId("tutor-session-id")).toBeVisible({ timeout: 30_000 });
-  await waitForAwaitingInput(page);
-}
-
-function currentCheckpoint(page: import("@playwright/test").Page): Promise<string> {
-  return page.getByTestId("tutor-checkpoint").innerText().then((text) => /CP\d+/.exec(text)![0]);
+  await waitForTutorState(page, "awaitingInput");
+  await expect(page.locator(".ks-app-shell")).toBeVisible();
 }
 
 function expectedFor(plan: ReturnType<typeof loadGoldenPlan>): (checkpointId: string) => string {
@@ -52,30 +46,29 @@ const SCRIPTS: ScriptDriver[] = [
   {
     id: "S1",
     title: "答对→confirm；卡住→prompt/hint 阶梯",
-    async run(page, plan) {
+    async run(page, _task, plan) {
       const expected = expectedFor(plan);
       await answer(page, expected(await currentCheckpoint(page)));
       await expect(page.getByTestId("tutor-transcript")).toContainText(/对，|成立|借助提示|很好/, { timeout: e2eTimeout(20_000) });
       await answer(page, deviationUtterance(plan));
-      await waitForAwaitingInput(page);
+      await waitForTutorState(page, "awaitingInput");
     },
   },
   {
     id: "S2",
     title: "提问打断→Explain 回答",
-    async run(page, plan) {
-      void plan;
+    async run(page) {
       await ask(page, "这一步的关键条件是什么？");
-      await waitForAwaitingInput(page);
+      await waitForTutorState(page, "awaitingInput");
     },
   },
   {
     id: "S3",
     title: "口述正确路径→最小呈现",
-    async run(page, plan) {
+    async run(page, _task, plan) {
       const expected = expectedFor(plan);
       await answer(page, expected(await currentCheckpoint(page)));
-      await waitForAwaitingInput(page);
+      await waitForTutorState(page, "awaitingInput");
       const transcript = await page.locator("[data-testid=tutor-transcript] p").count();
       expect(transcript).toBeGreaterThan(0);
     },
@@ -83,22 +76,22 @@ const SCRIPTS: ScriptDriver[] = [
   {
     id: "S4",
     title: "失败尝试后 Hint 利用历史（阶梯不重置）",
-    async run(page, plan) {
+    async run(page, _task, plan) {
       for (let index = 0; index < 3; index += 1) {
         await answer(page, deviationUtterance(plan));
-        await waitForAwaitingInput(page);
+        await waitForTutorState(page, "awaitingInput");
       }
       await answer(page, deviationUtterance(plan));
-      await waitForAwaitingInput(page);
+      await waitForTutorState(page, "awaitingInput");
     },
   },
   {
     id: "S5",
     title: "推进后因果链在 UI 进度可见",
-    async run(page, plan) {
+    async run(page, _task, plan) {
       const before = await currentCheckpoint(page);
       await answer(page, expectedFor(plan)(before));
-      await waitForAwaitingInput(page);
+      await waitForTutorState(page, "awaitingInput");
       const after = await currentCheckpoint(page);
       expect(after).toBeTruthy();
     },
@@ -106,41 +99,43 @@ const SCRIPTS: ScriptDriver[] = [
   {
     id: "S6",
     title: "偏差后自答（自我修正不记为 Tutor 纠正）",
-    async run(page, plan) {
+    async run(page, _task, plan) {
       await answer(page, deviationUtterance(plan));
-      await waitForAwaitingInput(page);
+      await waitForTutorState(page, "awaitingInput");
       await answer(page, expectedFor(plan)(await currentCheckpoint(page)));
-      await waitForAwaitingInput(page);
+      await waitForTutorState(page, "awaitingInput");
     },
   },
   {
     id: "S7",
     title: "alternate valid 被接受",
-    async run(page) {
-      const plan = (page as unknown as { __plan?: ReturnType<typeof loadGoldenPlan> }).__plan!;
+    async run(page, _task, plan) {
       const alternate = alternateUtterance(plan);
       test.skip(!alternate, "无 alternate 路线");
       await answer(page, alternate!);
-      await waitForAwaitingInput(page);
+      await waitForTutorState(page, "awaitingInput");
     },
   },
   {
     id: "S8",
     title: "Confirm 只说话、Wait 零动作",
-    async run(page, plan) {
+    async run(page, _task, plan) {
       await answer(page, expectedFor(plan)(await currentCheckpoint(page)));
-      await waitForAwaitingInput(page);
-      expect(await page.locator(".tutor-workspace").count()).toBe(0);
+      await waitForTutorState(page, "awaitingInput");
+      expect(await page.getByTestId("action-runtime-workspace").count()).toBe(0);
     },
   },
   {
     id: "S9",
     title: "错答被拒后可重试（浏览器面：typed evaluator 拒绝）",
-    async run(page, plan) {
+    async run(page, task, plan) {
       await progressUntilWorkspace(page, plan);
-      await submitWorkspace(page, "明显错误的答案");
+      const wrong = task.action === "select-option" ? "__wrong__" : task.action === "make-parallel"
+        ? JSON.stringify({ point: { id: "B", x: 300, y: 220 }, mid: { x: 180, y: 220 } })
+        : "明显错误的答案";
+      await submitWorkspace(page, task, wrong);
       await page.waitForTimeout(800);
-      await expect(page.locator(".tutor-workspace")).toBeVisible({ timeout: e2eTimeout(20_000) });
+      await expect(page.getByTestId("action-runtime-workspace")).toBeVisible({ timeout: e2eTimeout(20_000) });
     },
   },
   {
@@ -149,44 +144,55 @@ const SCRIPTS: ScriptDriver[] = [
     async run(page) {
       for (let index = 0; index < 3; index += 1) {
         await answer(page, "嗯……不知道");
-        await waitForAwaitingInput(page);
+        await waitForTutorState(page, "awaitingInput");
       }
     },
   },
   {
     id: "S11",
     title: "多级提示后自答回到正轨",
-    async run(page, plan) {
+    async run(page, _task, plan) {
       for (let index = 0; index < 4; index += 1) {
         await answer(page, deviationUtterance(plan));
-        await waitForAwaitingInput(page);
+        await waitForTutorState(page, "awaitingInput");
       }
       await answer(page, expectedFor(plan)(await currentCheckpoint(page)));
-      await waitForAwaitingInput(page);
+      await waitForTutorState(page, "awaitingInput");
     },
   },
   {
     id: "S12",
     title: "操作步完成（学生正确操作被接受）",
-    async run(page, plan) {
+    async run(page, task, plan) {
       await progressUntilWorkspace(page, plan);
       const resource = plan.resources.find((entry) => entry.kind === "action_template");
-      const template = JSON.parse(resource?.content ?? "{}") as { teachingInput?: { expectedValues?: string[] } };
-      await submitWorkspace(page, template.teachingInput?.expectedValues?.[0] ?? "1");
+      const template = JSON.parse(resource?.content ?? "{}") as {
+        teachingInput?: { expectedValues?: string[]; throughPointId?: string; referenceLineId?: string };
+      };
+      let value: string | undefined;
+      if (task.action === "enter-text") value = template.teachingInput?.expectedValues?.[0] ?? "1";
+      if (task.action === "make-parallel") {
+        // 证据值由 E2E 从 canonical plan 文件派生（测试侧而非页面侧）。
+        value = JSON.stringify({
+          point: template.teachingInput?.throughPointId === "C" ? { id: "C", x: 120, y: 60 } : { id: "A", x: 60, y: 220 },
+          mid: template.teachingInput?.referenceLineId === "AB" ? { x: 180, y: 220 } : { x: 210, y: 140 },
+        });
+      }
+      await submitWorkspace(page, task, value);
       await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|完成/, { timeout: e2eTimeout(25_000) });
     },
   },
 ];
 
-test.describe("tutor E2E 矩阵（12 剧本 × 6 plan = 72 场景）", () => {
-  for (const tpId of GOLDEN_TP_IDS) {
+test.describe("tutor E2E 矩阵（12 剧本 × 6 合成 plan = 72 场景，/learn/:taskId 驱动）", () => {
+  for (const task of E2E_TASKS) {
     for (const script of SCRIPTS) {
-      test(`${tpId} ${script.id}：${script.title}`, async ({ page }, testInfo) => {
-        const plan = loadGoldenPlan(tpId);
-        (page as unknown as { __plan?: ReturnType<typeof loadGoldenPlan> }).__plan = plan;
+      test(`${task.taskId} ${script.id}：${script.title}`, async ({ page }, testInfo) => {
+        const plan = loadGoldenPlan(task.tpId);
+        await prepareStudent(page);
         await installTutorHarness(page, testInfo);
-        await openSession(page, tpId);
-        await script.run(page, plan);
+        await openSession(page, task.taskId);
+        await script.run(page, task, plan);
         expectNoTruthLeak(page);
       });
     }

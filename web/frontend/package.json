@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "benchmark:voice": "playwright test --config=playwright.config.ts",
     "benchmark:voice:summary": "node benchmarks/voice/scripts/summarize.mjs",
-    "benchmark:voice:install": "playwright install chromium"
+    "benchmark:voice:install": "playwright install chromium",
+    "test:e2e:tutor": "playwright test --config=playwright.tutor.config.ts"
   },
   "dependencies": {
     "@xstate/react": "^6.1.0",
