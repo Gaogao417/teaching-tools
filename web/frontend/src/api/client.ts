@@ -29,6 +29,15 @@ import type {
 import { assertExercisePlan, isActionCheckpointResponse, isActionEvaluationResponse, isActionPlanResponse, isCoachResponse, isCoachTurnResponse, isDirectSpeechResponse } from "../../../shared/actionRuntime";
 import { isTrainingReceipt, type TrainingCheckpoint, type TrainingReceipt, type TrainingResult } from "../../../shared/trainingRuntime";
 import { isCoachTurnEvent, type CoachTurnEvent, type VoiceTelemetryEvent } from "../../../shared/coachMedia";
+import {
+  isTutorExperienceResponse,
+  isTutorSessionView,
+  isTutorTurnResponse,
+  type LearnExperienceResponse,
+  type TutorSessionView,
+  type TutorStudentInput,
+  type TutorTurnResponse,
+} from "../../../shared/tutorExperience";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
@@ -211,4 +220,58 @@ export const api = {
     }),
   getResult: (sessionId: string) =>
     request<ResultSnapshot>(`/api/practice/result/${sessionId}`),
+  // ----------------------------------------------------------------------- //
+  // Phase 5 UI 集成（波次 C）：Tutor 学习体验（原 features/tutor-session 的
+  // 请求能力迁入；类型在 shared/tutorExperience.ts）。
+  // ----------------------------------------------------------------------- //
+  startLearnExperience: async (taskId: TaskId, body: { studentId: string; switchFromSessionId?: string }): Promise<LearnExperienceResponse> => {
+    const response = await request<unknown>(`/api/learn/${taskId}/experience`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const result = response as LearnExperienceResponse;
+    if (result.kind === "tutor" && !isTutorExperienceResponse(response)) {
+      throw new Error("Invalid tutor experience response");
+    }
+    return result;
+  },
+  getTutorSession: async (sessionId: string): Promise<TutorSessionView> => {
+    const response = await request<unknown>(`/api/tutor-sessions/${sessionId}`);
+    if (!isTutorSessionView(response)) throw new Error("Invalid tutor session view");
+    return response;
+  },
+  submitTutorTurn: async (
+    sessionId: string,
+    clientTurnId: string,
+    expectedRevision: number,
+    input: TutorStudentInput,
+  ): Promise<TutorTurnResponse> => {
+    const response = await request<unknown>(`/api/tutor-sessions/${sessionId}/turns`, {
+      method: "POST",
+      body: JSON.stringify({ clientTurnId, expectedRevision, input }),
+    });
+    if (!isTutorTurnResponse(response)) throw new Error("Invalid tutor turn response");
+    return response;
+  },
+  completeTutorVoice: async (
+    sessionId: string,
+    actionId: string,
+    outcome: "completed" | "interrupted" | "rejected" | "failed",
+  ): Promise<TutorTurnResponse | null> => {
+    const response = await request<unknown>(`/api/tutor-sessions/${sessionId}/voice-completions`, {
+      method: "POST",
+      body: JSON.stringify({ action_id: actionId, outcome }),
+    });
+    return isTutorTurnResponse(response) ? response : null;
+  },
+  completeTutorSession: (sessionId: string, reason = "finished"): Promise<{ session_id: string; completed: boolean }> =>
+    request(`/api/tutor-sessions/${sessionId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  tutorAsr: (sessionId: string, audio: { dataUrl: string; durationMs?: number }): Promise<{ transcript: string; model: string }> =>
+    request(`/api/tutor-sessions/${sessionId}/asr`, {
+      method: "POST",
+      body: JSON.stringify({ audio: { dataUrl: audio.dataUrl, durationMs: audio.durationMs } }),
+    }),
 };

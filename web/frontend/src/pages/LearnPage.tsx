@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import type {
   ClientDraftState,
   ExerciseRuntimeSpec,
@@ -15,9 +15,13 @@ import { topicNodeByTaskId } from "../../../shared/similarityLearningMap";
 import type { ExercisePlan } from "../../../shared/actionRuntime";
 import { ActionRuntimeFrame } from "../action-runtime/react/ActionRuntimeFrame";
 import { actionMachineRegistry } from "../action-runtime/registry";
+import { TutorLearnExperience } from "./learn/TutorLearnExperience";
+import type { TutorExperienceResponse } from "../../../shared/tutorExperience";
 
 const EMPTY_DRAFT: ClientDraftState = { selections: {}, inputs: {} };
 const ACTION_RUNTIME_V2_ENABLED = import.meta.env.VITE_ACTION_RUNTIME_V2 !== "false";
+/** Phase 5 UI 集成：/learn/:taskId 先问 /experience；tutor 分流到 Tutor 工作台。 */
+type ExperienceMode = "pending" | "tutor" | "legacy";
 
 function runtimeAtStep(projection: LearningProjectionSpec, stepIndex: number): ExerciseRuntimeSpec {
   const active = projection.steps[stepIndex];
@@ -63,7 +67,16 @@ function runtimeAtStep(projection: LearningProjectionSpec, stepIndex: number): E
 export function LearnPage() {
   const { taskId } = useParams<{ taskId: TaskId }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const restoreSessionId = searchParams.get("session") ?? undefined;
   const { focusedTask, setFocusedTaskId, studentName } = useOutletContext<WorkspaceOutletContext>();
+  const [experienceMode, setExperienceMode] = useState<ExperienceMode>("pending");
+  const [experienceError, setExperienceError] = useState<string | undefined>();
+  const [experienceNonce, setExperienceNonce] = useState(0);
+  const [tutorInitial, setTutorInitial] = useState<TutorExperienceResponse | undefined>();
+  /** /experience 有副作用（创建会话）：每个 taskId+nonce 只允许问一次
+   *  （StrictMode 效应双跑也不重复建会话；结果交给组件采用）。 */
+  const experienceAskedRef = useRef("");
   const [projection, setProjection] = useState<LearningProjectionSpec | null>(null);
   const [actionPlan, setActionPlan] = useState<ExercisePlan | null>(null);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
@@ -72,12 +85,44 @@ export function LearnPage() {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const inertRef = useRef<HTMLDivElement | null>(null);
 
+  // Phase 5 UI 集成：/experience 是学习入口权威——kind=tutor 分流到 Tutor
+  // 工作台；kind=legacy 才装载原 LearningProjection/ActionPlan。fail-closed
+  // 错误（Binding stale 等 409/403）显示错误面 + 重试，不静默回 legacy。
   useEffect(() => {
     if (!taskId) return;
     setFocusedTaskId(taskId);
     setActiveStepIndex(0);
     setDraft(EMPTY_DRAFT);
     setTopicPhase("answering");
+    setExperienceMode("pending");
+    setExperienceError(undefined);
+    setProjection(null);
+    setActionPlan(null);
+  }, [setFocusedTaskId, taskId]);
+
+  useEffect(() => {
+    if (!taskId || !studentName || restoreSessionId) return;
+    const askKey = `${studentName}:${taskId}:${experienceNonce}`;
+    if (experienceAskedRef.current === askKey) return;
+    experienceAskedRef.current = askKey;
+    api.startLearnExperience(taskId, { studentId: studentName })
+      .then((result) => {
+        if (result.kind === "tutor") {
+          setTutorInitial(result);
+          setExperienceMode("tutor");
+        } else {
+          setExperienceMode("legacy");
+        }
+      })
+      .catch((error: unknown) => {
+        // fail closed：/experience 明确报错（409/403/…）不静默回 legacy——
+        // legacy 题面可能与绑定 Question 不同，静默切换等于换题。
+        setExperienceError(error instanceof Error ? error.message : String(error));
+      });
+  }, [studentName, taskId, restoreSessionId, experienceNonce]);
+
+  useEffect(() => {
+    if (!taskId || experienceMode !== "legacy") return;
     let cancelled = false;
     api.getLearningProjection(taskId)
       .then((result) => !cancelled && setProjection(result))
@@ -88,7 +133,7 @@ export function LearnPage() {
         .catch(() => !cancelled && setActionPlan(null));
     }
     return () => { cancelled = true; };
-  }, [setFocusedTaskId, taskId]);
+  }, [experienceMode, taskId]);
 
   useEffect(() => {
     if (!taskId || !studentName || !topicNodeByTaskId(taskId)) return;
@@ -109,6 +154,41 @@ export function LearnPage() {
     [activeStepIndex, projection],
   );
   const activeStep = projection?.steps[activeStepIndex];
+
+  if (experienceMode === "tutor" || restoreSessionId) {
+    return (
+      <TutorLearnExperience
+        key={`${taskId}:${tutorInitial?.session_id ?? restoreSessionId ?? "restore"}`}
+        taskId={taskId!}
+        studentId={studentName}
+        restoreSessionId={restoreSessionId}
+        initial={tutorInitial}
+        onLegacy={() => setExperienceMode("legacy")}
+      />
+    );
+  }
+
+  if (experienceError && experienceMode !== "legacy") {
+    return (
+      <section className="ks-state-page">
+        <span className="eyebrow">学习入口</span>
+        <h1>暂时无法打开这道题的一对一学习</h1>
+        <p role="alert">{experienceError}</p>
+        <button
+          className="btn btn-primary"
+          type="button"
+          onClick={() => {
+            setExperienceError(undefined);
+            setExperienceMode("pending");
+            // 重新触发 /experience（studentName/taskId 不变时靠 key 重挂）。
+            setExperienceNonce((nonce) => nonce + 1);
+          }}
+        >
+          重试
+        </button>
+      </section>
+    );
+  }
 
   if (!projection || !runtime || !activeStep) {
     return (

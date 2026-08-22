@@ -213,3 +213,16 @@ export interface ActionPageRuntime {
   resetFromPlan(plan: ExercisePlan): void;
   stop(): void;
 }
+
+import type { ActionEvaluationRequest, ActionEvaluationResponse } from "../../../shared/actionRuntime";
+
+/**
+ * Phase 5 UI 集成（计划 §3）ActionRuntimeTransport：Tutor 驱动的工作台用
+ * 它把 Action evidence 送回 TutorSession typed evaluator——回应同时携带
+ * ActionEvaluationResponse（更新 Action Runtime）与下一条 TutorTurn（由
+ * transport 实现方消费，更新 Tutor state）。不提供时 Frame 走默认
+ * /api/practice/action-evaluation 传输。
+ */
+export interface ActionRuntimeTransport {
+  submitEvidence(request: ActionEvaluationRequest): Promise<ActionEvaluationResponse>;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   ActionCheckpointSnapshot,
   ActionEvaluationResponse,
@@ -13,6 +13,7 @@ import type { InteractionView, TransientCanvasEmphasis } from "../../geometry/in
 import { GeometryCanvasSurface } from "../../geometry/react/GeometryCanvas";
 import type { ActionRuntimeEvent } from "../../action-runtime/events";
 import type { SolutionBoardView, TransientEmphasis } from "../../action-runtime/types";
+import type { ActionRuntimeTransport } from "../../action-runtime/types";
 import { useActionPageRuntime } from "../../action-runtime/react/useActionPageRuntime";
 import { useCoachController } from "../coach/useCoachController";
 import { useTeacherSpeech } from "../narration/useTeacherSpeech";
@@ -27,6 +28,12 @@ interface ActionRuntimeFrameProps {
   local?: boolean;
   onEvaluation?: (result: ActionEvaluationResponse) => void | Promise<void>;
   onComplete?: () => void;
+  /** Phase 5 UI 集成：Tutor 驱动时 evidence 走 TutorSession typed evaluator，
+   *  且跳过 legacy practice checkpoint（Tutor 会话是唯一权威）。 */
+  transport?: ActionRuntimeTransport;
+  /** 提供时整体替换右侧指导栏（Tutor 体验渲染自己的对话栏，不出现第二个
+   *  legacy Coach——回答/提问走 TutorLearningController）。 */
+  railContent?: ReactNode;
 }
 
 /** Split transient emphasis into the canvas channel (entities + teaching marks). */
@@ -50,7 +57,7 @@ function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoa
   return expressionIds.length ? { key: emphasis.key, expressionIds } : undefined;
 }
 
-export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete }: ActionRuntimeFrameProps) {
+export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent }: ActionRuntimeFrameProps) {
   const storageKey = `action-runtime-v3:${response.sessionId}:${response.plan.exerciseId}`;
   const localCheckpoint = useMemo(() => {
     try {
@@ -119,25 +126,29 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     const key = `${response.sessionId}:${snapshot.revision}:${sourceStepId}:${evidence.map((item) => item.actionId).join(",")}`;
     const idempotencyKey = submissionKeys.current.get(key) || crypto.randomUUID();
     submissionKeys.current.set(key, idempotencyKey);
-    void api.evaluateAction({
+    const request = {
       sessionId: response.sessionId,
       exerciseId: snapshot.plan.exerciseId,
       sourceStepId,
       revision: snapshot.revision,
       evidence,
       idempotencyKey,
-    }).then(async (result) => {
+    };
+    const submit = transport
+      ? () => transport.submitEvidence(request)
+      : () => api.evaluateAction(request);
+    void submit().then(async (result) => {
       runtime.applyEvaluation(result);
       await onEvaluation?.(result);
     }).catch(() => {
       runtime.markTransportFailure();
     });
-  }, [local, snapshot.status, snapshot.currentActionId, snapshot.revision, snapshot.evidence, response.sessionId]);
+  }, [local, snapshot.status, snapshot.currentActionId, snapshot.revision, snapshot.evidence, response.sessionId, transport, onEvaluation]);
 
   useEffect(() => {
-    if (local) return;
+    if (local || transport) return;
     if (snapshot.plan.mode === "guided-practice") return;
-    if (local || snapshot.evidence.length === 0) return;
+    if (snapshot.evidence.length === 0) return;
     void api.checkpointAction({
       sessionId: response.sessionId,
       exerciseId: snapshot.plan.exerciseId,
@@ -146,7 +157,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
       evidence: snapshot.evidence,
       revision: snapshot.revision,
     }).catch(() => undefined);
-  }, [local, response.sessionId, snapshot.completedActionIds.join("|"), snapshot.evidence.length, snapshot.revision]);
+  }, [local, transport, response.sessionId, snapshot.completedActionIds.join("|"), snapshot.evidence.length, snapshot.revision]);
 
   useEffect(() => {
     if (snapshot.plan.mode !== "guided-practice" || action.validationPolicy !== "local-training") return;
@@ -197,11 +208,11 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   }, [storageKey, snapshot.currentActionId, snapshot.completedActionIds, snapshot.evidence, snapshot.revision, view.canvas.selectedObjectIds, view.answer.activeSlotId, runtime]);
 
   useEffect(() => {
-    if (local && snapshot.status === "complete" && !completionNotified.current) {
+    if ((local || transport) && snapshot.status === "complete" && !completionNotified.current) {
       completionNotified.current = true;
       onComplete?.();
     }
-  }, [local, snapshot.status, onComplete]);
+  }, [local, transport, snapshot.status, onComplete]);
 
   // Peripheral awareness: while the coach drawer is collapsed, surface each new
   // piece of guidance as a transient 2-line preview bubble plus a persistent
@@ -312,8 +323,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
         </button>
       }
       prompt={<><span>题目</span><div><h1><MathText value={snapshot.plan.metadata.promptLatex} /></h1></div></>}
-      rail={
-        <aside className={`topic-coach-panel tone-${view.coach.tone}`} aria-label="陪练老师" aria-live="polite">
+      rail={railContent ?? <aside className={`topic-coach-panel tone-${view.coach.tone}`} aria-label="陪练老师" aria-live="polite">
           <div className="topic-coach-header">
             <span className="topic-coach-avatar material-symbols-outlined">{view.coach.avatarId}</span>
             <div><small>{isTeaching ? "教学拍点" : "当前动作"} {view.progress.current}/{view.progress.total}</small><strong>{snapshot.status === "complete" ? "本题讲解完成" : view.title}</strong></div>
@@ -367,8 +377,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
           {coach.recording ? <p className="topic-coach-recording" role="status"><span />正在听，点停止后发送（最长 45 秒）</p> : null}
           {coach.busy ? <p className="topic-coach-thinking" role="status">老师正在结合当前解题状态回答…</p> : null}
           {view.coach.agentCommand && snapshot.plan.mode === "guided-practice" ? <button type="button" className="btn btn-secondary" onClick={() => runtime.applyAgentCommand(view.coach.agentCommand!, true)}>确认执行老师建议</button> : null}
-        </aside>
-      }
+        </aside>}
       actionBarLeft={isTeaching
         ? <div className="topic-action-playback" role="group" aria-label="Action 播放面板">
           <button type="button" className="topic-action-playback-button" aria-label="回到第一个 Action" title="回到第一个 Action" disabled={disabled || (currentActionIndex === 0 && snapshot.status !== "complete")} onClick={() => runtime.seekTeaching(snapshot.plan.actions[0].actionId)}><span className="material-symbols-outlined">first_page</span></button>
@@ -399,6 +408,12 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
         data-action-state={runtime.getTrace().actionState}
         data-selected={runtime.getTrace().selectedObjectIds.join(",")}
       >
+        {/* Tutor transport（rail 被替换）时 wrong 反馈落工作区，不依赖 coach 栏。 */}
+        {snapshot.status === "wrong" && snapshot.wrongMessage ? (
+          <div className="topic-coach-message is-wrong" role="status" data-testid="runtime-wrong-feedback">
+            <MathText value={snapshot.wrongMessage} block />
+          </div>
+        ) : null}
         <div className="artifact-math-object has-diagram">
           <section className="artifact-diagram-stage">
             {model ? <GeometryCanvasSurface model={model} view={canvasView} onClickEntity={clickEntity} modelVersion={snapshot.revision + snapshot.world.commandBatches.length} /> : view.canvas.diagramAsset ? <img src={view.canvas.diagramAsset} alt="题目图形" /> : null}
