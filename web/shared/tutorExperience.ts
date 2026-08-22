@@ -11,6 +11,7 @@ import type {
   ActionEvaluationResponse,
   ExercisePlan,
 } from "./actionRuntime";
+import type { TopicGeometryModel } from "./topicPractice";
 
 export type TutorInputKind =
   | "reasoning_utterance"
@@ -82,6 +83,13 @@ export interface TutorQuestionView {
   artifact_id: string;
   stem: string;
   subquestions: Array<{ part_id: string; prompt: string }>;
+  /**
+   * 开场讲解的题目画布（波次 C-2 裁定 1）：authored 学生安全
+   * TopicGeometryModel（viewBox/points/segments；backend 已剥掉
+   * derivedLines/teachingMarks 运行时投影），与 workspace
+   * `action_plan.world.geometry` 同源同形状。无几何题目缺省。
+   */
+  geometry?: TopicGeometryModel;
 }
 
 export interface TutorSessionView {

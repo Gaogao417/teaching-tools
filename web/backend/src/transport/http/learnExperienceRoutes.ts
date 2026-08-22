@@ -31,6 +31,7 @@ import {
   type TopicQuestionSelectionError,
 } from "../../services/tutorSession/topicQuestionExperience";
 import { tutorOpeningBody } from "./tutorSessionRoutes";
+import { studentQuestionGeometry } from "../../services/tutorPresentation/adapters/legacyActionRuntime/workspacePlanProjector";
 
 const experienceSchema = z.object({
   studentId: z.string().trim().min(1).max(64),
@@ -148,6 +149,7 @@ export function createLearnExperienceRoutes(options: LearnExperienceRoutesOption
       const turn = await coordinator.driveTutorTurn(sessionId, { kind: "system", reason: "session_started" });
 
       const hasAlternate = selection.binding.teaching_variants.some((entry) => entry.role === "alternate");
+      const questionGeometry = studentQuestionGeometry(selection.plan);
       res.status(previous ? 201 : 200).json({
         kind: "tutor",
         task_id: selection.binding.task_id,
@@ -170,6 +172,8 @@ export function createLearnExperienceRoutes(options: LearnExperienceRoutesOption
             part_id: entry.part_id,
             prompt: entry.prompt,
           })),
+          // 波次 C-2 裁定 1：开场讲解的题目画布（authored 学生安全面；无几何缺省）。
+          ...(questionGeometry ? { geometry: questionGeometry } : {}),
         },
         session_id: sessionId,
         ...(previous ? { previous_session_id: previous, switch_reason: "alternate_approach" } : {}),

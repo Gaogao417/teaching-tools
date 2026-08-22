@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 
 import type { ActionEvidence, ActionEvaluationResponse, AuthoredActionTemplate } from "../../../../shared/actionRuntime";
+import type { TopicGeometryModel } from "../../../../shared/topicPractice";
 import {
   type Alignment,
   type InputKind,
@@ -59,7 +60,7 @@ import {
   truthAnswerForPart,
 } from "../planBuild/canonicalInputs";
 import type { PolicyProfileSnapshot, PolicyProviderKind } from "./topicQuestionExperience";
-import type { TutorWorkspacePlanContext } from "../tutorPresentation/adapters/legacyActionRuntime/workspacePlanProjector";
+import { studentQuestionGeometry, type TutorWorkspacePlanContext } from "../tutorPresentation/adapters/legacyActionRuntime/workspacePlanProjector";
 import { projectApprovedPlan, type RuntimeProjectionBody } from "../planBuild/MaterializeTutorPlan";
 import { buildRuntimeRegistrySnapshot, type RuntimeRegistrySnapshot } from "../planBuild/RuntimeRegistrySnapshot";
 import { createDecideTutorMove } from "../tutorPolicy/DecideTutorMove";
@@ -1944,7 +1945,13 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     pending_workspace: ValidatedWorkspaceAction[];
     event_cursor: number;
     task_id?: string;
-    question?: { artifact_id: string; stem: string; subquestions: Array<{ part_id: string; prompt: string }> };
+    question?: {
+      artifact_id: string;
+      stem: string;
+      subquestions: Array<{ part_id: string; prompt: string }>;
+      /** 波次 C-2 裁定 1：开场讲解题目画布（authored 学生安全面；无几何缺省）。 */
+      geometry?: TopicGeometryModel;
+    };
     alternates_available?: boolean;
   } {
     const { context, events, state, revision } = loadSession(sessionId);
@@ -2004,20 +2011,24 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       event_cursor: events.at(-1)?.sequence ?? 0,
       // 刷新恢复的题目/讲法上下文（v4 binding 会话；truth 学生安全面）。
       ...(context.experience
-        ? {
-            task_id: context.experience.task_id,
-            question: {
-              artifact_id: context.truth.artifact_id,
-              stem: context.truth.stem,
-              subquestions: (context.truth.subquestions ?? []).map((entry) => ({
-                part_id: entry.part_id,
-                prompt: entry.prompt,
-              })),
-            },
-            ...(context.experience.alternates_available !== undefined
-              ? { alternates_available: context.experience.alternates_available }
-              : {}),
-          }
+        ? (() => {
+            const geometry = studentQuestionGeometry(context.plan);
+            return {
+              task_id: context.experience.task_id,
+              question: {
+                artifact_id: context.truth.artifact_id,
+                stem: context.truth.stem,
+                subquestions: (context.truth.subquestions ?? []).map((entry) => ({
+                  part_id: entry.part_id,
+                  prompt: entry.prompt,
+                })),
+                ...(geometry ? { geometry } : {}),
+              },
+              ...(context.experience.alternates_available !== undefined
+                ? { alternates_available: context.experience.alternates_available }
+                : {}),
+            };
+          })()
         : {}),
     };
   }

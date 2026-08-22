@@ -149,6 +149,20 @@
   line-height: 1.7;
 }
 
+/* 波次 C-2 裁定 1：开场讲解的只读题目画布（authored 学生安全面）。
+   只占一行自然高度，不与 workspace 两列 grid 混用。 */
+.tutor-learn-figure {
+  min-height: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: var(--color-panel);
+}
+
+.tutor-learn-figure .artifact-diagram-stage {
+  padding: var(--space-3);
+}
+
 .tutor-learn-done {
   display: flex;
   flex-direction: column;

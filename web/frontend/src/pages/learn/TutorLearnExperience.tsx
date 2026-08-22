@@ -13,7 +13,7 @@
  *   evaluator），不出现第二个 legacy Coach；
  * - 同题换讲法（alternates_available）与题目完成推进（学习下一题/开始训练）。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { ActionRuntimeFrame } from "../../action-runtime/react/ActionRuntimeFrame";
@@ -21,9 +21,13 @@ import { workspaceActionResponse, useTutorLearning } from "../../action-runtime/
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
 import { MathText } from "../../components/math/MathText";
 import { useCoachRecorder } from "../../presentation/coach/useCoachRecorder";
+import { buildGeometryModel } from "../../geometry/adapters/topicGeometryModel";
+import { GeometryCanvasSurface } from "../../geometry/react/GeometryCanvas";
+import type { InteractionView } from "../../geometry/interaction/interaction-view";
 import { api } from "../../api/client";
 import { topicNodeByTaskId } from "../../../../shared/similarityLearningMap";
 import type { TaskId } from "../../../../shared/contracts";
+import type { TopicGeometryModel } from "../../../../shared/topicPractice";
 import type { TutorExperienceResponse } from "../../../../shared/tutorExperience";
 
 const PHASE_LABELS: Record<string, string> = {
@@ -316,7 +320,42 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
             <p className="tutor-learn-subquestion">{PHASE_LABELS[tutor.phase] ?? tutor.phase}</p>
           )}
         </section>
+        {question?.geometry ? <TutorQuestionFigure geometry={question.geometry} /> : null}
       </FocusWorkspace>
+    </div>
+  );
+}
+
+/**
+ * 波次 C-2 裁定 1：开场讲解（无 workspace 回合）的只读题目画布。
+ * 复用 GeometryCanvasSurface 渲染服务端下发的 authored 学生安全
+ * TopicGeometryModel；实体全部 disabled（board 命中测试只认 enabled）、
+ * 无确认按钮、不产生 evidence——讲解回合不冒充操作回合的 workspace 合同。
+ */
+function TutorQuestionFigure({ geometry }: { geometry: TopicGeometryModel }) {
+  const model = useMemo(() => buildGeometryModel(geometry), [geometry]);
+  const view = useMemo<InteractionView>(() => ({
+    prompt: "题目图形",
+    entities: {
+      ...Object.fromEntries(geometry.points.map((point) => [point.id, {
+        id: point.id, kind: "point" as const, enabled: false, expected: false, visualState: "idle" as const,
+      }])),
+      ...Object.fromEntries(geometry.segments.map((segment) => [segment.id, {
+        id: segment.id, kind: "line" as const, enabled: false, expected: false, visualState: "idle" as const,
+      }])),
+    },
+    selected: [],
+    cursor: "default",
+    canCancel: false,
+    canGoBack: false,
+  }), [geometry]);
+  return (
+    <div className="tutor-learn-figure">
+      <div className="artifact-math-object has-diagram">
+        <section className="artifact-diagram-stage" aria-label="题目图形">
+          <GeometryCanvasSurface model={model} view={view} onClickEntity={() => undefined} modelVersion={1} />
+        </section>
+      </div>
     </div>
   );
 }

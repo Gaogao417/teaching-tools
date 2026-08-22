@@ -36,6 +36,29 @@ function isTopicGeometryModel(value: unknown): value is TopicGeometryModel {
   return Boolean(candidate.viewBox && Array.isArray(candidate.points) && Array.isArray(candidate.segments));
 }
 
+/**
+ * 开场讲解的题目画布（波次 C-2 裁定 1）：从 plan 的 action_template 资源提取
+ * authored TopicGeometryModel，裁剪为学生安全面——只保留 viewBox/points/
+ * segments（题目配图），剥掉 derivedLines/teachingMarks（Action Runtime
+ * 命令产生的运行时投影，不是题面内容）。与 buildTutorWorkspacePlan 消费的
+ * `input.geometry` 同源同形状；无几何动作资源的 plan 返回 undefined。
+ */
+export function studentQuestionGeometry(plan: Pick<TutorPlanV2Payload, "resources">): TopicGeometryModel | undefined {
+  for (const resource of plan.resources) {
+    if (resource.kind !== "action_template") continue;
+    let template: { input?: { geometry?: unknown } } | undefined;
+    try {
+      template = JSON.parse(resource.content ?? "{}") as { input?: { geometry?: unknown } };
+    } catch {
+      continue;
+    }
+    const raw = template?.input?.geometry;
+    if (!isTopicGeometryModel(raw)) continue;
+    return { viewBox: raw.viewBox, points: raw.points, segments: raw.segments };
+  }
+  return undefined;
+}
+
 export function buildTutorWorkspacePlan(
   plan: TutorPlanV2Payload,
   template: AuthoredActionTemplate,

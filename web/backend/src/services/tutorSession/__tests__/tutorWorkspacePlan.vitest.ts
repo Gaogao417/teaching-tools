@@ -21,7 +21,7 @@ import { createTutorSessionRoutes } from "../../../transport/http/tutorSessionRo
 import { isExercisePlan } from "../../../../../shared/actionRuntime";
 import type { AuthoredActionTemplate } from "../../../../../shared/actionRuntime";
 import { materializeActionTemplate } from "../../actionRuntime/topicPlanProjector";
-import { buildTutorWorkspacePlan } from "../../tutorPresentation/adapters/legacyActionRuntime/workspacePlanProjector";
+import { buildTutorWorkspacePlan, studentQuestionGeometry } from "../../tutorPresentation/adapters/legacyActionRuntime/workspacePlanProjector";
 import type { TutorPlanV2Payload } from "../../planBuild/canonicalInputs";
 
 const root = tempRoot("workspace-plan");
@@ -30,6 +30,14 @@ publishSyntheticV3Experience(root, {
   tpId: "TP-TST-921",
   taskId: "task-workspace-921",
   scenarioId: "SC-TST-921",
+});
+// 波次 C-2 裁定 1：几何任务（make-parallel 模板 input.geometry 携带画布）。
+publishSyntheticV3Experience(root, {
+  qtId: "QT-TST-932",
+  tpId: "TP-TST-932",
+  taskId: "task-geometry-932",
+  scenarioId: "SC-TST-932",
+  makeParallelAction: true,
 });
 const coordinator = createTutorSessionCoordinator({ canonicalRoot: root });
 
@@ -108,35 +116,7 @@ async function driveUntilWorkspace(sessionId: string): Promise<any> {
 
 describe("buildTutorWorkspacePlan（纯投影）", () => {
   it("make-parallel 模板（input.geometry）→ isExercisePlan 通过且 world 携带画布", () => {
-    const template: AuthoredActionTemplate = {
-      actionId: "tp:X:1:make-parallel",
-      sourceStepId: "S3",
-      kind: "make-parallel",
-      version: 1,
-      title: "画平行线",
-      instruction: "过点 A 作 AB 的平行线。",
-      input: {
-        availablePointIds: ["A", "B", "C"],
-        availableLineIds: ["AB", "BC"],
-        outputLineId: "L1",
-        geometry: {
-          viewBox: { width: 400, height: 300 },
-          points: [
-            { id: "A", x: 60, y: 220 },
-            { id: "B", x: 300, y: 220 },
-            { id: "C", x: 120, y: 60 },
-          ],
-          segments: [
-            { id: "AB", from: "A", to: "B" },
-            { id: "BC", from: "B", to: "C" },
-          ],
-        },
-      },
-      teachingInput: { throughPointId: "C", referenceLineId: "AB" },
-      capabilities: ["action.make-parallel", "agent:select-object", "agent:set-answer", "agent:back", "agent:clear"],
-      answerSlots: [{ id: "target", label: "平行线", kind: "object", required: true }],
-      submitOnComplete: true,
-    };
+    const template = templateOfMakeParallel("TP-X");
     const plan = planOf("TP-TST-921") as unknown as TutorPlanV2Payload;
     const assessment = materializeActionTemplate(template, "assessment");
     const exercisePlan = buildTutorWorkspacePlan(plan, template, assessment, {
@@ -153,7 +133,68 @@ describe("buildTutorWorkspacePlan（纯投影）", () => {
     expect(serialized).not.toContain("teachingInput");
     expect(serialized).not.toContain("expectedValues");
   });
+
+  it("studentQuestionGeometry：同源提取 + 学生安全裁剪（剥运行时投影）", () => {
+    const templateWithRuntimeFields: AuthoredActionTemplate = {
+      ...templateOfMakeParallel("TP-X"),
+      input: {
+        ...templateOfMakeParallel("TP-X").input,
+        geometry: {
+          ...templateOfMakeParallel("TP-X").input.geometry!,
+          derivedLines: [{ id: "L9", throughPointId: "C", referenceLineId: "AB", from: "C", to: { x: 1, y: 2 } }],
+          teachingMarks: [{ id: "M1", kind: "angle-arc", anchorIds: ["A"] }],
+        } as never,
+      },
+    };
+    const geometry = studentQuestionGeometry({
+      resources: [
+        { resource_id: "R1", kind: "explanation", source: "authored", content: "not json" },
+        { resource_id: "R2", kind: "action_template", source: "agent_generated", content: JSON.stringify(templateWithRuntimeFields) },
+      ],
+    } as never);
+    expect(geometry).toBeTruthy();
+    expect(geometry?.viewBox).toEqual({ width: 400, height: 300 });
+    expect(geometry?.points.map((point) => point.id)).toEqual(["A", "B", "C"]);
+    expect(geometry?.segments.map((segment) => segment.id)).toEqual(["AB", "BC"]);
+    expect(geometry?.derivedLines).toBeUndefined();
+    expect(geometry?.teachingMarks).toBeUndefined();
+    // 无几何动作资源 → undefined（非几何题缺省，不猜图）。
+    expect(studentQuestionGeometry(planOf("TP-TST-921") as unknown as TutorPlanV2Payload)).toBeUndefined();
+  });
 });
+
+/** 与 build-tutor-e2e-root.ts 同形的 make-parallel 模板（供纯投影测试）。 */
+function templateOfMakeParallel(tpId: string): AuthoredActionTemplate {
+  return {
+    actionId: `tp:${tpId}:1:make-parallel`,
+    sourceStepId: "S3",
+    kind: "make-parallel",
+    version: 1,
+    title: "画平行线",
+    instruction: "过点 A 作 AB 的平行线。",
+    input: {
+      availablePointIds: ["A", "B", "C"],
+      availableLineIds: ["AB", "BC"],
+      outputLineId: "L1",
+      geometry: {
+        viewBox: { width: 400, height: 300 },
+        points: [
+          { id: "A", x: 60, y: 220 },
+          { id: "B", x: 300, y: 220 },
+          { id: "C", x: 120, y: 60 },
+        ],
+        segments: [
+          { id: "AB", from: "A", to: "B" },
+          { id: "BC", from: "B", to: "C" },
+        ],
+      },
+    },
+    teachingInput: { throughPointId: "C", referenceLineId: "AB" },
+    capabilities: ["action.make-parallel", "agent:select-object", "agent:set-answer", "agent:back", "agent:clear"],
+    answerSlots: [{ id: "target", label: "平行线", kind: "object", required: true }],
+    submitOnComplete: true,
+  };
+}
 
 describe("workspace action_plan / action_evaluation（HTTP 经 /experience）", () => {
   it("到达 workspace 步：action_plan 通过 isExercisePlan 且无 truth", async () => {
@@ -177,6 +218,30 @@ describe("workspace action_plan / action_evaluation（HTTP 经 /experience）", 
     expect(view.question.stem).toContain("QT-TST-921");
     expect(view.alternates_available).toBe(false);
     expect(view.question_completed).toBe(false);
+    // 非几何题：question.geometry 缺省（不猜图）。
+    expect(view.question.geometry).toBeUndefined();
+    expect(started.body.question.geometry).toBeUndefined();
+  });
+
+  it("波次 C-2 裁定 1：几何任务 /experience 与 GET 视图都下发 question.geometry（开场画布）", async () => {
+    const started = await call("POST", "/api/learn/task-geometry-932/experience", { studentId: "student-geo" });
+    expect(started.status).toBe(200);
+    // /experience 学生安全面：authored 画布（与 workspace world.geometry 同源同形状）。
+    expect(started.body.question.geometry).toMatchObject({
+      viewBox: { width: 400, height: 300 },
+      points: [{ id: "A" }, { id: "B" }, { id: "C" }],
+      segments: [{ id: "AB" }, { id: "BC" }],
+    });
+    const serialized = JSON.stringify(started.body.question);
+    expect(serialized).not.toContain("derivedLines");
+    expect(serialized).not.toContain("teachingMarks");
+    expect(serialized).not.toContain("localTruth");
+    expect(serialized).not.toContain("teachingInput");
+    expect(serialized).not.toContain("expectedValues");
+
+    // GET :sessionId（刷新恢复面）同一下发。
+    const view = await call("GET", `/api/tutor-sessions/${started.body.session_id}`);
+    expect(view.body.question.geometry).toEqual(started.body.question.geometry);
   });
 
   it("错误 evidence → action_evaluation.rejected（wrong 高亮面）；不崩会话", async () => {

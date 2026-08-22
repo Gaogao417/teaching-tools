@@ -130,6 +130,10 @@ export interface SyntheticPlanOptions {
   parts: number;
   /** 每个 part 的 step 数（默认 3：S1/S2/S3 → 3 checkpoints + alternate route）。 */
   stepsPerPart?: number;
+  /** 波次 C-2 裁定 1：注入 make-parallel 白板动作模板（input.geometry 携带
+   *  authored TopicGeometryModel），替换自动生成的 action_template 资源——
+   *  与 scripts/build-tutor-e2e-root.ts 的 replaceActionWithMakeParallel 同规则。 */
+  makeParallelAction?: boolean;
 }
 
 export function publishSyntheticPlanVt(root: string, options: SyntheticPlanOptions): TutorPlanV2Payload {
@@ -160,6 +164,32 @@ export function publishSyntheticPlanVt(root: string, options: SyntheticPlanOptio
     capabilityPath: ["select-option", "enter-text"],
   });
   if (!build.ok) throw new Error(build.errors.join(";"));
+  if (options.makeParallelAction) {
+    // 与 scripts/build-tutor-e2e-root.ts 同规则：注入 make-parallel 模板后
+    // 必须重算 allowed_capabilities 与 content_hash（approve 前），否则
+    // 五重校验 capability allowlist 拒绝。
+    const draft = build.plan as unknown as {
+      resources: Array<{ resource_id: string; kind: string; capability?: string; checkpoint_id?: string }>;
+      checkpoints: Array<{ checkpoint_id: string }>;
+      policy_constraints: { allowed_capabilities: string[] };
+      content_hash: string;
+    };
+    const lastCheckpointId = draft.checkpoints[draft.checkpoints.length - 1].checkpoint_id;
+    draft.resources = draft.resources.filter((resource) => resource.kind !== "action_template");
+    draft.resources.push({
+      resource_id: `RES${draft.resources.length + 1}`,
+      kind: "action_template",
+      checkpoint_id: lastCheckpointId,
+      source: "agent_generated",
+      action_ref: `tp:${tpId}:1:make-parallel`,
+      capability: "similarity.construct-parallel-helper",
+      content: JSON.stringify(makeParallelActionTemplate(tpId)),
+    } as never);
+    draft.policy_constraints.allowed_capabilities = [
+      ...new Set(draft.resources.flatMap((resource) => (resource.capability ? [resource.capability] : []))),
+    ].sort();
+    draft.content_hash = canonicalHash(build.plan as unknown as Record<string, unknown>, "plan");
+  }
   const inputs = {
     truth,
     approaches: new Map(approaches.map((approach) => [approach.artifact_id, approach] as const)),
@@ -205,6 +235,40 @@ export async function startViaCoordinator(
 // 合成发布（在 publishSyntheticPlanVt 的 v2 管线之上升级为 v3 并登记周边合同）。
 // --------------------------------------------------------------------------- //
 
+/** make-parallel 白板动作模板（与 build-tutor-e2e-root.ts 的同形布局）。 */
+function makeParallelActionTemplate(tpId: string): Record<string, unknown> {
+  return {
+    actionId: `tp:${tpId}:1:make-parallel`,
+    sourceStepId: "S3",
+    kind: "make-parallel",
+    version: 1,
+    title: "作平行线",
+    instruction: "过点 C 作 AB 的平行线。",
+    input: {
+      availablePointIds: ["A", "B", "C"],
+      availableLineIds: ["AB", "BC"],
+      outputLineId: "L1",
+      outputLineLabel: "过 C 的平行线",
+      geometry: {
+        viewBox: { width: 400, height: 300 },
+        points: [
+          { id: "A", x: 60, y: 220 },
+          { id: "B", x: 300, y: 220 },
+          { id: "C", x: 120, y: 60 },
+        ],
+        segments: [
+          { id: "AB", from: "A", to: "B" },
+          { id: "BC", from: "B", to: "C" },
+        ],
+      },
+    },
+    teachingInput: { throughPointId: "C", referenceLineId: "AB" },
+    capabilities: ["similarity.construct-parallel-helper", "agent:select-object", "agent:set-answer", "agent:back", "agent:clear"],
+    answerSlots: [{ id: "target", label: "平行线", kind: "object", required: true }],
+    submitOnComplete: true,
+  };
+}
+
 export interface SyntheticV3ExperienceOptions {
   qtId: string;
   tpId: string;
@@ -213,6 +277,8 @@ export interface SyntheticV3ExperienceOptions {
   taskId: string;
   scenarioId: string;
   profileId?: string;
+  /** 波次 C-2 裁定 1：默认 plan 注入 make-parallel 白板动作（input.geometry）。 */
+  makeParallelAction?: boolean;
 }
 
 export interface SyntheticV3Experience {
@@ -319,7 +385,12 @@ export function publishSyntheticV3Experience(
 ): SyntheticV3Experience {
   const { qtId, tpId, taskId, scenarioId } = options;
   const ppId = options.profileId ?? "PP-TST-001";
-  const v2 = publishSyntheticPlanVt(root, { qtId, tpId, parts: 0 });
+  const v2 = publishSyntheticPlanVt(root, {
+    qtId,
+    tpId,
+    parts: 0,
+    ...(options.makeParallelAction ? { makeParallelAction: true } : {}),
+  });
   const asId = `AS-TST-${qtId.slice(-1)}01`;
   const approachSet = makeApproachSetPayload(qtId, asId, v2 as unknown as Record<string, unknown>, 0);
   // AS 引用的 TA hash 必须与真实发布的 TA 一致（对账用 truth.content_hash
