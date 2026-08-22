@@ -134,6 +134,15 @@ export function resolveCanvasEmphasis(input: {
 }
 
 /**
+ * Rendered-element anchor (波次 F)：给实体元素的 DOM 节点打
+ * `data-geometry-id`——e2e/调试直接按 id 定位真实渲染位置，不再重算
+ * world→pixel 坐标约定（坐标约定换算曾导致 e2e 误判命中缺陷）。
+ */
+function tagGeometryId(element: { rendNode?: HTMLElement }, id: string): void {
+  element.rendNode?.setAttribute("data-geometry-id", id);
+}
+
+/**
  * Mount a JSXGraph board inside `container`, backed by `model`. Returns handles
  * the React layer uses to render, read the pointer, and tear down.
  */
@@ -229,6 +238,7 @@ export function mountGeometryBoard(
           name: point.id,
         },
       ) as JXG.Point;
+      tagGeometryId(el, point.id);
       pointEls.set(point.id, el);
     }
 
@@ -239,7 +249,7 @@ export function mountGeometryBoard(
         const from = pointEls.get(renderFromId);
         const to = pointEls.get(renderToId);
         if (!from || !to) continue;
-        board.create("line", [from, to], {
+        const segment = board.create("line", [from, to], {
           ...(line.derived ? LINE_ATTRS_DERIVED : LINE_ATTRS),
           ...(emphasizedIds.has(line.id) ? { strokeColor: "#0f766e", strokeWidth: 4 } : {}),
           ...entityStyle(entities[line.id]),
@@ -247,6 +257,7 @@ export function mountGeometryBoard(
           layer: 7,
           name: line.id,
         }) as JXG.Line;
+        tagGeometryId(segment, line.id);
       } else {
         // parallel-line: a relation (through + parallelTo). The renderer derives
         // display extent — a helper point offset from `through` along the
@@ -261,7 +272,7 @@ export function mountGeometryBoard(
           model.getPoint(line.through)!.x + dir.dx,
           model.getPoint(line.through)!.y + dir.dy,
         ], { visible: false, fixed: true, withLabel: false, name: "" }) as JXG.Point;
-        board.create("line", [through, helper], {
+        const parallelLine = board.create("line", [through, helper], {
           ...LINE_ATTRS_DERIVED,
           ...(emphasizedIds.has(line.id) ? { strokeColor: "#0f766e", strokeWidth: 4 } : {}),
           ...entityStyle(entities[line.id]),
@@ -273,6 +284,7 @@ export function mountGeometryBoard(
           straightFirst: !end,
           straightLast: !end,
         }) as JXG.Line;
+        tagGeometryId(parallelLine, line.id);
       }
     }
 
@@ -280,7 +292,8 @@ export function mountGeometryBoard(
       const center = pointEls.get(circle.centerId);
       const through = pointEls.get(circle.throughPointId);
       if (!center || !through) continue;
-      board.create("circle", [center, through], { ...CIRCLE_ATTRS, layer: 7, name: circle.id }) as JXG.Circle;
+      const circleEl = board.create("circle", [center, through], { ...CIRCLE_ATTRS, layer: 7, name: circle.id }) as JXG.Circle;
+      tagGeometryId(circleEl, circle.id);
     }
 
     const [minX, maxY, maxX, minY] = model.boundingBox();

@@ -2519,6 +2519,8 @@
   border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-line));
   background: var(--fill-danger-soft);
   box-shadow: 0 8px 24px rgba(15, 43, 30, 0.16);
+  /* 纯提示信息：覆盖在画布下缘但不拦截重试点击（点/线多在画布底部）。 */
+  pointer-events: none;
 }
 
 .action-runtime-workspace .artifact-math-object,

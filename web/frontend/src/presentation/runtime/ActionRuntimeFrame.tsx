@@ -513,7 +513,7 @@ export function ActionAnswerFields({ runtimeSend, disabled, view }: {
   }, [view.coach.focusTargetId, view.answer.activeSlotId, view.actionId]);
   return <div className="topic-answer-inputs">{view.answer.slots.map((slot) => slot.options?.length ? (
     <div className="topic-choice-grid" key={slot.id}>{slot.options.map((option) => (
-      <button key={option.value} type="button" className="btn btn-ghost" disabled={disabled} onClick={() => runtimeSend({ type: "ANSWER.CHANGED", slotId: slot.id, value: option.value })}><MathText value={option.labelLatex} /></button>
+      <button key={option.value} type="button" className="btn btn-ghost" data-option-value={option.value} disabled={disabled} onClick={() => runtimeSend({ type: "ANSWER.CHANGED", slotId: slot.id, value: option.value })}><MathText value={option.labelLatex} /></button>
     ))}</div>
   ) : slot.kind === "object" ? null : (
     <label key={slot.id}><span>{slot.label}</span><input ref={(node) => { refs.current[slot.id] = node; }} id={`action-slot-${slot.id}`} aria-invalid={slot.status === "wrong"} disabled={disabled} inputMode={slot.kind === "number" ? "decimal" : undefined} value={slot.value} placeholder={slot.placeholder} onChange={(event) => runtimeSend({ type: "ANSWER.CHANGED", slotId: slot.id, value: event.target.value })} /></label>
