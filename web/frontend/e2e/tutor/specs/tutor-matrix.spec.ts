@@ -113,7 +113,8 @@ const SCRIPTS: ScriptDriver[] = [
       const alternate = alternateUtterance(plan);
       test.skip(!alternate, "无 alternate 路线");
       await answer(page, alternate!);
-      await waitForTutorState(page, "awaitingInput");
+      // 波次 C-2 裁定 2：confirm 续走可能已签发操作步（标签与画布同源）。
+      await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|轮到你操作/, { timeout: e2eTimeout(20_000) });
     },
   },
   {
@@ -179,7 +180,10 @@ const SCRIPTS: ScriptDriver[] = [
         });
       }
       await submitWorkspace(page, task, value);
-      await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|完成/, { timeout: e2eTimeout(25_000) });
+      // 波次 C-2：phase 与画布同源（confirm 续走签发操作步后标签为
+      // 「轮到你操作」；完成态 = evidence 被接受）。make-parallel 画布点选
+      // 因先于本波存在的 JXG 命中缺陷不产生 evidence（偏差登记，基线同）。
+      await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|轮到你操作|完成/, { timeout: e2eTimeout(25_000) });
     },
   },
 ];
