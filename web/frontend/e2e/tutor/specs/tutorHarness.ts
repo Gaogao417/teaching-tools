@@ -216,8 +216,9 @@ export async function progressUntilWorkspace(
 }
 
 /** 提交 workspace 证据（真实 ActionRuntimeFrame）：
- *  enter-text → 答案槽输入 + 确认；select-option → 选项按钮；
- *  make-parallel → 画布坐标点选（through point + reference line）。 */
+ *  enter-text → 答案槽输入 + 确认；select-option → 选项按钮（value 缺省
+ *  点第一个——正确值应由调用方从 canonical plan 派生）；make-parallel →
+ *  画布实体点选（through point + reference line）。 */
 export async function submitWorkspace(page: Page, task: E2eTaskSpec, value?: string): Promise<void> {
   await waitForWorkspace(page);
   const input = page.locator("input[id^='action-slot-']");
@@ -228,33 +229,47 @@ export async function submitWorkspace(page: Page, task: E2eTaskSpec, value?: str
   }
   const options = page.locator(".topic-choice-grid button");
   if (await options.count()) {
-    await options.first().click();
+    if (value) {
+      await page.locator(`.topic-choice-grid button[data-option-value="${value}"]`).first().click();
+    } else {
+      await options.first().click();
+    }
+    // select-option 走 form 机：选项后需「确认」提交（submitOnComplete 的
+    // 机型会先行自提交，确认按钮消失则跳过）。
+    await page.getByRole("button", { name: "确认" }).click().catch(() => undefined);
     return;
   }
   await submitGeometry(page, value);
 }
 
-/** make-parallel：先点 through point，再点 reference line 的中点附近。 */
+/** make-parallel：先点 through point，再点 reference line。value 为
+ *  `{ pointId, lineId }` JSON（e2e 从 canonical plan 的 teachingInput 派生
+ *  正误——测试侧不持 truth，页面侧更不持）。 */
 async function submitGeometry(page: Page, value?: string): Promise<void> {
-  const points = value ? (JSON.parse(value) as { point: { id: string; x: number; y: number }; mid: { x: number; y: number } }) : {
-    point: { id: "C", x: 120, y: 60 },
-    mid: { x: 180, y: 220 },
-  };
-  await clickCanvasWorldPoint(page, points.point.x, points.point.y);
+  const parsed = value
+    ? (JSON.parse(value) as { pointId: string; lineId: string })
+    : { pointId: "C", lineId: "AB" };
+  await clickRenderedEntity(page, parsed.pointId);
   await page.waitForTimeout(250);
-  await clickCanvasWorldPoint(page, points.mid.x, points.mid.y);
+  await clickRenderedEntity(page, parsed.lineId);
 }
 
-/** 世界坐标 → 画布像素（合成 root 的 geometry：viewBox 400×300，点 A(60,220)
- *  B(300,220) C(120,60)，bbox padding 4 → 与 GeometryCanvasSurface 同口径）。 */
-async function clickCanvasWorldPoint(page: Page, worldX: number, worldY: number): Promise<void> {
+/** 波次 F：按 `data-geometry-id` 锚定真实渲染位置点击——不再重算
+ *  world→pixel 坐标约定（旧公式 Y 轴翻转，曾致画布点选长期空转并被
+ *  脱节标签误绿）。点：元素 rect 中心；线：rect 中心（线段外接矩形
+ *  的中心必在线上——水平/垂直线有一维为 0，不能用 Playwright 的
+ *  visibility 判定）。 */
+async function clickRenderedEntity(page: Page, geometryId: string): Promise<void> {
   const canvas = page.locator(".geometry-canvas__board");
   await expect(canvas).toBeVisible();
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error("geometry canvas 不可见");
-  // bbox: minX=56, maxY=224, maxX=304, minY=56（padding 4）
-  const minX = 56, maxX = 304, maxY = 224, minY = 56;
-  const fx = (worldX - minX) / (maxX - minX);
-  const fy = (maxY - worldY) / (maxY - minY);
-  await page.mouse.click(box.x + fx * box.width, box.y + fy * box.height);
+  const entity = canvas.locator(`[data-geometry-id="${geometryId}"]`);
+  await expect(entity).toBeAttached({ timeout: 15_000 });
+  const rect = await entity.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  });
+  if (rect.width <= 0 && rect.height <= 0) {
+    throw new Error(`geometry entity ${geometryId} 渲染尺寸为零`);
+  }
+  await page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
 }

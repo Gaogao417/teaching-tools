@@ -131,9 +131,20 @@ const SCRIPTS: ScriptDriver[] = [
     title: "错答被拒后可重试（浏览器面：typed evaluator 拒绝）",
     async run(page, task, plan) {
       await progressUntilWorkspace(page, plan);
-      const wrong = task.action === "select-option" ? "__wrong__" : task.action === "make-parallel"
-        ? JSON.stringify({ point: { id: "B", x: 300, y: 220 }, mid: { x: 180, y: 220 } })
-        : "明显错误的答案";
+      let wrong: string | undefined;
+      if (task.action === "select-option") {
+        // 从 canonical plan 派生一个真实存在的错误选项（按值点击按钮）。
+        const resource = plan.resources.find((entry) => entry.kind === "action_template");
+        const template = JSON.parse(resource?.content ?? "{}") as {
+          input?: { options?: Array<{ value: string }> };
+          teachingInput?: { expectedValue?: string };
+        };
+        wrong = template.input?.options?.find((option) => option.value !== template.teachingInput?.expectedValue)?.value;
+      } else if (task.action === "make-parallel") {
+        wrong = JSON.stringify({ pointId: "B", lineId: "AB" });
+      } else {
+        wrong = "明显错误的答案";
+      }
       await submitWorkspace(page, task, wrong);
       await page.waitForTimeout(800);
       await expect(page.getByTestId("action-runtime-workspace")).toBeVisible({ timeout: e2eTimeout(20_000) });
@@ -168,22 +179,21 @@ const SCRIPTS: ScriptDriver[] = [
       await progressUntilWorkspace(page, plan);
       const resource = plan.resources.find((entry) => entry.kind === "action_template");
       const template = JSON.parse(resource?.content ?? "{}") as {
-        teachingInput?: { expectedValues?: string[]; throughPointId?: string; referenceLineId?: string };
+        teachingInput?: { expectedValues?: string[]; expectedValue?: string; throughPointId?: string; referenceLineId?: string };
       };
       let value: string | undefined;
       if (task.action === "enter-text") value = template.teachingInput?.expectedValues?.[0] ?? "1";
+      if (task.action === "select-option") value = template.teachingInput?.expectedValue ?? "opt-a";
       if (task.action === "make-parallel") {
         // 证据值由 E2E 从 canonical plan 文件派生（测试侧而非页面侧）。
         value = JSON.stringify({
-          point: template.teachingInput?.throughPointId === "C" ? { id: "C", x: 120, y: 60 } : { id: "A", x: 60, y: 220 },
-          mid: template.teachingInput?.referenceLineId === "AB" ? { x: 180, y: 220 } : { x: 210, y: 140 },
+          pointId: template.teachingInput?.throughPointId ?? "C",
+          lineId: template.teachingInput?.referenceLineId ?? "AB",
         });
       }
       await submitWorkspace(page, task, value);
-      // 波次 C-2：phase 与画布同源（confirm 续走签发操作步后标签为
-      // 「轮到你操作」；完成态 = evidence 被接受）。make-parallel 画布点选
-      // 因先于本波存在的 JXG 命中缺陷不产生 evidence（偏差登记，基线同）。
-      await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|轮到你操作|完成/, { timeout: e2eTimeout(25_000) });
+      // 波次 F：画布点选真实提交后恢复严格口径——完成态 = evidence 被接受。
+      await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|完成/, { timeout: e2eTimeout(25_000) });
     },
   },
 ];

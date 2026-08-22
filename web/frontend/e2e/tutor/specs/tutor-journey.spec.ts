@@ -132,26 +132,24 @@ test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () =>
     await progressUntilWorkspace(page, plan);
     await expect(page.locator(".geometry-canvas")).toBeVisible({ timeout: 15_000 });
 
-    // 先交一个错选（点 B + AB 中点 → reference 对但 through 错）。
-    const wrong = JSON.stringify({ point: { id: "B", x: 300, y: 220 }, mid: { x: 180, y: 220 } });
+    // 先交一个错选（点 B + AB → reference 对但 through 错）。
+    const wrong = JSON.stringify({ pointId: "B", lineId: "AB" });
     await submitWorkspace(page, geometryTask, wrong);
-    await page.waitForTimeout(800);
+    // 波次 F：画布点选按渲染元素锚定（Y 翻转修复后真实提交）——错选被
+    // typed evaluator 拒绝，Runtime 反馈横幅出现，会话不崩。
+    await expect(page.getByTestId("runtime-wrong-feedback")).toBeVisible({ timeout: e2eTimeout(15_000) });
     await expect(page.getByTestId("action-runtime-workspace")).toBeVisible({ timeout: e2eTimeout(15_000) });
 
-    // 正确：过 C 作 AB 平行线。
+    // 正确：过 C 作 AB 平行线（期望值由测试侧从 canonical plan 派生）。
     const actionResource = plan.resources.find((entry) => entry.kind === "action_template");
     const template = JSON.parse(actionResource?.content ?? "{}") as { teachingInput?: { throughPointId?: string; referenceLineId?: string } };
     expect(template.teachingInput?.throughPointId).toBeTruthy();
     const correct = JSON.stringify({
-      point: template.teachingInput?.throughPointId === "C" ? { id: "C", x: 120, y: 60 } : { id: "A", x: 60, y: 220 },
-      mid: template.teachingInput?.referenceLineId === "AB" ? { x: 180, y: 220 } : { x: 210, y: 140 },
+      pointId: template.teachingInput?.throughPointId ?? "C",
+      lineId: template.teachingInput?.referenceLineId ?? "AB",
     });
     await submitWorkspace(page, geometryTask, correct);
-    // 波次 C-2 偏差登记：JXG board 鼠标坐标换算与其渲染不一致（画布点选
-    // 从未真正产生 evidence——基线即如此，靠脱节标签误绿；phase 修正后
-    // 标签诚实停在「轮到你操作」）。evidence 判定链由 enter-text/select-option
-    // 任务与 backend 用例覆盖；画布命中缺陷待用户裁定后另行修复。
-    await expect(page.getByTestId("tutor-state")).toContainText(/轮到你操作|完成/, { timeout: 25_000 });
+    await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|完成/, { timeout: 25_000 });
     expectNoTruthLeak(page);
   });
 
