@@ -34,6 +34,11 @@ interface ActionRuntimeFrameProps {
   /** 提供时整体替换右侧指导栏（Tutor 体验渲染自己的对话栏，不出现第二个
    *  legacy Coach——回答/提问走 TutorLearningController）。 */
   railContent?: ReactNode;
+  /** 波次 E（教师反馈「topic coach dock 被抛弃了」）：受控 dock 开合——
+   *  railContent 场景下调用方（Tutor 体验）持有与无工作台分支同一份
+   *  railOpen 状态，dock 收起/展开跨分支一致；缺省回退 Frame 内部状态。 */
+  railOpen?: boolean;
+  onRailOpenChange?: (open: boolean) => void;
 }
 
 /** Split transient emphasis into the canvas channel (entities + teaching marks). */
@@ -57,7 +62,7 @@ function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoa
   return expressionIds.length ? { key: emphasis.key, expressionIds } : undefined;
 }
 
-export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent }: ActionRuntimeFrameProps) {
+export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railOpen: railOpenProp, onRailOpenChange }: ActionRuntimeFrameProps) {
   const storageKey = `action-runtime-v3:${response.sessionId}:${response.plan.exerciseId}`;
   const localCheckpoint = useMemo(() => {
     try {
@@ -82,7 +87,12 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   const submissionKeys = useRef(new Map<string, string>());
   const completionNotified = useRef(false);
   const trainingCompletionNotified = useRef(false);
-  const [railOpen, setRailOpen] = useState(false);
+  const [internalRailOpen, setInternalRailOpen] = useState(false);
+  const railOpen = railOpenProp ?? internalRailOpen;
+  const setRailOpen = (open: boolean): void => {
+    setInternalRailOpen(open);
+    onRailOpenChange?.(open);
+  };
   const [coachPreview, setCoachPreview] = useState<{ id: string; latex: string } | null>(null);
   const [coachUnread, setCoachUnread] = useState(false);
   const mediaSession = useMemo(() => new MediaSessionController((mark) => {

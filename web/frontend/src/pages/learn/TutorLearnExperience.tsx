@@ -152,21 +152,43 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   const question = tutor.question;
   const activeWorkspace = tutor.workspace[0];
 
+  // 波次 E（教师反馈「topic coach dock 被抛弃了」）：Tutor 侧栏沿用原
+  // coach dock 的壳与开合（FocusWorkspace dock 模式 + topic-coach-panel
+  // 结构样式）；收起/展开在三个渲染分支间共享同一份状态（工作台分支经
+  // ActionRuntimeFrame 受控 railOpen）。
+  const [railOpen, setRailOpen] = useState(true);
+  const [railUnread, setRailUnread] = useState(false);
+  const lastTranscript = tutor.transcript[tutor.transcript.length - 1];
+  useEffect(() => {
+    if (!railOpen && lastTranscript?.role === "tutor") setRailUnread(true);
+  }, [lastTranscript, railOpen]);
+  const openRail = (): void => {
+    setRailOpen(true);
+    setRailUnread(false);
+  };
+  const speaking = tutor.phase === "speaking";
+
   const rail = (
-    <aside className="tutor-learn-rail" aria-label="一对一老师" aria-live="polite">
-      <div className="tutor-learn-status">
-        <span data-testid="tutor-state">{PHASE_LABELS[tutor.phase] ?? tutor.phase}</span>
-        {checkpoint ? (
-          <span data-testid="tutor-checkpoint">
-            当前进度 {checkpoint.part_id}/{checkpoint.checkpoint_id}（路线 {checkpoint.route_id}）
-          </span>
-        ) : null}
-        {tutor.sessionId ? <span data-testid="tutor-session-id">{tutor.sessionId}</span> : null}
+    <aside className="topic-coach-panel tutor-learn-rail" aria-label="一对一老师" aria-live="polite">
+      <div className="topic-coach-header">
+        <span className={`topic-coach-avatar material-symbols-outlined${speaking ? " is-speaking" : ""}`}>record_voice_over</span>
+        <div>
+          <small data-testid="tutor-state">{PHASE_LABELS[tutor.phase] ?? tutor.phase}</small>
+          <strong>一对一老师</strong>
+          {checkpoint ? (
+            <small data-testid="tutor-checkpoint">
+              进度 {checkpoint.part_id}/{checkpoint.checkpoint_id}（路线 {checkpoint.route_id}）
+            </small>
+          ) : null}
+          {tutor.sessionId ? <small data-testid="tutor-session-id">{tutor.sessionId}</small> : null}
+        </div>
+        <button type="button" className="topic-coach-sound" aria-label="重播老师语音" onClick={() => tutor.replayNarration()}><span className="material-symbols-outlined">volume_up</span></button>
+        <button type="button" className="topic-coach-close" aria-label="收起指导栏" onClick={() => setRailOpen(false)}><span className="material-symbols-outlined">right_panel_close</span></button>
       </div>
       <div className="tutor-learn-controls">
         {tutor.phase === "speaking" ? (
           <button type="button" onClick={() => void tutor.bargeIn()} data-testid="tutor-barge-in">
-            我要说话（打断）
+            打断
           </button>
         ) : null}
         {tutor.phase === "interrupted" ? (
@@ -199,7 +221,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
       {notice ? <p className="tutor-learn-notice" role="status">{notice}</p> : null}
       {tutor.error ? <p className="tutor-learn-error" role="alert">{tutor.error}</p> : null}
 
-      <section className="tutor-learn-transcript" aria-label="对话记录" data-testid="tutor-transcript">
+      <section className="topic-coach-thread tutor-learn-transcript" aria-label="对话记录" data-testid="tutor-transcript">
         {tutor.transcript.map((entry) => (
           <p key={entry.id} className={entry.role === "tutor" ? "tutor-says" : "student-says"}>
             <b>{entry.role === "tutor" ? "老师" : "我"}：</b>
@@ -251,17 +273,37 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
           </form>
           <button
             type="button"
-            disabled={recorder.recording || asrBusy || !tutor.sessionId}
+            className={`topic-coach-mic${recorder.recording ? " is-recording" : ""}`}
+            aria-label={recorder.recording ? "结束录音" : "语音回答"}
+            disabled={asrBusy || !tutor.sessionId}
             onClick={() => void recorder.toggle()}
             data-testid="tutor-record"
           >
-            {recorder.recording ? "停止录音" : "按此语音输入"}
+            <span className="material-symbols-outlined">{recorder.recording ? "stop_circle" : "mic"}</span>
           </button>
+          {recorder.recording ? (
+            <p className="topic-coach-recording" role="status"><span />正在听，点停止后发送（最长 45 秒）</p>
+          ) : null}
+          {asrBusy ? <p className="topic-coach-recording" role="status"><span />正在识别你的话…</p> : null}
+          {tutor.phase === "thinking" ? <p className="topic-coach-thinking" role="status">老师正在思考…</p> : null}
         </section>
       ) : (
         <p data-testid="tutor-completed">这次学习完成了。</p>
       )}
     </aside>
+  );
+
+  const railTrigger = (
+    <button
+      type="button"
+      className={`topic-coach-dock-avatar${speaking ? " is-speaking" : ""}`}
+      aria-label="展开一对一老师"
+      aria-expanded={railOpen}
+      onClick={openRail}
+    >
+      <span className="material-symbols-outlined">record_voice_over</span>
+      {railUnread ? <span className="topic-coach-dock-unread" aria-hidden /> : null}
+    </button>
   );
 
   if (tutor.phase === "completed" || tutor.questionCompleted) {
@@ -271,6 +313,8 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
           ariaLabel="一对一学习完成"
           prompt={<><span>题目</span><div><h1><MathText value={question?.stem ?? ""} /></h1></div></>}
           rail={rail}
+          railOpen={railOpen}
+          railTrigger={railTrigger}
         >
           <section className="tutor-learn-done" aria-label="学习完成">
             <h2>这道题学完了</h2>
@@ -296,6 +340,11 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
           response={workspaceActionResponse(tutor.sessionId, activeWorkspace)}
           transport={tutor.transport}
           railContent={rail}
+          railOpen={railOpen}
+          onRailOpenChange={(open) => {
+            setRailOpen(open);
+            if (open) setRailUnread(false);
+          }}
         />
       </div>
     );
@@ -307,6 +356,8 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
         ariaLabel="一对一学习工作台"
         prompt={<><span>题目</span><div><h1><MathText value={question?.stem ?? ""} /></h1></div></>}
         rail={rail}
+        railOpen={railOpen}
+        railTrigger={railTrigger}
         actionBarLeft={<span className="ks-focus-rail-action">智能一对一 · {taskId}</span>}
       >
         <section className="tutor-learn-question" aria-label="题目">

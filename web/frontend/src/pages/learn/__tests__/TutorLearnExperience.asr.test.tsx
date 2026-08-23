@@ -46,10 +46,15 @@ vi.mock("../../../presentation/narration/NarrationController", () => ({
 }));
 
 const recorderCallbacks: { onAudio?: (audio: { dataUrl: string; durationMs?: number }) => void } = {};
+/** 有状态 recorder mock：测试可直接置 recording 并收到 toggle 调用。 */
+const recorderState: { recording: boolean; toggle: ReturnType<typeof vi.fn> } = {
+  recording: false,
+  toggle: vi.fn(() => { recorderState.recording = !recorderState.recording; }),
+};
 vi.mock("../../../presentation/coach/useCoachRecorder", () => ({
   useCoachRecorder: (options: { onAudio: (audio: { dataUrl: string; durationMs?: number }) => void }) => {
     recorderCallbacks.onAudio = options.onAudio;
-    return { recording: false, toggle: vi.fn() };
+    return { recording: recorderState.recording, toggle: recorderState.toggle };
   },
 }));
 
@@ -98,6 +103,7 @@ function mount(): { container: HTMLElement; unmount: () => void } {
 describe("TutorLearnExperience ASR 接线", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    recorderState.recording = false;
     completeTutorVoice.mockResolvedValue(null);
     recordSimilarityLearnProgress.mockResolvedValue({ ok: true });
   });
@@ -117,6 +123,38 @@ describe("TutorLearnExperience ASR 接线", () => {
         input_kind: "reasoning_utterance",
         text: "内错角相等",
       }));
+    unmount();
+  });
+
+  it("波次 E 回归：录音中停止键可点（旧实现 disabled 含 recording 永远禁用）", async () => {
+    recorderState.recording = true;
+    const { container, unmount } = mount();
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-state']")).toBeTruthy());
+    // 录音中：按钮可点且语义为结束录音（旧实现 disabled 含 recorder.recording，
+    // 「停止录音」永远点不了——教师实测报告的缺陷）。
+    const mic = container.querySelector("[data-testid='tutor-record']") as HTMLButtonElement;
+    expect(mic.disabled).toBe(false);
+    expect(mic.getAttribute("aria-label")).toBe("结束录音");
+    expect(container.textContent).toContain("正在听");
+    await act(async () => {
+      mic.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    expect(recorderState.toggle).toHaveBeenCalled();
+    unmount();
+  });
+
+  it("波次 E 回归：topic coach dock 壳——收起指导栏 → dock 头像展开", async () => {
+    const { container, unmount } = mount();
+    await vi.waitFor(() => expect(container.querySelector(".topic-coach-panel")).toBeTruthy());
+    expect(container.querySelector("[aria-label='重播老师语音']")).toBeTruthy();
+    await act(async () => {
+      container.querySelector("[aria-label='收起指导栏']")!.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    await vi.waitFor(() => expect(container.querySelector(".ks-focus-rail-drawer")!.classList.contains("is-closed")).toBe(true));
+    await act(async () => {
+      container.querySelector(".topic-coach-dock-avatar")!.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    await vi.waitFor(() => expect(container.querySelector(".ks-focus-rail-drawer")!.classList.contains("is-open")).toBe(true));
     unmount();
   });
 
