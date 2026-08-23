@@ -311,7 +311,69 @@ function main(): void {
   const hintResource = (PLAN as { resources: Array<{ resource_id: string; content: string }> }).resources.find((r) => r.resource_id === "RES2")!;
   assert.equal(hintVerbatim.presentation!.voice[0].text, hintResource.content, "hint 逐字使用批准资源原文");
 
-  console.log("PASS preparePresentation + workspaceActionAdapter (0..n actions, 5-fold validation, truth isolation, adjudication lifecycle)");
+  // 测试 12（波次 E 真实链修复）：part 全部 checkpoint 完成、结论模板未满足
+  // 且无挂起动作时，任意 move（含 confirm）都确定性派生结论操作步——
+  // 真实 DeepSeek 曾在学生口述含最终答案被推进后跳过操作链直接完成。
+  const partDoneState = {
+    ...STATE,
+    curriculum: {
+      ...STATE.curriculum,
+      parts: [{ ...STATE.curriculum.parts[0], current_index: 2, completed_checkpoints: ["CP1", "CP3"] }],
+      completed: false,
+    },
+  };
+  const confirmAfterProgress = preparePresentation({
+    decision: decision("confirm", { purpose_code: "confirm.progress", checkpoint_id: "CP3" }),
+    plan: PLAN as never,
+    state: partDoneState as never,
+    sessionId: "TS-9501",
+    voiceOrdinal: 20,
+    workspaceOrdinal: 20,
+    answerValues: ["$1$"],
+  });
+  assert.ok(confirmAfterProgress.ok, "confirm 呈现构建成功");
+  assert.equal(confirmAfterProgress.presentation!.workspace.length, 1, "part 终结且模板未满足：必须派生结论操作步");
+  assert.equal(confirmAfterProgress.presentation!.workspace[0].command_payload!.resource_id, "RES14");
+
+  // 已满足（accepted 证据在案）→ 不再派生。
+  const satisfiedState = {
+    ...partDoneState,
+    workspace: {
+      active_action_id: undefined,
+      action_history: [{ action_id: "WA-1", decision_id: "TD-1", capability: "similarity.plan-similarity-proof", resource_id: "RES14", outcome: "completed", issued_sequence: 30 }],
+    },
+  };
+  const confirmSatisfied = preparePresentation({
+    decision: decision("confirm", { purpose_code: "confirm.progress", checkpoint_id: "CP3" }),
+    plan: PLAN as never,
+    state: satisfiedState as never,
+    sessionId: "TS-9501",
+    voiceOrdinal: 21,
+    workspaceOrdinal: 21,
+    answerValues: ["$1$"],
+  });
+  assert.equal(confirmSatisfied.presentation!.workspace.length, 0, "结论已提交：不再重复派生");
+
+  // 挂起动作存在 → 不派生第二个。
+  const activeState = {
+    ...partDoneState,
+    workspace: {
+      active_action_id: "WA-pending",
+      action_history: [{ action_id: "WA-pending", decision_id: "TD-1", capability: "similarity.plan-similarity-proof", resource_id: "RES14", issued_sequence: 31 }],
+    },
+  };
+  const confirmActive = preparePresentation({
+    decision: decision("confirm", { purpose_code: "confirm.progress", checkpoint_id: "CP3" }),
+    plan: PLAN as never,
+    state: activeState as never,
+    sessionId: "TS-9501",
+    voiceOrdinal: 22,
+    workspaceOrdinal: 22,
+    answerValues: ["$1$"],
+  });
+  assert.equal(confirmActive.presentation!.workspace.length, 0, "已有挂起动作：不重复派生");
+
+  console.log("PASS preparePresentation + workspaceActionAdapter (0..n actions, 5-fold validation, truth isolation, adjudication lifecycle, part-conclusion enforcement)");
 }
 
 main();

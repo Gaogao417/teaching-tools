@@ -38,6 +38,30 @@ function event(sequence: number, state_revision: number, event_type: string, pay
   };
 }
 
+function conclusionPlan() {
+  // 波次 E 真实链回归：CP3 挂 enter-text 结论模板（简化投影面：仅本测试用）。
+  return {
+    ...PLAN,
+    resources: [
+      { resource_id: "RES9", kind: "action_template", checkpoint_id: "CP3", source: "agent_generated", action_ref: "tp:T:1:enter-text", capability: "similarity.plan-similarity-proof", content: "{}" },
+    ],
+  };
+}
+
+function conclusionEvent(sequence: number, state_revision: number, event_type: string, payload: Record<string, unknown>, causation?: number) {
+  return {
+    schema: "ai_teaching_tutor_session_event/v2" as const,
+    session_id: "TS-9202",
+    sequence,
+    state_revision,
+    occurred_at: "2026-08-23T00:00:00Z",
+    event_type,
+    payload,
+    ...(causation !== undefined ? { causation_sequence: causation } : {}),
+    idempotency_key: `TS-9202:${sequence}`,
+  };
+}
+
 function main(): void {
   const events = [
     event(1, 1, "session_started", { plan: { artifact_id: "TP-SMV-001", version: "v2", content_hash: "sha256:" + "0".repeat(64) }, initial_mode: "teach" }),
@@ -119,5 +143,37 @@ function main(): void {
 
   console.log("PASS tutorRuntimeStateProjection (five-state replay, ledger, repair, failures)");
 }
+
+  // ---- 波次 E 真实链回归：curriculum.completed 必须包含结论操作步证据 ----
+  {
+    const plan = conclusionPlan() as never;
+    const start = conclusionEvent(1, 1, "session_started", { plan: { artifact_id: "TP-SMV-001", version: "v2", content_hash: "sha256:" + "0".repeat(64) }, initial_mode: "teach" });
+    const progressedAll = [
+      conclusionEvent(2, 2, "student_progressed", { checkpoint_id: "CP1", part_id: "1", assisted: false }),
+      conclusionEvent(3, 3, "student_progressed", { checkpoint_id: "CP2", part_id: "1", assisted: false }),
+      conclusionEvent(4, 4, "student_progressed", { checkpoint_id: "CP3", part_id: "1", assisted: false }),
+      conclusionEvent(5, 5, "student_progressed", { checkpoint_id: "CP4", part_id: "2", assisted: false }),
+    ];
+    // 全部 checkpoint 推进但结论模板未提交 → completed 必须为 false。
+    const beforeEvidence = projectRuntimeState(plan, [start, ...progressedAll] as never);
+    assert.equal(beforeEvidence.curriculum.completed, false, "结论操作步未提交：题目不得判完成");
+    // 结论证据提交（issued + completed）→ completed 为 true。
+    const withEvidence = [
+      ...progressedAll,
+      conclusionEvent(5, 5, "workspace_action_issued", { action_id: "WA-1", decision_id: "TD-9", capability: "similarity.plan-similarity-proof", command_payload: JSON.stringify({ resource_id: "RES9", action_ref: "tp:T:1:enter-text", mode: "learn" }) }),
+      conclusionEvent(6, 6, "workspace_action_completed", { action_id: "WA-1", outcome: "completed" }),
+    ];
+    const afterEvidence = projectRuntimeState(plan, [start, ...withEvidence] as never);
+    assert.equal(afterEvidence.curriculum.completed, true, "结论操作步提交后：题目完成");
+    // 同序列但证据被拒（rejected）→ 仍不完成。
+    const rejectedEvidence = [
+      ...progressedAll,
+      conclusionEvent(5, 5, "workspace_action_issued", { action_id: "WA-1", decision_id: "TD-9", capability: "similarity.plan-similarity-proof", command_payload: JSON.stringify({ resource_id: "RES9", action_ref: "tp:T:1:enter-text", mode: "learn" }) }),
+      conclusionEvent(6, 6, "workspace_action_completed", { action_id: "WA-1", outcome: "rejected" }),
+    ];
+    const afterReject = projectRuntimeState(plan, [start, ...rejectedEvidence] as never);
+    assert.equal(afterReject.curriculum.completed, false, "结论证据被拒：题目不完成");
+    console.log("PASS conclusion template gating on curriculum.completed (wave E)");
+  }
 
 main();

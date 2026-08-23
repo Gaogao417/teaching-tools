@@ -271,7 +271,8 @@ function applyEvent(plan: TutorPlanV2Payload, state: TutorRuntimeState, event: S
             (candidate) => candidate.current_index < candidate.checkpoint_ids.length,
           );
           state.curriculum.current_part_index = next >= 0 ? next : partIndex;
-          state.curriculum.completed = next < 0;
+          state.curriculum.completed =
+            next < 0 && conclusionTemplatesSatisfied(plan, state.workspace.action_history);
         }
         state.reasoning.current_checkpoint_id = firstCheckpointOf(state);
         state.reasoning.consecutive_no_progress = 0;
@@ -328,6 +329,11 @@ function applyEvent(plan: TutorPlanV2Payload, state: TutorRuntimeState, event: S
       if (state.workspace.active_action_id === payload.action_id && payload.outcome !== "rejected") {
         state.workspace.active_action_id = undefined;
       }
+      // 波次 E：结论证据落地后重算完成（accepted 可能让此前被门控的
+      // curriculum.completed 翻真——progression 先于证据的真实链路径）。
+      if (state.curriculum.parts.every((part) => part.current_index >= part.checkpoint_ids.length)) {
+        state.curriculum.completed = conclusionTemplatesSatisfied(plan, state.workspace.action_history);
+      }
       break;
     }
     case "working_diagnosis_updated": {
@@ -368,6 +374,29 @@ function applyEvent(plan: TutorPlanV2Payload, state: TutorRuntimeState, event: S
 }
 
 /** 全量 replay：从 plan + events 重建 TutorRuntimeState（无快照，纯投影）。 */
+/**
+ * 波次 E 真实链修复：题目完成（curriculum.completed）必须包含全部结论
+ * 操作步的 accepted 证据——学生口述含最终答案被推进时（真实 DeepSeek 行为），
+ * 未提交的 action_template 不得让 completed 提前为真（否则前端按
+ * question_completed 收尾，跳过操作链）。满足 = action_history 中该资源
+ * 存在 outcome "completed" 的记录。
+ */
+function conclusionTemplatesSatisfied(
+  plan: TutorPlanV2Payload,
+  actionHistory: TutorRuntimeState["workspace"]["action_history"],
+): boolean {
+  const satisfied = new Set(
+    actionHistory
+      .filter((entry) => entry.resource_id && entry.outcome === "completed")
+      .map((entry) => entry.resource_id as string),
+  );
+  return (plan.resources ?? []).every(
+    (resource) =>
+      (resource.kind !== "action_template" && resource.kind !== "workspace") ||
+      satisfied.has(resource.resource_id),
+  );
+}
+
 export function projectRuntimeState(
   plan: TutorPlanV2Payload,
   events: readonly StoredV2Event[],

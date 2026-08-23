@@ -253,6 +253,44 @@ export function preparePresentation(input: PreparePresentationInput): Presentati
       break;
   }
 
+  // 波次 E 真实链修复（part 终结结论步强制）：某 part 的全部 checkpoint 已
+  // 完成、其结论 action_template 尚无 accepted 证据且无挂起动作时，无论
+  // Provider 本回合选了什么 move，都确定性派生该结论操作步——结论提交是
+  // 题目完成的一部分（curriculum.completed 同口径，见
+  // TutorRuntimeStateProjection），不依赖模型主动选择 prompt.action_step
+  //（真实 DeepSeek 曾在学生口述含最终答案时直接推进，跳过操作链）。
+  if (!state.workspace.active_action_id) {
+    const satisfied = new Set(
+      (state.workspace.action_history ?? [])
+        .filter((entry) => entry.resource_id && entry.outcome === "completed")
+        .map((entry) => entry.resource_id as string),
+    );
+    const pendingConclusion = plan.resources.find((resource): resource is typeof resource & { capability: string } => {
+      if (!isWorkspaceResourceKind(resource.kind) || !resource.capability) return false;
+      if (satisfied.has(resource.resource_id)) return false;
+      if (workspace.some((entry) => entry.command_payload?.resource_id === resource.resource_id)) return false;
+      const checkpoint = plan.checkpoints.find((entry) => entry.checkpoint_id === resource.checkpoint_id);
+      if (!checkpoint) return false;
+      const part = state.curriculum.parts.find((candidate) =>
+        candidate.checkpoint_ids.includes(checkpoint.checkpoint_id),
+      );
+      return Boolean(part && part.current_index >= part.checkpoint_ids.length);
+    });
+    if (pendingConclusion) {
+      workspace.push({
+        action_id: `WA-${input.sessionId}-${input.workspaceOrdinal + workspace.length}`,
+        decision_id: decision.decision_id,
+        capability: pendingConclusion.capability,
+        target_ids: [],
+        command_payload: {
+          resource_id: pendingConclusion.resource_id,
+          action_ref: pendingConclusion.action_ref ?? pendingConclusion.resource_id,
+          mode: "learn",
+        },
+      });
+    }
+  }
+
   const leaks = scaffoldLeakCheck(scaffoldTexts, input.answerValues);
   if (leaks.length) {
     return { ok: false, errors: leaks };
