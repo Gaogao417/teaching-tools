@@ -61,6 +61,13 @@ function longestCommonRun(a: string, b: string): number {
 
 const MATCH_THRESHOLD = 4;
 
+/** 波次 G 任务 5：压缩推进比对复用同一匹配口径（归一化 LCS）。 */
+export const ALIGNMENT_MATCH_THRESHOLD = MATCH_THRESHOLD;
+
+export function alignmentMatchScore(text: string, basis: string): number {
+  return longestCommonRun(normalizeForAlignment(text), normalizeForAlignment(basis));
+}
+
 interface Candidate {
   alignment: Alignment;
   source: NonNullable<AlignmentOutcome["matched_basis"]>["source"];

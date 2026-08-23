@@ -47,7 +47,12 @@ import {
 import { projectRuntimeState, type TutorRuntimeState } from "./TutorRuntimeStateProjection";
 import { projectCandidateState } from "./candidateState";
 import { enforceDecisionInvariants } from "./decisionInvariants";
-import { alignReasoning, type AlignmentOutcome } from "./ReasoningAligner";
+import {
+  alignReasoning,
+  ALIGNMENT_MATCH_THRESHOLD,
+  alignmentMatchScore,
+  type AlignmentOutcome,
+} from "./ReasoningAligner";
 import {
   type TutorPlanV2Payload,
   type TruthPayload,
@@ -573,9 +578,15 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     offset: number;
     causationInputSequence: number;
     v3?: { confidence?: number; grounding_refs?: string[]; aligner_version?: string; workflow_version?: string; route_id?: string };
-  }): { batch: PendingV2Event[]; progressed: boolean; selfCorrected: boolean } {
+    /** 波次 G 任务 5（反馈 (c)）：utterance 原文——expected 命中后沿本 part
+     *  路线序逐个比对后续 checkpoint 的 expected_reasoning，连续命中即压缩
+     *  推进（多步 student_progressed）；结论操作步（挂 action_template）与
+     *  part 边界前停，不得被语音跳过。 */
+    utteranceText?: string;
+  }): { batch: PendingV2Event[]; progressed: boolean; selfCorrected: boolean; compressedCheckpoints: string[] } {
     const { context, state, events, alignment } = args;
     const batch: PendingV2Event[] = [];
+    const compressedCheckpoints: string[] = [];
     const alignmentSequence = args.offset + 1;
     batch.push({
       event_type: "reasoning_aligned",
@@ -635,8 +646,50 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         occurred_at: now(),
         causation_sequence: alignmentSequence,
       });
+
+      // 波次 G 任务 5（反馈 (c)）：单回合多 checkpoint 压缩推进——学生一段
+      // 话常覆盖整段推理（实证：utterance 覆盖 CP1–CP3 却只推进一步）。
+      // 沿本 part 当前路线序逐个比对后续 checkpoint 的 expected_reasoning
+      //（与 alignReasoning 同一归一化 LCS 口径）；首个未命中间断，挂
+      // action_template 的结论操作步与 part 边界前必须停（不得语音跳过）。
+      if (alignment.alignment === "expected_checkpoint" && args.utteranceText?.trim()) {
+        const partId = checkpoint?.part_id ?? "1";
+        const part = state.curriculum.parts.find((entry) => entry.part_id === partId);
+        const routeIds = part?.checkpoint_ids ?? [];
+        const startIndex = routeIds.indexOf(checkpointId);
+        for (let index = startIndex + 1; index < routeIds.length; index += 1) {
+          const nextId = routeIds[index];
+          const hasConclusionTemplate = context.plan.resources.some(
+            (resource) => resource.kind === "action_template" && resource.checkpoint_id === nextId,
+          );
+          if (hasConclusionTemplate) break;
+          const nextCheckpoint = context.plan.checkpoints.find((entry) => entry.checkpoint_id === nextId);
+          if (!nextCheckpoint) break;
+          const score = alignmentMatchScore(args.utteranceText!, nextCheckpoint.expected_reasoning);
+          if (score < ALIGNMENT_MATCH_THRESHOLD) break;
+          const nextLedger = state.assistance[nextId];
+          const nextDeviation = nextLedger?.incorrectSequences.at(-1);
+          const nextAssisted = Boolean(
+            nextDeviation !== undefined
+              ? assistanceSinceDeviation(state, events, nextId, nextDeviation)
+              : nextLedger && (nextLedger.hintLevelsIssued.length > 0 || nextLedger.explainedSequences.length > 0),
+          );
+          compressedCheckpoints.push(nextId);
+          batch.push({
+            event_type: "student_progressed",
+            payload: {
+              checkpoint_id: nextId,
+              part_id: partId,
+              assisted: nextAssisted,
+              via_compression: true,
+            },
+            occurred_at: now(),
+            causation_sequence: alignmentSequence,
+          });
+        }
+      }
     }
-    return { batch, progressed, selfCorrected };
+    return { batch, progressed, selfCorrected, compressedCheckpoints };
   }
 
   function recordStudentInput(sessionId: string, input: StudentInput, clientTurnId?: string): RecordInputResult {
@@ -687,6 +740,9 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         alignment,
         offset: base + batch.length,
         causationInputSequence: inputSequence,
+        ...(input.input_kind === "reasoning_utterance" && input.text !== undefined
+          ? { utteranceText: input.text }
+          : {}),
       });
       batch.push(...consequence.batch);
       progressed = consequence.progressed;
@@ -1567,6 +1623,9 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
           },
           offset: (events.at(-1)?.sequence ?? 0) + prefixBatch.length,
           causationInputSequence: args.inputSequence,
+          ...(input.input_kind === "reasoning_utterance" && input.text !== undefined
+            ? { utteranceText: input.text }
+            : {}),
           ...(context.eventSchema === "v3"
             ? {
                 v3: {
@@ -1654,6 +1713,9 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         alignment,
         offset: (events.at(-1)?.sequence ?? 0) + prefixBatch.length,
         causationInputSequence: args.inputSequence,
+        ...(input.input_kind === "reasoning_utterance" && input.text !== undefined
+          ? { utteranceText: input.text }
+          : {}),
       });
       prefixBatch.push(...consequence.batch);
       alignmentView = {

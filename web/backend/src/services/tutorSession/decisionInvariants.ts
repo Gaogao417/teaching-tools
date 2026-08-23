@@ -17,7 +17,10 @@
  * - I6 repair 内答对 → confirm.repair_complete 并退出 repair mode；
  * - I7 连续 unclear ≥ 阈值 → 改写 explain.clarify_escape 直接开讲当前
  *   checkpoint（波次 G 任务 3 / 反馈 (d)：双 provider 同纪律——不无限确认式
- *   追问；无 explanation 资源时保持原决策）。
+ *   追问；无 explanation 资源时保持原决策）；
+ * - I8 压缩推进后的 confirm 重锚（波次 G 任务 5 / 反馈 (c)）：单回合 utterance
+ *   推进多 checkpoint 时，决策锚定的对齐点已过时——重锚到本回合最后完成步
+ *   并丢弃动态文案（进度语义由接地叙事提供）。
  * 发生任何改写时，模型动态文案一并丢弃（改写后的 move 与模型文案不再
  * 对应，回退 Presenter 确定性呈现）。
  */
@@ -173,6 +176,29 @@ export function enforceDecisionInvariants(args: {
       checkpoint_id: checkpointId,
     };
     rewrites.push("nested_repair_blocked");
+  }
+  // ---- I8：压缩推进后的 confirm 重锚（波次 G 任务 5 / 反馈 (c)）----
+  // 课程投影里已完成到对齐点之后（本回合压缩推进发生）时，confirm 锚定
+  // 最后完成步——模型/规则决策生成于推进前的状态，进度话术必须对齐新事实。
+  else if (
+    trigger.alignment === "expected_checkpoint" &&
+    trigger.alignment_checkpoint_id &&
+    draft.move_type === "confirm"
+  ) {
+    const part = candidateState.curriculum.parts.find((entry) =>
+      entry.checkpoint_ids.includes(trigger.alignment_checkpoint_id!),
+    );
+    if (part) {
+      const alignedIndex = part.checkpoint_ids.indexOf(trigger.alignment_checkpoint_id!);
+      let lastCompletedIndex = -1;
+      part.checkpoint_ids.forEach((id, index) => {
+        if (part.completed_checkpoints.includes(id)) lastCompletedIndex = index;
+      });
+      if (lastCompletedIndex > alignedIndex && draft.checkpoint_id !== part.checkpoint_ids[lastCompletedIndex]) {
+        draft = { ...draft, checkpoint_id: part.checkpoint_ids[lastCompletedIndex] };
+        rewrites.push(`compression_anchored:${trigger.alignment_checkpoint_id}->${part.checkpoint_ids[lastCompletedIndex]}`);
+      }
+    }
   }
   // ---- I7：连续 unclear 逃逸（波次 G 任务 3 / 反馈 (d)）----
   // 模型连续提 clarify/probe 类 prompt 或 wait 时，改写为直接开讲当前

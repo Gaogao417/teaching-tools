@@ -191,6 +191,9 @@ export interface StudentProgressedPayload {
   part_id: string;
   assisted: boolean;
   via_action_evidence?: boolean;
+  /** 波次 G 任务 5：本步由单回合压缩推进产生（utterance 覆盖后续 checkpoint
+   *  的 expected_reasoning 连续命中；结论操作步前停）。 */
+  via_compression?: boolean;
 }
 
 export interface StudentSelfCorrectedPayload {
