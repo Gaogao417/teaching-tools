@@ -224,3 +224,52 @@ describe("POST /api/learn/:taskId/experience", () => {
     rmSync(dst, { recursive: true, force: true });
   });
 });
+
+async function callGet(url: string): Promise<{ status: number; body: any }> {
+  const response = await fetch(`${baseUrl}${url}`);
+  return { status: response.status, body: await response.json().catch(() => null) };
+}
+
+describe("GET /api/learn/:taskId/solution-board（波次 F 完成页板书回顾）", () => {
+  // 板书来自 scenarioBank（编译进 backend 的正式记录），与 canonical root
+  // 无关——golden 真题 task 直接可解析。
+  const TRUTH_KEYS = ["localTruth", "teachingInput", "expectedValues"];
+
+  it("golden 题：整板 learn 投影（全部表达式 complete）、响应无 truth 键", async () => {
+    const result = await callGet("/api/learn/goldenMinhangCross2020/solution-board");
+    expect(result.status).toBe(200);
+    expect(result.body.task_id).toBe("goldenMinhangCross2020");
+    expect(typeof result.body.scenario_id).toBe("string");
+    const board = result.body.board;
+    expect(board.schemaVersion).toBe(1);
+    expect(Array.isArray(board.expressions)).toBe(true);
+    expect(board.expressions.length).toBeGreaterThan(0);
+    expect(board.expressions.every((expression: { phase: string }) => expression.phase === "complete")).toBe(true);
+    const raw = JSON.stringify(result.body);
+    for (const key of TRUTH_KEYS) {
+      expect(raw).not.toContain(`"${key}"`);
+    }
+  });
+
+  it("?scenario= 指定记录命中（等价投影）；未知 scenario id → 404", async () => {
+    const first = await callGet("/api/learn/goldenMinhangCross2020/solution-board");
+    const scenarioId = first.body.scenario_id as string;
+    const again = await callGet(`/api/learn/goldenMinhangCross2020/solution-board?scenario=${encodeURIComponent(scenarioId)}`);
+    expect(again.status).toBe(200);
+    expect(again.body.scenario_id).toBe(scenarioId);
+    expect(again.body.board).toEqual(first.body.board);
+
+    const missing = await callGet("/api/learn/goldenMinhangCross2020/solution-board?scenario=not-a-scenario");
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe("SCENARIO_NOT_FOUND");
+  });
+
+  it("未知 task → 404；非 topic-practice task → 409", async () => {
+    const unknown = await callGet("/api/learn/task-does-not-exist/solution-board");
+    expect(unknown.status).toBe(404);
+
+    const nonTopic = await callGet("/api/learn/meaning/solution-board");
+    expect(nonTopic.status).toBe(409);
+    expect(nonTopic.body.error.code).toBe("ACTION_NOT_ALLOWED");
+  });
+});

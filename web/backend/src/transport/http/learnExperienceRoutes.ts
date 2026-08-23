@@ -13,6 +13,12 @@
  * - 明确错误    ：Binding stale、Plan/Profile 非 Approved、hash 不匹配时
  *                 fail closed（409/403），不静默换题或换讲法。
  *
+ * GET /api/learn/:taskId/solution-board  ?scenario=<id>（波次 F 任务 1）
+ *
+ * 完成页板书回顾的既有内容面端点：板书数据来自 scenario 记录内
+ * authorTopicSolutionBoard 产物（与 legacy learn 工作台同源同库），
+ * 整板 learn 投影，响应不含 truth 键。前端只在 question_completed 后拉取。
+ *
  * 前端不再调用公开的 POST /api/tutor-sessions {tpId}（波次 C 已随隔离页下线）；
  * Coordinator 内部仍可按 Plan ref 启动。
  */
@@ -32,6 +38,15 @@ import {
 } from "../../services/tutorSession/topicQuestionExperience";
 import { tutorOpeningBody } from "./tutorSessionRoutes";
 import { studentQuestionGeometry } from "../../services/tutorPresentation/adapters/legacyActionRuntime/workspacePlanProjector";
+import { getTaskDefinition } from "../../services/tasks/catalogService";
+import {
+  getTopicScenarioRecord,
+  pickTopicScenarioRecord,
+  resolveTopicScenarioRecord,
+} from "../../services/runtime/engines/topicPractice/scenarioBank";
+import { materializeSolutionBoard } from "../../../../shared/solutionBoard";
+import type { TaskId } from "../../../../shared/contracts";
+import type { TopicPracticeTaskId } from "../../../../shared/topicPractice";
 
 const experienceSchema = z.object({
   studentId: z.string().trim().min(1).max(64),
@@ -191,6 +206,47 @@ export function createLearnExperienceRoutes(options: LearnExperienceRoutesOption
         return;
       }
       next(error);
+    }
+  });
+
+  /**
+   * 完成页板书回顾（波次 F 任务 1）。scenario 解析 fail closed：给定
+   * scenario id 必须命中该 task 的 Approved 记录；缺省回落首条 Approved
+   * 记录（六 golden 题每题恰一条）。无板书 → 200 + board:null（完成页
+   * 保持可用，不渲染板书）。
+   */
+  router.get("/:taskId/solution-board", (req, res, next) => {
+    try {
+      const taskId = z.string().trim().min(1).max(128).parse(req.params.taskId);
+      const scenarioId = z.string().trim().min(1).max(200).optional().parse(req.query.scenario);
+      const task = getTaskDefinition(taskId as TaskId);
+      if (task.engineKind !== "topic-practice") {
+        res.status(409).json({
+          error: { code: "ACTION_NOT_ALLOWED", message: "Solution board review is only available for topic practice" },
+        });
+        return;
+      }
+      const topicTaskId = task.id as TopicPracticeTaskId;
+      const record = scenarioId
+        ? getTopicScenarioRecord(topicTaskId, scenarioId)
+        : pickTopicScenarioRecord(topicTaskId, 0);
+      const scenario = resolveTopicScenarioRecord(record);
+      const board = scenario.solutionBoard
+        ? materializeSolutionBoard(scenario.solutionBoard, "learn", {})
+        : null;
+      res.json({ task_id: taskId, scenario_id: scenario.id, board });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        next(error);
+        return;
+      }
+      // scenarioBank 对未知/未 Approved 记录抛普通 Error（无 HTTP 形状）。
+      res.status(404).json({
+        error: {
+          code: "SCENARIO_NOT_FOUND",
+          message: error instanceof Error ? error.message : "No approved scenario for task",
+        },
+      });
     }
   });
 
