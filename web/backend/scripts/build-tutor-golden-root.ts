@@ -16,7 +16,7 @@
  *
  * 用法：tsx scripts/build-tutor-golden-root.ts <outDir> [--source-root <canonical-authoring>] [--suggestions-out <yaml>]
  */
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 
 import { validateForPublication, validatePayload } from "../../shared/canonical";
@@ -92,6 +92,30 @@ function main(): void {
     if (!plan.ok) throw new Error(`${spec.tpId}: ${plan.errors.join("; ")}`);
     const approachSet = findApproachSetForQuestion(inputs, spec.qtId);
     if (!approachSet) throw new Error(`${spec.qtId}: 无 Approved ApproachSet`);
+
+    // canonical 已有该 task 的 Approved 正式 Binding（TB-SMV-*，教师批准
+    // 2026-08-23 发布）时不再注入 TB-GOLDEN 测试副本——同 task 两个
+    // Approved Binding 会触发 AMBIGUOUS_BINDING fail closed。
+    const bindingRoot = path.join(args.outDir, "topic-question-binding");
+    const hasApprovedBinding = existsSync(bindingRoot)
+      && readdirSync(bindingRoot).some((dirName) =>
+        readdirSync(path.join(bindingRoot, dirName))
+          .filter((file) => file.endsWith(".json"))
+          .some((file) => {
+            try {
+              const payload = JSON.parse(readFileSync(path.join(bindingRoot, dirName, file), "utf8")) as {
+                task_id?: string;
+                status?: string;
+              };
+              return payload.task_id === spec.taskId && payload.status === "Approved";
+            } catch {
+              return false;
+            }
+          }));
+    if (hasApprovedBinding) {
+      console.log(`SKIP ${spec.taskId}: canonical 已有 Approved Binding（复制即用）`);
+      continue;
+    }
 
     const variants = [
       {
