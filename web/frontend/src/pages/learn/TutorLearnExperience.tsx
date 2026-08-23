@@ -15,6 +15,8 @@
  * - 波次 F：完成页板书回顾（既有内容面 solution-board 端点，仅完成后拉取）、
  *   composer 快捷提问 chips（一键 question_asked）、dock 头像预览气泡
  *   （收起后新老师消息 ~6s 预览，展开清除）。
+ * - 波次 G 任务 1：topic-coach-bubble 作为老师当前话术主面（挂 transcript
+ *   之上，speaking 态强调）；transcript 降级为可折叠历史流。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -172,6 +174,10 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   const checkpoint = tutor.currentCheckpoint;
   const question = tutor.question;
   const activeWorkspace = tutor.workspace[0];
+  // 波次 G 任务 1：老师当前话术主面——最近一条老师话术进气泡（与 dock
+  // 预览同源：transcript 末条 role=tutor），transcript 降级为可折叠历史流。
+  const lastTutorEntry = [...tutor.transcript].reverse().find((entry) => entry.role === "tutor");
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   // 波次 E（教师反馈「topic coach dock 被抛弃了」）：Tutor 侧栏沿用原
   // coach dock 的壳与开合（FocusWorkspace dock 模式 + topic-coach-panel
@@ -282,14 +288,48 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
       {notice ? <p className="tutor-learn-notice" role="status">{notice}</p> : null}
       {tutor.error ? <p className="tutor-learn-error" role="alert">{tutor.error}</p> : null}
 
-      <section className="topic-coach-thread tutor-learn-transcript" aria-label="对话记录" data-testid="tutor-transcript">
-        {tutor.transcript.map((entry) => (
-          <p key={entry.id} className={entry.role === "tutor" ? "tutor-says" : "student-says"}>
-            <b>{entry.role === "tutor" ? "老师" : "我"}：</b>
-            <MathText value={entry.text} />
-          </p>
-        ))}
-      </section>
+      {/* 波次 G 任务 1：气泡=老师当前话术主呈现面（复用 topic-coach-bubble 含
+          尾巴样式）；speaking 态有「正在讲」视觉强调。 */}
+      {lastTutorEntry ? (
+        <div
+          className={`topic-coach-bubble tutor-current-speech${speaking ? " is-speaking" : ""}`}
+          data-testid="tutor-current-speech"
+          aria-label="老师当前话术"
+        >
+          <MathText value={lastTutorEntry.text} block />
+          {speaking ? (
+            <small className="tutor-current-speech-badge" data-testid="tutor-speaking-badge">正在讲…</small>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="tutor-learn-history">
+        <button
+          type="button"
+          className="tutor-learn-history-toggle"
+          data-testid="tutor-transcript-toggle"
+          aria-expanded={transcriptOpen}
+          aria-controls="tutor-learn-transcript"
+          onClick={() => setTranscriptOpen((open) => !open)}
+        >
+          对话记录（{tutor.transcript.length}）
+          <span className="material-symbols-outlined" aria-hidden>{transcriptOpen ? "expand_less" : "expand_more"}</span>
+        </button>
+        <section
+          id="tutor-learn-transcript"
+          className="topic-coach-thread tutor-learn-transcript"
+          aria-label="对话记录"
+          data-testid="tutor-transcript"
+          hidden={!transcriptOpen}
+        >
+          {tutor.transcript.map((entry) => (
+            <p key={entry.id} className={entry.role === "tutor" ? "tutor-says" : "student-says"}>
+              <b>{entry.role === "tutor" ? "老师" : "我"}：</b>
+              <MathText value={entry.text} />
+            </p>
+          ))}
+        </section>
+      </div>
 
       {tutor.phase !== "completed" ? (
         <section className="tutor-learn-composer" aria-label="发言区">

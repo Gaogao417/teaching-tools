@@ -77,12 +77,79 @@
 
 .tutor-learn-transcript {
   flex: 1;
-  min-height: 120px;
+  min-height: 80px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding-right: var(--space-1);
+}
+
+/* 波次 G 任务 1：transcript 降级为可折叠历史流（display:flex 会盖掉
+   hidden 属性的 UA display:none，需显式让位）。 */
+.tutor-learn-transcript[hidden] {
+  display: none;
+}
+
+/* 波次 G 任务 1：老师当前话术主面——topic-coach-bubble（practice.css，
+   含尾巴）之上的 tutor 作用域样式；speaking 态用主色描边 + 徽标脉冲强调。 */
+.tutor-learn-rail .tutor-current-speech {
+  max-width: 100%;
+}
+
+.tutor-learn-rail .tutor-current-speech.is-speaking {
+  border-color: color-mix(in srgb, var(--color-primary) 64%, var(--color-line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.tutor-current-speech-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--color-primary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tutor-current-speech-badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    animation: tutor-current-speech-pulse 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes tutor-current-speech-pulse {
+  0% { opacity: 0.35; }
+  50% { opacity: 1; }
+  100% { opacity: 0.35; }
+}
+
+.tutor-learn-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  flex: 1;
+}
+
+.tutor-learn-history-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.tutor-learn-history-toggle .material-symbols-outlined {
+  font-size: 1rem;
 }
 
 .tutor-learn-transcript p {
