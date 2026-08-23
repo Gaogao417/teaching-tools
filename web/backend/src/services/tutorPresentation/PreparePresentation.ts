@@ -11,8 +11,10 @@
  * - action_template / workspace → Workspace（经 resolveWorkspacePresentation
  *   五重校验后升格为 ValidatedWorkspaceAction，未验证形态不出 Presenter 后）；
  * - Hint/Repair 始终逐字采用批准资源原文（2026-08-21 教师裁定）；
- * - Question/Explain/Prompt/Confirm 才允许受控动态 voiceText（智能链集成层
- *   注入，本模块对 prompt/confirm 的脚手架做泄漏自查兜底）。
+ * - Question/Explain/Prompt 才允许受控动态 voiceText（智能链集成层
+ *   注入，本模块对 prompt/confirm 的脚手架做泄漏自查兜底）；波次 G 起
+ *   Confirm 不再接受模型动态文案——进度语义由 curriculumNarrative 接地
+ *   （反馈 (b)：杜绝「第一问完成、进入第二问」式越级宣称）。
  *
  * 泄漏自查兜底：prompt/confirm 的自产文本必须不含当前 part 的答案值
  * （资源文本已在 materializer 门禁过审，此处只查脚手架——双保险）。
@@ -27,6 +29,7 @@ import type { RuntimeProjectionBody } from "../planBuild/MaterializeTutorPlan";
 import { validateWorkspaceAction } from "./adapters/legacyActionRuntime/workspaceActionAdapter";
 import { buildTutorWorkspacePlan, type TutorWorkspacePlanContext } from "./adapters/legacyActionRuntime/workspacePlanProjector";
 import { VOICE_SCAFFOLDS, type VoiceActionPlan } from "./VoiceAction";
+import { renderProgressNarrative } from "./curriculumNarrative";
 import type { ValidatedWorkspaceAction, WorkspaceActionPlan } from "./WorkspaceAction";
 import type { ActionContract } from "../../../../shared/actionRuntime";
 
@@ -80,7 +83,9 @@ function dynamicVoiceText(
   moveType: string,
 ): { text: string; source: "model-generated" } | undefined {
   if (!input.dynamicVoice) return undefined;
-  if (moveType !== "explain" && moveType !== "prompt" && moveType !== "confirm") return undefined;
+  // 波次 G 任务 3：confirm（进度类话术）不再允许模型动态文案——进度语义
+  // 只能由 curriculum 投影确定性生成，模型话术只承载讲解内容（explain/prompt）。
+  if (moveType !== "explain" && moveType !== "prompt") return undefined;
   const check = validateVoiceText(input.dynamicVoice.text, input.answerValues);
   if (!check.ok) return undefined;
   return input.dynamicVoice;
@@ -225,24 +230,17 @@ export function preparePresentation(input: PreparePresentationInput): Presentati
       break;
     }
     case "confirm": {
-      const dynamic = dynamicVoiceText(input, decision.move_type);
-      if (dynamic) {
-        voice.push({
-          action_id: `VA-${input.sessionId}-${input.voiceOrdinal}`,
-          decision_id: decision.decision_id,
-          text: dynamic.text,
-          interruptible: true,
-          voice_source: "model-generated",
-          generation_id: `VG-${input.sessionId}-${input.voiceOrdinal}`,
-        });
-        break;
-      }
+      // 波次 G 任务 3（反馈 (b)）：confirm/进度类话术接地——ack 脚手架 +
+      // curriculum 投影确定性进度叙事（推进到哪步、还差什么）。模型动态
+      // 文案不再进入 confirm（见 dynamicVoiceText），越级宣称被结构性杜绝。
       const scaffold = VOICE_SCAFFOLDS[decision.purpose_code] ?? VOICE_SCAFFOLDS["confirm.generic"];
-      scaffoldTexts.push(scaffold);
+      const narrative = renderProgressNarrative(plan, state);
+      const text = `${scaffold}${narrative ? ` ${narrative}` : ""}`;
+      scaffoldTexts.push(text);
       voice.push({
         action_id: `VA-${input.sessionId}-${input.voiceOrdinal}`,
         decision_id: decision.decision_id,
-        text: scaffold,
+        text,
         interruptible: true,
       });
       break;

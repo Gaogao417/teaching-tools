@@ -52,6 +52,9 @@ export interface ReasoningState {
   self_corrections: Array<{ checkpoint_id: string; sequence: number; deviation_sequence: number }>;
   interruptions: number[];
   consecutive_no_progress: number;
+  /** 波次 G 任务 3：连续 unclear 对齐计数（clarify 逃逸依据；任何非 unclear
+   *  对齐归零——实证反馈 (d)：prompt.clarify ×4 死循环无逃逸）。 */
+  consecutive_unclear: number;
 }
 
 export interface WorkspaceState {
@@ -214,6 +217,10 @@ function applyEvent(plan: TutorPlanV2Payload, state: TutorRuntimeState, event: S
       if (alignment === "no_progress") {
         state.reasoning.consecutive_no_progress = Math.max(state.reasoning.consecutive_no_progress, 1);
       }
+      // 波次 G 任务 3：unclear 连击计数（非 unclear 对齐归零）。
+      state.reasoning.consecutive_unclear = alignment === "unclear"
+        ? state.reasoning.consecutive_unclear + 1
+        : 0;
       break;
     }
     case "tutor_move_decided": {
@@ -276,6 +283,7 @@ function applyEvent(plan: TutorPlanV2Payload, state: TutorRuntimeState, event: S
         }
         state.reasoning.current_checkpoint_id = firstCheckpointOf(state);
         state.reasoning.consecutive_no_progress = 0;
+        state.reasoning.consecutive_unclear = 0;
       }
       state.reasoning.alternate_path = undefined;
       state.dialogue.open_question = undefined;
@@ -420,6 +428,7 @@ export function projectRuntimeState(
       self_corrections: [],
       interruptions: [],
       consecutive_no_progress: 0,
+      consecutive_unclear: 0,
     },
     workspace: { action_history: [] },
     assistance: {},

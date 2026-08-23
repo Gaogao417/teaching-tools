@@ -306,12 +306,36 @@ describe("波次 D：智能链 provider（deepseek-langgraph + fake structured m
     expect(alignmentEvent?.payload).toMatchObject({
       grounding_refs: expect.any(Array),
     });
-    // 受控动态文案：confirm 走 model-generated（voice_source/generation_id 进 v3 事件）。
-    const voiceEvent = events.find(
+    // 波次 G 任务 3：confirm（进度类）话术接地——expected 回合不再有
+    // model-generated 动态文案，voice_source/generation_id 不进 v3 事件；
+    // 话术=ack 脚手架+curriculum 进度叙事（模型 provenance 仍在决策事件上）。
+    const modelVoiceEvent = events.find(
       (event) => event.event_type === "voice_action_issued" && (event.payload as { voice_source?: string }).voice_source === "model-generated",
     );
-    expect(voiceEvent).toBeTruthy();
-    expect((voiceEvent?.payload as { generation_id?: string }).generation_id).toMatch(/^VG-/);
+    expect(modelVoiceEvent).toBeUndefined();
+    const confirmVoice = response.voice ?? [];
+    expect(confirmVoice.length).toBeGreaterThan(0);
+    expect(confirmVoice[0].text).toContain("推理已过");
+    expect(confirmVoice[0].text).not.toContain("我们继续往下走");
+    // 受控动态文案（explain 承载讲解内容）：提问回合 model-generated
+    // voice_source/generation_id 仍进 v3 事件流（provenance 覆盖保留）。
+    const askedSession = "TS-8199";
+    coordinator.start({ sessionId: askedSession, studentId: "s2", tpId: goldenTpId(1) });
+    await teachOpening(coordinator, askedSession);
+    const asked = await coordinator.processTurn(
+      askedSession,
+      (getTutorSession(askedSession) as unknown as { revision: number }).revision,
+      "turn-intel-1-q",
+      { input_kind: "question_asked", text: "内错角相等是怎么来的？" },
+    );
+    expect(asked.decision?.move_type).toBe("explain");
+    const askedVoiceEvent = coordinator
+      .getEvents(askedSession)
+      .find(
+        (event) => event.event_type === "voice_action_issued" && (event.payload as { voice_source?: string }).voice_source === "model-generated",
+      );
+    expect(askedVoiceEvent).toBeTruthy();
+    expect((askedVoiceEvent?.payload as { generation_id?: string }).generation_id).toMatch(/^VG-/);
     // 不泄答案真值：响应序列化不含 truth 字段。
     const serialized = JSON.stringify(response);
     expect(serialized).not.toContain("localTruth");

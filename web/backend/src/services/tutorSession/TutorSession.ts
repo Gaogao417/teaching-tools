@@ -903,10 +903,13 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       const checkpointId = decision.checkpoint_id ?? state.reasoning.current_checkpoint_id;
       const partId =
         context.plan.checkpoints.find((entry) => entry.checkpoint_id === checkpointId)?.part_id ?? "1";
+      // 波次 G 任务 3：Presenter 消费 candidateState（含本回合 prefixBatch 的
+      // 对齐/推进事实）——deterministic 路径的事实在上一事务已落库、state 本就
+      // 是事后态，这里把智能链路径对齐到同一视角；confirm 接地叙事据此说话。
       const presentationResult = preparePresentation({
         decision,
         plan: context.plan,
-        state,
+        state: candidateState,
         sessionId,
         voiceOrdinal,
         workspaceOrdinal,

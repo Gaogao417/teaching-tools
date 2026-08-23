@@ -177,7 +177,7 @@ describe("intelligent routes 响应（voice_source/confidence/route_id 呈现）
     return { status: response.status, body: await response.json().catch(() => null) };
   };
 
-  it("expected 回合：model-generated voice_source 进响应；alternate 带 route/confidence", async () => {
+  it("expected 回合：confirm 话术接地（无模型动态文案）；alternate 带 route/confidence", async () => {
     const start = await startViaCoordinator(coordinator, { tpId: "TP-SMV-006", studentId: "s", sessionId: "TS-8960" });
     for (const voice of start.opening.voice) {
       await call("POST", "/api/tutor-sessions/TS-8960/voice-completions", { action_id: voice.action_id, outcome: "completed" });
@@ -189,8 +189,16 @@ describe("intelligent routes 响应（voice_source/confidence/route_id 呈现）
       input: { input_kind: "reasoning_utterance", text: plan.checkpoints[0].expected_reasoning },
     });
     expect(expected.status).toBe(200);
-    expect(expected.body.voice.some((voice: { voice_source?: string }) => voice.voice_source === "model-generated")).toBe(true);
+    // 波次 G 任务 3：confirm（进度类话术）接地——模型动态文案不再进入 confirm
+    //（fake model 的 confirm 提案被丢弃），话术=ack 脚手架+curriculum 进度叙事。
+    expect(expected.body.voice.length).toBeGreaterThan(0);
+    expect(expected.body.voice.some((voice: { voice_source?: string }) => voice.voice_source === "model-generated")).toBe(false);
+    expect(expected.body.voice[0].text).toContain("推理已过");
+    expect(expected.body.voice[0].text).not.toContain("我们继续往下走");
 
+    for (const voice of expected.body.voice) {
+      await call("POST", "/api/tutor-sessions/TS-8960/voice-completions", { action_id: voice.action_id, outcome: "completed" });
+    }
     const alternateRoute = plan.recommended_routes.find((route) => route.role === "alternate");
     const view2 = await call("GET", "/api/tutor-sessions/TS-8960");
     const alternate = await call("POST", "/api/tutor-sessions/TS-8960/turns", {

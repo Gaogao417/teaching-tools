@@ -20,6 +20,7 @@ import type { Alignment } from "../../../tutorSession/TutorSessionEvent";
 import type { TutorPlanV2Payload, PlanResourceV2 } from "../../../planBuild/canonicalInputs";
 import type { TutorRuntimeState, AssistanceLedger } from "../../../tutorSession/TutorRuntimeStateProjection";
 import { normalizeForAlignment } from "../../../tutorSession/ReasoningAligner";
+import { CLARIFY_ESCAPE_THRESHOLD } from "../../../tutorSession/decisionInvariants";
 import type { PolicyContext, PolicyOutcome, PolicyTrigger, TutorPolicyPort } from "../../TutorPolicyPort";
 import type { TutorDecisionDraft, WorkingDiagnosisUpdate } from "../../TutorMove";
 
@@ -266,6 +267,19 @@ function decideForAlignment(context: PolicyContext): TutorDecisionDraft | null {
     case "incorrect":
       return assistAfterIncorrect(context, checkpointId);
     case "unclear": {
+      // 波次 G 任务 3（反馈 (d)）：连续 N 次 unclear 直接开讲当前 checkpoint
+      //（带 plan explanation 资源），不再确认式追问——clarify×4 死循环的逃逸。
+      if (state.reasoning.consecutive_unclear >= CLARIFY_ESCAPE_THRESHOLD) {
+        const escapeExplanation = explanationResource(plan, checkpointId);
+        if (escapeExplanation) {
+          return {
+            move_type: "explain",
+            purpose_code: "explain.clarify_escape",
+            checkpoint_id: checkpointId,
+            resource_ids: [escapeExplanation.resource_id],
+          };
+        }
+      }
       // 澄清一次、诊断探针一次，之后不再循环追问——进入帮助阶梯。
       if (ledger.promptsIssued === 0) {
         return { move_type: "prompt", purpose_code: "prompt.clarify", checkpoint_id: checkpointId };

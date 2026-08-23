@@ -14,7 +14,10 @@
  *   part 级 repair 资源（不论模型提了什么，也不落 Wait）；
  * - I4 repair mode 不嵌套 repair（保底 Wait）；
  * - I5 偏差后无实质协助而改对 → confirm.self_correction；
- * - I6 repair 内答对 → confirm.repair_complete 并退出 repair mode。
+ * - I6 repair 内答对 → confirm.repair_complete 并退出 repair mode；
+ * - I7 连续 unclear ≥ 阈值 → 改写 explain.clarify_escape 直接开讲当前
+ *   checkpoint（波次 G 任务 3 / 反馈 (d)：双 provider 同纪律——不无限确认式
+ *   追问；无 explanation 资源时保持原决策）。
  * 发生任何改写时，模型动态文案一并丢弃（改写后的 move 与模型文案不再
  * 对应，回退 Presenter 确定性呈现）。
  */
@@ -22,6 +25,9 @@ import type { TutorPlanV2Payload, PlanResourceV2 } from "../planBuild/canonicalI
 import type { TutorRuntimeState, AssistanceLedger } from "./TutorRuntimeStateProjection";
 import type { PolicyTrigger } from "../tutorPolicy/TutorPolicyPort";
 import type { TutorDecisionDraft, WorkingDiagnosisUpdate } from "../tutorPolicy/TutorMove";
+
+/** clarify 逃逸阈值（波次 G 任务 3：连续 unclear 达到该次数即直接开讲；波内可调）。 */
+export const CLARIFY_ESCAPE_THRESHOLD = 3;
 
 export interface InvariantEnforcement {
   draft: TutorDecisionDraft;
@@ -167,6 +173,27 @@ export function enforceDecisionInvariants(args: {
       checkpoint_id: checkpointId,
     };
     rewrites.push("nested_repair_blocked");
+  }
+  // ---- I7：连续 unclear 逃逸（波次 G 任务 3 / 反馈 (d)）----
+  // 模型连续提 clarify/probe 类 prompt 或 wait 时，改写为直接开讲当前
+  // checkpoint（explanation 资源原文）；已有 explain/hint/repair 提案不改。
+  else if (
+    trigger.alignment === "unclear" &&
+    candidateState.reasoning.consecutive_unclear >= CLARIFY_ESCAPE_THRESHOLD &&
+    candidateState.mode !== "repair" &&
+    (draft.move_type === "prompt" || draft.move_type === "wait") &&
+    plan.resources.some((resource) => resource.kind === "explanation" && resource.checkpoint_id === checkpointId)
+  ) {
+    const escape = plan.resources.find(
+      (resource) => resource.kind === "explanation" && resource.checkpoint_id === checkpointId,
+    ) as PlanResourceV2;
+    draft = {
+      move_type: "explain",
+      purpose_code: "explain.clarify_escape",
+      checkpoint_id: checkpointId,
+      resource_ids: [escape.resource_id],
+    };
+    rewrites.push("clarify_escape_explained");
   }
   // ---- I1：首个 incorrect 先 self-check（本对齐即挣扎起点）----
   else if (
