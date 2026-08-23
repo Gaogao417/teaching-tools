@@ -9,7 +9,15 @@ export type TopicPracticeTaskId =
   | "reverseASimilarity"
   | "nestedSimilarity"
   | "butterflySimilarity"
-  | "reverseAFourSimilarity";
+  | "reverseAFourSimilarity"
+  // Phase 5 UI 集成波次 E：golden 六题各建独立新 Topic（教师裁定
+  // 2026-08-23：一题一 Topic，不绑定既有 topic）。
+  | "goldenMinhangFold2020"
+  | "goldenMinhangCross2020"
+  | "goldenMinhangParentChild2020"
+  | "goldenHuangpuTreeHeight2025"
+  | "goldenHuangpuAngleBisector2025"
+  | "goldenHuangpuMovingPoint2025";
 
 export type TopicActionPrimitive =
   | "select"

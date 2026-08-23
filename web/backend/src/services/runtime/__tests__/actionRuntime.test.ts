@@ -58,7 +58,7 @@ function evidenceFor(action: ActionContract): ActionEvidence {
 
 async function main() {
   const allRecords = Object.values(bundle.scenarios).flat();
-  assert.equal(allRecords.length, 284);
+  assert.equal(allRecords.length, 290);   // 波次 E：+6 golden 最小正式记录（actionTemplates/SolutionBoard 同规则生成）
   assert.ok(allRecords.every((record) => record.promptData.actionTemplates?.length), "every published Topic record must author actionTemplates");
   const authoredCoachEntries = allRecords.flatMap((record) => (record.promptData.actionTemplates || []) as unknown as AuthoredActionTemplate[])
     .filter((action) => action.coach?.entryLatex);

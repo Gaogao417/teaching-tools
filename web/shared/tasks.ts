@@ -338,6 +338,153 @@ export const TASK_DEFINITIONS: Record<TaskId, TaskDefinition> = {
       color: "#0f766e",
     },
   },
+  // ---- Phase 5 UI 集成波次 E：golden 六题独立 Topic（教师裁定 2026-08-23：
+  // 一题一 Topic，不绑定既有 topic）。题目内容权威在 canonical
+  //（QT/TP/Binding），此处只是产品入口骨架 + legacy/训练最小场景。----
+  goldenMinhangFold2020: {
+    id: "goldenMinhangFold2020",
+    title: "一模·闵行 2020 Q18：折叠等腰求长",
+    summary: "等腰三角形中翻折出不变量：等角对等边定 AD=DC，翻折保长保角，在斜三角形里收口求 BE。",
+    difficulty: "hard",
+    engineKind: "topic-practice",
+    contentId: "topic-practice.golden-minhang-fold-2020.v1",
+    sample: {
+      prompt: "AB=AC=4，BC=6，∠DAC=∠ACD，将 △ACD 沿 AD 翻折，求 BE。",
+      answerPreview: "等角对等边设 t → 翻折不变量 → 余弦定理收口，BE=1。",
+    },
+    steps: [
+      "读题标注：把等腰条件与等角条件落到图上，由等角对等边定出 AD=DC。",
+      "抓翻折不变量：翻折保长保角，列出对应边、对应角相等关系。",
+      "在斜三角形中选工具（勾股/余弦定理）列式收口求 BE。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-8",
+      gradeName: "八年级",
+      chapterId: "chapter-similarity",
+      chapterName: "相似三角形与比例",
+      color: "#6d28d9",
+    },
+  },
+  goldenMinhangCross2020: {
+    id: "goldenMinhangCross2020",
+    title: "一模·闵行 2020 Q23：双垂直交叉证明",
+    summary: "高与斜线交叉构成 8 字结构：由等积式换比例定相似，再经等角传递证垂直与比例迁移。",
+    difficulty: "hard",
+    engineKind: "topic-practice",
+    contentId: "topic-practice.golden-minhang-cross-2020.v1",
+    sample: {
+      prompt: "BD 是 AC 边上的高，AD·OC=AB·OD，AF 平分 ∠BAC。求证：(1) CE⊥AB；(2) AF·DE=AG·BC。",
+      answerPreview: "等积式换比例 → 直角三角形相似 → 8 字等角传递 → 垂直与比例式。",
+    },
+    steps: [
+      "把等积式 AD·OC=AB·OD 换成比例式，识别两个直角三角形的 8 字交叉结构。",
+      "由 Rt△ADB∽Rt△ODC 得等角，经对顶角传递推出 CE⊥AB。",
+      "沿角平分线与平行条件迁移比例，写出 AF·DE=AG·BC。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-8",
+      gradeName: "八年级",
+      chapterId: "chapter-similarity",
+      chapterName: "相似三角形与比例",
+      color: "#9333ea",
+    },
+  },
+  goldenMinhangParentChild2020: {
+    id: "goldenMinhangParentChild2020",
+    title: "一模·闵行 2020 Q25：母子型综合压轴",
+    summary: "共边相似（母子型）三问递进：等角证明、设元建函数、等腰存在性分类讨论。",
+    difficulty: "hard",
+    engineKind: "topic-practice",
+    contentId: "topic-practice.golden-minhang-parent-child-2020.v1",
+    sample: {
+      prompt: "Rt△ABC 与 Rt△ACD 共直角边，CD=2，射线 CD 交 AB 于 E。三问：证等角、求 y 关于 x 的函数、等腰分类求 AD。",
+      answerPreview: "母子型共角相似 → 设元列比例建 y=(x²+4)/(x+2) → 以 CG 为腰分类，AD=1 或 √14。",
+    },
+    steps: [
+      "识别母子型（共边共角）结构，用公共角加直角证 ∠DAB=∠DCF。",
+      "设 AE=x、CE=y，按相似比列方程，建出 y 关于 x 的函数并写取值范围。",
+      "按以 CG 为腰的等腰三角形分两类讨论，解出 AD 的所有可能值。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-8",
+      gradeName: "八年级",
+      chapterId: "chapter-similarity",
+      chapterName: "相似三角形与比例",
+      color: "#c026d3",
+    },
+  },
+  goldenHuangpuTreeHeight2025: {
+    id: "goldenHuangpuTreeHeight2025",
+    title: "一模·黄浦 2025 Q22：A 字型测高应用",
+    summary: "测高仪两次实践互证的建模题：把仪器边长与视线关系落成 A 字型相似，迁移比例求树高。",
+    difficulty: "medium",
+    engineKind: "topic-practice",
+    contentId: "topic-practice.golden-huangpu-tree-height-2025.v1",
+    sample: {
+      prompt: "简易测高仪 AB=40cm、CD=60cm、DB=20cm，两次实践测量树木高度，还需测量哪些量？MN 各是多少？",
+      answerPreview: "画 A 字型 → 对应边成比例 → 两次实践各列 MN 表达式互证。",
+    },
+    steps: [
+      "按两次实践各画出 A 字型相似示意图，标出仪器边长与待测量。",
+      "由平行/垂直条件定对应边，按比例迁移写出 MN 的表达式。",
+      "对比两次实践的结果互证，写出还需测量的量与 MN 的长。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-8",
+      gradeName: "八年级",
+      chapterId: "chapter-similarity",
+      chapterName: "相似三角形与比例",
+      color: "#7e22ce",
+    },
+  },
+  goldenHuangpuAngleBisector2025: {
+    id: "goldenHuangpuAngleBisector2025",
+    title: "一模·黄浦 2025 Q23：共角 SAS 证明与平行推比例",
+    summary: "角平分线加等腰的证明题：共角 SAS 定 △CEA∽△CDB，再由 CF∥AE 换比例证乘积式。",
+    difficulty: "hard",
+    engineKind: "topic-practice",
+    contentId: "topic-practice.golden-huangpu-angle-bisector-2025.v1",
+    sample: {
+      prompt: "CD 平分 ∠ACB，E 在 CD 延长线上且 AE=AD。求证：(1) △CEA∽△CDB；(2) CF∥AE 时 BD/AD=BF/CF。",
+      answerPreview: "共角（角平分线）+ 等腰换边 → SAS 相似 → 平行等角传递 → 比例式。",
+    },
+    steps: [
+      "用角平分线得公共角，结合 AE=AD 换出对应边成比例，SAS 证 △CEA∽△CDB。",
+      "由 CF∥AE 得等角，把相似比迁移到含 BD、AD、BF、CF 的比例。",
+      "整理成乘积式 BD/AD=BF/CF，核对对应关系完成证明。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-8",
+      gradeName: "八年级",
+      chapterId: "chapter-similarity",
+      chapterName: "相似三角形与比例",
+      color: "#a21caf",
+    },
+  },
+  goldenHuangpuMovingPoint2025: {
+    id: "goldenHuangpuMovingPoint2025",
+    title: "一模·黄浦 2025 Q25：动点相似压轴",
+    summary: "平行四边形里的动点压轴：等角证明、锁定相似求 BP、面积比分类求 AH/AC。",
+    difficulty: "hard",
+    engineKind: "topic-practice",
+    contentId: "topic-practice.golden-huangpu-moving-point-2025.v1",
+    sample: {
+      prompt: "▱ABCD 中 AB=9、BC=5、sinB=4/5，P 在 AB 上动，PE⊥PC。三问：证 ∠BAC=∠PCF、求 BP、求 AH/AC。",
+      answerPreview: "等角互余传递 → 相似锁定解出 BP=17/3 → 面积比 1/3 分类得 2/7 或 1/5。",
+    },
+    steps: [
+      "由垂直与平行四边形条件做等角的互余传递，证 ∠BAC=∠PCF。",
+      "按 △APC∽△EFC 锁定对应边比例，解出 BP 的长。",
+      "用面积比 1/3 建立关于 H 位置的关系，分类解出 AH/AC 的两个值。",
+    ],
+    catalogMeta: {
+      gradeId: "grade-8",
+      gradeName: "八年级",
+      chapterId: "chapter-similarity",
+      chapterName: "相似三角形与比例",
+      color: "#86198f",
+    },
+  },
 };
 
 export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
@@ -682,6 +829,87 @@ export const CONTENT_DEFINITIONS: Record<string, ContentDefinition> = {
     },
     feedbackTemplate: { correct: ["correct"], wrong: ["wrong"], finish: ["finish"] },
   },
+
+  // Phase 5 UI 集成波次 E：golden 六题薄内容定义（题目内容在 canonical
+  // ScenarioRecord/Binding，代码内不含题干）。
+  "topic-practice.golden-minhang-fold-2020.v1": {
+    id: "topic-practice.golden-minhang-fold-2020.v1",
+    engineKind: "topic-practice",
+    taskId: "goldenMinhangFold2020",
+    version: "v1",
+    sourceExplanation: "migration/manifests/golden-slice-manifest.yaml（PRDS 仓 golden slice QT-SMV-001）",
+    sourceBanks: ["golden-similarity-mvp-001"],
+    guideTemplate: {
+      banner: "折叠：等角对等边 → 翻折不变量 → 斜三角形收口",
+      hint: "先定 AD=DC，再列翻折保持的相等关系。",
+    },
+    feedbackTemplate: { correct: ["correct"], wrong: ["wrong"], finish: ["finish"] },
+  },
+  "topic-practice.golden-minhang-cross-2020.v1": {
+    id: "topic-practice.golden-minhang-cross-2020.v1",
+    engineKind: "topic-practice",
+    taskId: "goldenMinhangCross2020",
+    version: "v1",
+    sourceExplanation: "migration/manifests/golden-slice-manifest.yaml（PRDS 仓 golden slice QT-SMV-002）",
+    sourceBanks: ["golden-similarity-mvp-001"],
+    guideTemplate: {
+      banner: "8 字交叉：等积式换比例 → 相似 → 等角传递",
+      hint: "把 AD·OC=AB·OD 先换成比例式再看两个直角三角形。",
+    },
+    feedbackTemplate: { correct: ["correct"], wrong: ["wrong"], finish: ["finish"] },
+  },
+  "topic-practice.golden-minhang-parent-child-2020.v1": {
+    id: "topic-practice.golden-minhang-parent-child-2020.v1",
+    engineKind: "topic-practice",
+    taskId: "goldenMinhangParentChild2020",
+    version: "v1",
+    sourceExplanation: "migration/manifests/golden-slice-manifest.yaml（PRDS 仓 golden slice QT-SMV-003）",
+    sourceBanks: ["golden-similarity-mvp-001"],
+    guideTemplate: {
+      banner: "母子型：公共角相似 → 设元建函数 → 分类讨论",
+      hint: "三问递进，前一问的结论是后一问的工具。",
+    },
+    feedbackTemplate: { correct: ["correct"], wrong: ["wrong"], finish: ["finish"] },
+  },
+  "topic-practice.golden-huangpu-tree-height-2025.v1": {
+    id: "topic-practice.golden-huangpu-tree-height-2025.v1",
+    engineKind: "topic-practice",
+    taskId: "goldenHuangpuTreeHeight2025",
+    version: "v1",
+    sourceExplanation: "migration/manifests/golden-slice-manifest.yaml（PRDS 仓 golden slice QT-SMV-004）",
+    sourceBanks: ["golden-similarity-mvp-001"],
+    guideTemplate: {
+      banner: "A 字型应用：画图 → 对应边成比例 → 两次实践互证",
+      hint: "把仪器边长和视线关系画成 A 字型相似。",
+    },
+    feedbackTemplate: { correct: ["correct"], wrong: ["wrong"], finish: ["finish"] },
+  },
+  "topic-practice.golden-huangpu-angle-bisector-2025.v1": {
+    id: "topic-practice.golden-huangpu-angle-bisector-2025.v1",
+    engineKind: "topic-practice",
+    taskId: "goldenHuangpuAngleBisector2025",
+    version: "v1",
+    sourceExplanation: "migration/manifests/golden-slice-manifest.yaml（PRDS 仓 golden slice QT-SMV-005）",
+    sourceBanks: ["golden-similarity-mvp-001"],
+    guideTemplate: {
+      banner: "共角 SAS：角平分线公共角 → 等腰换边 → 平行推比例",
+      hint: "AE=AD 用来换对应边的比例，CF∥AE 用来做等角传递。",
+    },
+    feedbackTemplate: { correct: ["correct"], wrong: ["wrong"], finish: ["finish"] },
+  },
+  "topic-practice.golden-huangpu-moving-point-2025.v1": {
+    id: "topic-practice.golden-huangpu-moving-point-2025.v1",
+    engineKind: "topic-practice",
+    taskId: "goldenHuangpuMovingPoint2025",
+    version: "v1",
+    sourceExplanation: "migration/manifests/golden-slice-manifest.yaml（PRDS 仓 golden slice QT-SMV-006）",
+    sourceBanks: ["golden-similarity-mvp-001"],
+    guideTemplate: {
+      banner: "动点压轴：等角互余 → 锁相似 → 面积比分类",
+      hint: "sinB=4/5 给出数值化可能；分类讨论别漏解。",
+    },
+    feedbackTemplate: { correct: ["correct"], wrong: ["wrong"], finish: ["finish"] },
+  },
 };
 
 export const TASK_COLORS: Record<TaskId, string> = Object.fromEntries(
@@ -735,6 +963,13 @@ export const TASK_TREE: TaskTreeResponse = {
             TASK_NODES.nestedSimilarity,
             TASK_NODES.butterflySimilarity,
             TASK_NODES.reverseAFourSimilarity,
+            // 波次 E：golden 六题（一模真题）独立 Topic，教师裁定一题一 Topic。
+            TASK_NODES.goldenMinhangFold2020,
+            TASK_NODES.goldenMinhangCross2020,
+            TASK_NODES.goldenMinhangParentChild2020,
+            TASK_NODES.goldenHuangpuTreeHeight2025,
+            TASK_NODES.goldenHuangpuAngleBisector2025,
+            TASK_NODES.goldenHuangpuMovingPoint2025,
           ],
         },
       ],

@@ -22,7 +22,26 @@ const TASK_IDS: TopicPracticeTaskId[] = [
   "nestedSimilarity",
   "butterflySimilarity",
   "reverseAFourSimilarity",
+  // 波次 E：golden 六题（每题 1 条最小正式 Scenario，待教师复核）。
+  "goldenMinhangFold2020",
+  "goldenMinhangCross2020",
+  "goldenMinhangParentChild2020",
+  "goldenHuangpuTreeHeight2025",
+  "goldenHuangpuAngleBisector2025",
+  "goldenHuangpuMovingPoint2025",
 ];
+
+/** 波次 E：golden 六题的 provenance 是 canonical（QT/TA Approved），
+ *  不是题库 .tex/Q###——catalog/rotation 断言按内容类别区分。 */
+const GOLDEN_TASK_IDS: TopicPracticeTaskId[] = [
+  "goldenMinhangFold2020",
+  "goldenMinhangCross2020",
+  "goldenMinhangParentChild2020",
+  "goldenHuangpuTreeHeight2025",
+  "goldenHuangpuAngleBisector2025",
+  "goldenHuangpuMovingPoint2025",
+];
+const isGoldenTask = (taskId: TopicPracticeTaskId): boolean => GOLDEN_TASK_IDS.includes(taskId);
 
 const SCENARIO_COUNTS: Record<TopicPracticeTaskId, number> = {
   quadraticCompletion: 30,
@@ -32,6 +51,12 @@ const SCENARIO_COUNTS: Record<TopicPracticeTaskId, number> = {
   nestedSimilarity: 50,
   butterflySimilarity: 50,
   reverseAFourSimilarity: 4,
+  goldenMinhangFold2020: 1,
+  goldenMinhangCross2020: 1,
+  goldenMinhangParentChild2020: 1,
+  goldenHuangpuTreeHeight2025: 1,
+  goldenHuangpuAngleBisector2025: 1,
+  goldenHuangpuMovingPoint2025: 1,
 };
 
 function taskContext(taskId: TopicPracticeTaskId): {
@@ -64,7 +89,7 @@ async function runTest(name: string, fn: () => void | Promise<void>) {
 }
 
 async function main() {
-  await runTest("catalog exposes seven explanation and bank backed topic tasks", () => {
+  await runTest("catalog exposes explanation/bank backed topic tasks（合成七题题库 .tex + golden 六题 canonical 出处）", () => {
     const treeTaskIds = getTaskTree().grades.flatMap((grade) =>
       grade.chapters.flatMap((chapter) => chapter.tasks.map((task) => task.id)),
     );
@@ -72,9 +97,15 @@ async function main() {
       const { task, content } = taskContext(taskId);
       assert.equal(task.engineKind, "topic-practice");
       assert.equal(content.taskId, taskId);
-      assert.match(content.sourceExplanation, /^artifacts\//);
-      assert.match(content.sourceExplanation, /\.tex$/);
-      assert.ok(content.sourceBanks.every((source) => source.includes("artifacts/题库/")));
+      if (isGoldenTask(taskId)) {
+        // golden：出处是 PRDS golden-slice 冻结清单 + skills canonical（QT/TA）。
+        assert.match(content.sourceExplanation, /golden-slice-manifest\.yaml/);
+        assert.ok(content.sourceBanks.every((source) => source === "golden-similarity-mvp-001"));
+      } else {
+        assert.match(content.sourceExplanation, /^artifacts\//);
+        assert.match(content.sourceExplanation, /\.tex$/);
+        assert.ok(content.sourceBanks.every((source) => source.includes("artifacts/题库/")));
+      }
       assert.ok(treeTaskIds.includes(taskId));
     }
   });
@@ -86,9 +117,14 @@ async function main() {
       assert.equal(new Set(states.map((state) => state.scenarioId)).size, Math.min(5, SCENARIO_COUNTS[taskId]));
       for (const state of states) {
         const scenario = getTopicScenario(taskId, state.scenarioId);
-        assert.match(scenario.sourceQuestionId, /^Q\d{3}$/);
+        if (!isGoldenTask(taskId)) assert.match(scenario.sourceQuestionId, /^Q\d{3}$/);
+        else assert.match(scenario.sourceQuestionId, /^QT-SMV-\d{3}$/);
         assert.ok(scenario.steps.length >= 2);
-        assert.equal(scenario.sourceAssignment.includes(`items/${scenario.sourceQuestionId}/`), true);
+        if (!isGoldenTask(taskId)) {
+          assert.equal(scenario.sourceAssignment.includes(`items/${scenario.sourceQuestionId}/`), true);
+        } else {
+          assert.equal(scenario.sourceAssignment.includes("golden-slice"), true);
+        }
         assert.equal(scenario.promptLatex.length > 0, true);
       }
     }
