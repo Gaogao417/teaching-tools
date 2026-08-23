@@ -12,7 +12,8 @@
  *   是建议的 e2e 投影（登记选择：「Approved 副本」而非注入路径）；
  *   reviewer=e2e-golden，注记待审状态；
  * - 六题均无内容匹配的正式 Scenario（题源为一模真题卷）→ scenario_id 用
- *   SC-GOLDEN 标签；task 映射按教学结构亲和建议（同建议清单）。
+ *   SC-GOLDEN 标签；task id 为测试借位（教师裁定：每题为新 Topic，
+ *   不绑定既有 topic；正式 Topic 创建后替换）。
  *
  * 用法：tsx scripts/build-tutor-golden-root.ts <outDir> [--source-root <canonical-authoring>] [--suggestions-out <yaml>]
  */
@@ -27,20 +28,26 @@ import {
   loadCurrentPlanV3,
 } from "../src/services/planBuild/canonicalInputs";
 
-/** task → golden question 映射（与 PRDS golden-topic-binding-suggestions.yaml 同源）。 */
+/**
+ * e2e 借位映射（教师裁定 2026-08-23：每个 golden 题是一个新 Topic，不绑定
+ * 既有 topic）。/learn/:taskId 驱动需要真实 TaskDefinition，在六个新 Topic
+ * 创建之前，测试 root 暂借既有相似 task id 作为浏览器入口——仅测试环境
+ * 借位，不构成任何绑定建议；near_transfer 仅作教学参考（练习/迁移出处），
+ * 不是 Topic 归属依据。
+ */
 export const GOLDEN_TASKS: Array<{
   taskId: string;
   scenarioId: string;
   qtId: string;
   tpId: string;
-  affinity: string;
+  nearTransfer: string;
 }> = [
-  { taskId: "parallelLineRatios", scenarioId: "SC-GOLDEN-001", qtId: "QT-SMV-001", tpId: "TP-SMV-001", affinity: "golden 清单 near-transfer 指名（平行线比例迁移结构）" },
-  { taskId: "butterflySimilarity", scenarioId: "SC-GOLDEN-002", qtId: "QT-SMV-002", tpId: "TP-SMV-002", affinity: "8 字交叉结构 = 蝶形（manifest 选型依据原文）" },
-  { taskId: "nestedSimilarity", scenarioId: "SC-GOLDEN-003", qtId: "QT-SMV-003", tpId: "TP-SMV-003", affinity: "母子型/共边相似（nestedSimilarity 子母型）" },
-  { taskId: "reverseASimilarity", scenarioId: "SC-GOLDEN-004", qtId: "QT-SMV-004", tpId: "TP-SMV-004", affinity: "A 字型应用 ↔ 反 A 结构族" },
-  { taskId: "auxiliaryTwoRatios", scenarioId: "SC-GOLDEN-005", qtId: "QT-SMV-005", tpId: "TP-SMV-005", affinity: "角平分线/共角比例转移与比例辅助线同族" },
-  { taskId: "reverseAFourSimilarity", scenarioId: "SC-GOLDEN-006", qtId: "QT-SMV-006", tpId: "TP-SMV-006", affinity: "综合压轴一图多相似（教学编排同构）" },
+  { taskId: "parallelLineRatios", scenarioId: "SC-GOLDEN-001", qtId: "QT-SMV-001", tpId: "TP-SMV-001", nearTransfer: "平行线比例迁移（golden 清单 near-transfer 指名）" },
+  { taskId: "butterflySimilarity", scenarioId: "SC-GOLDEN-002", qtId: "QT-SMV-002", tpId: "TP-SMV-002", nearTransfer: "8 字交叉结构（与蝶形编排相近）" },
+  { taskId: "nestedSimilarity", scenarioId: "SC-GOLDEN-003", qtId: "QT-SMV-003", tpId: "TP-SMV-003", nearTransfer: "母子型/共边相似（与子母型编排相近）" },
+  { taskId: "reverseASimilarity", scenarioId: "SC-GOLDEN-004", qtId: "QT-SMV-004", tpId: "TP-SMV-004", nearTransfer: "A 字型应用（与反 A 结构族相近）" },
+  { taskId: "auxiliaryTwoRatios", scenarioId: "SC-GOLDEN-005", qtId: "QT-SMV-005", tpId: "TP-SMV-005", nearTransfer: "角平分线/共角比例转移（与比例辅助线同族）" },
+  { taskId: "reverseAFourSimilarity", scenarioId: "SC-GOLDEN-006", qtId: "QT-SMV-006", tpId: "TP-SMV-006", nearTransfer: "综合压轴一图多相似（编排参考）" },
 ];
 
 interface CliArgs {
@@ -120,7 +127,7 @@ function main(): void {
       approval: {
         reviewer_id: "e2e-golden",
         approved_at: "2026-08-23T00:00:00Z",
-        review_note: "测试环境 Approved 副本（Phase 5 UI 集成波次 D golden root）：canonical 建议仍为 Draft/待教师审核，未审核不开放学生流量",
+        review_note: "测试环境 Approved 副本（Phase 5 UI 集成波次 D golden root）：canonical 建议仍为 Draft/待教师审核，未审核不开放学生流量；task id 为测试借位（教师裁定 2026-08-23：每题为新 Topic 不绑既有 topic，新 Topic 就绪后替换）",
       },
       content_hash: "",
       artifact_uri: `artifact://topic-question-binding/${bindingId}@v1`,
@@ -150,9 +157,9 @@ function main(): void {
     suggestionEntries.push(
       [
         `  - question_ref: {artifact_id: ${truth.payload.artifact_id}, version: ${truth.payload.version}, content_hash: ${truth.payload.content_hash}}`,
-        `    propose_task: ${spec.taskId}`,
-        `    structure_affinity: ${spec.affinity}`,
-        `    scenario_gap: 缺正式 Scenario 记录（题源为一模真题卷，产品题库为合成教学场景）——正式绑定须先走原题库导入流程创建记录，不得强行绑定内容不同的旧 Scenario`,
+        `    proposed_topic: NEW   # 教师裁定 2026-08-23：每个 golden 题一个新 Topic（原题库导入流程创建 TaskDefinition + Scenario），不绑定既有 topic`,
+        `    near_transfer_reference: ${spec.nearTransfer}（仅教学参考：练习/迁移出处，非 Topic 归属依据）`,
+        `    scenario_gap: 新 Topic 及其 Scenario 记录均未创建（题源为一模真题卷）——正式绑定前须先走原题库导入流程；e2e golden root 的 task id 为测试借位（新 Topic 就绪后替换）`,
         `    default_variant:`,
         `      approach_set_ref: {artifact_id: ${approachSet.artifact_id}, version: ${approachSet.version}, content_hash: ${approachSet.content_hash}}`,
         `      tutor_plan_ref: {artifact_id: ${plan.payload.artifact_id}, version: ${plan.payload.version}, content_hash: ${plan.payload.content_hash}}`,
@@ -164,12 +171,17 @@ function main(): void {
 
   if (args.suggestionsOut) {
     const doc = [
-      "# Phase 5 UI 集成波次 D：Golden TopicQuestionTeachingBinding 建议清单（Draft / 待教师审核）",
+      "# Phase 5 UI 集成波次 D：Golden TopicQuestionTeachingBinding 建议清单（Draft / 待教师审核；v2）",
       "#",
       "# 状态：建议（Draft）——未教师批准不开放学生流量（/experience 只读 Approved Binding，",
       "# fail-closed 已有测试覆盖）。本清单由 backend/scripts/build-tutor-golden-root.ts 生成",
       "# （hash 与 canonical current Approved 对账）；测试环境 Approved 副本（TB-GOLDEN-*）",
       "# 仅存在于 e2e golden root，不属正式发布。",
+      "#",
+      "# v2 更正（教师裁定 2026-08-23）：每个 golden 题是一个新 Topic，不绑定既有 topic。",
+      "# 首版曾按教学结构亲和提议挂到既有相似 task——该提议作废；near_transfer 降级为",
+      "# 纯教学参考。新 Topic（TaskDefinition + Scenario）创建属原题库导入流程，待教师定",
+      "# 题名/挂载位置后执行。",
       "schema: ai_teaching_topic_question_binding_suggestions/v1",
       "generated_at: '2026-08-23'",
       "review_status: Draft（待教师审核）",
