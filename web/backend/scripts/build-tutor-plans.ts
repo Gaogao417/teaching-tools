@@ -326,6 +326,22 @@ function main(): void {
       pendingCapabilityBindings: build.pendingCapabilityBindings,
       sanitizedHints: build.sanitizedHints,
     });
+    console.log(
+      `DRAFT ${qtId} → ${planId}@${nextVersion}${args.planSchema === "v3" ? "（v3）" : ""}: ` +
+        `${draftPlan.checkpoints.length} checkpoints / ` +
+        `${draftPlan.resources.length} resources / ${draftPlan.recommended_routes.length} routes` +
+        `${build.sanitizedHints.length ? `（泄漏自查降级 ${build.sanitizedHints.length}）` : ""}`,
+    );
+
+    if (!args.approve.includes(qtId)) continue;
+
+    // 幂等：语义内容与 current Approved 一致 → 不产生空版本（D 偏差 5：
+    // 判定前不写 draft/preview——重跑不再留下未批准版本的孤儿 preview）。
+    if (currentPayload && semanticHash(currentPayload) === semanticHash(draftPlan)) {
+      console.log(`SKIP ${planId}: 语义内容与 ${registryState.currentVersion} 一致，无需新版本`);
+      continue;
+    }
+
     if (!args.dryRun) {
       writeFileSync(
         path.join(tutorPlanRoot, "drafts", `${planId}.draft.json`),
@@ -336,20 +352,6 @@ function main(): void {
         renderPreviewMarkdown(preview),
       );
       if (!existingTp) newAllocations.push({ qtId, tpId: planId });
-    }
-    console.log(
-      `DRAFT ${qtId} → ${planId}@${nextVersion}${args.planSchema === "v3" ? "（v3）" : ""}: ` +
-        `${draftPlan.checkpoints.length} checkpoints / ` +
-        `${draftPlan.resources.length} resources / ${draftPlan.recommended_routes.length} routes` +
-        `${build.sanitizedHints.length ? `（泄漏自查降级 ${build.sanitizedHints.length}）` : ""}`,
-    );
-
-    if (!args.approve.includes(qtId)) continue;
-
-    // 幂等：语义内容与 current Approved 一致 → 不产生空版本。
-    if (currentPayload && semanticHash(currentPayload) === semanticHash(draftPlan)) {
-      console.log(`SKIP ${planId}: 语义内容与 ${registryState.currentVersion} 一致，无需新版本`);
-      continue;
     }
 
     const { projection_hash } = projectApprovedPlan(draftPlan, materializationInputs);

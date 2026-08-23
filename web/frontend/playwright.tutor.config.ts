@@ -27,11 +27,18 @@ if (!process.env.TUTOR_E2E_CANONICAL_ROOT || !fs.existsSync(path.join(canonicalR
 const sqliteDir = fs.mkdtempSync(path.join(os.tmpdir(), "tutor-e2e-sqlite-"));
 const backendPort = Number(process.env.TUTOR_E2E_BACKEND_PORT || 3101);
 const frontendPort = Number(process.env.TUTOR_E2E_FRONTEND_PORT || 5174);
+/**
+ * 波次 E：TUTOR_E2E_REAL=1 时走真实链（真 DeepSeek + 真 CosyVoice TTS +
+ * /asr 真key面）——不注入 fake structured model，其余 env（含
+ * DEEPSEEK_API_KEY/DASHSCOPE_API_KEY 等真实 key）从启动 shell 透传；
+ * 用例内 TTS 拦截按 TUTOR_E2E_REAL 放行（tutorHarness 既有开关）。
+ */
+const realChain = process.env.TUTOR_E2E_REAL === "1";
 
 export default defineConfig({
   testDir: "./e2e/tutor/specs",
   outputDir: "e2e/tutor/results",
-  timeout: 90_000,
+  timeout: realChain ? 180_000 : 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
@@ -60,7 +67,7 @@ export default defineConfig({
         SQLITE_PATH: path.join(sqliteDir, "e2e.sqlite"),
         TUTOR_CANONICAL_ROOT: canonicalRoot,
         TUTOR_POLICY_PROVIDER: "deepseek-langgraph",
-        TUTOR_FAKE_STRUCTURED_MODEL: "1",
+        ...(realChain ? {} : { TUTOR_FAKE_STRUCTURED_MODEL: "1" }),
         TUTOR_TELEMETRY: "off",
         FRONTEND_ORIGIN: `http://127.0.0.1:${frontendPort},http://localhost:${frontendPort}`,
       },

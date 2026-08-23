@@ -11,9 +11,8 @@
  *   migration/manifests/golden-topic-binding-suggestions.yaml），测试 root
  *   是建议的 e2e 投影（登记选择：「Approved 副本」而非注入路径）；
  *   reviewer=e2e-golden，注记待审状态；
- * - 六题均无内容匹配的正式 Scenario（题源为一模真题卷）→ scenario_id 用
- *   SC-GOLDEN 标签；task id 为测试借位（教师裁定：每题为新 Topic，
- *   不绑定既有 topic；正式 Topic 创建后替换）。
+ * - 波次 E 起六题各有独立 TaskDefinition（goldenMinhang… / goldenHuangpu… ）
+ *   与正式 ScenarioRecord；scenario_id 指向正式记录。
  *
  * 用法：tsx scripts/build-tutor-golden-root.ts <outDir> [--source-root <canonical-authoring>] [--suggestions-out <yaml>]
  */
@@ -29,11 +28,10 @@ import {
 } from "../src/services/planBuild/canonicalInputs";
 
 /**
- * e2e 借位映射（教师裁定 2026-08-23：每个 golden 题是一个新 Topic，不绑定
- * 既有 topic）。/learn/:taskId 驱动需要真实 TaskDefinition，在六个新 Topic
- * 创建之前，测试 root 暂借既有相似 task id 作为浏览器入口——仅测试环境
- * 借位，不构成任何绑定建议；near_transfer 仅作教学参考（练习/迁移出处），
- * 不是 Topic 归属依据。
+ * golden 六题 → 独立新 Topic 映射（波次 E 落地：每题一个真实 TaskDefinition
+ * goldenMinhang… / goldenHuangpu… ，scenario_id 指向 topicScenarioBundle 的
+ * 正式 ScenarioRecord——收口 B 偏差 3 的 scenario 对账悬置）。near_transfer
+ * 仅作教学参考（练习/迁移出处），不是 Topic 归属依据。
  */
 export const GOLDEN_TASKS: Array<{
   taskId: string;
@@ -42,12 +40,12 @@ export const GOLDEN_TASKS: Array<{
   tpId: string;
   nearTransfer: string;
 }> = [
-  { taskId: "parallelLineRatios", scenarioId: "SC-GOLDEN-001", qtId: "QT-SMV-001", tpId: "TP-SMV-001", nearTransfer: "平行线比例迁移（golden 清单 near-transfer 指名）" },
-  { taskId: "butterflySimilarity", scenarioId: "SC-GOLDEN-002", qtId: "QT-SMV-002", tpId: "TP-SMV-002", nearTransfer: "8 字交叉结构（与蝶形编排相近）" },
-  { taskId: "nestedSimilarity", scenarioId: "SC-GOLDEN-003", qtId: "QT-SMV-003", tpId: "TP-SMV-003", nearTransfer: "母子型/共边相似（与子母型编排相近）" },
-  { taskId: "reverseASimilarity", scenarioId: "SC-GOLDEN-004", qtId: "QT-SMV-004", tpId: "TP-SMV-004", nearTransfer: "A 字型应用（与反 A 结构族相近）" },
-  { taskId: "auxiliaryTwoRatios", scenarioId: "SC-GOLDEN-005", qtId: "QT-SMV-005", tpId: "TP-SMV-005", nearTransfer: "角平分线/共角比例转移（与比例辅助线同族）" },
-  { taskId: "reverseAFourSimilarity", scenarioId: "SC-GOLDEN-006", qtId: "QT-SMV-006", tpId: "TP-SMV-006", nearTransfer: "综合压轴一图多相似（编排参考）" },
+  { taskId: "goldenMinhangFold2020", scenarioId: "golden-similarity-mvp-001:QT-SMV-001", qtId: "QT-SMV-001", tpId: "TP-SMV-001", nearTransfer: "平行线比例迁移（golden 清单 near-transfer 指名）" },
+  { taskId: "goldenMinhangCross2020", scenarioId: "golden-similarity-mvp-001:QT-SMV-002", qtId: "QT-SMV-002", tpId: "TP-SMV-002", nearTransfer: "8 字交叉结构（与蝶形编排相近）" },
+  { taskId: "goldenMinhangParentChild2020", scenarioId: "golden-similarity-mvp-001:QT-SMV-003", qtId: "QT-SMV-003", tpId: "TP-SMV-003", nearTransfer: "母子型/共边相似（与子母型编排相近）" },
+  { taskId: "goldenHuangpuTreeHeight2025", scenarioId: "golden-similarity-mvp-001:QT-SMV-004", qtId: "QT-SMV-004", tpId: "TP-SMV-004", nearTransfer: "A 字型应用（与反 A 结构族相近）" },
+  { taskId: "goldenHuangpuAngleBisector2025", scenarioId: "golden-similarity-mvp-001:QT-SMV-005", qtId: "QT-SMV-005", tpId: "TP-SMV-005", nearTransfer: "角平分线/共角比例转移（与比例辅助线同族）" },
+  { taskId: "goldenHuangpuMovingPoint2025", scenarioId: "golden-similarity-mvp-001:QT-SMV-006", qtId: "QT-SMV-006", tpId: "TP-SMV-006", nearTransfer: "综合压轴一图多相似（编排参考）" },
 ];
 
 interface CliArgs {
@@ -195,4 +193,6 @@ function main(): void {
   process.stdout.write(`${args.outDir}\n`);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
