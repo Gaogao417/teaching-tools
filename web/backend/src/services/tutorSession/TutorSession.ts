@@ -1898,6 +1898,35 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
 
     // deterministic 回滚路径：recordStudentInput + driveTutorTurn（现状不变）。
     const record = recordStudentInput(sessionId, input, args.clientTurnId);
+    // 波次 G 任务 4（波次 B 偏差 2 收口）：v4 会话期望 deepseek-langgraph 但
+    // 本回合实际走 deterministic 路径（intelligence 未装配 / 紧急 FORCE 回滚）
+    // 时，在事件层落 policy_failed 降级事实——telemetry off 也可从事件查出。
+    // 系统回合（session_started/presentation_completed → driveTutorTurn 的
+    // deterministic 口径）不属降级：讲解内容=authored 资源，provider 无作用面
+    //（2026-08-24 排查结论，教师会话 TS-1787477632529000003 事件流实证）。
+    if (context.eventSchema === "v4" && context.provider === "deepseek-langgraph") {
+      const failureClass = forcedDeterministic ? "provider_forced_deterministic" : "provider_unavailable";
+      const afterRecord = loadSession(sessionId);
+      appendBatch(sessionId, afterRecord.revision, [
+        {
+          event_type: "policy_failed",
+          payload: {
+            policy_version: `tutor-policy-${context.provider}/v1`,
+            failure_class: failureClass,
+            fallback_used: true,
+          },
+          occurred_at: now(),
+          causation_sequence: record.input_sequence,
+        },
+      ]);
+      recordTurnTelemetry({
+        correlation_id: args.correlationId,
+        session_id: sessionId,
+        stage: "fallback",
+        client_turn_id: args.clientTurnId,
+        outcome: failureClass,
+      });
+    }
     const turn = await driveTutorTurn(sessionId);
     const final = loadSession(sessionId);
     return toTurnResponse({
