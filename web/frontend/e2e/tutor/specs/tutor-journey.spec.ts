@@ -186,6 +186,16 @@ test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () =>
     const part2Checkpoint = await currentCheckpoint(page);
     expect(Number(part2Checkpoint.replace("CP", ""))).toBeGreaterThan(3);
 
+    // 波次 G 任务 2（(a) 第一层）：第 1 小问已教完 → 讲解回合（快捷提问
+    // 触发 explain 答问）下发演示投影——板书披露第 1 小问已讲内容 + 只读
+    // 画布（题图）；容器独立于操作 workspace 断言口径。
+    await page.getByTestId("tutor-quick-ask-lost").click();
+    await expect(page.getByTestId("tutor-demonstration")).toBeVisible({ timeout: e2eTimeout(20_000) });
+    const demoBoardLines = page.locator("[data-testid='tutor-demonstration'] .solution-board-line");
+    await expect(demoBoardLines.first()).toBeVisible({ timeout: e2eTimeout(10_000) });
+    expect(await demoBoardLines.count()).toBeGreaterThanOrEqual(1);
+    expectNoTruthLeak(page);
+
     // 第 2 小问：推进到其结论操作步并提交，整题完成。
     await progressUntilWorkspace(page, plan, { maxTurns: 30 });
     const templates = plan.resources.filter((entry) => entry.kind === "action_template");

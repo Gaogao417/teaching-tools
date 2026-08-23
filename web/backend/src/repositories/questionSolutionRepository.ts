@@ -169,3 +169,17 @@ export function loadAcceptedSolutionBoardContext(
   const solutionRevision = publishScenarioSnapshots(scenario, actions);
   return solutionRevision ? readContext(scenario, solutionRevision, actionId, mode, "accepted") : undefined;
 }
+
+/** 波次 G 任务 2（(a) 第一层）：demonstration 板书上下文——纯读投影
+ *  （snapshotAt 同一披露规则），不写 SQLite 快照。authored expressions 的
+ *  modes 是 learn/guided-practice 家族，演示按 learn 口径读同一板书。 */
+export function demonstrationBoardContext(
+  scenario: TopicResolvedScenario,
+  actions: ActionContract[],
+  currentActionId: string,
+): ActionSolutionBoardContext | undefined {
+  const index = actions.findIndex((action) => action.actionId === currentActionId);
+  if (index < 0) return undefined;
+  const board = snapshotAt(scenario, actions, "learn", index);
+  return board ? { actionId: currentActionId, stage: "enter", solutionRevision: "demonstration", board } : undefined;
+}

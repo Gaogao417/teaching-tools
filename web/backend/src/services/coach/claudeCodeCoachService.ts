@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 export interface ClaudeCoachInput {
   problemLatex: string;
-  mode: "learn" | "guided-practice" | "assessment";
+  mode: "learn" | "guided-practice" | "assessment" | "demonstration";
   action: { actionId: string; title: string; instruction: string };
   visibleSolution: string[];
   reviewedTeachingTargets?: unknown;

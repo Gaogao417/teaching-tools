@@ -120,6 +120,10 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
   const [alternatesAvailable, setAlternatesAvailable] = useState(false);
   const [transcript, setTranscript] = useState<TutorTranscriptEntry[]>([]);
   const [workspace, setWorkspace] = useState<TutorWorkspaceAction[]>([]);
+  /** 波次 G 任务 2：讲解演示（demonstration 形态 workspace 条目）——只读
+   *  投影，不驱动 workspaceActive phase；跨回合保留最近一份（服务端按讲解
+   *  回合重投影），换会话/完成后清除。 */
+  const [demonstration, setDemonstration] = useState<TutorWorkspaceAction | undefined>(undefined);
   const [questionCompleted, setQuestionCompleted] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -199,12 +203,16 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
 
   /** 回合后同步「进行中的 workspace」：显式签发优先；否则（此前有待操作步）
    *  回读学生安全视图的 pending_workspace（错答重试/多回合后仍能看到待操作
-   *  步——不靠内存重建）。 */
+   *  步——不靠内存重建）。demonstration 条目（form 标记）单独走演示态，
+   *  不进操作 workspace、不影响 phase。 */
   const hadWorkspaceRef = useRef(false);
   const syncActiveWorkspace = useCallback(async (turnSessionId: string, turn: TutorTurnResponse): Promise<void> => {
-    if (turn.workspace.length) {
+    const operations = turn.workspace.filter((action) => action.form !== "demonstration");
+    const demonstrationEntry = turn.workspace.find((action) => action.form === "demonstration");
+    if (demonstrationEntry) setDemonstration(demonstrationEntry);
+    if (operations.length) {
       hadWorkspaceRef.current = true;
-      setWorkspace(turn.workspace);
+      setWorkspace(operations);
       return;
     }
     if (!hadWorkspaceRef.current) {
@@ -212,7 +220,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
       return;
     }
     const view = await api.getTutorSession(turnSessionId).catch(() => undefined);
-    const pending = view?.pending_workspace ?? [];
+    const pending = (view?.pending_workspace ?? []).filter((action) => action.form !== "demonstration");
     hadWorkspaceRef.current = pending.length > 0;
     setWorkspace(pending);
   }, []);
@@ -370,6 +378,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
       setQuestionCompleted(false);
       setCompleted(false);
       setWorkspace([]);
+      setDemonstration(undefined);
       // 新会话接管：清掉上一会话遗留的 UI 事件/播放事实（phase 随之重推导）。
       setInterrupted(false);
       setSpeechActive(false);
@@ -498,6 +507,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     alternatesAvailable,
     transcript,
     workspace,
+    demonstration,
     questionCompleted,
     completed,
     error,

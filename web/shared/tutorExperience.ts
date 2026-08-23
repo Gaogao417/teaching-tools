@@ -47,6 +47,12 @@ export interface TutorWorkspaceAction {
   student_view: ActionContract;
   /** 服务端投影的完整学生安全 ExercisePlan（单 action、server-authoritative）。 */
   action_plan: ExercisePlan;
+  /**
+   * 波次 G 任务 2（(a) 第一层）：workspace 条目形态（additive）。缺省
+   * "operation"=学生操作步；"demonstration"=讲解演示（只读，demonstration
+   * 形态 ExercisePlan，无 evidence 通道，推进权在会话）。
+   */
+  form?: "operation" | "demonstration";
 }
 
 export interface TutorTurnResponse {
@@ -156,8 +162,14 @@ export function isTutorVoiceAction(value: unknown): value is TutorVoiceAction {
 
 export function isTutorWorkspaceAction(value: unknown): value is TutorWorkspaceAction {
   if (!isRecord(value) || !hasString(value, "action_id") || !hasString(value, "decision_id")
-    || !hasString(value, "resource_id") || !hasString(value, "action_ref") || !isRecord(value.student_view)) return false;
-  return isRecord(value.action_plan) && Array.isArray((value.action_plan as Record<string, unknown>).actions);
+    || !hasString(value, "resource_id") || !hasString(value, "action_ref")) return false;
+  // 波次 G 任务 2：demonstration 形态条目无 student_view（只读演示，携带
+  // demonstration 形态 action_plan）；操作步形态要求 assessment 学生面投影。
+  if (value.form === "demonstration") {
+    return isRecord(value.action_plan) && Array.isArray((value.action_plan as Record<string, unknown>).actions);
+  }
+  return isRecord(value.student_view)
+    && isRecord(value.action_plan) && Array.isArray((value.action_plan as Record<string, unknown>).actions);
 }
 
 export function isTutorTurnResponse(value: unknown): value is TutorTurnResponse {

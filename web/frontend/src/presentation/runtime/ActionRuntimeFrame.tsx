@@ -3,7 +3,10 @@ import type {
   ActionCheckpointSnapshot,
   ActionEvaluationResponse,
   ActionPlanResponse,
+  ExercisePlan,
 } from "../../../../shared/actionRuntime";
+import { applyDomainCommands } from "../../../../shared/actionWorld";
+import { renderBoardExpression } from "../../../../shared/solutionBoard";
 import { api } from "../../api/client";
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
 import { MathText } from "../../components/math/MathText";
@@ -67,6 +70,13 @@ function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoa
 }
 
 export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railTrigger: railTriggerOverride, railOpen: railOpenProp, onRailOpenChange }: ActionRuntimeFrameProps) {
+  // 波次 G 任务 2（(a) 第一层）：demonstration 形态走独立只读渲染（不进
+  // 交互 action 机——无 evidence 通道、无答题区、无播放条；板书随讲解
+  // 出现、画布执行服务端 authored 效果命令；推进权在 Tutor 会话，仅侧栏
+  // 既有重播）。在任何 hook 之前分叉（未调用 hook 的早返回合法）。
+  if (response.plan.mode === "demonstration") {
+    return <DemonstrationRuntimeFrame plan={response.plan} />;
+  }
   const storageKey = `action-runtime-v3:${response.sessionId}:${response.plan.exerciseId}`;
   const localCheckpoint = useMemo(() => {
     try {
@@ -447,6 +457,88 @@ const BOARD_EMPHASIS_KEYFRAMES: Keyframe[] = [
   { backgroundColor: "rgba(24,183,183,0.14)", boxShadow: "0 0 0 2px rgba(24,183,183,0.32)", offset: 0.68 },
   { backgroundColor: "rgba(24,183,183,0)", boxShadow: "0 0 0 0 rgba(24,183,183,0)" },
 ];
+
+/**
+ * 波次 G 任务 2（(a) 第一层）：demonstration 形态只读渲染器。
+ *
+ * 老师讲解演示面：板书按服务端披露快照出现（snapshotAt 产物），画布应用
+ * 服务端 authored 效果命令（构造线/标注/对应/强调——applyDomainCommands 纯
+ * 应用）；实体全部 disabled、无确认/答题控件、不产生 evidence。推进权在
+ * Tutor 会话：每个讲解回合收到新计划（revision=会话 revision），本地不
+ * 步进、不回退（播放条有意不用，重播走 Tutor 侧栏）。
+ */
+function DemonstrationRuntimeFrame({ plan }: { plan: ExercisePlan }) {
+  const geometry = useMemo(() => {
+    const base = plan.world.geometry;
+    if (!base) return undefined;
+    const disclosed = new Set([...plan.completedActionIds, plan.currentActionId]);
+    const commands = (plan.demonstration?.effects ?? [])
+      .filter((effect) => disclosed.has(effect.actionId))
+      .flatMap((effect) => effect.commands);
+    try {
+      return applyDomainCommands({ ...plan.world, geometry: base }, commands).geometry;
+    } catch {
+      // 效果命令与几何不匹配（内容缺口）：退回题图原样，演示不冒错。
+      return base;
+    }
+  }, [plan]);
+  const model = useMemo(() => geometry ? buildGeometryModel(geometry) : undefined, [geometry]);
+  const canvasView = useMemo<InteractionView>(() => ({
+    prompt: "老师演示",
+    entities: {
+      ...Object.fromEntries((geometry?.points ?? []).map((point) => [point.id, {
+        id: point.id, kind: "point" as const, enabled: false, expected: false, visualState: "idle" as const,
+      }])),
+      ...Object.fromEntries((geometry?.segments ?? []).map((segment) => [segment.id, {
+        id: segment.id, kind: "line" as const, enabled: false, expected: false, visualState: "idle" as const,
+      }])),
+      ...Object.fromEntries((geometry?.derivedLines ?? []).map((line) => [line.id, {
+        id: line.id, kind: "line" as const, enabled: false, expected: false, visualState: "idle" as const,
+      }])),
+    },
+    selected: [],
+    cursor: "default",
+    canCancel: false,
+    canGoBack: false,
+  }), [geometry]);
+  const board = useMemo(() => {
+    const context = plan.solutionBoardContexts?.find((entry) => entry.actionId === plan.currentActionId);
+    const projection = context?.board;
+    if (!projection) return undefined;
+    const current = [...projection.expressions].reverse()
+      .find((expression) => expression.sourceStepId === plan.actions.find((action) => action.actionId === plan.currentActionId)?.sourceStepId)
+      ?? projection.expressions[projection.expressions.length - 1];
+    return {
+      headingLatex: projection.headingLatex,
+      visibleExpressions: projection.expressions
+        .filter((expression) => expression.phase !== "hidden")
+        .map((expression) => ({
+          expressionId: expression.expressionId,
+          sourceStepId: expression.sourceStepId,
+          latex: renderBoardExpression(expression),
+          isCurrent: expression.expressionId === current?.expressionId,
+          isComplete: expression.phase === "complete",
+        })),
+      currentExpressionId: current?.expressionId,
+    };
+  }, [plan]);
+  return (
+    <div
+      className="practice-canvas-zone topic-practice-canvas action-runtime-demonstration"
+      data-testid="tutor-demonstration"
+      data-current-action={plan.currentActionId}
+    >
+      <div className="artifact-math-object has-diagram">
+        <section className="artifact-diagram-stage" aria-label="老师演示画布">
+          {model ? (
+            <GeometryCanvasSurface model={model} view={canvasView} onClickEntity={() => undefined} modelVersion={plan.revision} />
+          ) : null}
+        </section>
+      </div>
+      {board ? <SolutionBoardPanel board={board} /> : null}
+    </div>
+  );
+}
 const BOARD_EMPHASIS_KEYFRAMES_REDUCED: Keyframe[] = [
   { backgroundColor: "rgba(24,183,183,0)" },
   { backgroundColor: "rgba(24,183,183,0.12)" },

@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 
 import type { ActionEvidence, ActionEvaluationResponse, AuthoredActionTemplate } from "../../../../shared/actionRuntime";
-import type { TopicGeometryModel } from "../../../../shared/topicPractice";
+import type { TopicGeometryModel, TopicPracticeTaskId } from "../../../../shared/topicPractice";
 import {
   type Alignment,
   type InputKind,
@@ -66,6 +66,8 @@ import {
 } from "../planBuild/canonicalInputs";
 import type { PolicyProfileSnapshot, PolicyProviderKind } from "./topicQuestionExperience";
 import { studentQuestionGeometry, type TutorWorkspacePlanContext } from "../tutorPresentation/adapters/legacyActionRuntime/workspacePlanProjector";
+import { buildTutorDemonstrationPlan } from "../tutorPresentation/adapters/legacyActionRuntime/demonstrationPlanProjector";
+import { getTopicScenario } from "../runtime/engines/topicPractice/scenarioBank";
 import { projectApprovedPlan, type RuntimeProjectionBody } from "../planBuild/MaterializeTutorPlan";
 import { buildRuntimeRegistrySnapshot, type RuntimeRegistrySnapshot } from "../planBuild/RuntimeRegistrySnapshot";
 import { createDecideTutorMove } from "../tutorPolicy/DecideTutorMove";
@@ -973,13 +975,17 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         ...(dynamicVoice ? { dynamicVoice } : {}),
       });
       if (!presentationResult.ok || !presentationResult.presentation) {
+        // 波次 G：错误详情并入 failure_class（自由字符串；PolicyFailedPayload
+        // 是 strict schema，携带 note 键会被事件 store 拒绝——该地雷随 confirm
+        // 接地首次被踩出，此处一并收口）。
         batch.push({
           event_type: "policy_failed",
           payload: {
             policy_version: outcome.policy_version,
-            failure_class: "presentation_invalid",
+            failure_class: presentationResult.ok
+              ? "presentation_invalid"
+              : `presentation_invalid:${presentationResult.errors.join("; ").slice(0, 160)}`,
             fallback_used: false,
-            ...(presentationResult.ok ? {} : { note: presentationResult.errors.join("; ") }),
           },
           occurred_at: now(),
           causation_sequence: trigger.event_sequence,
@@ -1411,6 +1417,50 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     };
   }
 
+  /** 波次 G 任务 2（(a) 第一层）：讲解回合的演示投影注入。move_type ∈
+   *  explain/prompt/hint 且本回合无操作 workspace、披露非空时，附加
+   *  demonstration 形态条目（additive form 标记）——纯投影，无
+   *  workspace_action_issued 事件、不进台账、不影响 active_action/phase；
+   *  每次讲解回合按当前课程状态重投影（幂等重放/恢复同口径）。 */
+  const DEMONSTRATION_MOVE_TYPES = new Set(["explain", "prompt", "hint"]);
+  function demonstrationWorkspaceEntries(args: {
+    context: SessionContext;
+    state: TutorRuntimeState;
+    moveType?: string;
+    operations: readonly ValidatedWorkspaceAction[];
+  }): ValidatedWorkspaceAction[] {
+    const { context, state } = args;
+    if (!args.moveType || !DEMONSTRATION_MOVE_TYPES.has(args.moveType)) return [];
+    if (args.operations.length || state.completed) return [];
+    if (!context.experience?.task_id || !context.experience.scenario_id) return [];
+    const question = questionContextOf(context);
+    if (!question) return [];
+    try {
+      const scenario = getTopicScenario(
+        context.experience.task_id as TopicPracticeTaskId,
+        context.experience.scenario_id,
+      );
+      const demonstration = buildTutorDemonstrationPlan({ plan: context.plan, scenario, state, context: question });
+      if (!demonstration) return [];
+      return [
+        {
+          action_id: `DM-${state.session_id}-${state.revision}`,
+          decision_id: "",
+          capability: "demonstration",
+          target_ids: [],
+          resource_id: "",
+          action_ref: "",
+          student_view: undefined,
+          form: "demonstration",
+          action_plan: demonstration.action_plan,
+        },
+      ];
+    } catch {
+      // 该题无场景记录/未 Approved（如 benchmark 合成会话）：不演示（诚实）。
+      return [];
+    }
+  }
+
   function toTurnResponse(args: {
     sessionId: string;
     clientTurnId: string;
@@ -1421,8 +1471,19 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     revision: number;
     lastSequence: number;
     actionEvidence?: { accepted: boolean; diagnosis: TypedActionDiagnosis };
+    /** 波次 G 任务 2：讲解回合演示投影需要（缺省不附加）。 */
+    context?: SessionContext;
   }): TutorTurnResponse {
     const { turn } = args;
+    const operations = turn.presentation.workspace;
+    const demonstration = args.context
+      ? demonstrationWorkspaceEntries({
+          context: args.context,
+          state: args.state,
+          moveType: turn.decision?.move_type,
+          operations,
+        })
+      : [];
     return {
       session_id: args.sessionId,
       revision: args.revision,
@@ -1446,7 +1507,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         interruptible: voice.interruptible,
         ...(voice.voice_source ? { voice_source: voice.voice_source } : {}),
       })),
-      workspace: turn.presentation.workspace,
+      workspace: [...operations, ...demonstration],
       ...(turn.policy_failed ? { fallback: { used: turn.policy_failed.fallback_used, failure_class: turn.policy_failed.failure_class } } : {}),
       ...(args.actionEvidence ? { action_evaluation: evidenceOutcomeToResponse(args.actionEvidence, args.revision) } : {}),
       question_completed: args.state.curriculum.completed,
@@ -1525,31 +1586,52 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
           ...(payload.voice_source ? { voice_source: payload.voice_source } : {}),
         };
       }),
-      workspace: workspaceEvents.flatMap((event) => {
-        const payload = event.payload as { command_payload?: unknown };
-        const command = (typeof payload.command_payload === "string"
-          ? (JSON.parse(payload.command_payload) as Record<string, unknown>)
-          : (payload.command_payload ?? {})) as Record<string, unknown>;
-        const resource = context.plan.resources.find((entry) => entry.resource_id === command.resource_id);
-        const template = resource?.content ? (JSON.parse(resource.content) as { actionId?: string }) : undefined;
-        void template;
-        // 学生面重建走 Presenter 同一确定性解析（服务端私有 projection）。
-        const resolution = resolveWorkspacePresentation(
-          [
-            {
-              action_id: (event.payload as { action_id: string }).action_id,
-              decision_id: (event.payload as { decision_id: string }).decision_id,
-              capability: (event.payload as { capability: string }).capability,
-              target_ids: (event.payload as { target_ids: string[] }).target_ids,
-              command_payload: command,
-            },
-          ],
-          context.plan,
-          context.projection,
-          { registrySnapshot: context.snapshot, sessionKind: "tutoring", question: questionContextOf(context) },
-        );
-        return resolution.presentation;
-      }),
+      workspace: [
+        ...workspaceEvents.flatMap((event) => {
+          const payload = event.payload as { command_payload?: unknown };
+          const command = (typeof payload.command_payload === "string"
+            ? (JSON.parse(payload.command_payload) as Record<string, unknown>)
+            : (payload.command_payload ?? {})) as Record<string, unknown>;
+          const resource = context.plan.resources.find((entry) => entry.resource_id === command.resource_id);
+          const template = resource?.content ? (JSON.parse(resource.content) as { actionId?: string }) : undefined;
+          void template;
+          // 学生面重建走 Presenter 同一确定性解析（服务端私有 projection）。
+          const resolution = resolveWorkspacePresentation(
+            [
+              {
+                action_id: (event.payload as { action_id: string }).action_id,
+                decision_id: (event.payload as { decision_id: string }).decision_id,
+                capability: (event.payload as { capability: string }).capability,
+                target_ids: (event.payload as { target_ids: string[] }).target_ids,
+                command_payload: command,
+              },
+            ],
+            context.plan,
+            context.projection,
+            { registrySnapshot: context.snapshot, sessionKind: "tutoring", question: questionContextOf(context) },
+          );
+          return resolution.presentation;
+        }),
+        // 波次 G 任务 2：幂等重放同口径附加演示投影（按当前课程状态确定性重算）。
+        ...demonstrationWorkspaceEntries({
+          context,
+          state,
+          moveType: decisionPayload?.move_type,
+          operations: workspaceEvents.length
+            ? [
+                {
+                  action_id: "replay-operations",
+                  decision_id: "",
+                  capability: "",
+                  target_ids: [],
+                  resource_id: "",
+                  action_ref: "",
+                  student_view: undefined,
+                },
+              ]
+            : [],
+        }),
+      ],
       ...(fallbackEvent
         ? {
             fallback: {
@@ -1874,6 +1956,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       return toTurnResponse({
         sessionId,
         clientTurnId: args.clientTurnId,
+        context,
         turn,
         alignment: {
           alignment: afterEvidence.state.reasoning.last_alignment?.alignment ?? "unclear",
@@ -1950,6 +2033,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       return toTurnResponse({
         sessionId,
         clientTurnId: args.clientTurnId,
+        context,
         turn,
         alignment,
         state: final.state,
@@ -1994,6 +2078,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     return toTurnResponse({
       sessionId,
       clientTurnId: args.clientTurnId,
+      context,
       turn,
       alignment: record.alignment
         ? {
@@ -2020,6 +2105,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     return toTurnResponse({
       sessionId,
       clientTurnId: `voice.${completion.action_id}`,
+      context: final.context,
       turn,
       state: final.state,
       revision: final.revision,

@@ -500,6 +500,14 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
           )}
         </section>
         {question?.geometry ? <TutorQuestionFigure geometry={question.geometry} /> : null}
+        {/* 波次 G 任务 2（(a) 第一层）：讲解演示——题图常驻，演示面（板书渐进
+            +画布效果）按服务端披露投影渲染在题图之下；只读、无 evidence，
+            推进权在会话（重播走侧栏）。 */}
+        {tutor.demonstration ? (
+          <ActionRuntimeFrame
+            response={{ sessionId: tutor.sessionId ?? "demonstration", plan: tutor.demonstration.action_plan }}
+          />
+        ) : null}
       </FocusWorkspace>
     </div>
   );

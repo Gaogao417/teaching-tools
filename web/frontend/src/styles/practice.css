@@ -2505,6 +2505,30 @@
   position: relative;
 }
 
+/* 波次 G 任务 2（(a) 第一层）：讲解演示面——与 workspace 同族两列布局
+   （画布 + 板书），但渲染在讲解分支题图之下，只占自然高度、可滚动。 */
+.action-runtime-demonstration {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 1fr);
+  align-items: stretch;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: var(--color-panel);
+}
+
+.action-runtime-demonstration .solution-board-panel {
+  max-height: min(40vh, 420px);
+}
+
+@media (max-width: 900px) {
+  .action-runtime-demonstration {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* 波次 C-2 验收发现 3：tutor 模式 rail 被替换后，wrong 反馈横幅落在工作区
    内。覆盖层（absolute，不参与两列 grid）——独立行会改变行高造成画布纵向
    重排，覆盖层出现/消失零重排。错误态配色沿用 .topic-coach-panel.tone-wrong

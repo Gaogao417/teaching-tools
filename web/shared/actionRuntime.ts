@@ -5,7 +5,7 @@ import type {
   TopicInteractionPresentation,
   TopicSegmentLabel,
 } from "./topicPractice";
-import type { DomainCommand } from "./actionWorld";
+import { isDomainCommand, type DomainCommand } from "./actionWorld";
 import {
   isActionSolutionBoardContext,
   type ActionSolutionBoardContext,
@@ -13,7 +13,7 @@ import {
 
 export const ACTION_RUNTIME_PLAN_VERSION = 5 as const;
 
-export type LearningMode = "learn" | "guided-practice" | "assessment";
+export type LearningMode = "learn" | "guided-practice" | "assessment" | "demonstration";
 export type ValidationPolicy = "local-demonstration" | "local-training" | "server-authoritative";
 
 export interface CoachProfile {
@@ -188,6 +188,13 @@ export interface ExercisePlan {
    * in this plan. Assessment always omits them.
    */
   solutionBoardContexts?: ActionSolutionBoardContext[];
+  /**
+   * 波次 G 任务 2（(a) 第一层）：demonstration 形态专属——服务端从 authored
+   *  input/teachingInput 确定性推导的画布演示效果命令（构造线/标注/对应/
+   * 强调）。与板书行同类=讲解演示内容；判定真值键（localTruth/
+   * teachingInput/expectedValues）仍不出服务端。仅 demonstration 模式允许。
+   */
+  demonstration?: { effects: Array<{ actionId: string; commands: DomainCommand[] }> };
   coach: CoachProfile;
   actions: ActionContract[];
   currentActionId: string;
@@ -638,7 +645,7 @@ function containsLocalTruth(value: unknown): boolean {
 export function isExercisePlan(value: unknown): value is ExercisePlan {
   if (!isRecord(value) || value.planVersion !== ACTION_RUNTIME_PLAN_VERSION
     || !hasString(value, "exerciseId") || typeof value.revision !== "number"
-    || !["learn", "guided-practice", "assessment"].includes(String(value.mode))
+    || !["learn", "guided-practice", "assessment", "demonstration"].includes(String(value.mode))
     || !hasString(value, "currentActionId") || !hasStringArray(value, "completedActionIds")
     || !isWorldProjection(value.world) || !isRecord(value.metadata) || !isRecord(value.coach)
     || (value.runtimeCapabilities !== undefined && (!isRecord(value.runtimeCapabilities)
@@ -660,7 +667,7 @@ export function isExercisePlan(value: unknown): value is ExercisePlan {
       && ["local-demonstration", "local-training", "server-authoritative"].includes(String(action.validationPolicy))
       && typeof action.submitOnComplete === "boolean";
   }) && ids.has(value.currentActionId as string)
-    && (value.mode === "assessment"
+    && (value.mode === "assessment" || value.mode === "demonstration"
       ? value.actions.every((action) => isRecord(action) && action.validationPolicy === "server-authoritative"
         && action.localTruth === undefined && !containsLocalTruth(action.input))
       : value.actions.every((action) => isRecord(action) && isRecord(action.localTruth)
@@ -669,7 +676,17 @@ export function isExercisePlan(value: unknown): value is ExercisePlan {
             ? "server-authoritative" : "local-training")))
     && (value.solutionBoardContexts === undefined
       || (value.mode !== "assessment"
-        && value.solutionBoardContexts.every((context) => ids.has(context.actionId))));
+        && value.solutionBoardContexts.every((context) => ids.has(context.actionId))))
+    // 波次 G 任务 2：demonstration effects 只在 demonstration 形态出现，
+    // 命令必须是合法 DomainCommand、actionId 必须在本 plan 内。
+    && (value.demonstration === undefined
+      || (value.mode === "demonstration"
+        && isRecord(value.demonstration)
+        && Array.isArray((value.demonstration as { effects?: unknown }).effects)
+        && ((value.demonstration as { effects: unknown[] }).effects.every((effect) => isRecord(effect)
+          && hasString(effect, "actionId") && ids.has(effect.actionId as string)
+          && Array.isArray((effect as { commands?: unknown }).commands)
+          && ((effect as { commands: unknown[] }).commands.every(isDomainCommand))))));
 }
 
 export function assertExercisePlan(value: unknown): asserts value is ExercisePlan {

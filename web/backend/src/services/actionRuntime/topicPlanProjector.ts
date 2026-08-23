@@ -44,9 +44,14 @@ function mergedLearningGeometry(scenario: TopicResolvedScenario): TopicGeometryM
 /**
  * The runtime projector deliberately treats action-specific `input` as opaque.
  * Per-kind input validation and behavior belong to the frontend registry.
+ *
+ * 波次 G 任务 2：demonstration 形态与 assessment 同一 truth 剥离口径
+ * （input 不并 teachingInput、无 localTruth、剥 agent: capability），差异仅在
+ * presentation 保留（authored 演示元数据）而 coach 剥除——voice 归 Tutor 管线。
  */
 export function materializeActionTemplate(template: AuthoredActionTemplate, mode: LearningMode): ActionContract {
-  const input = mode === "assessment"
+  const truthStripped = mode === "assessment" || mode === "demonstration";
+  const input = truthStripped
     ? { ...template.input }
     : { ...template.input, ...template.teachingInput };
   return {
@@ -57,15 +62,15 @@ export function materializeActionTemplate(template: AuthoredActionTemplate, mode
     title: template.title,
     instruction: template.instruction,
     input,
-    ...(mode === "assessment" ? {} : { localTruth: { ...(template.teachingInput || {}) } }),
-    capabilities: mode === "assessment"
+    ...(truthStripped ? {} : { localTruth: { ...(template.teachingInput || {}) } }),
+    capabilities: truthStripped
       ? template.capabilities.filter((capability) => !capability.startsWith("agent:"))
       : [...template.capabilities],
     answerSlots: template.answerSlots.map((slot) => ({ ...slot })),
     validationPolicy: validationFor(mode),
     submitOnComplete: template.submitOnComplete,
     presentation: mode === "assessment" ? undefined : template.presentation,
-    coach: mode === "assessment" ? undefined : template.coach,
+    coach: truthStripped ? undefined : template.coach,
   } as ActionContract;
 }
 

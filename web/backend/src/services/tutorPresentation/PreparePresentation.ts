@@ -108,7 +108,10 @@ function scaffoldLeakCheck(texts: readonly string[], answerValues: readonly stri
   const normalizedTexts = texts.map((text) => normalizeForAlignment(text));
   for (const value of answerValues) {
     const normalizedValue = normalizeForAlignment(value);
-    if (!normalizedValue || normalizedValue.length < 1) continue;
+    // 波次 G：归一化后不足 2 字符的值（如 "$1$"→"1"）不参与文本泄漏判定——
+    // 单字符几乎必然误报（接地进度叙事「已过 1/3 步」即命中），且该类值
+    // 的判定语义由 typed evaluator 承担；实质答案内容（≥2 字符）仍全量查。
+    if (!normalizedValue || normalizedValue.length < 2) continue;
     for (let index = 0; index < texts.length; index += 1) {
       if (normalizedTexts[index].includes(normalizedValue)) {
         problems.push(`脚手架文本命中答案值「${value}」`);

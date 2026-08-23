@@ -279,7 +279,7 @@ interface RunContext {
   queue: AsyncQueue<CoachTurnEvent>;
 }
 
-type ExercisePlanMode = "learn" | "guided-practice" | "assessment";
+type ExercisePlanMode = "learn" | "guided-practice" | "assessment" | "demonstration";
 
 function buildDirective(fallback: CoachDirective, spokenText: string): CoachDirective {
   const text = spokenText.trim();

@@ -61,6 +61,12 @@ export interface ValidatedWorkspaceAction {
    * 单 action、server-authoritative、无 truth）。调用方未提供题目上下文时缺省。
    */
   action_plan?: ExercisePlan;
+  /**
+   * 波次 G 任务 2（(a) 第一层）：workspace 条目形态标记（additive）。缺省
+   * "operation"=学生操作步（结论操作，五重校验产物）；"demonstration"=讲解
+   * 演示（只读投影，无事件/台账/evidence 通道，随讲解回合重投影）。
+   */
+  form?: "operation" | "demonstration";
 }
 
 /** workspace 解析的会话级上下文（action_plan 投影需要；缺省则不下发计划体）。 */

@@ -6,7 +6,7 @@ import type { TaskId } from "../../../../../shared/contracts";
  * adapter and telemetry, never in this contract.
  */
 
-export type LearningMode = "learn" | "guided-practice" | "assessment";
+export type LearningMode = "learn" | "guided-practice" | "assessment" | "demonstration";
 
 export interface CoachActionInput {
   actionId: string;
