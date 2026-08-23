@@ -66,13 +66,19 @@ function newTurnId(): string {
 
 /** 等待当前 narration 播放自然结束（loading/playing → idle/error）。
  *  blocked-by-autoplay 视作已交付（音频已就绪，可手动 replay）。
- *  isCancelled 为真（barge-in）立即返回。 */
+ *  isCancelled 为真（barge-in）立即返回。
+ *  sawActive 以订阅时的当前状态初始化（波次 E 真实链修复）：tutor 流程里
+ *  enter() 先把 media 推到 playing 才返回，waitFor 随后才订阅——subscribe
+ *  不回放当前状态，若只靠后续转移置位，attach-during-playing 的等待者
+ *  在 ended→idle 时因 sawActive=false 不结算，播放完成永远不回报
+ *  （真实 TTS 下复现；fake 链走 failed 路径从未触发该竞态）。 */
 function waitForPlaybackEnd(
   media: MediaSessionController,
   isCancelled: () => boolean,
   timeoutMs = 10 * 60_000,
 ): Promise<"done" | "cancelled" | "error"> {
-  let sawActive = false;
+  const initialStatus = media.getState().status;
+  let sawActive = initialStatus === "loading" || initialStatus === "playing";
   return new Promise((resolve) => {
     const finish = (result: "done" | "cancelled" | "error") => {
       window.clearTimeout(timer);

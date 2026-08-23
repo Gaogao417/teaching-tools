@@ -25,8 +25,11 @@ const completeTutorSession = vi.fn();
  *  挂起（media 不主动发状态），测试经 emit() 推进 loading/playing/idle。 */
 const narrationHarness = vi.hoisted(() => ({
   audioUrl: undefined as string | undefined,
+  /** 当前 media 状态（emit 推进；也可直接置值模拟「订阅前已到达」的竞态）。 */
+  status: "idle" as string,
   listeners: new Set<(state: { status: string }) => void>(),
   emit(status: string) {
+    this.status = status;
     for (const listener of this.listeners) listener({ status });
   },
 }));
@@ -48,6 +51,8 @@ vi.mock("../../../presentation/audio/MediaSessionController", () => ({
       narrationHarness.listeners.add(listener);
       return () => narrationHarness.listeners.delete(listener);
     }
+    /** 波次 E 真实链竞态修复：waitForPlaybackEnd 以 getState() 初始化 sawActive。 */
+    getState() { return { status: narrationHarness.status }; }
     stop() {}
     dispose() {}
     replay() {}
@@ -55,7 +60,13 @@ vi.mock("../../../presentation/audio/MediaSessionController", () => ({
 }));
 vi.mock("../../../presentation/narration/NarrationController", () => ({
   NarrationController: class {
-    enter = vi.fn(async () => (narrationHarness.audioUrl ? { audioUrl: narrationHarness.audioUrl } : undefined));
+    /** 波次 E：真实 NarrationController.enter 会在返回前把 media 推到
+     *  playing（playUrl 已开始）——mock 同步该事实，供 getState 初始化
+     *  waitForPlaybackEnd 的 attach-during-playing 竞态面。 */
+    enter = vi.fn(async () => {
+      if (narrationHarness.audioUrl) narrationHarness.status = "playing";
+      return narrationHarness.audioUrl ? { audioUrl: narrationHarness.audioUrl } : undefined;
+    });
     stop = vi.fn();
     replay = vi.fn();
   },
@@ -119,6 +130,7 @@ describe("useTutorLearning", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     narrationHarness.audioUrl = undefined;
+    narrationHarness.status = "idle";
     narrationHarness.listeners.clear();
   });
 
@@ -393,6 +405,25 @@ describe("useTutorLearning", () => {
     await submission;
     await vi.waitFor(() => expect(tutor().phase).toBe("workspaceActive"));
     expect(tutor().workspace).toHaveLength(1);
+    unmount();
+  });
+
+  it("波次 E 真实链竞态：播放已开始才挂等待 → ended 后完成上报不悬挂（attach-during-playing）", async () => {
+    narrationHarness.audioUrl = "blob:tts";
+    startLearnExperience.mockResolvedValue(experience());
+    completeTutorVoice.mockResolvedValue(null);
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
+    await act(async () => { await tutor().start(); });
+    await vi.waitFor(() => expect(tutor().phase).toBe("speaking"));
+    // 竞态面：enter() 已把 media 置 playing（getState 可见），但订阅者未
+    // 收到任何状态转移——真实 TTS 下 waitFor 挂上时播放早已开始；
+    // subscribe 不回放当前状态（旧实现 sawActive 恒 false → 悬挂）。
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(narrationHarness.status).toBe("playing");
+    narrationHarness.emit("idle");
+    // 旧实现：sawActive 恒 false，ended→idle 不结算，完成永不回报（悬挂）。
+    await vi.waitFor(() => expect(completeTutorVoice).toHaveBeenCalledWith("TS-5001", "VA-1", "completed"));
+    await vi.waitFor(() => expect(tutor().phase).toBe("awaitingInput"));
     unmount();
   });
 
