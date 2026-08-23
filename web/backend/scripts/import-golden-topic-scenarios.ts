@@ -21,6 +21,7 @@ import {
   authorTopicActionTemplates,
   authorTopicSolutionBoard,
 } from "./lib/topicActionTemplateAuthoring";
+import { GOLDEN_GEOMETRY, verifyGoldenGeometry } from "./golden-question-geometry";
 import type { TopicResolvedScenario } from "../../shared/topicPractice";
 
 interface StepSpec {
@@ -257,6 +258,9 @@ const TASKS: TaskSpec[] = [
 ];
 
 function main(): void {
+  // 教师裁定补图（波次 E）：构造不变量 fail closed。
+  const geometryErrors = verifyGoldenGeometry();
+  if (geometryErrors.length) throw new Error(`golden geometry: ${geometryErrors.join("; ")}`);
   const argIndex = process.argv.indexOf("--canonical-root");
   const canonicalRoot = path.resolve(
     argIndex >= 0 ? process.argv[argIndex + 1] : "~/develop/teaching-skills-mvp/artifacts/canonical-authoring".replace("~", process.env.HOME ?? ""),
@@ -368,6 +372,8 @@ function main(): void {
           difficulty: spec.difficulty,
           skillTags: spec.tags,
           promptLatex: truth.stem,
+          // 波次 E 补图：legacy/训练页题图（与 tutor 侧 plan 模板同源同形）。
+          promptGeometry: GOLDEN_GEOMETRY[spec.qtId] as never,
           explanationLatex,
           teaching: {
             goal: spec.goal,

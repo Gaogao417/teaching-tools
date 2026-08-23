@@ -279,6 +279,8 @@ export interface SyntheticV3ExperienceOptions {
   profileId?: string;
   /** 波次 C-2 裁定 1：默认 plan 注入 make-parallel 白板动作（input.geometry）。 */
   makeParallelAction?: boolean;
+  /** 波次 E（教师问「讲完第一小题怎么进第二小题」）：小问数，0=整题。 */
+  parts?: number;
 }
 
 export interface SyntheticV3Experience {
@@ -388,17 +390,21 @@ export function publishSyntheticV3Experience(
   const v2 = publishSyntheticPlanVt(root, {
     qtId,
     tpId,
-    parts: 0,
+    parts: options.parts ?? 0,
     ...(options.makeParallelAction ? { makeParallelAction: true } : {}),
   });
   const asId = `AS-TST-${qtId.slice(-1)}01`;
-  const approachSet = makeApproachSetPayload(qtId, asId, v2 as unknown as Record<string, unknown>, 0);
+  const approachSet = makeApproachSetPayload(qtId, asId, v2 as unknown as Record<string, unknown>, options.parts ?? 0);
   // AS 引用的 TA hash 必须与真实发布的 TA 一致（对账用 truth.content_hash
-  // 无关；approach hash 直接取注册表内 TA 的 content_hash）。
-  const taId = `TA-TST-${qtId.slice(-1)}01`;
-  const taPath = path.join(root, "teaching-approach", taId, "v1.json");
-  const taPayload = JSON.parse(readFileSync(taPath, "utf8")) as { content_hash: string };
-  (approachSet.parts as Array<{ approach: { content_hash: string } }>)[0].approach.content_hash = taPayload.content_hash;
+  // 无关；approach hash 直接取注册表内 TA 的 content_hash）。波次 E：逐
+  // part 修补（多小问时 TA-…01..N 全部对齐，此前只修第 1 问导致
+  // approachRefsMatchSet fail closed）。
+  (approachSet.parts as Array<{ approach: { content_hash: string } }>).forEach((part, index) => {
+    const taId = `TA-TST-${qtId.slice(-1)}0${index + 1}`;
+    const taPath = path.join(root, "teaching-approach", taId, "v1.json");
+    const taPayload = JSON.parse(readFileSync(taPath, "utf8")) as { content_hash: string };
+    part.approach.content_hash = taPayload.content_hash;
+  });
   approachSet.content_hash = canonicalHash(approachSet, "authoring");
   writeVersioned(root, "approach-set", asId, approachSet);
 

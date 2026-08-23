@@ -67,14 +67,23 @@ function appendTbAllocation(canonicalRoot: string, tbId: string, taskId: string)
   const ledgerPath = path.join(canonicalRoot, "id-allocations.yaml");
   const ledger = readFileSync(ledgerPath, "utf8");
   if (ledger.includes(`tb_id: ${tbId}`)) return;
-  const hasSection = /^tb_allocations:/m.test(ledger);
-  const lines: string[] = [];
-  if (!hasSection) lines.push("tb_allocations:");
-  lines.push(`- task_id: ${taskId}`);
-  lines.push(`  tb_id: ${tbId}`);
-  lines.push(`  allocated_at: '${new Date().toISOString()}'`);
-  lines.push(`tb_next_seq: ${Number(tbId.split("-").pop()) + 1}`);
-  writeFileSync(ledgerPath, `${ledger.trimEnd()}\n${lines.join("\n")}\n`);
+  const marker = "tb_allocations:";
+  const markerIndex = ledger.indexOf(marker);
+  if (markerIndex === -1) {
+    // 段不存在：一次性写段头 + 条目 + 单个 next_seq。
+    const section = `tb_allocations:\n- task_id: ${taskId}\n  tb_id: ${tbId}\n  allocated_at: '${new Date().toISOString()}'\ntb_next_seq: ${Number(tbId.split("-").pop()) + 1}\n`;
+    writeFileSync(ledgerPath, `${ledger.trimEnd()}\n${section}`);
+    return;
+  }
+  // 段已存在：去掉旧 next_seq，追加条目后写单个新 next_seq（重复调用
+  // 不得产生 item/next_seq 交错的非法 YAML——TB-002 起的账本损坏教训）。
+  const head = ledger.slice(0, markerIndex);
+  let section = ledger.slice(markerIndex);
+  section = section.replace(/^tb_next_seq: \d+$/m, "");
+  section = section.trimEnd();
+  section += `\n- task_id: ${taskId}\n  tb_id: ${tbId}\n  allocated_at: '${new Date().toISOString()}'`;
+  const ids = [...section.matchAll(/tb_id: TB-SMV-(\d+)/g)].map((m) => Number(m[1]));
+  writeFileSync(ledgerPath, head + section + `\ntb_next_seq: ${Math.max(...ids) + 1}\n`);
 }
 
 function main(): void {

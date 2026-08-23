@@ -43,6 +43,7 @@ import {
   validateApprovedPlan,
 } from "../src/services/planBuild/MaterializeTutorPlan";
 import { upgradeTutorPlanToV3 } from "../src/services/planBuild/UpgradeTutorPlanV3";
+import { GOLDEN_GEOMETRY, verifyGoldenGeometry } from "./golden-question-geometry";
 import { buildRuntimeRegistrySnapshot } from "../src/services/planBuild/RuntimeRegistrySnapshot";
 
 const GOLDEN_QT_IDS = [
@@ -288,6 +289,36 @@ function main(): void {
     // content_hash 重算；发布门禁 approve/materialize 按 v3 schema 分派）。
     let draftPlan: TutorPlanV2Payload = build.plan;
     if (args.planSchema === "v3") {
+      // 波次 E（教师裁定补图）：golden 题的 action_template 注入 authored
+      // 题图（input.geometry；opening 题图与 workspace world 同源——C-2
+      // 裁定 1 / 波次 C 偏差 1 口径）。构造不变量 fail closed。
+      const geometryErrors = verifyGoldenGeometry();
+      if (geometryErrors.length) {
+        console.error(`FAIL golden geometry: ${geometryErrors.join("; ")}`);
+        process.exitCode = 1;
+        continue;
+      }
+      const geometry = GOLDEN_GEOMETRY[qtId];
+      if (geometry) {
+        const draft = draftPlan as unknown as {
+          resources: Array<{ resource_id: string; kind: string; content?: string }>;
+          content_hash: string;
+        };
+        let injected = 0;
+        for (const resource of draft.resources) {
+          if (resource.kind !== "action_template" || !resource.content) continue;
+          const template = JSON.parse(resource.content) as {
+            input?: Record<string, unknown>;
+          };
+          template.input = { ...(template.input ?? {}), geometry };
+          resource.content = JSON.stringify(template);
+          injected += 1;
+        }
+        if (injected) {
+          console.log(`GEOMETRY ${qtId}: ${injected} 个 action_template 注入题图`);
+          draft.content_hash = canonicalHash(draftPlan as unknown as Record<string, unknown>, "plan");
+        }
+      }
       if (!approachSet) {
         console.error(`FAIL ${qtId}: 无 Approved ApproachSet，v3 重建要求每题一套（缺失走创作/审核流程）`);
         process.exitCode = 1;

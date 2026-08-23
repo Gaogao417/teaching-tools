@@ -49,6 +49,11 @@ test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () =>
       undefined,
       { timeout: 20_000 },
     );
+    // 波次 E 补图（golden 任务集）：opening 阶段只读题目画布已可见
+    //（question.geometry 来自 plan 模板的 authored 题图）。
+    if (process.env.TUTOR_E2E_TASK_SET === "golden") {
+      await expect(page.locator(".tutor-learn-figure .geometry-canvas")).toBeVisible({ timeout: 15_000 });
+    }
 
     // 2. 回答推进：期望推理 → confirm + 进度前移。
     const checkpointText = await page.getByTestId("tutor-checkpoint").innerText();
@@ -158,6 +163,38 @@ test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () =>
     });
     await submitWorkspace(page, geometryTask!, correct);
     await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|完成/, { timeout: 25_000 });
+    expectNoTruthLeak(page);
+  });
+
+  test("跨小问推进（波次 E 教师问询）：第 1 小问结论步被接受 → 第 2 小问自动开讲 → 完成态", async ({ page }, testInfo) => {
+    const multiPartTask = ACTIVE_TASKS.find((task) => task.taskId === "goldenMinhangCross2020");
+    test.skip(!multiPartTask, "当前任务集无该真题（golden 专属用例）");
+    const plan = loadGoldenPlan(multiPartTask!.tpId);
+    await prepareStudent(page);
+    await installTutorHarness(page, testInfo);
+    await page.goto(`/learn/${multiPartTask!.taskId}`);
+    await waitForTutorState(page, "awaitingInput");
+
+    // 第 1 小问：推进到结论操作步并提交正确值。
+    await progressUntilWorkspace(page, plan);
+    const template1 = JSON.parse(plan.resources.find((entry) => entry.kind === "action_template")!.content!) as {
+      teachingInput?: { expectedValues?: string[] };
+    };
+    await submitWorkspace(page, multiPartTask!, template1.teachingInput?.expectedValues?.[0] ?? "得证");
+    await waitForTutorState(page, "awaitingInput");
+    // 跨小问边界：第 2 小问自动开讲（checkpoint 离开第 1 小问的 CP1–CP3）。
+    const part2Checkpoint = await currentCheckpoint(page);
+    expect(Number(part2Checkpoint.replace("CP", ""))).toBeGreaterThan(3);
+
+    // 第 2 小问：推进到其结论操作步并提交，整题完成。
+    await progressUntilWorkspace(page, plan, { maxTurns: 30 });
+    const templates = plan.resources.filter((entry) => entry.kind === "action_template");
+    const template2 = JSON.parse(templates[1]?.content ?? templates.at(-1)!.content!) as {
+      teachingInput?: { expectedValues?: string[] };
+    };
+    await submitWorkspace(page, multiPartTask!, template2.teachingInput?.expectedValues?.[0] ?? "得证");
+    // 两问结论步都被接受：question_completed → 前端收尾显示完成。
+    await expect(page.getByTestId("tutor-state")).toContainText(/完成/, { timeout: e2eTimeout(25_000) });
     expectNoTruthLeak(page);
   });
 

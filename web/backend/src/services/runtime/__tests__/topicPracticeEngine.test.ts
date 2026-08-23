@@ -119,6 +119,11 @@ async function main() {
         const scenario = getTopicScenario(taskId, state.scenarioId);
         if (!isGoldenTask(taskId)) assert.match(scenario.sourceQuestionId, /^Q\d{3}$/);
         else assert.match(scenario.sourceQuestionId, /^QT-SMV-\d{3}$/);
+        // 波次 E 补图：golden 场景携带 authored 题图（legacy/训练页画布）。
+        if (isGoldenTask(taskId)) {
+          const geometry = (scenario as unknown as { promptGeometry?: { points: unknown[]; segments: unknown[] } }).promptGeometry;
+          assert.ok(geometry && geometry.points.length >= 5 && geometry.segments.length >= 5, `${taskId} 缺题图`);
+        }
         assert.ok(scenario.steps.length >= 2);
         if (!isGoldenTask(taskId)) {
           assert.equal(scenario.sourceAssignment.includes(`items/${scenario.sourceQuestionId}/`), true);
