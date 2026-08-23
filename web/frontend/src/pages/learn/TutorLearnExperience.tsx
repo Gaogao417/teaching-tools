@@ -11,13 +11,18 @@
  *   question_asked），录音先走现有 ASR 再进同一输入合同；
  * - Workspace 用真实 ActionRuntimeFrame（transport → TutorSession typed
  *   evaluator），不出现第二个 legacy Coach；
- * - 同题换讲法（alternates_available）与题目完成推进（学习下一题/开始训练）。
+ * - 同题换讲法（alternates_available）与题目完成推进（学习下一题/开始训练）；
+ * - 波次 F：完成页板书回顾（既有内容面 solution-board 端点，仅完成后拉取）、
+ *   composer 快捷提问 chips（一键 question_asked）、dock 头像预览气泡
+ *   （收起后新老师消息 ~6s 预览，展开清除）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { ActionRuntimeFrame } from "../../action-runtime/react/ActionRuntimeFrame";
+import { ActionRuntimeFrame, SolutionBoardPanel } from "../../action-runtime/react/ActionRuntimeFrame";
 import { workspaceActionResponse, useTutorLearning } from "../../action-runtime/tutor/useTutorLearning";
+import { solutionBoardReviewView } from "../../action-runtime/solutionBoardReview";
+import type { SolutionBoardView } from "../../action-runtime/types";
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
 import { MathText } from "../../components/math/MathText";
 import { useCoachRecorder } from "../../presentation/coach/useCoachRecorder";
@@ -40,6 +45,13 @@ const PHASE_LABELS: Record<string, string> = {
   recovering: "连接恢复中",
   completed: "本次学习完成",
 };
+
+/** 波次 F 任务 2：快捷提问——一键发送 question_asked（复用既有提问通道）。 */
+const QUICK_ASKS: Array<{ key: string; label: string; text: string }> = [
+  { key: "lost", label: "这步没懂", text: "这一步我没听懂，能再讲一遍吗？" },
+  { key: "rephrase", label: "换种说法", text: "能换一种说法再解释一下这一步吗？" },
+  { key: "hint", label: "给点提示", text: "能给我一点下一步的提示吗？" },
+];
 
 export interface TutorLearnExperienceProps {
   taskId: TaskId;
@@ -127,6 +139,15 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     [composerMode, tutor],
   );
 
+  /** 波次 F 任务 2：快捷提问一键发送——固定 question_asked，不经过
+   * composerMode 切换（复用现有提问通道，无新输入合同）。 */
+  const submitQuickAsk = useCallback(
+    (text: string) => {
+      void tutor.submitStudentInput({ input_kind: "question_asked", text });
+    },
+    [tutor],
+  );
+
   const recorder = useCoachRecorder({
     disabled: asrBusy || !tutor.sessionId,
     media: undefined,
@@ -156,17 +177,57 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   // coach dock 的壳与开合（FocusWorkspace dock 模式 + topic-coach-panel
   // 结构样式）；收起/展开在三个渲染分支间共享同一份状态（工作台分支经
   // ActionRuntimeFrame 受控 railOpen）。
+  // 波次 F 任务 3：dock 头像预览气泡——沿用 legacy coach dock 行为
+  // （ActionRuntimeFrame 同款）：收起时新老师消息更新气泡（约 6s 消失）、
+  // 未读点持续、展开清除。
   const [railOpen, setRailOpen] = useState(true);
   const [railUnread, setRailUnread] = useState(false);
+  const [dockPreview, setDockPreview] = useState<{ id: string; text: string } | null>(null);
   const lastTranscript = tutor.transcript[tutor.transcript.length - 1];
+  const lastPreviewId = useRef("");
   useEffect(() => {
-    if (!railOpen && lastTranscript?.role === "tutor") setRailUnread(true);
+    if (railOpen) return;
+    if (lastTranscript?.role === "tutor" && lastTranscript.id !== lastPreviewId.current) {
+      lastPreviewId.current = lastTranscript.id;
+      setDockPreview({ id: lastTranscript.id, text: lastTranscript.text });
+      setRailUnread(true);
+    }
   }, [lastTranscript, railOpen]);
+  useEffect(() => {
+    if (!dockPreview) return;
+    const timer = window.setTimeout(() => setDockPreview(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [dockPreview]);
   const openRail = (): void => {
     setRailOpen(true);
     setRailUnread(false);
+    setDockPreview(null);
   };
   const speaking = tutor.phase === "speaking";
+
+  // 波次 F 任务 1：完成页板书回顾——只在 question_completed 后从既有内容面
+  // （GET /api/learn/:taskId/solution-board）拉取整板投影；答案已提交，回顾
+  // 非 truth 泄漏。scenario 用 /experience 响应里服务端给的 scenario_id
+  // （非前端硬编码；restore 后无 experience 时服务端回落该 task 首条
+  // Approved 记录）。拉取失败或无板书：完成页保持可用，不渲染板书。
+  const [boardReview, setBoardReview] = useState<SolutionBoardView | null>(null);
+  const boardFetchedRef = useRef(false);
+  const scenarioId = tutor.experience?.scenario_id;
+  useEffect(() => {
+    if (!(tutor.phase === "completed" || tutor.questionCompleted)) return;
+    if (boardFetchedRef.current) return;
+    boardFetchedRef.current = true;
+    let cancelled = false;
+    api
+      .getLearnSolutionBoard(taskId, scenarioId)
+      .then((result) => {
+        if (!cancelled && result.board) setBoardReview(solutionBoardReviewView(result.board));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [tutor.phase, tutor.questionCompleted, taskId, scenarioId]);
 
   const rail = (
     <aside className="topic-coach-panel tutor-learn-rail" aria-label="一对一老师" aria-live="polite">
@@ -250,6 +311,19 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
               提问
             </button>
           </div>
+          <div className="tutor-learn-quick-asks" role="group" aria-label="快捷提问">
+            {QUICK_ASKS.map((ask) => (
+              <button
+                key={ask.key}
+                type="button"
+                data-testid={`tutor-quick-ask-${ask.key}`}
+                disabled={tutor.phase === "starting"}
+                onClick={() => submitQuickAsk(ask.text)}
+              >
+                {ask.label}
+              </button>
+            ))}
+          </div>
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -303,6 +377,11 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     >
       <span className="material-symbols-outlined">record_voice_over</span>
       {railUnread ? <span className="topic-coach-dock-unread" aria-hidden /> : null}
+      {dockPreview ? (
+        <span className="topic-coach-dock-preview" role="status" aria-live="polite">
+          <MathText value={dockPreview.text} />
+        </span>
+      ) : null}
     </button>
   );
 
@@ -318,6 +397,11 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
         >
           <section className="tutor-learn-done" aria-label="学习完成">
             <h2>这道题学完了</h2>
+            {boardReview ? (
+              <div className="tutor-learn-board" data-testid="tutor-solution-board">
+                <SolutionBoardPanel board={boardReview} />
+              </div>
+            ) : null}
             <p>换一道题继续练，还是进入训练巩固这一题？</p>
             <button
               type="button"
@@ -340,10 +424,14 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
           response={workspaceActionResponse(tutor.sessionId, activeWorkspace)}
           transport={tutor.transport}
           railContent={rail}
+          railTrigger={railTrigger}
           railOpen={railOpen}
           onRailOpenChange={(open) => {
             setRailOpen(open);
-            if (open) setRailUnread(false);
+            if (open) {
+              setRailUnread(false);
+              setDockPreview(null);
+            }
           }}
         />
       </div>

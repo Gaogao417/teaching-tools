@@ -146,4 +146,22 @@ describe("ActionRuntimeFrame tutor transport", () => {
     expect(evaluateAction).not.toHaveBeenCalled();
     unmount();
   });
+
+  it("波次 F 任务 3：railTrigger 提供时 dock 头像被替换（Frame 内部 legacy 头像不再渲染）", async () => {
+    const onRailOpenChange = vi.fn();
+    const { container, unmount } = mount({
+      response: tutorWorkspaceResponse(),
+      transport: { submitEvidence: vi.fn() },
+      railContent: <aside data-testid="tutor-rail">tutor rail</aside>,
+      railTrigger: <button type="button" data-testid="tutor-dock-avatar">tutor avatar</button>,
+      railOpen: false,
+      onRailOpenChange,
+    });
+    expect(container.querySelector("[data-testid='tutor-dock-avatar']")).toBeTruthy();
+    expect(container.querySelector(".ks-focus-rail-trigger")!.textContent).toContain("tutor avatar");
+    // Frame 内部 legacy dock 头像（topic-coach-dock-avatar）被覆盖。
+    expect(container.querySelector(".topic-coach-dock-avatar")).toBeNull();
+    expect(container.querySelector(".ks-focus-rail-drawer.is-closed")).toBeTruthy();
+    unmount();
+  });
 });

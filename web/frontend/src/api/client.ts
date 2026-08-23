@@ -29,6 +29,7 @@ import type {
 import { assertExercisePlan, isActionCheckpointResponse, isActionEvaluationResponse, isActionPlanResponse, isCoachResponse, isCoachTurnResponse, isDirectSpeechResponse } from "../../../shared/actionRuntime";
 import { isTrainingReceipt, type TrainingCheckpoint, type TrainingReceipt, type TrainingResult } from "../../../shared/trainingRuntime";
 import { isCoachTurnEvent, type CoachTurnEvent, type VoiceTelemetryEvent } from "../../../shared/coachMedia";
+import type { SolutionBoardProjection } from "../../../shared/solutionBoard";
 import {
   isTutorExperienceResponse,
   isTutorSessionView,
@@ -38,6 +39,13 @@ import {
   type TutorStudentInput,
   type TutorTurnResponse,
 } from "../../../shared/tutorExperience";
+
+/** 波次 F 任务 1：GET /api/learn/:taskId/solution-board 响应（内容面）。 */
+export interface SolutionBoardReviewResponse {
+  task_id: string;
+  scenario_id: string;
+  board: SolutionBoardProjection | null;
+}
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
@@ -147,6 +155,12 @@ export const api = {
     request<LearningProjectionSpec>(`/api/learn/${taskId}`),
   getLearningActionPlan: (taskId: TaskId) =>
     requestLearningActionPlan(`/api/learn/${taskId}/action-plan`),
+  /** 波次 F 任务 1：完成页板书回顾（既有 /api/learn 内容面；仅
+   * question_completed 后调用；board 为 null 时完成页不渲染板书）。 */
+  getLearnSolutionBoard: (taskId: TaskId, scenarioId?: string) =>
+    request<SolutionBoardReviewResponse>(
+      `/api/learn/${taskId}/solution-board${scenarioId ? `?scenario=${encodeURIComponent(scenarioId)}` : ""}`,
+    ),
   submitLearningAction: (taskId: TaskId, stepId: string, value: string) =>
     request<LearningActionResponse>("/api/learn/runtime-action", {
       method: "POST",

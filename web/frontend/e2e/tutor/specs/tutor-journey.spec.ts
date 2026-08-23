@@ -195,6 +195,12 @@ test.describe("tutor 浏览器闭环旅程（原产品 /learn/:taskId）", () =>
     await submitWorkspace(page, multiPartTask!, template2.teachingInput?.expectedValues?.[0] ?? "得证");
     // 两问结论步都被接受：question_completed → 前端收尾显示完成。
     await expect(page.getByTestId("tutor-state")).toContainText(/完成/, { timeout: e2eTimeout(25_000) });
+    // 波次 F 任务 1：完成页板书回顾可见（既有内容面 solution-board 端点，
+    // 仅完成后拉取；truth 嗅探在用例末尾统一把关）。
+    await expect(page.getByTestId("tutor-solution-board")).toBeVisible({ timeout: e2eTimeout(15_000) });
+    const boardLines = page.locator("[data-testid='tutor-solution-board'] .solution-board-line");
+    await expect(boardLines.first()).toBeVisible({ timeout: e2eTimeout(10_000) });
+    expect(await boardLines.count()).toBeGreaterThanOrEqual(2);
     expectNoTruthLeak(page);
   });
 

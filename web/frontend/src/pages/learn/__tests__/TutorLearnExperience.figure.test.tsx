@@ -24,6 +24,7 @@ vi.mock("../../../api/client", () => ({
     completeTutorVoice,
     completeTutorSession: vi.fn(),
     tutorAsr: vi.fn(),
+    getLearnSolutionBoard: vi.fn().mockResolvedValue({ task_id: "t", scenario_id: "s", board: null }),
     streamActionSpeech: vi.fn().mockRejectedValue(new Error("tts unavailable")),
     recordSimilarityLearnProgress: vi.fn().mockResolvedValue({ ok: true }),
   },

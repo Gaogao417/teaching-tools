@@ -34,6 +34,10 @@ interface ActionRuntimeFrameProps {
   /** 提供时整体替换右侧指导栏（Tutor 体验渲染自己的对话栏，不出现第二个
    *  legacy Coach——回答/提问走 TutorLearningController）。 */
   railContent?: ReactNode;
+  /** 波次 F 任务 3：提供时替换 dock 头像触发器（Tutor 体验用自己的头像 +
+   *  预览气泡节点，三分支共享；Frame 内部 legacy 头像的预览源是
+   *  coach.thread，tutor transport 模式恒空）。 */
+  railTrigger?: ReactNode;
   /** 波次 E（教师反馈「topic coach dock 被抛弃了」）：受控 dock 开合——
    *  railContent 场景下调用方（Tutor 体验）持有与无工作台分支同一份
    *  railOpen 状态，dock 收起/展开跨分支一致；缺省回退 Frame 内部状态。 */
@@ -62,7 +66,7 @@ function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoa
   return expressionIds.length ? { key: emphasis.key, expressionIds } : undefined;
 }
 
-export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railOpen: railOpenProp, onRailOpenChange }: ActionRuntimeFrameProps) {
+export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railTrigger: railTriggerOverride, railOpen: railOpenProp, onRailOpenChange }: ActionRuntimeFrameProps) {
   const storageKey = `action-runtime-v3:${response.sessionId}:${response.plan.exerciseId}`;
   const localCheckpoint = useMemo(() => {
     try {
@@ -315,7 +319,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
       ariaLabel="Action 驱动学习工作台"
       className="topic-runtime-frame"
       railOpen={railOpen}
-      railTrigger={
+      railTrigger={railTriggerOverride ?? (
         <button
           type="button"
           className={`topic-coach-dock-avatar${speaking ? " is-speaking" : ""}`}
@@ -331,7 +335,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
             </span>
           ) : null}
         </button>
-      }
+      )}
       prompt={<><span>题目</span><div><h1><MathText value={snapshot.plan.metadata.promptLatex} /></h1></div></>}
       rail={railContent ?? <aside className={`topic-coach-panel tone-${view.coach.tone}`} aria-label="陪练老师" aria-live="polite">
           <div className="topic-coach-header">
