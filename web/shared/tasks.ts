@@ -377,9 +377,12 @@ export const TASK_DEFINITIONS: Record<TaskId, TaskDefinition> = {
       answerPreview: "等积式换比例 → 直角三角形相似 → 8 字等角传递 → 垂直与比例式。",
     },
     steps: [
-      "把等积式 AD·OC=AB·OD 换成比例式，识别两个直角三角形的 8 字交叉结构。",
-      "由 Rt△ADB∽Rt△ODC 得等角，经对顶角传递推出 CE⊥AB。",
-      "沿角平分线与平行条件迁移比例，写出 AF·DE=AG·BC。",
+      "条件处理：把等积式 AD·OC=AB·OD 换成比例式。",
+      "正推：由高锁定共直角顶点的 Rt△ADB 与 Rt△ODC。",
+      "逻辑整合：相似得等角、对顶角传递、内角和收口，推出 CE⊥AB。",
+      "模式识别：目标改写为比例，分清「相似供边 + 角平分线供边」。",
+      "正推：△DAE∽△BAC 与角平分线各供一组比例。",
+      "逻辑整合：两组比例相乘约分，收口 AF·DE=AG·BC。",
     ],
     catalogMeta: {
       gradeId: "grade-8",

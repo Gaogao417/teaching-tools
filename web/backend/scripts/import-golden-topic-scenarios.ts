@@ -31,6 +31,10 @@ interface StepSpec {
   goal: string;
   acceptedAnswers: string[];
   expectedLatex: string;
+  /** 波次 G 任务 6：该步讲解词（教学法骨架：条件处理→正推/倒推→逻辑
+   *  整合→模式识别），落 scenario step.coach（entryLatex 板书面 + entrySpoken
+   *  口播面；entrySpoken 不得含 \ 或 $——actionRuntime.test 不变量）。 */
+  coach?: { entryLatex: string; entrySpoken: string };
 }
 
 interface TaskSpec {
@@ -38,6 +42,9 @@ interface TaskSpec {
   contentId: string;
   qtId: string;
   taId: string;
+  /** 波次 G 任务 6：checkpoint 粒度重批的题目给定制解答行（canonical
+   *  reviewed_solution 原文重拆，行数=steps 数时 authoring 库 1:1 归属）。 */
+  reviewedRows?: string[];
   title: string;
   modelLabel: string;
   difficulty: "foundation" | "advanced";
@@ -49,7 +56,7 @@ interface TaskSpec {
 }
 
 const NOW = "2026-08-23T00:00:00Z";
-const AUTHORING_RUN = "phase5-wave-e-golden-import:2026-08-23";
+const AUTHORING_RUN = "phase5-wave-g-cross2020-cp-rebatch:2026-08-24";
 const SOURCE_ASSIGNMENT = "artifacts/题库/2026-08-19-一模两卷迁移/golden-slice（PRDS 仓 golden-slice-manifest.yaml 冻结版）";
 
 const TASKS: TaskSpec[] = [
@@ -85,6 +92,11 @@ const TASKS: TaskSpec[] = [
     ],
   },
   {
+    // 波次 G 任务 6（(a) 第二层 + 反馈③）内容批样板：steps 按 checkpoint
+    // 粒度重批（step.id=TP-SMV-002 的 CP1–CP6，使 tutor 演示投影按 checkpoint
+    // 披露生效）；讲解词按教师口径教学法骨架（条件处理→正推/倒推→逻辑
+    // 整合→模式识别）；解答行 = canonical reviewed_solution 原文重拆 6 行
+    //（行数=steps 数，authoring 库 1:1 归属）。待教师批注复核后六题铺开。
     taskId: "goldenMinhangCross2020",
     contentId: "topic-practice.golden-minhang-cross-2020.v1",
     qtId: "QT-SMV-002",
@@ -96,22 +108,116 @@ const TASKS: TaskSpec[] = [
     goal: "等积式换比例 → 直角三角形相似 → 8 字等角传递 → 垂直与比例式",
     tags: ["双垂直", "8 字交叉", "证明", "角平分线"],
     answerLatex: "(1) $CE\\perp AB$；(2) $AF\\cdot DE=AG\\cdot BC$",
+    reviewedRows: [
+      "$\\because AD\\cdot OC=AB\\cdot OD$，$\\therefore \\frac{AD}{OD}=\\frac{AB}{OC}$",
+      "$\\because BD$ 是 $AC$ 边上的高，$\\therefore \\angle BDC=90^\\circ$，Rt$\\triangle ADB$ 与 Rt$\\triangle ODC$ 是直角三角形",
+      "$\\therefore$ Rt$\\triangle ADB\\sim$Rt$\\triangle ODC$，$\\angle ABD=\\angle OCD$；又 $\\angle EOB=\\angle DOC$，$\\therefore \\angle OEB=90^\\circ$，即 $CE\\perp AB$",
+      "要证 $AF\\cdot DE=AG\\cdot BC$，即证 $\\frac{AF}{AG}=\\frac{BC}{DE}$",
+      "$\\because \\frac{AD}{AB}=\\frac{AE}{AC}$，$\\angle DAE=\\angle BAC$，$\\therefore \\triangle DAE\\sim\\triangle BAC$；又 $AF$ 平分 $\\angle BAC$，$\\therefore \\frac{AG}{AF}=\\frac{DE}{BC}$",
+      "两式相乘约去公因，即 $AF\\cdot DE=AG\\cdot BC$",
+    ],
     steps: [
       {
-        id: "g2-step-1",
-        title: "第(1)问结论",
-        promptLatex: "求证：$CE \\perp AB$。写出你的证明结论。",
-        goal: "Rt△ADB∽Rt△ODC 得等角，经对顶角传递。",
-        acceptedAnswers: ["CE \\perp AB", "CE⊥AB", "CE⊥AB 得证", "得证"],
-        expectedLatex: "$CE\\perp AB$ 得证",
+        id: "CP1",
+        title: "第(1)问·条件处理：等积式换比例",
+        promptLatex: "把条件 $AD\\cdot OC=AB\\cdot OD$ 改写成比例式。",
+        goal: "乘积条件先改写成比例式，作为全部推理的入口。",
+        acceptedAnswers: [
+          "\\frac{AD}{OD}=\\frac{AB}{OC}",
+          "AD/OD=AB/OC",
+          "AD:OD=AB:OC",
+          "AD 比 OD 等于 AB 比 OC",
+        ],
+        expectedLatex: "$\\frac{AD}{OD}=\\frac{AB}{OC}$",
+        coach: {
+          entryLatex: "条件处理：乘积式不能直接用——先改写成比例式 $\\frac{AD}{OD}=\\frac{AB}{OC}$，这一步是全部推理的入口。",
+          entrySpoken: "条件处理。看到乘积式，先把它改写成比例式，这一步是全部推理的入口。",
+        },
       },
       {
-        id: "g2-step-2",
-        title: "第(2)问结论",
-        promptLatex: "求证：$AF \\cdot DE = AG \\cdot BC$。写出你的证明结论。",
-        goal: "沿角平分线与平行条件迁移比例。",
-        acceptedAnswers: ["AF \\cdot DE = AG \\cdot BC", "AF·DE=AG·BC", "得证"],
-        expectedLatex: "$AF\\cdot DE=AG\\cdot BC$ 得证",
+        id: "CP2",
+        title: "第(1)问·正推：找两个直角三角形",
+        promptLatex: "$BD$ 是 $AC$ 边上的高。写出以 $D$ 为公共直角顶点的两个直角三角形。",
+        goal: "由高得直角，锁定共直角顶点的 Rt△ADB 与 Rt△ODC。",
+        acceptedAnswers: [
+          "Rt△ADB 和 Rt△ODC",
+          "Rt△ADB∽Rt△ODC",
+          "直角三角形 ADB 与 ODC",
+          "ADB 和 ODC",
+        ],
+        expectedLatex: "Rt$\\triangle ADB$ 与 Rt$\\triangle ODC$",
+        coach: {
+          entryLatex: "正推：高给出直角——$BD\\perp AC$ 让 $\\angle ADB=\\angle ODC=90^\\circ$，公共顶点 $D$ 两侧正好是一对直角三角形。",
+          entrySpoken: "正推。高给出直角，公共顶点 D 的两侧正好是一对直角三角形。",
+        },
+      },
+      {
+        id: "CP3",
+        title: "第(1)问·逻辑整合：导角链收口证垂直",
+        promptLatex: "由相似得等角、经对顶角传递，推出 $\\angle OEB$ 的度数并写出结论。",
+        goal: "相似给等角 + 对顶角传递 + 内角和收口，不跳步地推出 CE⊥AB。",
+        acceptedAnswers: [
+          "\\angle OEB=90^\\circ",
+          "∠OEB=90°",
+          "CE⊥AB",
+          "CE \\perp AB 得证",
+        ],
+        expectedLatex: "$\\angle OEB=90^\\circ$，$CE\\perp AB$",
+        coach: {
+          entryLatex: "逻辑整合：比例式配公共角得相似 → $\\angle ABD=\\angle OCD$；对顶角 $\\angle EOB=\\angle DOC$；内角和收口 $\\angle OEB=90^\\circ$，所以 $CE\\perp AB$。",
+          entrySpoken: "逻辑整合。相似给等角，对顶角做传递，内角和收口，所以 CE 垂直 AB。这一步不能跳。",
+        },
+      },
+      {
+        id: "CP4",
+        title: "第(2)问·模式识别：目标改写与结构分工",
+        promptLatex: "把目标 $AF\\cdot DE=AG\\cdot BC$ 改写成比例式，并指出需要哪两组结构。",
+        goal: "目标改写为比例，识别「相似供边 + 角平分线供边」的分工。",
+        acceptedAnswers: [
+          "\\frac{AF}{AG}=\\frac{BC}{DE}",
+          "AF/AG=BC/DE",
+          "△DAE∽△BAC 和 角平分线",
+          "三角形DAE相似BAC加角平分线",
+        ],
+        expectedLatex: "$\\frac{AF}{AG}=\\frac{BC}{DE}$（$\\triangle DAE\\sim\\triangle BAC$ 与角平分线）",
+        coach: {
+          entryLatex: "模式识别：目标改写为 $\\frac{AF}{AG}=\\frac{BC}{DE}$——$DE/BC$ 要靠 $\\triangle DAE\\sim\\triangle BAC$，$AG/AF$ 由角平分线直接供给。",
+          entrySpoken: "模式识别。先把目标改写成比例，再看每条边由哪组结构供给：相似供一组，角平分线供一组。",
+        },
+      },
+      {
+        id: "CP5",
+        title: "第(2)问·正推：两组结构各供其边",
+        promptLatex: "分别写出：$\\triangle DAE\\sim\\triangle BAC$ 给出哪组比例？角平分线给出哪组比例？",
+        goal: "相似由 SAS 得 DE/BC，角平分线性质给 AG/AF=DE/BC。",
+        acceptedAnswers: [
+          "\\frac{DE}{BC}=\\frac{AE}{AC}",
+          "DE/BC=AE/AC",
+          "\\frac{AG}{AF}=\\frac{DE}{BC}",
+          "AG/AF=DE/BC",
+        ],
+        expectedLatex: "$\\frac{DE}{BC}$（相似）与 $\\frac{AG}{AF}=\\frac{DE}{BC}$（角平分线）",
+        coach: {
+          entryLatex: "正推：$\\frac{AD}{AB}=\\frac{AE}{AC}$ 配公共角 $\\angle DAE=\\angle BAC$ 得 $\\triangle DAE\\sim\\triangle BAC$，供 $\\frac{DE}{BC}$；角平分线性质供 $\\frac{AG}{AF}=\\frac{DE}{BC}$。",
+          entrySpoken: "正推。两边对应成比例加公共角，得相似，供出第一组边；角平分线性质供出第二组边。",
+        },
+      },
+      {
+        id: "CP6",
+        title: "第(2)问·逻辑整合：乘约收口",
+        promptLatex: "把两组比例相乘并约分，写出最终结论。",
+        goal: "两式相乘约去公因，核对方向后收口。",
+        acceptedAnswers: [
+          "AF\\cdot DE=AG\\cdot BC",
+          "AF·DE=AG·BC",
+          "AF \\cdot DE = AG \\cdot BC",
+          "得证",
+        ],
+        expectedLatex: "$AF\\cdot DE=AG\\cdot BC$",
+        coach: {
+          entryLatex: "逻辑整合：两个比例式相乘，公因约去，方向核对（$AF$、$AG$ 一侧，$DE$、$BC$ 一侧），得 $AF\\cdot DE=AG\\cdot BC$。",
+          entrySpoken: "逻辑整合。两个比例式相乘，公因约去，方向核对无误，结论收口。",
+        },
       },
     ],
   },
@@ -306,6 +412,7 @@ function main(): void {
       successCondition: "填入的结论与该问要求一致。",
       errorDiagnosis: "结论与该问目标不一致，或未按题目要求的形式作答。",
       feedbackLatex: step.expectedLatex,
+      ...(step.coach ? { coach: step.coach } : {}),
     }));
     // 与官方导入路径（import-topic-artifacts.mjs）同规则：authoring 库从
     // steps/解答文本派生 actionTemplates（enter-text + teachingInput）与
@@ -335,15 +442,13 @@ function main(): void {
       answerLatex: spec.answerLatex,
     };
     const actionTemplates = authorTopicActionTemplates(resolved);
-    const solutionBoard = authorTopicSolutionBoard(
-      resolved,
-      actionTemplates,
-      explanationLatex
-        .split("\n")
-        .map((row) => row.trim())
-        .filter(Boolean)
-        .map((content) => ({ content_latex: content })),
-    ).script;
+    // 波次 G 任务 6：checkpoint 粒度重批的题目（reviewedRows）用 canonical
+    // 解答原文重拆的定制行；行数=steps 数时 authoring 库按步 1:1 归属。
+    const reviewedSteps = (spec.reviewedRows ?? explanationLatex.split("\n"))
+      .map((row) => row.trim())
+      .filter(Boolean)
+      .map((content) => ({ content_latex: content }));
+    const solutionBoard = authorTopicSolutionBoard(resolved, actionTemplates, reviewedSteps).script;
 
     bundle.lessons[spec.taskId] = {
       taskId: spec.taskId,
