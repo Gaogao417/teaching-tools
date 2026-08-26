@@ -24,7 +24,7 @@ vi.mock("../../geometry/react/GeometryCanvas", () => ({
     <button type="button" data-testid="production-canvas" onClick={() => onClickEntity({ kind: "point", id: "T" })}>T</button>,
 }));
 
-const { ActionRuntimeFrame } = await import("../react/ActionRuntimeFrame");
+const { ActionRuntimeFrame } = await import("../../presentation/runtime/ActionRuntimeFrame");
 
 type TurnPayload = CoachTurnEvent extends infer E
   ? E extends { version: number; correlationId: string; sessionId: string; sequence: number; at: string }

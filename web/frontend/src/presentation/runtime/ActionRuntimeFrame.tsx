@@ -25,6 +25,12 @@ import { buildTrainingCheckpoint, buildTrainingResult } from "../../action-runti
 import { MediaSessionController } from "../audio/MediaSessionController";
 import { COACH_MEDIA_PROTOCOL_VERSION } from "../../../../shared/coachMedia";
 
+/** VS0 验收模式（?acceptance=1）：把当前 student-safe WorkspaceView 投影
+ *  暴露到 window 供 Playwright 快照（ADR-009 基线证据）。View 本身就是
+ *  前端渲染输入（无 hidden truth），因此不引入新的泄露面；无参数时不暴露。 */
+const ACCEPTANCE_MODE = typeof window !== "undefined"
+  && new URLSearchParams(window.location.search).has("acceptance");
+
 interface ActionRuntimeFrameProps {
   response: ActionPlanResponse;
   disabled?: boolean;
@@ -141,6 +147,12 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   });
 
   useEffect(() => () => mediaSession.dispose(), [mediaSession]);
+
+  // VS0 验收模式：只读暴露当前 student-safe View（证据采集，见顶部注释）。
+  useEffect(() => {
+    if (!ACCEPTANCE_MODE) return;
+    (window as unknown as { __acceptanceWorkspaceView?: unknown }).__acceptanceWorkspaceView = view;
+  }, [view]);
 
   useEffect(() => {
     if (local) return;
@@ -426,11 +438,12 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
       }
     >
       <div
-        className={`practice-canvas-zone topic-practice-canvas action-runtime-workspace ${view.solutionBoard ? "" : "has-no-board"}`}
+        className={`practice-canvas-zone topic-practice-canvas action-runtime-workspace`}
         data-testid="action-runtime-workspace"
         data-action-id={snapshot.currentActionId}
         data-action-state={runtime.getTrace().actionState}
         data-selected={runtime.getTrace().selectedObjectIds.join(",")}
+        data-board={view.solutionBoard ? "content" : "empty"}
       >
         {/* Tutor transport（rail 被替换）时 wrong 反馈落工作区，不依赖 coach 栏。 */}
         {snapshot.status === "wrong" && snapshot.wrongMessage ? (
@@ -439,11 +452,21 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
           </div>
         ) : null}
         <div className="artifact-math-object has-diagram">
-          <section className="artifact-diagram-stage">
+          <section className="artifact-diagram-stage" aria-label="几何画布" data-testid="region-geometry">
             {model ? <GeometryCanvasSurface model={model} view={canvasView} onClickEntity={clickEntity} modelVersion={snapshot.revision + snapshot.world.commandBatches.length} /> : view.canvas.diagramAsset ? <img src={view.canvas.diagramAsset} alt="题目图形" /> : null}
           </section>
         </div>
-        {view.solutionBoard ? <SolutionBoardPanel board={view.solutionBoard} emphasis={boardEmphasis} /> : null}
+        {/* VS0（ADR-009 布局不变量 6）：无板书内容时渲染明确 empty surface——
+            Solution Board 区域始终可识别，Geometry/Board 保持双 surface 结构；
+            顶层 Workspace owner 不变（真实 /learn 六区域验收失败的证据支撑，
+            见 mvp/reports/vs-00-scope-ledger.md §9）。 */}
+        {view.solutionBoard ? <SolutionBoardPanel board={view.solutionBoard} emphasis={boardEmphasis} /> : (
+          <section className="topic-answer-panel solution-board-panel is-empty" aria-label="解题板书（暂空）" data-testid="region-solution-board">
+            <div className="solution-board-document">
+              <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
+            </div>
+          </section>
+        )}
       </div>
     </FocusWorkspace>
   );
@@ -580,7 +603,8 @@ export function SolutionBoardPanel({ board, emphasis }: { board: SolutionBoardVi
   return (
     <section
       className="topic-answer-panel solution-board-panel"
-      aria-label="解题过程"
+      aria-label="解题板书"
+      data-testid="region-solution-board"
       onWheel={() => { userScrolled.current = true; }}
       onTouchMove={() => { userScrolled.current = true; }}
     >

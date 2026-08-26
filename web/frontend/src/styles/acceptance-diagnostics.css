@@ -1,0 +1,41 @@
+/* VS0 验收诊断条（?acceptance=1 才渲染）——只读信息条，不参与学生布局。
+   独立于 focus-workspace.css 的 shell 布局（ADR-009：诊断不是学生工作台骨架）。 */
+.acceptance-diagnostics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3, 12px);
+  margin: 0 0 var(--space-2, 8px);
+  padding: 6px 10px;
+  border: 1px dashed var(--ks-border, #9aa5b1);
+  border-radius: 8px;
+  background: rgba(31, 41, 55, 0.04);
+  font: 12px/1.5 var(--ks-font-mono, ui-monospace, monospace);
+  color: var(--ks-text-muted, #5b6472);
+}
+
+.acceptance-diagnostics strong {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.acceptance-diagnostics dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3, 12px);
+  margin: 0;
+}
+
+.acceptance-diagnostics dl > div {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.acceptance-diagnostics dt {
+  font-weight: 600;
+}
+
+.acceptance-diagnostics dd {
+  margin: 0;
+}

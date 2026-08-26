@@ -44,7 +44,7 @@ vi.mock("../../geometry/react/GeometryCanvas", () => ({
   ),
 }));
 
-const { ActionRuntimeFrame } = await import("../react/ActionRuntimeFrame");
+const { ActionRuntimeFrame } = await import("../../presentation/runtime/ActionRuntimeFrame");
 const { createActionPageRuntime } = await import("../pageRuntime");
 
 const WRONG_MESSAGE = "这个对象不是当前动作需要的对象。";

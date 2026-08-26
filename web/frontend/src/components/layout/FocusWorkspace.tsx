@@ -47,7 +47,7 @@ export function FocusWorkspace({
   ].filter(Boolean).join(" ");
 
   const actionBar = (
-    <footer className="ks-focus-action-bar">
+    <footer className="ks-focus-action-bar" data-testid="region-action-bar" aria-label="操作栏">
       <div className="ks-focus-action-bar-left">
         {actionBarLeft}
       </div>
@@ -60,7 +60,7 @@ export function FocusWorkspace({
   if (dock) {
     return (
       <div className={workspaceClass} role="region" aria-label={ariaLabel}>
-        <header className="ks-focus-prompt">
+        <header className="ks-focus-prompt" data-testid="region-question" aria-label="题目">
           {prompt}
         </header>
 
@@ -69,6 +69,7 @@ export function FocusWorkspace({
           <aside
             className={`ks-focus-rail-drawer ${railOpen ? "is-open" : "is-closed"}`}
             aria-label="陪练老师"
+            data-testid="region-tutor"
             aria-hidden={!railOpen}
             inert={!railOpen || undefined}
           >
@@ -86,7 +87,7 @@ export function FocusWorkspace({
 
   return (
     <div className={workspaceClass} role="region" aria-label={ariaLabel}>
-      <header className="ks-focus-prompt">
+      <header className="ks-focus-prompt" data-testid="region-question" aria-label="题目">
         {prompt}
       </header>
 
@@ -94,7 +95,7 @@ export function FocusWorkspace({
         {children}
       </div>
 
-      <aside className="ks-focus-rail" aria-label="指导栏">
+      <aside className="ks-focus-rail" aria-label="指导栏" data-testid="region-tutor">
         {rail}
       </aside>
 

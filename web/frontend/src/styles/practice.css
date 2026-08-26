@@ -2554,7 +2554,10 @@
   height: 100%;
 }
 
-.action-runtime-workspace.has-no-board { grid-template-columns: minmax(0, 1fr); }
+/* VS0（ADR-009 不变量 6）：无板书内容时 board 区域渲染明确 empty surface，
+   Geometry/Board 始终双 surface 结构（原 has-no-board 单列折叠已删除）。 */
+.solution-board-panel.is-empty { border: 1px dashed var(--ks-border, #c7cdd6); border-radius: var(--radius-md, 10px); }
+.solution-board-empty-note { margin: var(--space-4, 16px) var(--space-3, 12px); font-size: var(--text-sm, 13px); color: var(--ks-text-muted, #5b6472); }
 
 .solution-board-panel.topic-answer-panel {
   min-height: 0;

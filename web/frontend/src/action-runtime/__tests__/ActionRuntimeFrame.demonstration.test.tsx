@@ -30,7 +30,7 @@ vi.mock("../../geometry/react/GeometryCanvas", () => ({
   GeometryCanvasSurface: () => <div data-testid="geometry-canvas-stub" />,
 }));
 
-const { ActionRuntimeFrame } = await import("../react/ActionRuntimeFrame");
+const { ActionRuntimeFrame } = await import("../../presentation/runtime/ActionRuntimeFrame");
 
 /** demonstration 形态计划：两个已披露 enter-text 步 + 板书快照 + 题图。 */
 function demonstrationResponse(): ActionPlanResponse {

@@ -32,7 +32,7 @@ vi.mock("../../geometry/react/GeometryCanvas", () => ({
   GeometryCanvasSurface: () => <div data-testid="geometry-canvas-stub" />,
 }));
 
-const { ActionRuntimeFrame } = await import("../react/ActionRuntimeFrame");
+const { ActionRuntimeFrame } = await import("../../presentation/runtime/ActionRuntimeFrame");
 
 /** 单 action（enter-text）的 tutor workspace 计划（服务端 action_plan 形态）。 */
 function tutorWorkspaceResponse(): ActionPlanResponse {

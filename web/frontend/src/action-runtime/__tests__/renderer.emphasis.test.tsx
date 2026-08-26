@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveCanvasEmphasis } from "../../geometry/react/jsxgraph-board";
 import type { SolutionBoardView } from "../types";
-import { SolutionBoardPanel } from "../react/ActionRuntimeFrame";
+import { SolutionBoardPanel } from "../../presentation/runtime/ActionRuntimeFrame";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

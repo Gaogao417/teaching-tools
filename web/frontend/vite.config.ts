@@ -27,7 +27,5 @@ export default defineConfig({
     // geometry machines are pure, but JSXGraph adapters touch the DOM.
     environment: "jsdom",
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
-    // These master-branch POC checks are standalone `tsx` scripts, not Vitest suites.
-    exclude: ["src/poc/geometry-actions/__tests__/**"],
   },
 });

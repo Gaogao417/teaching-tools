@@ -20,7 +20,7 @@ import { ExerciseRuntimeHost, GuideHUD, FeedbackController } from "./practice/Ex
 import { RuntimeActionDock } from "./practice/runtime/RuntimeActionDock";
 import { PracticeEffectsLayer, usePracticeFeedback } from "./practice/feedback";
 import { MathText } from "../components/math/MathText";
-import { ActionRuntimeFrame } from "../action-runtime/react/ActionRuntimeFrame";
+import { ActionRuntimeFrame } from "../presentation/runtime/ActionRuntimeFrame";
 import { actionMachineRegistry } from "../action-runtime/registry";
 import { TopicRuntimeFrame } from "../components/exercises/topicPractice/TopicRuntimeFrame";
 

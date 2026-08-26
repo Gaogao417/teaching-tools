@@ -13,8 +13,9 @@ import { ExerciseRuntimeHost } from "./practice/ExerciseRuntimeHost";
 import { TopicRuntimeFrame } from "../components/exercises/topicPractice/TopicRuntimeFrame";
 import { topicNodeByTaskId } from "../../../shared/similarityLearningMap";
 import type { ExercisePlan } from "../../../shared/actionRuntime";
-import { ActionRuntimeFrame } from "../action-runtime/react/ActionRuntimeFrame";
+import { ActionRuntimeFrame } from "../presentation/runtime/ActionRuntimeFrame";
 import { actionMachineRegistry } from "../action-runtime/registry";
+import { AcceptanceDiagnostics, type AcceptanceRouteKind } from "../presentation/acceptance/AcceptanceDiagnostics";
 import { TutorLearnExperience } from "./learn/TutorLearnExperience";
 import type { TutorExperienceResponse } from "../../../shared/tutorExperience";
 
@@ -69,15 +70,23 @@ export function LearnPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const restoreSessionId = searchParams.get("session") ?? undefined;
+  /** VS0 REQ-04：?acceptance=1 打开只读验收诊断（非生产学生功能）。 */
+  const acceptanceMode = searchParams.get("acceptance") === "1";
   const { focusedTask, setFocusedTaskId, studentName } = useOutletContext<WorkspaceOutletContext>();
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("pending");
   const [experienceError, setExperienceError] = useState<string | undefined>();
   const [experienceNonce, setExperienceNonce] = useState(0);
+  /** VS0 REQ-06：tutor 尝试后回退 legacy（restore 失败重启返回 legacy）才置
+   *  true；直接无 Binding 的 legacy 路由不算 fallback。 */
+  const [legacyFallback, setLegacyFallback] = useState(false);
   const [tutorInitial, setTutorInitial] = useState<TutorExperienceResponse | undefined>();
   /** /experience 有副作用（创建会话）：每个 taskId+nonce 只允许问一次
    *  （StrictMode 效应双跑也不重复建会话；结果交给组件采用）。 */
   const experienceAskedRef = useRef("");
   const [projection, setProjection] = useState<LearningProjectionSpec | null>(null);
+  /** VS0 REQ-03：legacy 投影加载失败（任务不存在等）→ 显式 unsupported，
+   *  不用无限“正在准备示范场景”伪装。 */
+  const [projectionError, setProjectionError] = useState<string | undefined>();
   const [actionPlan, setActionPlan] = useState<ExercisePlan | null>(null);
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [draft, setDraft] = useState<ClientDraftState>(EMPTY_DRAFT);
@@ -96,7 +105,9 @@ export function LearnPage() {
     setTopicPhase("answering");
     setExperienceMode("pending");
     setExperienceError(undefined);
+    setLegacyFallback(false);
     setProjection(null);
+    setProjectionError(undefined);
     setActionPlan(null);
   }, [setFocusedTaskId, taskId]);
 
@@ -125,8 +136,16 @@ export function LearnPage() {
     if (!taskId || experienceMode !== "legacy") return;
     let cancelled = false;
     api.getLearningProjection(taskId)
-      .then((result) => !cancelled && setProjection(result))
-      .catch(() => !cancelled && setProjection(null));
+      .then((result) => {
+        if (cancelled) return;
+        setProjection(result);
+        setProjectionError(undefined);
+      })
+      .catch((error: unknown) => {
+        // VS0 REQ-03：legacy 投影失败（404 等）显式进入 unsupported，不用
+        // 无限 loading 表达失败。
+        if (!cancelled) setProjectionError(error instanceof Error ? error.message : String(error));
+      });
     if (ACTION_RUNTIME_V2_ENABLED) {
       api.getLearningActionPlan(taskId)
         .then((result) => !cancelled && setActionPlan(result))
@@ -155,48 +174,91 @@ export function LearnPage() {
   );
   const activeStep = projection?.steps[activeStepIndex];
 
+  /** VS0 REQ-06：route kind 可断言（pending/tutor-vnext/legacy），供
+   *  ?acceptance=1 诊断与 e2e 断言新链/legacy/失败三分。 */
+  const routeKind: AcceptanceRouteKind = experienceMode === "tutor" || restoreSessionId
+    ? "tutor-vnext"
+    : experienceMode === "legacy" ? "legacy" : "pending";
+  const diagnostics = acceptanceMode && taskId ? (
+    <AcceptanceDiagnostics
+      taskId={taskId}
+      route={routeKind}
+      fallbackOccurred={legacyFallback}
+    />
+  ) : null;
+
   if (experienceMode === "tutor" || restoreSessionId) {
     return (
+      // 诊断条由 TutorLearnExperience 自渲染（sessionId/revision 是它的会话事实，
+      // 比本页的 pending 快照更真）——本页不重复输出第二份。
       <TutorLearnExperience
         key={`${taskId}:${tutorInitial?.session_id ?? restoreSessionId ?? "restore"}`}
         taskId={taskId!}
         studentId={studentName}
         restoreSessionId={restoreSessionId}
         initial={tutorInitial}
-        onLegacy={() => setExperienceMode("legacy")}
+        acceptanceMode={acceptanceMode}
+        fallbackOccurred={legacyFallback}
+        onLegacy={() => {
+          setLegacyFallback(true);
+          setExperienceMode("legacy");
+        }}
       />
     );
   }
 
   if (experienceError && experienceMode !== "legacy") {
     return (
-      <section className="ks-state-page">
-        <span className="eyebrow">学习入口</span>
-        <h1>暂时无法打开这道题的一对一学习</h1>
-        <p role="alert">{experienceError}</p>
-        <button
-          className="btn btn-primary"
-          type="button"
-          onClick={() => {
-            setExperienceError(undefined);
-            setExperienceMode("pending");
-            // 重新触发 /experience（studentName/taskId 不变时靠 key 重挂）。
-            setExperienceNonce((nonce) => nonce + 1);
-          }}
-        >
-          重试
-        </button>
-      </section>
+      <>
+        {diagnostics}
+        <section className="ks-state-page" data-testid="page-lifecycle" data-lifecycle="error">
+          <span className="eyebrow">学习入口</span>
+          <h1>暂时无法打开这道题的一对一学习</h1>
+          <p role="alert" data-testid="page-lifecycle-error-detail">{experienceError}</p>
+          <button
+            className="btn btn-primary"
+            type="button"
+            data-testid="page-lifecycle-retry"
+            onClick={() => {
+              setExperienceError(undefined);
+              setExperienceMode("pending");
+              // 重新触发 /experience（studentName/taskId 不变时靠 key 重挂）。
+              setExperienceNonce((nonce) => nonce + 1);
+            }}
+          >
+            重试
+          </button>
+        </section>
+      </>
+    );
+  }
+
+  // VS0 REQ-03：legacy 路由投影失败 → UnsupportedContent（无 Binding 且无
+  // legacy 内容 = 该 task 不支持任何学习体验）。
+  if (experienceMode === "legacy" && projectionError) {
+    return (
+      <>
+        {diagnostics}
+        <section className="ks-state-page" data-testid="page-lifecycle" data-lifecycle="unsupported">
+          <span className="eyebrow">学习入口</span>
+          <h1>这道题暂时不支持在线学习</h1>
+          <p role="alert" data-testid="page-lifecycle-unsupported-reason">{projectionError}</p>
+          <button className="btn btn-ghost" type="button" onClick={() => navigate("/")}>回到任务列表</button>
+        </section>
+      </>
     );
   }
 
   if (!projection || !runtime || !activeStep) {
     return (
-      <section className="ks-state-page">
-        <span className="eyebrow">学习投影</span>
-        <h1>正在准备示范场景</h1>
-        <p>系统正在生成一份可复用的确定性教学实例。</p>
-      </section>
+      <>
+        {diagnostics}
+        <section className="ks-state-page" data-testid="page-lifecycle" data-lifecycle="loading">
+          <span className="eyebrow">学习投影</span>
+          <h1>正在准备示范场景</h1>
+          <p>系统正在生成一份可复用的确定性教学实例。</p>
+        </section>
+      </>
     );
   }
 
@@ -205,15 +267,18 @@ export function LearnPage() {
   if (runtime.instance.engineKind === "topic-practice") {
     if (actionPlan && actionPlan.actions.every((action) => actionMachineRegistry.supports(action.kind, action.version))) {
       return (
-        <div className="ks-focus-page">
-          <ActionRuntimeFrame
-            response={{ sessionId: `learn:${projection.taskId}`, plan: actionPlan }}
-            local
-            onComplete={() => {
-              recordLearnCompleted(actionPlan.actions[actionPlan.actions.length - 1]?.sourceStepId);
-            }}
-          />
-        </div>
+        <>
+          {diagnostics}
+          <div className="ks-focus-page" data-testid="page-lifecycle" data-lifecycle="ready">
+            <ActionRuntimeFrame
+              response={{ sessionId: `learn:${projection.taskId}`, plan: actionPlan }}
+              local
+              onComplete={() => {
+                recordLearnCompleted(actionPlan.actions[actionPlan.actions.length - 1]?.sourceStepId);
+              }}
+            />
+          </div>
+        </>
       );
     }
     const contract = runtime.instance.scene.topicWorkspace?.contracts[runtime.runtimeState.currentStepId];
@@ -253,25 +318,30 @@ export function LearnPage() {
     };
 
     return (
-      <div className="ks-focus-page">
-        <TopicRuntimeFrame
-          runtime={runtime}
-          phase={topicPhase}
-          draft={draft}
-          setDraft={setDraft}
-          inputRefs={inputRefs}
-          showGuide
-          disabled={topicPhase === "correct_pause"}
-          onClear={() => { setDraft(EMPTY_DRAFT); setTopicPhase("answering"); }}
-          onSubmit={(_stepId, value) => { void submitTopicStep(value); }}
-        />
-      </div>
+      <>
+        {diagnostics}
+        <div className="ks-focus-page" data-testid="page-lifecycle" data-lifecycle="ready">
+          <TopicRuntimeFrame
+            runtime={runtime}
+            phase={topicPhase}
+            draft={draft}
+            setDraft={setDraft}
+            inputRefs={inputRefs}
+            showGuide
+            disabled={topicPhase === "correct_pause"}
+            onClear={() => { setDraft(EMPTY_DRAFT); setTopicPhase("answering"); }}
+            onSubmit={(_stepId, value) => { void submitTopicStep(value); }}
+          />
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="ks-focus-page ks-learn-page">
-      <FocusWorkspace
+    <>
+      {diagnostics}
+      <div className="ks-focus-page ks-learn-page" data-testid="page-lifecycle" data-lifecycle="ready">
+        <FocusWorkspace
         ariaLabel="示范学习工作台"
         prompt={
           <>
@@ -355,5 +425,6 @@ export function LearnPage() {
         </div>
       </FocusWorkspace>
     </div>
+    </>
   );
 }

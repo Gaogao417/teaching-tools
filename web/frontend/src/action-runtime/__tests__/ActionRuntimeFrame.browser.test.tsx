@@ -26,7 +26,7 @@ vi.mock("../../geometry/react/GeometryCanvas", () => ({
   }) => <button type="button" data-testid="production-canvas" data-preview={view.preview?.type || "none"} onClick={() => onClickEntity({ kind: "point", id: "T" })}>T</button>,
 }));
 
-const { ActionRuntimeFrame } = await import("../react/ActionRuntimeFrame");
+const { ActionRuntimeFrame } = await import("../../presentation/runtime/ActionRuntimeFrame");
 
 function response(): ActionPlanResponse {
   return {

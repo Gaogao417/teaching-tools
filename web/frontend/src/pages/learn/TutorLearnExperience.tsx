@@ -21,12 +21,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { ActionRuntimeFrame, SolutionBoardPanel } from "../../action-runtime/react/ActionRuntimeFrame";
+import { ActionRuntimeFrame, SolutionBoardPanel } from "../../presentation/runtime/ActionRuntimeFrame";
 import { workspaceActionResponse, useTutorLearning } from "../../action-runtime/tutor/useTutorLearning";
 import { solutionBoardReviewView } from "../../action-runtime/solutionBoardReview";
 import type { SolutionBoardView } from "../../action-runtime/types";
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
 import { MathText } from "../../components/math/MathText";
+import { AcceptanceDiagnostics } from "../../presentation/acceptance/AcceptanceDiagnostics";
 import { useCoachRecorder } from "../../presentation/coach/useCoachRecorder";
 import { buildGeometryModel } from "../../geometry/adapters/topicGeometryModel";
 import { GeometryCanvasSurface } from "../../geometry/react/GeometryCanvas";
@@ -62,11 +63,16 @@ export interface TutorLearnExperienceProps {
   restoreSessionId?: string;
   /** 页面（LearnPage）已拉取的 /experience 结果——组件直接采用，不重复建会话。 */
   initial?: TutorExperienceResponse;
+  /** VS0 REQ-04：?acceptance=1 时渲染只读验收诊断（route=tutor-vnext 固定，
+   *  sessionId/revision 来自本组件的会话事实）。 */
+  acceptanceMode?: boolean;
+  /** VS0 REQ-06：tutor 尝试后回退 legacy 的标记（由 LearnPage 传入）。 */
+  fallbackOccurred?: boolean;
   /** /experience 返回 legacy（无 Approved Binding）→ 回退原 LearnPage。 */
   onLegacy: () => void;
 }
 
-export function TutorLearnExperience({ taskId, studentId, restoreSessionId, initial, onLegacy }: TutorLearnExperienceProps) {
+export function TutorLearnExperience({ taskId, studentId, restoreSessionId, initial, acceptanceMode, fallbackOccurred, onLegacy }: TutorLearnExperienceProps) {
   const navigate = useNavigate();
   const tutor = useTutorLearning({ taskId, studentId, restoreSessionId });
   const [composerMode, setComposerMode] = useState<"answer" | "question">("answer");
@@ -237,7 +243,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
 
   const rail = (
     <aside className="topic-coach-panel tutor-learn-rail" aria-label="一对一老师" aria-live="polite">
-      <div className="topic-coach-header">
+      <div className="topic-coach-header" data-testid="region-status" aria-label="学习状态">
         <span className={`topic-coach-avatar material-symbols-outlined${speaking ? " is-speaking" : ""}`}>record_voice_over</span>
         <div>
           <small data-testid="tutor-state">{PHASE_LABELS[tutor.phase] ?? tutor.phase}</small>
@@ -332,7 +338,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
       </div>
 
       {tutor.phase !== "completed" ? (
-        <section className="tutor-learn-composer" aria-label="发言区">
+        <section className="tutor-learn-composer" aria-label="发言区" data-testid="region-participation">
           <div className="tutor-learn-composer-mode" role="group" aria-label="发言类型">
             <button
               type="button"
@@ -425,62 +431,80 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     </button>
   );
 
+  const diagnostics = acceptanceMode ? (
+    <AcceptanceDiagnostics
+      taskId={taskId}
+      route="tutor-vnext"
+      sessionId={tutor.sessionId}
+      viewRevision={tutor.revision}
+      fallbackOccurred={fallbackOccurred}
+    />
+  ) : null;
+
   if (tutor.phase === "completed" || tutor.questionCompleted) {
     return (
-      <div className="ks-focus-page tutor-learn-page">
-        <FocusWorkspace
-          ariaLabel="一对一学习完成"
-          prompt={<><span>题目</span><div><h1><MathText value={question?.stem ?? ""} /></h1></div></>}
-          rail={rail}
-          railOpen={railOpen}
-          railTrigger={railTrigger}
-        >
-          <section className="tutor-learn-done" aria-label="学习完成">
-            <h2>这道题学完了</h2>
-            {boardReview ? (
-              <div className="tutor-learn-board" data-testid="tutor-solution-board">
-                <SolutionBoardPanel board={boardReview} />
-              </div>
-            ) : null}
-            <p>换一道题继续练，还是进入训练巩固这一题？</p>
-            <button
-              type="button"
-              className="btn btn-primary"
-              data-testid="tutor-start-practice"
-              onClick={() => navigate(`/practice/${taskId}`)}
-            >
-              开始训练
-            </button>
-          </section>
-        </FocusWorkspace>
-      </div>
+      <>
+        {diagnostics}
+        <div className="ks-focus-page tutor-learn-page" data-testid="page-lifecycle" data-lifecycle="ready">
+          <FocusWorkspace
+            ariaLabel="一对一学习完成"
+            prompt={<><span>题目</span><div><h1><MathText value={question?.stem ?? ""} /></h1></div></>}
+            rail={rail}
+            railOpen={railOpen}
+            railTrigger={railTrigger}
+          >
+            <section className="tutor-learn-done" aria-label="学习完成">
+              <h2>这道题学完了</h2>
+              {boardReview ? (
+                <div className="tutor-learn-board" data-testid="tutor-solution-board">
+                  <SolutionBoardPanel board={boardReview} />
+                </div>
+              ) : null}
+              <p>换一道题继续练，还是进入训练巩固这一题？</p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-testid="tutor-start-practice"
+                onClick={() => navigate(`/practice/${taskId}`)}
+              >
+                开始训练
+              </button>
+            </section>
+          </FocusWorkspace>
+        </div>
+      </>
     );
   }
 
   if (activeWorkspace && tutor.sessionId) {
     return (
-      <div className="ks-focus-page tutor-learn-page">
-        <ActionRuntimeFrame
-          response={workspaceActionResponse(tutor.sessionId, activeWorkspace)}
-          transport={tutor.transport}
-          railContent={rail}
-          railTrigger={railTrigger}
-          railOpen={railOpen}
-          onRailOpenChange={(open) => {
-            setRailOpen(open);
-            if (open) {
-              setRailUnread(false);
-              setDockPreview(null);
-            }
-          }}
-        />
-      </div>
+      <>
+        {diagnostics}
+        <div className="ks-focus-page tutor-learn-page" data-testid="page-lifecycle" data-lifecycle="ready">
+          <ActionRuntimeFrame
+            response={workspaceActionResponse(tutor.sessionId, activeWorkspace)}
+            transport={tutor.transport}
+            railContent={rail}
+            railTrigger={railTrigger}
+            railOpen={railOpen}
+            onRailOpenChange={(open) => {
+              setRailOpen(open);
+              if (open) {
+                setRailUnread(false);
+                setDockPreview(null);
+              }
+            }}
+          />
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="ks-focus-page tutor-learn-page">
-      <FocusWorkspace
+    <>
+      {diagnostics}
+      <div className="ks-focus-page tutor-learn-page" data-testid="page-lifecycle" data-lifecycle="ready">
+        <FocusWorkspace
         ariaLabel="一对一学习工作台"
         prompt={<><span>题目</span><div><h1><MathText value={question?.stem ?? ""} /></h1></div></>}
         rail={rail}
@@ -510,6 +534,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
         ) : null}
       </FocusWorkspace>
     </div>
+    </>
   );
 }
 
@@ -539,7 +564,7 @@ function TutorQuestionFigure({ geometry }: { geometry: TopicGeometryModel }) {
   return (
     <div className="tutor-learn-figure">
       <div className="artifact-math-object has-diagram">
-        <section className="artifact-diagram-stage" aria-label="题目图形">
+        <section className="artifact-diagram-stage" aria-label="题目图形" data-testid="region-geometry">
           <GeometryCanvasSurface model={model} view={view} onClickEntity={() => undefined} modelVersion={1} />
         </section>
       </div>
