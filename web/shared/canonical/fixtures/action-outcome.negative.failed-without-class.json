@@ -1,0 +1,7 @@
+{
+  "schema": "ai_teaching_action_outcome/v1",
+  "session_id": "TS-4242",
+  "action_id": "VA-20260827-0001",
+  "action_kind": "voice",
+  "outcome": "failed"
+}

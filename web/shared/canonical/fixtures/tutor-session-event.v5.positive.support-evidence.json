@@ -1,0 +1,23 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v5",
+  "session_id": "TS-4242",
+  "sequence": 16,
+  "state_revision": 8,
+  "occurred_at": "2026-08-27T08:07:00Z",
+  "event_type": "external_support_recorded",
+  "causation_sequence": 15,
+  "payload": {
+    "evidence_id": "ESE-20260827-0001",
+    "beat_id": "BT-03",
+    "support_kinds": [
+      "reveal_target",
+      "foreground"
+    ],
+    "initiated_by": "tutor_initiated",
+    "action_ids": [
+      "WSA-20260827-0001"
+    ],
+    "derived_partial": false
+  },
+  "idempotency_key": "idem-20260827-0016"
+}

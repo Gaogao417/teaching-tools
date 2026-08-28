@@ -17,6 +17,10 @@ export const PUBLISHABLE_SCHEMAS: ReadonlySet<string> = new Set([
   "ai_teaching_tutor_plan_bundle/v1",
   "ai_teaching_tutor_plan_bundle/v2",
   "ai_teaching_tutor_plan_bundle/v3",
+  // F1（2026-08-27）：planning/v4 三件可发布 artifact（ADR-007）
+  "ai_teaching_reviewed_solution_graph/v1",
+  "ai_teaching_teaching_protocol/v1",
+  "ai_teaching_tutor_plan_bundle/v4",
 ]);
 
 const NOT_PUBLISHED_STATUSES: ReadonlySet<string> = new Set([

@@ -1,0 +1,8 @@
+{
+  "schema": "ai_teaching_student_intent/v1",
+  "session_id": "TS-4242",
+  "intent_kind": "submit_answer",
+  "text": "AD 比 AB 等于 DE 比 BC",
+  "expected_revision": 7,
+  "client_request_id": "cr-20260827-0001"
+}

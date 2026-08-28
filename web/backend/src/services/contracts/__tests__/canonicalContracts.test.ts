@@ -98,8 +98,10 @@ async function main(): Promise<void> {
     // +teaching_approach/v3、+tutor_plan_bundle/v2、+tutor_session_event/v2、
     // +tutor_session_event/v3；Phase 5 UI 集成起 21：+tutor_plan_bundle/v3、
     // +topic_question_binding/v1、+tutor_session_event/v4、
-    // +tutor_policy_profile/v1）。
-    assert.equal(bySchema.size, 21);
+    // +tutor_policy_profile/v1；F1（2026-08-27）起 39：+core/v1 artifact_ref、
+    // +planning/v4 reviewed_solution_graph/teaching_protocol/tutor_plan_bundle/v4、
+    // +runtime/v5 九合同、+state/v1 两状态、+view/v1 三视图）。
+    assert.equal(bySchema.size, 39);
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -230,6 +232,24 @@ async function main(): Promise<void> {
       "tutorSessionEventV2Schema",
       "tutorSessionEventV3Schema",
       "tutorSessionEventV4Schema",
+      "tutorSessionEventV5Schema",
+      "artifactRefV1Schema",
+      "reviewedSolutionGraphV1Schema",
+      "teachingProtocolV1Schema",
+      "tutorPlanBundleV4Schema",
+      "studentIntentV1Schema",
+      "tutorPolicyDecisionV1Schema",
+      "voiceActionV1Schema",
+      "workspaceSurfaceActionV1Schema",
+      "studentWorkspaceCommandV1Schema",
+      "actionOutcomeV1Schema",
+      "externalSupportEvidenceV1Schema",
+      "presentationPlanV1Schema",
+      "workspaceRuntimeStateV1Schema",
+      "tutorRuntimeStateV1Schema",
+      "studentWorkspaceViewV1Schema",
+      "coachPanelViewV1Schema",
+      "mainlineParticipationV1Schema",
       "tutorSessionEventTypeEnum",
       "skillHypothesisSchema",
       "interventionSchema",

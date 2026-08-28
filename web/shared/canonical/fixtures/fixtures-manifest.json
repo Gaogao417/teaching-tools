@@ -1,8 +1,32 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
-  "generated_at": "2026-08-22T00:00:00Z",
-  "fixture_count": 50,
+  "generated_at": "2026-08-27T00:00:00Z",
+  "fixture_count": 101,
   "fixtures": [
+    {
+      "file": "action-outcome.negative.completed-with-class.json",
+      "object_schema": "ai_teaching_action_outcome/v1",
+      "schema_ref": "../schemas/runtime/v5/action-outcome.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:571cb58b0016241ecc5d8a88f0b11d645386a911b760954daac91701feed30e5"
+    },
+    {
+      "file": "action-outcome.negative.failed-without-class.json",
+      "object_schema": "ai_teaching_action_outcome/v1",
+      "schema_ref": "../schemas/runtime/v5/action-outcome.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:2a8ef14be0d3dc1f66c75d544ed8357075dfca7c803d1f5ae7127e1efd446b3a"
+    },
+    {
+      "file": "action-outcome.positive.json",
+      "object_schema": "ai_teaching_action_outcome/v1",
+      "schema_ref": "../schemas/runtime/v5/action-outcome.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:07ce427967a0348fcebe0ddb6b02e2ec8076e0bd432e2ddd2a91baee4c000c61"
+    },
     {
       "file": "approach-set.v1.negative.missing-ref-hash.json",
       "object_schema": "ai_teaching_approach_set/v1",
@@ -18,6 +42,22 @@
       "expect_schema": "valid",
       "expect_publication": "valid",
       "sha256": "sha256:47237e5c35b331d8db87a33f4ab05829c517179cfce85a803a0f128ff5ef4f3f"
+    },
+    {
+      "file": "artifact-ref.negative.bad-hash.json",
+      "object_schema": "ai_teaching_artifact_ref/v1",
+      "schema_ref": "../schemas/core/v1/artifact-ref.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:f2db6436c01b5ab781efb4129702458f12e3cb51341690b69392334f52f5d3dc"
+    },
+    {
+      "file": "artifact-ref.positive.json",
+      "object_schema": "ai_teaching_artifact_ref/v1",
+      "schema_ref": "../schemas/core/v1/artifact-ref.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:3419811cc37122ddbba24a7b69fb4b6b035610c97cbc4e13baacd9e024ea0efc"
     },
     {
       "file": "benchmark-run.negative.fail-without-class.json",
@@ -44,6 +84,38 @@
       "sha256": "sha256:23109899fe4f7dc102b176bfa9acba6509a85484a8c3393e47d3ecf5d64ca12f"
     },
     {
+      "file": "coach-panel-view.negative.untyped-mainline.json",
+      "object_schema": "ai_teaching_coach_panel_view/v1",
+      "schema_ref": "../schemas/view/v1/coach-panel-view.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0ae0196e84167f05791a249ff92101262f571ed0aa851c87c88e496c25ffe781"
+    },
+    {
+      "file": "coach-panel-view.positive.json",
+      "object_schema": "ai_teaching_coach_panel_view/v1",
+      "schema_ref": "../schemas/view/v1/coach-panel-view.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:8d2727512055f17a9fed16fab606d50409fba02e65847064368c7478da604306"
+    },
+    {
+      "file": "external-support-evidence.negative.derived-partial-without-legacy-source.json",
+      "object_schema": "ai_teaching_external_support_evidence/v1",
+      "schema_ref": "../schemas/runtime/v5/external-support-evidence.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:7f33802fb90d63160b33a0343319dcfecc64d212b54403a7ef11cd40a2756ddc"
+    },
+    {
+      "file": "external-support-evidence.positive.json",
+      "object_schema": "ai_teaching_external_support_evidence/v1",
+      "schema_ref": "../schemas/runtime/v5/external-support-evidence.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:eee6a434ba7e325487e158ebd7c9b8d66fc40725e8148a8e24fbdaa2e87f2518"
+    },
+    {
       "file": "intervention.negative.missing-stop-condition.json",
       "object_schema": "ai_teaching_intervention/v1",
       "schema_ref": "../schemas/learning/v1/intervention.schema.json",
@@ -58,6 +130,38 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:7b403ba9e4fca4edb3e23852121d8ae5be8c405f2fe9403e0ae75fb46aaa4504"
+    },
+    {
+      "file": "mainline-participation.negative.unknown-kind.json",
+      "object_schema": "ai_teaching_mainline_participation/v1",
+      "schema_ref": "../schemas/view/v1/mainline-participation.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0e501ec163f0fa5b2f31671e9abaaa626fdfb9632f00f87b579dc3dc2a9a16bc"
+    },
+    {
+      "file": "mainline-participation.positive.json",
+      "object_schema": "ai_teaching_mainline_participation/v1",
+      "schema_ref": "../schemas/view/v1/mainline-participation.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:3b0ce77094582c504e61cb823e21e0861438169d84499c0196a0680345ccd652"
+    },
+    {
+      "file": "presentation-plan.negative.empty-actions.json",
+      "object_schema": "ai_teaching_presentation_plan/v1",
+      "schema_ref": "../schemas/runtime/v5/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:196fee38cd783660d4a8d040ee7020278d6a9b0b27729e8a99dd1e47b14170ef"
+    },
+    {
+      "file": "presentation-plan.positive.json",
+      "object_schema": "ai_teaching_presentation_plan/v1",
+      "schema_ref": "../schemas/runtime/v5/presentation-plan.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:10d2b6e66da1d61add1cab7ca0a5381cee7f82b57dffd908982bbf644e22142b"
     },
     {
       "file": "question-candidate.negative.no-source-ref.json",
@@ -132,6 +236,46 @@
       "sha256": "sha256:e78b49145b88d10ef391a3ad9df29c2b82502fecc2c01737a16d1e49a475b2e5"
     },
     {
+      "file": "reviewed-solution-graph.negative.approved-without-approval.json",
+      "object_schema": "ai_teaching_reviewed_solution_graph/v1",
+      "schema_ref": "../schemas/planning/v4/reviewed-solution-graph.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:617759bed46ea423d2d0eef8cf6672d0c5dbfb84ec1d0205f3f4b863c4eef5ab"
+    },
+    {
+      "file": "reviewed-solution-graph.negative.cycle.json",
+      "object_schema": "ai_teaching_reviewed_solution_graph/v1",
+      "schema_ref": "../schemas/planning/v4/reviewed-solution-graph.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:45bee9f057e90d9e58c61d1537739166c992312f6f0b03f41e9c2447ff8262a6"
+    },
+    {
+      "file": "reviewed-solution-graph.negative.goal-unreachable.json",
+      "object_schema": "ai_teaching_reviewed_solution_graph/v1",
+      "schema_ref": "../schemas/planning/v4/reviewed-solution-graph.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:1e4b59cf20ecbceaa936fc163d1a64e9edaa553b413016ae9c300c7511e015b4"
+    },
+    {
+      "file": "reviewed-solution-graph.negative.unknown-premise.json",
+      "object_schema": "ai_teaching_reviewed_solution_graph/v1",
+      "schema_ref": "../schemas/planning/v4/reviewed-solution-graph.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:24b94f0f1815561ffb6f213421745e4d9b2f7c4de5c0c0b4dc97c93329077765"
+    },
+    {
+      "file": "reviewed-solution-graph.positive.json",
+      "object_schema": "ai_teaching_reviewed_solution_graph/v1",
+      "schema_ref": "../schemas/planning/v4/reviewed-solution-graph.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:31291b0ab9f2fe2db1b56f2f7be1542056ad90820b49b8c9f53f209e67b7a960"
+    },
+    {
       "file": "skill-hypothesis.negative.confidence-over-1.json",
       "object_schema": "ai_teaching_skill_hypothesis/v1",
       "schema_ref": "../schemas/learning/v1/skill-hypothesis.schema.json",
@@ -162,6 +306,62 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:cc04b1a2b88c3c3653d23f6547853873704d0ad91cb034a13572eeeb4ea688de"
+    },
+    {
+      "file": "student-intent.negative.command-without-payload.json",
+      "object_schema": "ai_teaching_student_intent/v1",
+      "schema_ref": "../schemas/runtime/v5/student-intent.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:5a757870fe1663b846f747c08918a5482b8a5a885d8a1f239d4eb536b94169a3"
+    },
+    {
+      "file": "student-intent.positive.json",
+      "object_schema": "ai_teaching_student_intent/v1",
+      "schema_ref": "../schemas/runtime/v5/student-intent.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:20400a8bf839769a76811a77ee98d7dbf8485088011af2e1e73f2bea0a25fb3d"
+    },
+    {
+      "file": "student-workspace-command.negative.missing-expected-revision.json",
+      "object_schema": "ai_teaching_student_workspace_command/v1",
+      "schema_ref": "../schemas/runtime/v5/student-workspace-command.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:659a273077502b78b3f992af422b858342cca36d61f74debe90e8a781b41ce1d"
+    },
+    {
+      "file": "student-workspace-command.positive.json",
+      "object_schema": "ai_teaching_student_workspace_command/v1",
+      "schema_ref": "../schemas/runtime/v5/student-workspace-command.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:4c75595cbd2ccc6835a36b343077de760bdbb77842b4b015319c7acef4a0a853"
+    },
+    {
+      "file": "student-workspace-view.negative.slice-revision.json",
+      "object_schema": "ai_teaching_student_workspace_view/v1",
+      "schema_ref": "../schemas/view/v1/student-workspace-view.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:9ef84f0e85e372e97bbb0b64aad01328445393dad449e8d9e8eaa6ca54f6aff8"
+    },
+    {
+      "file": "student-workspace-view.negative.truth-leak.json",
+      "object_schema": "ai_teaching_student_workspace_view/v1",
+      "schema_ref": "../schemas/view/v1/student-workspace-view.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:f2f8f415c4a55e2d27d8e4ec24401142a78bbd72130c93daee615708e519e7c1"
+    },
+    {
+      "file": "student-workspace-view.positive.json",
+      "object_schema": "ai_teaching_student_workspace_view/v1",
+      "schema_ref": "../schemas/view/v1/student-workspace-view.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:1d4adee2848e6af9998f44e02655fa53a5623a92a43eaa4b5367c88273e02cfb"
     },
     {
       "file": "sut-config.negative.model-name-only.json",
@@ -236,6 +436,46 @@
       "sha256": "sha256:5d33efb2ad06f2b5ee438aa0f2c15b9c12c05c91b45ba9099c4d1e704913055d"
     },
     {
+      "file": "teaching-protocol.negative.bounded-wait-without-max.json",
+      "object_schema": "ai_teaching_teaching_protocol/v1",
+      "schema_ref": "../schemas/planning/v4/teaching-protocol.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:59f9aec101b6395719509ef9fc175d8569b408dd1456d71ed447a7ce19892445"
+    },
+    {
+      "file": "teaching-protocol.negative.reveal-answer-true.json",
+      "object_schema": "ai_teaching_teaching_protocol/v1",
+      "schema_ref": "../schemas/planning/v4/teaching-protocol.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:85917b600d3d9aa6a858f7cd86e21695e52d68fb8e6580be00d60c7bd6188aaa"
+    },
+    {
+      "file": "teaching-protocol.negative.transition-unknown-beat.json",
+      "object_schema": "ai_teaching_teaching_protocol/v1",
+      "schema_ref": "../schemas/planning/v4/teaching-protocol.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:d93d8d5a09b3591836f443255bc7a947852d021adc74bd013fb13a6048f6e8da"
+    },
+    {
+      "file": "teaching-protocol.positive.json",
+      "object_schema": "ai_teaching_teaching_protocol/v1",
+      "schema_ref": "../schemas/planning/v4/teaching-protocol.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:d3c6295a51496de1fafe75faf0fda97a96c7cd1c07cffe3ea21e6bff482b5ce1"
+    },
+    {
+      "file": "teaching-protocol.pubfail.draft-status.json",
+      "object_schema": "ai_teaching_teaching_protocol/v1",
+      "schema_ref": "../schemas/planning/v4/teaching-protocol.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "invalid",
+      "sha256": "sha256:a184d09d83197a60e289d579b37f3b6e01a51574baac6625d1e1ec94dc25fa5a"
+    },
+    {
       "file": "topic-question-binding.negative.duplicate-default.json",
       "object_schema": "ai_teaching_topic_question_binding/v1",
       "schema_ref": "../schemas/authoring/v1/topic-question-binding.schema.json",
@@ -308,6 +548,54 @@
       "sha256": "sha256:f803adc3c6bc2ec2a3a8371bfe5052bbd6e8faa17e00c4942bed650d4b4e756f"
     },
     {
+      "file": "tutor-plan-bundle.v4.negative.empty-protocol-refs.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v4",
+      "schema_ref": "../schemas/planning/v4/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:5bae85dab30191ebc996c8f0a4438631952543719d4446e14e042bc522f5c3cb"
+    },
+    {
+      "file": "tutor-plan-bundle.v4.negative.hint-resource.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v4",
+      "schema_ref": "../schemas/planning/v4/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:18d79962ca4f054ef7e0730e6e202d9d95a6d59641677543a772c5325986e8e1"
+    },
+    {
+      "file": "tutor-plan-bundle.v4.positive.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v4",
+      "schema_ref": "../schemas/planning/v4/tutor-plan-bundle.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:6ab43373483c81bea2c5b1285a21fc3c4e87d7f8dfaab79a2f7b00ce44c58eac"
+    },
+    {
+      "file": "tutor-policy-decision.negative.inquiry-without-return.json",
+      "object_schema": "ai_teaching_tutor_policy_decision/v1",
+      "schema_ref": "../schemas/runtime/v5/tutor-policy-decision.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:a87b5111816a243d580c0f19c7fe580a07746c9148794c65e4c60995ae5aec2a"
+    },
+    {
+      "file": "tutor-policy-decision.negative.move-type-field.json",
+      "object_schema": "ai_teaching_tutor_policy_decision/v1",
+      "schema_ref": "../schemas/runtime/v5/tutor-policy-decision.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:b7f4db60f1b8b5fc2f4a92f6e46e6281ac37f136ad03e7708aab4009ed8874f8"
+    },
+    {
+      "file": "tutor-policy-decision.positive.json",
+      "object_schema": "ai_teaching_tutor_policy_decision/v1",
+      "schema_ref": "../schemas/runtime/v5/tutor-policy-decision.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:66b0c05068bfb12b67c27bd2a4a31cbe55f848c06eb2d498487a81319ce0dc09"
+    },
+    {
       "file": "tutor-policy-profile.negative.missing-profile-version.json",
       "object_schema": "ai_teaching_tutor_policy_profile/v1",
       "schema_ref": "../schemas/planning/v1/tutor-policy-profile.schema.json",
@@ -322,6 +610,22 @@
       "expect_schema": "valid",
       "expect_publication": "valid",
       "sha256": "sha256:43b3828aa67347a3e12a49d8e57c126920ca94a2a090e4b914ec711167a78835"
+    },
+    {
+      "file": "tutor-runtime-state.negative.inquiry-without-return.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v1",
+      "schema_ref": "../schemas/state/v1/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0d4047d44a0f5f403cfdcbfb906969c25bcded5b2431f9b8b11d2a5dc29676ed"
+    },
+    {
+      "file": "tutor-runtime-state.positive.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v1",
+      "schema_ref": "../schemas/state/v1/tutor-runtime-state.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:771732d6c8f067a5f1bafb3060c8fa4f31f52122dfa74f4645fd89252e85fdf5"
     },
     {
       "file": "tutor-session-event.negative.payload-missing-level.json",
@@ -402,6 +706,110 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:5fbff66cb4c51c328530b4e8ddb7aefe62db022d2d6e9da2a49f9a31fd5113b6"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.decision-missing-causation.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:74f099dbd42ab2d2a50a49ac2cf07d12e724d5f09e3a1bb1e08e080bd0024493"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.decision-with-move-type.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:af6b3e2ed82b7ba3bfbc6890ec768a033f68162ce6bd70a198ad306e7b279ef6"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.session-started-empty-protocols.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:7f1ccf56c13a9a96571af34694d4ea6346f9454a61d30f8aaf731380e6a4e0fc"
+    },
+    {
+      "file": "tutor-session-event.v5.positive.policy-decision.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:30349088d6d482eef2b3f6987861992f91282641d3274326bded66db4d2d967b"
+    },
+    {
+      "file": "tutor-session-event.v5.positive.session-started.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:8f97ebf4576fe096c84331f02ae1b6e07152a018c712eda0bc8d462760682cd4"
+    },
+    {
+      "file": "tutor-session-event.v5.positive.support-evidence.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:08de138db67c7a9dd004bb5533f5dadc2e890c8feb901057ee3717dd20f062cb"
+    },
+    {
+      "file": "voice-action.negative.approved-without-resource.json",
+      "object_schema": "ai_teaching_voice_action/v1",
+      "schema_ref": "../schemas/runtime/v5/voice-action.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:1339322be38d6b639ce52f5fab96ed04dbff23b97abc796a0c75e2491bafd145"
+    },
+    {
+      "file": "voice-action.positive.json",
+      "object_schema": "ai_teaching_voice_action/v1",
+      "schema_ref": "../schemas/runtime/v5/voice-action.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:4e685ae74e9b72a7b09f1f6aaacd9d34a06e3a96ff63c3024164a45368c2b95f"
+    },
+    {
+      "file": "workspace-runtime-state.negative.slice-revision.json",
+      "object_schema": "ai_teaching_workspace_runtime_state/v1",
+      "schema_ref": "../schemas/state/v1/workspace-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:5d9ac7baee04217ce246083a83c87592f886eac90b1bfcda561c01272d483eb6"
+    },
+    {
+      "file": "workspace-runtime-state.negative.truth-leak.json",
+      "object_schema": "ai_teaching_workspace_runtime_state/v1",
+      "schema_ref": "../schemas/state/v1/workspace-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:add7fdbc94e3f5a10030bc1c7c8dcb3e4d69cc4e95c04b77185e4296ee7464b5"
+    },
+    {
+      "file": "workspace-runtime-state.positive.json",
+      "object_schema": "ai_teaching_workspace_runtime_state/v1",
+      "schema_ref": "../schemas/state/v1/workspace-runtime-state.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:4c661f199ea97dcddc518ec304d329cdea9734e951c529ee1d436428d45d3874"
+    },
+    {
+      "file": "workspace-surface-action.negative.student-origin.json",
+      "object_schema": "ai_teaching_workspace_surface_action/v1",
+      "schema_ref": "../schemas/runtime/v5/workspace-surface-action.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:8798cd8c00049f0d0e5a3ba12d3de87d75e3be29d0ada63e18bb7e533811cbea"
+    },
+    {
+      "file": "workspace-surface-action.positive.json",
+      "object_schema": "ai_teaching_workspace_surface_action/v1",
+      "schema_ref": "../schemas/runtime/v5/workspace-surface-action.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:9ab1ccd029cc5835ddfce9ba924e73fb16c8f4796d0f77aa6ed8f6ff34b744a0"
     }
   ],
   "assessment_scan": {

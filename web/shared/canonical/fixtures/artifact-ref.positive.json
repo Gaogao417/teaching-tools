@@ -1,0 +1,7 @@
+{
+  "schema": "ai_teaching_artifact_ref/v1",
+  "artifact_id": "RG-SMV-002",
+  "version": "v1",
+  "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "artifact_uri": "artifact://reviewed-solution-graph/RG-SMV-002@v1"
+}

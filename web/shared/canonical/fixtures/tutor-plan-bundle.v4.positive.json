@@ -1,0 +1,107 @@
+{
+  "schema": "ai_teaching_tutor_plan_bundle/v4",
+  "artifact_id": "TP-SMV-002",
+  "version": "v6",
+  "status": "Approved",
+  "approval": {
+    "reviewer_id": "teacher:gaochong",
+    "approved_at": "2026-08-27T08:00:00Z",
+    "review_note": "F1 合同冻结样例"
+  },
+  "question_ref": {
+    "artifact_id": "QT-SMV-002",
+    "version": "v2",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "approach_set_ref": {
+    "artifact_id": "AS-SMV-002",
+    "version": "v1",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "solution_graph_ref": {
+    "artifact_id": "RG-SMV-002",
+    "version": "v1",
+    "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "policy_profile_ref": {
+    "artifact_id": "PP-SMV-001",
+    "version": "v1",
+    "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "chunks": [
+    {
+      "chunk_id": "CH-01",
+      "part_id": "1",
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v1",
+          "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ],
+      "resource_ids": [
+        "RES1",
+        "RES2"
+      ]
+    },
+    {
+      "chunk_id": "CH-02",
+      "part_id": "1",
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v1",
+          "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ],
+      "resource_ids": [
+        "RES3",
+        "RES4"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "resource_id": "RES1",
+      "kind": "explanation",
+      "source": "authored",
+      "content": "读题定向：平行条件与目标线段。",
+      "beat_ref": "BT-01"
+    },
+    {
+      "resource_id": "RES2",
+      "kind": "voice_seed",
+      "source": "authored",
+      "content": "这两条边之间有什么关系？",
+      "beat_ref": "BT-03"
+    },
+    {
+      "resource_id": "RES3",
+      "kind": "workspace",
+      "source": "authored",
+      "beat_ref": "BT-02",
+      "graph_fact_refs": [
+        "FN-02"
+      ]
+    },
+    {
+      "resource_id": "RES4",
+      "kind": "support",
+      "source": "authored",
+      "content": "把已知长度代进比例式。",
+      "beat_ref": "BT-04"
+    }
+  ],
+  "build_provenance": {
+    "provider": "build-agent",
+    "model_id": "glm-5.3",
+    "workflow_version": "wf-v4-001",
+    "run_id": "run-20260827-01",
+    "built_at": "2026-08-27T08:00:00Z",
+    "runtime_registry_version": "registry-2026-08-27",
+    "compiler_version": "plan-compiler/4.0.0",
+    "materializer_version": "plan-materializer/4.0.0"
+  },
+  "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "artifact_uri": "artifact://tutor-plan/TP-SMV-002@v6"
+}

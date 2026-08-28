@@ -1,0 +1,12 @@
+{
+  "schema": "ai_teaching_student_workspace_command/v1",
+  "session_id": "TS-4242",
+  "command_id": "SC-20260827-0002",
+  "origin": "student",
+  "surface": "geometry",
+  "capability": "similarity.mark-known-segments",
+  "target_ids": [
+    "segment-AD"
+  ],
+  "client_command_id": "cc-20260827-0002"
+}

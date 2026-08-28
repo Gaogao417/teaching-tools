@@ -1,0 +1,13 @@
+{
+  "schema": "ai_teaching_external_support_evidence/v1",
+  "session_id": "TS-4242",
+  "evidence_id": "ESE-20260827-0002",
+  "support_kinds": [
+    "foreground"
+  ],
+  "initiated_by": "unknown",
+  "action_ids": [
+    "VA-legacy-0001"
+  ],
+  "derived_partial": true
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v5",
+  "session_id": "TS-4242",
+  "sequence": 13,
+  "state_revision": 7,
+  "occurred_at": "2026-08-27T08:05:00Z",
+  "event_type": "policy_decision_made",
+  "payload": {
+    "decision_id": "TD-20260827-0001",
+    "decision_kind": "transition_beat",
+    "protocol_id": "PR-SMV-002",
+    "beat_id": "BT-03",
+    "to_beat_id": "BT-04",
+    "policy_version": "navigator-1.0.0",
+    "transition_basis": {
+      "basis": "gate_satisfied",
+      "gate_id": "GT-01"
+    },
+    "source_event_sequence": 12,
+    "source_state_revision": 7
+  },
+  "idempotency_key": "idem-20260827-0013"
+}

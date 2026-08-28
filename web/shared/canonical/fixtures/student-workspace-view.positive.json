@@ -1,0 +1,56 @@
+{
+  "schema": "ai_teaching_student_workspace_view/v1",
+  "session_id": "TS-4242",
+  "revision": 6,
+  "canvas": {
+    "elements": [
+      {
+        "element_id": "seg-AD",
+        "kind": "segment",
+        "visible": true,
+        "highlighted": true
+      },
+      {
+        "element_id": "seg-BC",
+        "kind": "segment",
+        "visible": true
+      },
+      {
+        "element_id": "label-DE",
+        "kind": "label",
+        "visible": true,
+        "student_authored": true
+      }
+    ],
+    "interaction_enabled": true
+  },
+  "solution_board": {
+    "mode": "building",
+    "groups": [
+      {
+        "group_id": "PG-01",
+        "title": "建立比例",
+        "entries": [
+          {
+            "entry_id": "BE-01",
+            "kind": "statement",
+            "content": "△ADE ∽ △ABC（A 字型）",
+            "state": "visible"
+          },
+          {
+            "entry_id": "BE-02",
+            "kind": "derivation",
+            "content": "AD/AB = DE/BC",
+            "state": "active",
+            "attempt_summary": "学生已写出左边比例"
+          }
+        ]
+      }
+    ]
+  },
+  "participation": {
+    "kind": "workspace_input",
+    "gate_id": "GT-01",
+    "action_id": "WSA-20260827-0001"
+  }
+}

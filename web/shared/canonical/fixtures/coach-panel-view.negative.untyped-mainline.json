@@ -1,0 +1,35 @@
+{
+  "schema": "ai_teaching_coach_panel_view/v1",
+  "session_id": "TS-4242",
+  "revision": 6,
+  "mainline": {
+    "kind": "generic_chat"
+  },
+  "inquiry": {
+    "kind": "no_inquiry"
+  },
+  "teaching_context": {
+    "part_id": "1",
+    "beat_id": "BT-02",
+    "student_facing_progress": "第 1 小问 · 正在标出已知线段",
+    "focus_cue": "在画布上标出你已知长度的线段",
+    "waiting_for": "workspace 操作"
+  },
+  "current_tutor_turn": "把已知长度的线段在图上标出来。",
+  "assistance_available": true,
+  "replay_available": true,
+  "transcript": [
+    {
+      "turn_id": "DT-20260827-0001",
+      "role": "tutor",
+      "content": "先看这个 A 字型。",
+      "beat_id": "BT-01"
+    },
+    {
+      "turn_id": "DT-20260827-0002",
+      "role": "student",
+      "content": "好的。",
+      "beat_id": "BT-01"
+    }
+  ]
+}

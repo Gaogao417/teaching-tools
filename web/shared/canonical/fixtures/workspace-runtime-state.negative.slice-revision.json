@@ -1,0 +1,42 @@
+{
+  "schema": "ai_teaching_workspace_runtime_state/v1",
+  "session_id": "TS-4242",
+  "revision": 6,
+  "geometry": {
+    "committed_element_ids": [
+      "seg-AD",
+      "seg-BC"
+    ],
+    "draft_element_ids": [
+      "seg-DE"
+    ],
+    "interaction_mode": "construction",
+    "revision": 6
+  },
+  "solution_board": {
+    "entries": [
+      {
+        "entry_id": "BE-01",
+        "visibility": "visible",
+        "attempt_state": "confirmed",
+        "presentation_group": "PG-01"
+      },
+      {
+        "entry_id": "BE-02",
+        "visibility": "active",
+        "attempt_state": "attempted",
+        "presentation_group": "PG-01"
+      },
+      {
+        "entry_id": "BE-05",
+        "visibility": "hidden",
+        "attempt_state": "none"
+      }
+    ],
+    "canonical_path_entry_ids": [
+      "BE-01",
+      "BE-02",
+      "BE-05"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema": "ai_teaching_external_support_evidence/v1",
+  "session_id": "TS-4242",
+  "evidence_id": "ESE-20260827-0001",
+  "beat_id": "BT-03",
+  "support_kinds": [
+    "name_strategy"
+  ],
+  "initiated_by": "student_requested",
+  "action_ids": [
+    "WSA-20260827-0001",
+    "VA-20260827-0001"
+  ],
+  "student_response": {
+    "progression_observed": true,
+    "self_corrected": false,
+    "observed_after_sequences": [
+      14
+    ]
+  },
+  "derived_partial": false
+}

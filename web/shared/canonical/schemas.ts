@@ -2051,3 +2051,1474 @@ export const benchmarkRunSchema = z
       });
     }
   });
+
+// --------------------------------------------------------------------------- //
+// F1（2026-08-27）：core/v1 + planning/v4 + runtime/v5 + state/v1 + view/v1
+// 逐字段对应 PRDS contracts/schemas 新 major；跨字段规则与 Python 镜像一致。
+// --------------------------------------------------------------------------- //
+const solutionGraphId = z.string().regex(/^RG-[A-Z0-9]+-[0-9]{3,}$/);
+const teachingProtocolId = z.string().regex(/^PR-[A-Z0-9]+-[0-9]{3,}$/);
+const beatIdPattern = z.string().regex(/^BT-[0-9]{1,3}$/);
+const gateIdPattern = z.string().regex(/^GT-[0-9]{1,3}$/);
+const graphFactIdPattern = z.string().regex(/^FN-[0-9]{1,3}$/);
+const graphInferenceIdPattern = z.string().regex(/^IF-[0-9]{1,3}$/);
+const solutionVariantIdPattern = z.string().regex(/^SV-[0-9]{1,3}$/);
+const solutionEvidenceRefPattern = z
+  .string()
+  .regex(/^(SE-[A-Z0-9]+-[0-9]{3,}|artifact:\/[a-z][a-z0-9-]*\/[A-Za-z0-9._~!$&'()*+,;=:%@\/-]+)$/);
+const reviewedSolutionStepPattern = z.string().regex(/^step-[0-9]{1,3}$/);
+const surfaceActionIdPattern = z.string().regex(/^WSA-[A-Za-z0-9._:-]{4,}$/);
+const studentCommandIdPattern = z.string().regex(/^SC-[A-Za-z0-9._:-]{4,}$/);
+const supportEvidenceIdPattern = z.string().regex(/^ESE-[A-Za-z0-9._:-]{4,}$/);
+const inquiryIdPattern = z.string().regex(/^IQ-[A-Za-z0-9._:-]{4,}$/);
+const presentationPlanIdPattern = z.string().regex(/^PPT-[A-Za-z0-9._:-]{4,}$/);
+const clientRequestIdPattern = z.string().regex(/^[A-Za-z0-9._:-]{4,128}$/);
+
+const approvalBlock = z
+  .object({
+    reviewer_id: nonEmptyString,
+    approved_at: isoDateTime,
+    review_note: z.string().optional(),
+  })
+  .strict();
+
+const questionArtifactRef = z
+  .object({ artifact_id: questionId, version: versionTag, content_hash: sha256 })
+  .strict();
+const solutionGraphArtifactRef = z
+  .object({ artifact_id: solutionGraphId, version: versionTag, content_hash: sha256 })
+  .strict();
+const protocolArtifactRef = z
+  .object({ artifact_id: teachingProtocolId, version: versionTag, content_hash: sha256 })
+  .strict();
+const planArtifactRefV4 = z
+  .object({ artifact_id: planId, version: versionTag, content_hash: sha256 })
+  .strict();
+
+// core/v1/artifact-ref
+export const artifactRefV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_artifact_ref/v1"),
+    artifact_id: z.string().regex(/^[A-Z]{2,4}-[A-Z0-9]+-[0-9]{3,}$/),
+    version: versionTag,
+    content_hash: sha256,
+    artifact_uri: artifactUriPattern.optional(),
+  })
+  .strict();
+
+// planning/v4/reviewed-solution-graph（FR-7 二部 AND/OR DAG）
+const graphFactNode = z
+  .object({
+    fact_id: graphFactIdPattern,
+    role: z.enum(["given", "goal", "derived", "intermediate_value"]),
+    statement: nonEmptyString,
+    part_id: partIdPattern.optional(),
+    reveals_answer: z.boolean(),
+    evidence_refs: z.array(solutionEvidenceRefPattern).optional(),
+    reviewed_solution_step: reviewedSolutionStepPattern.optional(),
+    skill_refs: z.array(skillId).max(3).optional(),
+  })
+  .strict();
+
+const graphInferenceNode = z
+  .object({
+    inference_id: graphInferenceIdPattern,
+    premises: z.array(graphFactIdPattern).min(1),
+    conclusion: graphFactIdPattern,
+    derivation: nonEmptyString,
+    evidence_refs: z.array(solutionEvidenceRefPattern).optional(),
+    reviewed_solution_step: reviewedSolutionStepPattern.optional(),
+  })
+  .strict();
+
+const solutionVariantNode = z
+  .object({
+    variant_id: solutionVariantIdPattern,
+    name: nonEmptyString.optional(),
+    goal_fact_id: graphFactIdPattern,
+    inference_ids: z.array(graphInferenceIdPattern).min(1),
+  })
+  .strict();
+
+export const reviewedSolutionGraphV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_reviewed_solution_graph/v1"),
+    graph_id: solutionGraphId,
+    version: versionTag,
+    status: statusEnum,
+    approval: approvalBlock.optional(),
+    question_ref: questionArtifactRef,
+    approach_ref: z
+      .object({ artifact_id: approachId, version: versionTag, content_hash: sha256 })
+      .strict()
+      .optional(),
+    facts: z.array(graphFactNode).min(1),
+    inferences: z.array(graphInferenceNode).min(1),
+    solution_variants: z.array(solutionVariantNode).min(1),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/reviewed-solution-graph\/RG-[A-Z0-9]+-[0-9]{3,}@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const factIds = new Set(value.facts.map((f) => f.fact_id));
+    const inferenceIds = new Set(value.inferences.map((i) => i.inference_id));
+    const add = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+
+    if (factIds.size !== value.facts.length) add("fact_id must be unique");
+    if (inferenceIds.size !== value.inferences.length) add("inference_id must be unique");
+
+    // premise/conclusion 引用存在 + conclusion 不在 premises + 参与度 + 事实图邻接
+    const premiseUse = new Set<string>();
+    const concludedFacts = new Set<string>();
+    const adj = new Map<string, string[]>();
+    for (const fact of value.facts) adj.set(fact.fact_id, []);
+    for (const inf of value.inferences) {
+      for (const premise of inf.premises) {
+        if (!factIds.has(premise)) add(`inference ${inf.inference_id} references unknown premise ${premise}`);
+        premiseUse.add(premise);
+      }
+      if (!factIds.has(inf.conclusion)) {
+        add(`inference ${inf.inference_id} references unknown conclusion ${inf.conclusion}`);
+      }
+      if (inf.premises.includes(inf.conclusion)) {
+        add(`inference ${inf.inference_id} concludes its own premise`);
+      }
+      concludedFacts.add(inf.conclusion);
+      for (const premise of inf.premises) adj.get(premise)?.push(inf.conclusion);
+    }
+    // 无环：premise -> conclusion 事实图 DFS（三色标记）
+    const color = new Map<string, 0 | 1 | 2>();
+    const hasCycle = (node: string): boolean => {
+      const state = color.get(node) ?? 0;
+      if (state === 1) return true;
+      if (state === 2) return false;
+      color.set(node, 1);
+      for (const next of adj.get(node) ?? []) {
+        if (hasCycle(next)) return true;
+      }
+      color.set(node, 2);
+      return false;
+    };
+    for (const fact of value.facts) {
+      if (hasCycle(fact.fact_id)) {
+        add("fact graph must be acyclic (premise→conclusion)");
+        break;
+      }
+    }
+    // 可推导性（AND 语义：全部 premises 可推导才可推导），迭代至不动点
+    const derivations = new Set(value.facts.filter((f) => f.role === "given").map((f) => f.fact_id));
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const inf of value.inferences) {
+        if (derivations.has(inf.conclusion)) continue;
+        if (inf.premises.every((p) => derivations.has(p))) {
+          derivations.add(inf.conclusion);
+          grew = true;
+        }
+      }
+    }
+    // 悬空节点与角色规则 + 可追溯性
+    for (const fact of value.facts) {
+      if (fact.role === "given" && !premiseUse.has(fact.fact_id)) {
+        add(`given fact ${fact.fact_id} is never used as a premise (dangling)`);
+      }
+      if (
+        (fact.role === "goal" || fact.role === "derived" || fact.role === "intermediate_value") &&
+        !concludedFacts.has(fact.fact_id)
+      ) {
+        add(`fact ${fact.fact_id} with role=${fact.role} is never concluded (dangling)`);
+      }
+      if (fact.role === "goal" && !derivations.has(fact.fact_id)) {
+        add(`goal fact ${fact.fact_id} is not derivable from given facts`);
+      }
+      if (!fact.evidence_refs?.length && !fact.reviewed_solution_step) {
+        add(`fact ${fact.fact_id} must be traceable (evidence_refs or reviewed_solution_step)`);
+      }
+    }
+    for (const inf of value.inferences) {
+      if (!inf.evidence_refs?.length && !inf.reviewed_solution_step) {
+        add(`inference ${inf.inference_id} must be traceable (evidence_refs or reviewed_solution_step)`);
+      }
+    }
+    // solution variant 校验
+    const goalFacts = new Set(value.facts.filter((f) => f.role === "goal").map((f) => f.fact_id));
+    for (const variant of value.solution_variants) {
+      if (!goalFacts.has(variant.goal_fact_id)) {
+        add(`variant ${variant.variant_id} goal_fact_id must reference a goal fact`);
+      }
+      for (const infId of variant.inference_ids) {
+        if (!inferenceIds.has(infId)) {
+          add(`variant ${variant.variant_id} references unknown inference ${infId}`);
+        }
+      }
+    }
+    if (value.status === "Approved" && !value.approval) {
+      add("Approved requires approval block");
+    }
+  });
+
+// planning/v4/teaching-protocol
+const beatTransitionSchema = z
+  .object({
+    to_beat: beatIdPattern,
+    on: z.enum(["gate_satisfied", "evidence_collected", "student_request", "timeout", "tutor_discretion"]),
+  })
+  .strict();
+
+const beatSchema = z
+  .object({
+    beat_id: beatIdPattern,
+    part_id: partIdPattern.optional(),
+    purpose: nonEmptyString,
+    graph_fact_refs: z.array(graphFactIdPattern).min(1),
+    cognitive_activity: z.enum(["attend", "recall", "relate", "apply", "verify", "explain"]),
+    completion_evidence: z
+      .object({
+        evidence_kind: z.enum([
+          "student_answer",
+          "workspace_command",
+          "student_confirmation",
+          "narration_completed",
+          "explicit_gate_pass",
+          "tutor_observed",
+        ]),
+        gate: z
+          .object({
+            gate_id: gateIdPattern,
+            requirement: nonEmptyString,
+            graph_fact_id: graphFactIdPattern.optional(),
+            capability: nonEmptyString.optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+    participation: z.enum(["listen", "answer", "operate", "confirm", "continue"]),
+    pacing: z
+      .object({
+        wait_policy: z.enum(["student_driven", "bounded_wait"]),
+        max_wait_seconds: z.number().int().min(5).max(3600).optional(),
+      })
+      .strict(),
+    presentation_intent: z
+      .object({
+        voice: z.array(z.enum(["narrate", "question", "feedback"])),
+        workspace_surfaces: z.array(z.enum(["geometry", "solution_board"])),
+      })
+      .strict(),
+    resource_ids: z.array(resourceIdPattern).optional(),
+    support_boundary: z
+      .object({
+        may_reveal_answer: z.literal(false),
+        may_reveal_intermediate: z.boolean(),
+        max_support: z.enum([
+          "orient",
+          "foreground",
+          "name_strategy",
+          "specify_operation",
+          "provide_intermediate_conclusion",
+        ]),
+      })
+      .strict(),
+    transitions: z.array(beatTransitionSchema).min(1),
+    inquiry_branch: z
+      .object({
+        inquiry_protocol_ref: protocolArtifactRef,
+        return_beat_id: beatIdPattern,
+        trigger: z
+          .enum(["ask_question", "request_scaffold", "request_rephrase", "unclear", "out_of_bound"])
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      ["student_answer", "workspace_command", "student_confirmation", "explicit_gate_pass"].includes(
+        value.completion_evidence.evidence_kind,
+      ) &&
+      !value.completion_evidence.gate
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["completion_evidence"],
+        message: `evidence_kind=${value.completion_evidence.evidence_kind} requires gate`,
+      });
+    }
+    if (value.pacing.wait_policy === "bounded_wait" && value.pacing.max_wait_seconds === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["pacing"],
+        message: "bounded_wait requires max_wait_seconds",
+      });
+    }
+  });
+
+export const teachingProtocolV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_teaching_protocol/v1"),
+    protocol_id: teachingProtocolId,
+    version: versionTag,
+    status: statusEnum,
+    approval: approvalBlock.optional(),
+    question_ref: questionArtifactRef,
+    solution_graph_ref: solutionGraphArtifactRef,
+    protocol_kind: z.enum(["mainline", "inquiry", "scaffold", "verification"]),
+    entry_beat_id: beatIdPattern,
+    beats: z.array(beatSchema).min(1),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/teaching-protocol\/PR-[A-Z0-9]+-[0-9]{3,}@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const beatIds = new Set(value.beats.map((b) => b.beat_id));
+    if (new Set(value.beats.map((b) => b.beat_id)).size !== value.beats.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "beat_id must be unique" });
+    }
+    if (!beatIds.has(value.entry_beat_id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `entry_beat_id ${value.entry_beat_id} not in beats`,
+      });
+    }
+    for (const beat of value.beats) {
+      for (const transition of beat.transitions) {
+        if (!beatIds.has(transition.to_beat)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["beats"],
+            message: `beat ${beat.beat_id} transitions to unknown beat ${transition.to_beat}`,
+          });
+        }
+      }
+      if (beat.inquiry_branch && !beatIds.has(beat.inquiry_branch.return_beat_id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["beats"],
+          message: `inquiry_branch return_beat_id ${beat.inquiry_branch.return_beat_id} not in beats`,
+        });
+      }
+    }
+    if (value.status === "Approved" && !value.approval) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Approved requires approval block" });
+    }
+  });
+
+// planning/v4/tutor-plan-bundle（v4）
+export const tutorPlanBundleV4Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_plan_bundle/v4"),
+    artifact_id: planId,
+    version: versionTag,
+    status: statusEnum,
+    approval: approvalBlock.optional(),
+    question_ref: questionArtifactRef,
+    approach_set_ref: z
+      .object({
+        artifact_id: z.string().regex(/^AS-[A-Z0-9]+-[0-9]{3,}$/),
+        version: versionTag,
+        content_hash: sha256,
+      })
+      .strict(),
+    solution_graph_ref: solutionGraphArtifactRef,
+    policy_profile_ref: z
+      .object({ artifact_id: policyProfileId, version: versionTag, content_hash: sha256 })
+      .strict(),
+    chunks: z
+      .array(
+        z
+          .object({
+            chunk_id: z.string().regex(/^CH-[0-9]{1,3}$/),
+            part_id: partIdPattern.optional(),
+            protocol_refs: z.array(protocolArtifactRef).min(1),
+            resource_ids: z.array(resourceIdPattern).optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+    resources: z
+      .array(
+        z
+          .object({
+            resource_id: resourceIdPattern,
+            kind: z.enum([
+              "explanation",
+              "diagnostic_probe",
+              "repair",
+              "action_template",
+              "workspace",
+              "voice_seed",
+              "support",
+            ]),
+            beat_ref: beatIdPattern.optional(),
+            source: z.enum(["authored", "reused", "agent_generated"]),
+            content: nonEmptyString.optional(),
+            graph_fact_refs: z.array(graphFactIdPattern).optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+    build_provenance: z
+      .object({
+        provider: nonEmptyString,
+        model_id: nonEmptyString,
+        workflow_version: nonEmptyString,
+        run_id: nonEmptyString,
+        built_at: isoDateTime,
+        runtime_registry_version: nonEmptyString,
+        compiler_version: nonEmptyString,
+        materializer_version: nonEmptyString,
+      })
+      .strict(),
+    content_hash: sha256,
+    artifact_uri: z.string().regex(/^artifact:\/\/tutor-plan\/TP-[A-Z0-9]+-[0-9]{3,}@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.status === "Approved" && !value.approval) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Approved requires approval block" });
+    }
+  });
+
+// runtime/v5/student-intent
+const studentWorkspaceCommandBody = z
+  .object({
+    command_id: studentCommandIdPattern,
+    surface: z.enum(["geometry", "solution_board"]),
+    capability: nonEmptyString,
+    target_ids: z.array(nonEmptyString),
+    params: z.record(z.unknown()).optional(),
+    expected_workspace_revision: z.number().int().min(0),
+    client_command_id: clientRequestIdPattern,
+  })
+  .strict();
+
+export const studentIntentV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_student_intent/v1"),
+    session_id: sessionId,
+    intent_kind: z.enum([
+      "submit_answer",
+      "submit_workspace_command",
+      "confirm",
+      "continue",
+      "ask_question",
+      "request_scaffold",
+      "request_rephrase",
+      "replay_narration",
+      "barge_in",
+      "return_to_mainline",
+      "retry_recovery",
+    ]),
+    text: nonEmptyString.optional(),
+    workspace_command: studentWorkspaceCommandBody.optional(),
+    expected_revision: z.number().int().min(0),
+    client_request_id: clientRequestIdPattern,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (["submit_answer", "ask_question"].includes(value.intent_kind) && !value.text) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `intent_kind=${value.intent_kind} requires text`,
+      });
+    }
+    if (value.intent_kind === "submit_workspace_command" && !value.workspace_command) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "intent_kind=submit_workspace_command requires workspace_command",
+      });
+    }
+  });
+
+// runtime/v5/student-workspace-command（standalone）
+export const studentWorkspaceCommandV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_student_workspace_command/v1"),
+    session_id: sessionId,
+    command_id: studentCommandIdPattern,
+    origin: z.literal("student"),
+    surface: z.enum(["geometry", "solution_board"]),
+    capability: nonEmptyString,
+    target_ids: z.array(nonEmptyString),
+    params: z.record(z.unknown()).optional(),
+    expected_workspace_revision: z.number().int().min(0),
+    client_command_id: clientRequestIdPattern,
+    input_evidence_sequence: z.number().int().min(1).optional(),
+  })
+  .strict();
+
+// runtime/v5/tutor-policy-decision
+const decisionKindEnum = z.enum([
+  "execute_beat",
+  "complete_beat",
+  "transition_beat",
+  "open_inquiry",
+  "open_scaffold",
+  "continue_inquiry",
+  "return_to_mainline",
+  "revisit_beat",
+  "accept_alternate_path",
+  "change_stance",
+  "request_clarification",
+  "pause",
+  "safe_fallback",
+]);
+
+const inquiryBlock = z
+  .object({
+    inquiry_id: inquiryIdPattern,
+    inquiry_protocol_id: teachingProtocolId.optional(),
+    return_beat_id: beatIdPattern,
+  })
+  .strict();
+
+export const tutorPolicyDecisionV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_policy_decision/v1"),
+    session_id: sessionId,
+    decision_id: decisionIdPattern,
+    policy_version: nonEmptyString,
+    protocol_id: teachingProtocolId,
+    beat_id: beatIdPattern,
+    decision_kind: decisionKindEnum,
+    to_beat_id: beatIdPattern.optional(),
+    transition_basis: z
+      .object({
+        basis: z.enum([
+          "legal_transition",
+          "gate_satisfied",
+          "gate_unsatisfied",
+          "student_evidence",
+          "inquiry_completed",
+          "timeout",
+          "safe_fallback_policy",
+        ]),
+        gate_id: gateIdPattern.optional(),
+        graph_variant_id: solutionVariantIdPattern.optional(),
+      })
+      .strict()
+      .optional(),
+    inquiry: inquiryBlock.optional(),
+    interpretation_summary: z
+      .object({
+        intent: nonEmptyString,
+        reasoning_location: z.enum(["aligned", "partially_aligned", "misaligned", "unknown"]),
+        confidence: z.number().min(0).max(1),
+        interpreter_version: nonEmptyString.optional(),
+        evidence_sequences: z.array(z.number().int().min(1)).max(8).optional(),
+      })
+      .strict()
+      .optional(),
+    source_event_sequence: z.number().int().min(1),
+    source_state_revision: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      ["open_inquiry", "open_scaffold", "continue_inquiry", "return_to_mainline"].includes(
+        value.decision_kind,
+      ) &&
+      !value.inquiry
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `decision_kind=${value.decision_kind} requires inquiry (with return_beat_id)`,
+      });
+    }
+    if (["transition_beat", "revisit_beat", "return_to_mainline"].includes(value.decision_kind) &&
+      !value.to_beat_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `decision_kind=${value.decision_kind} requires to_beat_id`,
+      });
+    }
+  });
+
+// runtime/v5/voice-action
+export const voiceActionV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_voice_action/v1"),
+    session_id: sessionId,
+    action_id: voiceActionIdPattern,
+    decision_id: decisionIdPattern,
+    beat_id: beatIdPattern.optional(),
+    text: nonEmptyString,
+    source: z.enum(["approved-resource", "model-generated", "deterministic-scaffold"]),
+    resource_ref: resourceIdPattern.optional(),
+    generation_id: z.string().regex(/^VG-[A-Za-z0-9._:-]{4,}$/).optional(),
+    interruptible: z.boolean().optional(),
+    intent: z.enum(["narrate", "question", "feedback"]).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.source === "approved-resource" && !value.resource_ref) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "source=approved-resource requires resource_ref",
+      });
+    }
+    if (value.source === "model-generated" && !value.generation_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "source=model-generated requires generation_id",
+      });
+    }
+  });
+
+// runtime/v5/workspace-surface-action
+export const workspaceSurfaceActionV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_workspace_surface_action/v1"),
+    session_id: sessionId,
+    action_id: surfaceActionIdPattern,
+    decision_id: decisionIdPattern,
+    beat_id: beatIdPattern.optional(),
+    surface: z.enum(["geometry", "solution_board"]),
+    capability: nonEmptyString,
+    origin: z.literal("tutor"),
+    target_ids: z.array(nonEmptyString).optional(),
+    command_payload: z.string().optional(),
+    reveal_scope: z.enum(["none", "target_highlight", "step_narration", "intermediate_result", "final_result"]),
+    presentation_only: z.boolean().optional(),
+  })
+  .strict();
+
+// runtime/v5/action-outcome
+export const actionOutcomeV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_action_outcome/v1"),
+    session_id: sessionId,
+    action_id: nonEmptyString,
+    action_kind: z.enum(["voice", "workspace_surface", "student_command"]),
+    outcome: z.enum(["completed", "rejected", "interrupted", "failed"]),
+    failure_class: z.enum([
+      "validation_failure",
+      "capability_unsupported",
+      "illegal_target",
+      "stale_revision",
+      "truth_boundary_violation",
+      "provider_failure",
+      "timeout",
+      "internal_error",
+    ]).optional(),
+    message: z.string().optional(),
+    resulting_revision: z.number().int().min(0).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.outcome === "failed" && !value.failure_class) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "outcome=failed requires failure_class" });
+    }
+    if (value.outcome !== "failed" && value.failure_class) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `outcome=${value.outcome} must not carry failure_class`,
+      });
+    }
+  });
+
+// runtime/v5/external-support-evidence
+export const externalSupportEvidenceV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_external_support_evidence/v1"),
+    session_id: sessionId,
+    evidence_id: supportEvidenceIdPattern,
+    beat_id: beatIdPattern.optional(),
+    support_kinds: z
+      .array(
+        z.enum([
+          "orient",
+          "reveal_target",
+          "foreground",
+          "name_strategy",
+          "specify_operation",
+          "provide_intermediate_conclusion",
+          "provide_final_conclusion",
+        ]),
+      )
+      .min(1),
+    initiated_by: z.enum(["tutor_initiated", "student_requested", "unknown"]),
+    action_ids: z.array(nonEmptyString).min(1),
+    student_response: z
+      .object({
+        progression_observed: z.boolean(),
+        self_corrected: z.boolean(),
+        observed_after_sequences: z.array(z.number().int().min(1)).max(8).optional(),
+      })
+      .strict()
+      .optional(),
+    derived_partial: z.boolean(),
+    legacy_source: z
+      .object({
+        legacy_event_schema: z.enum([
+          "ai_teaching_tutor_session_event/v2",
+          "ai_teaching_tutor_session_event/v3",
+          "ai_teaching_tutor_session_event/v4",
+        ]),
+        legacy_level: z.number().int().min(0).max(5),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.derived_partial && !value.legacy_source) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "derived_partial=true requires legacy_source",
+      });
+    }
+    if (!value.derived_partial && value.legacy_source) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "new facts (derived_partial=false) must not carry legacy_source",
+      });
+    }
+    if (!value.derived_partial && value.initiated_by === "unknown") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "initiated_by=unknown is only allowed for legacy derived facts",
+      });
+    }
+  });
+
+// runtime/v5/presentation-plan
+const presentationVoiceItem = z
+  .object({
+    action_id: voiceActionIdPattern,
+    decision_id: decisionIdPattern,
+    text: nonEmptyString,
+    source: z.enum(["approved-resource", "model-generated", "deterministic-scaffold"]),
+    resource_ref: resourceIdPattern.optional(),
+    generation_id: z.string().regex(/^VG-[A-Za-z0-9._:-]{4,}$/).optional(),
+    interruptible: z.boolean().optional(),
+    intent: z.enum(["narrate", "question", "feedback"]).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.source === "approved-resource" && !value.resource_ref) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "source=approved-resource requires resource_ref" });
+    }
+    if (value.source === "model-generated" && !value.generation_id) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "source=model-generated requires generation_id" });
+    }
+  });
+
+const presentationSurfaceItem = z
+  .object({
+    action_id: surfaceActionIdPattern,
+    decision_id: decisionIdPattern,
+    surface: z.enum(["geometry", "solution_board"]),
+    capability: nonEmptyString,
+    origin: z.literal("tutor"),
+    target_ids: z.array(nonEmptyString).optional(),
+    command_payload: z.string().optional(),
+    reveal_scope: z.enum(["none", "target_highlight", "step_narration", "intermediate_result", "final_result"]),
+    presentation_only: z.boolean().optional(),
+  })
+  .strict();
+
+export const presentationPlanV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_presentation_plan/v1"),
+    session_id: sessionId,
+    plan_id: presentationPlanIdPattern,
+    decision_id: decisionIdPattern,
+    protocol_id: teachingProtocolId,
+    beat_id: beatIdPattern,
+    voice_actions: z.array(presentationVoiceItem),
+    workspace_actions: z.array(presentationSurfaceItem),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.voice_actions.length === 0 && value.workspace_actions.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "presentation plan must contain at least one voice or workspace action",
+      });
+    }
+  });
+
+// runtime/v5/tutor-session-event
+const v5SessionStartedPayload = z
+  .object({
+    task_id: nonEmptyString,
+    scenario_id: nonEmptyString,
+    question_ref: questionArtifactRef,
+    approach_set_ref: z
+      .object({
+        artifact_id: z.string().regex(/^AS-[A-Z0-9]+-[0-9]{3,}$/),
+        version: versionTag,
+        content_hash: sha256,
+      })
+      .strict(),
+    solution_graph_ref: solutionGraphArtifactRef,
+    protocol_refs: z.array(protocolArtifactRef).min(1),
+    tutor_plan_ref: planArtifactRefV4,
+    policy_profile_snapshot: z
+      .object({
+        profile_id: policyProfileId,
+        version: nonEmptyString,
+        primary_provider: nonEmptyString,
+        fallback_provider: nonEmptyString,
+        model_id: nonEmptyString,
+        prompt_version: nonEmptyString,
+      })
+      .strict(),
+    initial_cursor: z
+      .object({ protocol_id: teachingProtocolId, beat_id: beatIdPattern })
+      .strict(),
+    previous_session_id: sessionId.optional(),
+    switch_reason: z.literal("alternate_approach").optional(),
+  })
+  .strict();
+
+const v5StudentIntentRecordedPayload = z
+  .object({
+    intent_kind: z.enum([
+      "submit_answer",
+      "submit_workspace_command",
+      "confirm",
+      "continue",
+      "ask_question",
+      "request_scaffold",
+      "request_rephrase",
+      "replay_narration",
+      "barge_in",
+      "return_to_mainline",
+      "retry_recovery",
+    ]),
+    text: nonEmptyString.optional(),
+    client_request_id: clientRequestIdPattern,
+  })
+  .strict();
+
+const v5SemanticInterpretationPayload = z
+  .object({
+    intent: nonEmptyString,
+    reasoning_location: z.enum(["aligned", "partially_aligned", "misaligned", "unknown"]),
+    confidence: z.number().min(0).max(1),
+    interpreter_version: nonEmptyString,
+    grounding_refs: z.array(z.string().regex(/^[A-Za-z0-9_.\[\]-]{3,64}$/)).max(8).optional(),
+  })
+  .strict();
+
+const v5PolicyDecisionPayload = z
+  .object({
+    decision_id: decisionIdPattern,
+    decision_kind: decisionKindEnum,
+    protocol_id: teachingProtocolId,
+    beat_id: beatIdPattern,
+    to_beat_id: beatIdPattern.optional(),
+    policy_version: nonEmptyString,
+    source_event_sequence: z.number().int().min(1),
+    source_state_revision: z.number().int().min(0),
+    transition_basis: z
+      .object({
+        basis: z.enum([
+          "legal_transition",
+          "gate_satisfied",
+          "gate_unsatisfied",
+          "student_evidence",
+          "inquiry_completed",
+          "timeout",
+          "safe_fallback_policy",
+        ]),
+        gate_id: gateIdPattern.optional(),
+        graph_variant_id: solutionVariantIdPattern.optional(),
+      })
+      .strict()
+      .optional(),
+    inquiry: inquiryBlock.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      ["open_inquiry", "open_scaffold", "continue_inquiry", "return_to_mainline"].includes(
+        value.decision_kind,
+      ) &&
+      !value.inquiry
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `decision_kind=${value.decision_kind} requires inquiry (with return_beat_id)`,
+      });
+    }
+    if (["transition_beat", "revisit_beat", "return_to_mainline"].includes(value.decision_kind) &&
+      !value.to_beat_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `decision_kind=${value.decision_kind} requires to_beat_id`,
+      });
+    }
+  });
+
+const v5GateEvaluatedPayload = z
+  .object({
+    gate_id: gateIdPattern,
+    beat_id: beatIdPattern,
+    satisfied: z.boolean(),
+    evidence_sequence: z.number().int().min(1).optional(),
+  })
+  .strict();
+
+const v5VoiceIssuedPayload = z
+  .object({
+    action_id: voiceActionIdPattern,
+    decision_id: decisionIdPattern,
+    beat_id: beatIdPattern.optional(),
+    text: nonEmptyString,
+    source: z.enum(["approved-resource", "model-generated", "deterministic-scaffold"]),
+    resource_ref: resourceIdPattern.optional(),
+    generation_id: z.string().regex(/^VG-[A-Za-z0-9._:-]{4,}$/).optional(),
+    interruptible: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.source === "approved-resource" && !value.resource_ref) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "source=approved-resource requires resource_ref" });
+    }
+    if (value.source === "model-generated" && !value.generation_id) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "source=model-generated requires generation_id" });
+    }
+  });
+
+const v5SurfaceIssuedPayload = z
+  .object({
+    action_id: surfaceActionIdPattern,
+    decision_id: decisionIdPattern,
+    beat_id: beatIdPattern.optional(),
+    surface: z.enum(["geometry", "solution_board"]),
+    capability: nonEmptyString,
+    target_ids: z.array(nonEmptyString).optional(),
+    command_payload: z.string().optional(),
+    reveal_scope: z.enum(["none", "target_highlight", "step_narration", "intermediate_result", "final_result"]),
+    presentation_only: z.boolean().optional(),
+  })
+  .strict();
+
+const v5ActionOutcomePayload = z
+  .object({
+    action_id: nonEmptyString,
+    action_kind: z.enum(["voice", "workspace_surface", "student_command"]),
+    outcome: z.enum(["completed", "rejected", "interrupted", "failed"]),
+    failure_class: z.enum([
+      "validation_failure",
+      "capability_unsupported",
+      "illegal_target",
+      "stale_revision",
+      "truth_boundary_violation",
+      "provider_failure",
+      "timeout",
+      "internal_error",
+    ]).optional(),
+    message: z.string().optional(),
+    resulting_revision: z.number().int().min(0).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.outcome === "failed" && !value.failure_class) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "outcome=failed requires failure_class" });
+    }
+    if (value.outcome !== "failed" && value.failure_class) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `outcome=${value.outcome} must not carry failure_class`,
+      });
+    }
+  });
+
+const v5ExternalSupportPayload = z
+  .object({
+    evidence_id: supportEvidenceIdPattern,
+    beat_id: beatIdPattern.optional(),
+    support_kinds: z
+      .array(
+        z.enum([
+          "orient",
+          "reveal_target",
+          "foreground",
+          "name_strategy",
+          "specify_operation",
+          "provide_intermediate_conclusion",
+          "provide_final_conclusion",
+        ]),
+      )
+      .min(1),
+    initiated_by: z.enum(["tutor_initiated", "student_requested", "unknown"]),
+    action_ids: z.array(nonEmptyString).min(1),
+    student_response: z
+      .object({
+        progression_observed: z.boolean(),
+        self_corrected: z.boolean(),
+        observed_after_sequences: z.array(z.number().int().min(1)).max(8).optional(),
+      })
+      .strict()
+      .optional(),
+    derived_partial: z.boolean(),
+    legacy_source: z
+      .object({
+        legacy_event_schema: z.enum([
+          "ai_teaching_tutor_session_event/v2",
+          "ai_teaching_tutor_session_event/v3",
+          "ai_teaching_tutor_session_event/v4",
+        ]),
+        legacy_level: z.number().int().min(0).max(5),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.derived_partial && !value.legacy_source) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "derived_partial=true requires legacy_source",
+      });
+    }
+    if (!value.derived_partial && value.legacy_source) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "new facts (derived_partial=false) must not carry legacy_source",
+      });
+    }
+    if (!value.derived_partial && value.initiated_by === "unknown") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "initiated_by=unknown is only allowed for legacy derived facts",
+      });
+    }
+  });
+
+const v5InquiryPayload = z
+  .object({
+    inquiry_id: inquiryIdPattern,
+    inquiry_protocol_id: teachingProtocolId.optional(),
+    return_beat_id: beatIdPattern,
+    local: z.boolean().optional(),
+    trigger: z
+      .enum(["ask_question", "request_scaffold", "request_rephrase", "unclear", "out_of_bound"])
+      .optional(),
+  })
+  .strict();
+
+const v5StudentProgressedPayload = z
+  .object({
+    beat_id: beatIdPattern,
+    part_id: partIdPattern.optional(),
+    evidence_sequence: z.number().int().min(1),
+  })
+  .strict();
+
+const v5PolicyFailedPayload = z
+  .object({
+    policy_version: nonEmptyString,
+    failure_class: z.enum([
+      "no_legal_transition",
+      "gate_unresolvable",
+      "interpreter_unavailable",
+      "policy_engine_error",
+      "timeout",
+    ]),
+    fallback_used: z.boolean(),
+    fallback_beat_id: beatIdPattern.optional(),
+  })
+  .strict();
+
+const v5PresentationFailedPayload = z
+  .object({
+    decision_id: decisionIdPattern.optional(),
+    failure_class: z.enum([
+      "action_validation_rejected",
+      "resource_missing",
+      "provider_failure",
+      "partial_execution",
+      "timeout",
+    ]),
+    message: z.string(),
+    completed_action_ids: z.array(nonEmptyString).optional(),
+  })
+  .strict();
+
+const v5RuntimeFailurePayload = z
+  .object({
+    failure_class: z.enum([
+      "event_store_failure",
+      "rebuild_failure",
+      "corruption_detected",
+      "revision_conflict",
+      "internal_error",
+    ]),
+    message: z.string(),
+    related_event_sequence: z.number().int().min(1).optional(),
+  })
+  .strict();
+
+const v5SessionCompletedPayload = z
+  .object({
+    final_beat_id: beatIdPattern,
+    completed_parts: z.array(partIdPattern).optional(),
+  })
+  .strict();
+
+const v5EventPayloadSchemas = {
+  session_started: v5SessionStartedPayload,
+  student_intent_recorded: v5StudentIntentRecordedPayload,
+  semantic_interpretation_recorded: v5SemanticInterpretationPayload,
+  policy_decision_made: v5PolicyDecisionPayload,
+  gate_evaluated: v5GateEvaluatedPayload,
+  voice_action_issued: v5VoiceIssuedPayload,
+  workspace_surface_action_issued: v5SurfaceIssuedPayload,
+  action_outcome_recorded: v5ActionOutcomePayload,
+  external_support_recorded: v5ExternalSupportPayload,
+  inquiry_opened: v5InquiryPayload,
+  inquiry_returned: v5InquiryPayload,
+  student_progressed: v5StudentProgressedPayload,
+  policy_failed: v5PolicyFailedPayload,
+  presentation_failed: v5PresentationFailedPayload,
+  runtime_failure: v5RuntimeFailurePayload,
+  session_completed: v5SessionCompletedPayload,
+} as const;
+
+const V5_CAUSATION_REQUIRED = new Set([
+  "semantic_interpretation_recorded",
+  "policy_decision_made",
+  "gate_evaluated",
+  "voice_action_issued",
+  "workspace_surface_action_issued",
+  "action_outcome_recorded",
+  "external_support_recorded",
+  "inquiry_opened",
+  "inquiry_returned",
+  "student_progressed",
+  "policy_failed",
+  "presentation_failed",
+]);
+
+export const tutorSessionEventV5Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_session_event/v5"),
+    session_id: sessionId,
+    sequence: z.number().int().min(1),
+    state_revision: z.number().int().min(0),
+    occurred_at: isoDateTime,
+    event_type: z.enum([
+      "session_started",
+      "student_intent_recorded",
+      "semantic_interpretation_recorded",
+      "policy_decision_made",
+      "gate_evaluated",
+      "voice_action_issued",
+      "workspace_surface_action_issued",
+      "action_outcome_recorded",
+      "external_support_recorded",
+      "inquiry_opened",
+      "inquiry_returned",
+      "student_progressed",
+      "policy_failed",
+      "presentation_failed",
+      "runtime_failure",
+      "session_completed",
+    ]),
+    payload: z.record(z.unknown()),
+    causation_sequence: z.number().int().min(1).optional(),
+    idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const payloadSchema = v5EventPayloadSchemas[value.event_type as keyof typeof v5EventPayloadSchemas];
+    if (payloadSchema) {
+      const result = payloadSchema.safeParse(value.payload);
+      if (!result.success) {
+        for (const issue of result.error.issues) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+    } else {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `unknown event_type: ${value.event_type}`,
+      });
+    }
+    if (V5_CAUSATION_REQUIRED.has(value.event_type) && value.causation_sequence === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `event_type=${value.event_type} requires causation_sequence`,
+      });
+    }
+  });
+
+// state/v1/workspace-runtime-state
+export const workspaceRuntimeStateV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_workspace_runtime_state/v1"),
+    session_id: sessionId,
+    revision: z.number().int().min(0),
+    geometry: z
+      .object({
+        committed_element_ids: z.array(nonEmptyString),
+        draft_element_ids: z.array(nonEmptyString),
+        interaction_mode: z.enum(["free", "construction", "locked"]).optional(),
+      })
+      .strict(),
+    solution_board: z
+      .object({
+        entries: z.array(
+          z
+            .object({
+              entry_id: z.string().regex(/^BE-[0-9]{1,3}$/),
+              visibility: z.enum(["hidden", "visible", "active"]),
+              attempt_state: z.enum(["none", "attempted", "confirmed"]),
+              presentation_group: z.string().regex(/^PG-[0-9]{1,3}$/).optional(),
+            })
+            .strict(),
+        ),
+        canonical_path_entry_ids: z.array(z.string().regex(/^BE-[0-9]{1,3}$/)).optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+// state/v1/tutor-runtime-state
+export const tutorRuntimeStateV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_runtime_state/v1"),
+    session_id: sessionId,
+    state_revision: z.number().int().min(0),
+    pinned_plan: z
+      .object({
+        tutor_plan_ref: planArtifactRefV4,
+        solution_graph_ref: solutionGraphArtifactRef,
+        protocol_refs: z.array(protocolArtifactRef).min(1),
+        policy_profile_snapshot: z
+          .object({
+            profile_id: policyProfileId,
+            version: nonEmptyString,
+            primary_provider: nonEmptyString,
+            fallback_provider: nonEmptyString,
+            model_id: nonEmptyString,
+            prompt_version: nonEmptyString,
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+    teaching_cursor: z
+      .object({
+        protocol_id: teachingProtocolId,
+        beat_id: beatIdPattern,
+        gate_id: gateIdPattern.optional(),
+        phase: z.enum(["presenting", "awaiting_evidence", "gate_satisfied", "completed"]).optional(),
+      })
+      .strict(),
+    inquiry_cursor: z
+      .union([
+        z.null(),
+        z
+          .object({
+            inquiry_id: inquiryIdPattern,
+            inquiry_protocol_id: teachingProtocolId.optional(),
+            state: z.enum(["clarifying", "supporting", "ready_to_return"]),
+            return_beat_id: beatIdPattern,
+          })
+          .strict(),
+      ])
+      .optional(),
+    reasoning_focus: z
+      .object({
+        part_id: partIdPattern.optional(),
+        graph_fact_refs: z.array(graphFactIdPattern).min(1),
+      })
+      .strict()
+      .optional(),
+    workspace_revision: z.number().int().min(0),
+    completed: z.boolean().optional(),
+  })
+  .strict();
+
+// view/v1/mainline-participation
+const participationKindEnum = z.enum([
+  "listen_only",
+  "answer_input",
+  "workspace_input",
+  "confirm_input",
+  "continue_input",
+  "temporarily_paused_for_inquiry",
+  "read_only_completed",
+]);
+
+export const mainlineParticipationV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_mainline_participation/v1"),
+    kind: participationKindEnum,
+    gate_id: gateIdPattern.optional(),
+    action_id: nonEmptyString.optional(),
+    return_checkpoint_id: beatIdPattern.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      ["answer_input", "workspace_input", "confirm_input", "continue_input"].includes(value.kind) &&
+      !value.gate_id
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `kind=${value.kind} requires gate_id` });
+    }
+    if (value.kind === "temporarily_paused_for_inquiry" && !value.return_checkpoint_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "kind=temporarily_paused_for_inquiry requires return_checkpoint_id",
+      });
+    }
+  });
+
+// view/v1/student-workspace-view
+export const studentWorkspaceViewV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_student_workspace_view/v1"),
+    session_id: sessionId,
+    revision: z.number().int().min(0),
+    canvas: z
+      .object({
+        elements: z.array(
+          z
+            .object({
+              element_id: nonEmptyString,
+              kind: z.enum(["point", "segment", "line", "circle", "polygon", "label", "measure"]),
+              visible: z.literal(true),
+              highlighted: z.boolean().optional(),
+              annotated: z.boolean().optional(),
+              student_authored: z.boolean().optional(),
+            })
+            .strict(),
+        ),
+        interaction_enabled: z.boolean(),
+      })
+      .strict(),
+    solution_board: z
+      .object({
+        mode: z.enum(["building", "review"]),
+        groups: z.array(
+          z
+            .object({
+              group_id: z.string().regex(/^PG-[0-9]{1,3}$/),
+              title: z.string().optional(),
+              entries: z.array(
+                z
+                  .object({
+                    entry_id: z.string().regex(/^BE-[0-9]{1,3}$/),
+                    kind: z.enum(["statement", "derivation", "conclusion", "question"]),
+                    content: nonEmptyString,
+                    state: z.enum(["visible", "active"]),
+                    attempt_summary: z.string().optional(),
+                  })
+                  .strict(),
+              ),
+            })
+            .strict(),
+        ),
+      })
+      .strict(),
+    participation: z
+      .object({
+        kind: participationKindEnum,
+        gate_id: gateIdPattern.optional(),
+        action_id: nonEmptyString.optional(),
+        return_checkpoint_id: beatIdPattern.optional(),
+      })
+      .strict()
+      .superRefine((value, ctx) => {
+        if (
+          ["answer_input", "workspace_input", "confirm_input", "continue_input"].includes(value.kind) &&
+          !value.gate_id
+        ) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: `kind=${value.kind} requires gate_id` });
+        }
+        if (value.kind === "temporarily_paused_for_inquiry" && !value.return_checkpoint_id) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "kind=temporarily_paused_for_inquiry requires return_checkpoint_id",
+          });
+        }
+      }),
+  })
+  .strict();
+
+// view/v1/coach-panel-view
+export const coachPanelViewV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_coach_panel_view/v1"),
+    session_id: sessionId,
+    revision: z.number().int().min(0),
+    mainline: z.union([
+      z.object({ kind: z.literal("presenting"), beat_id: beatIdPattern }).strict(),
+      z
+        .object({ kind: z.literal("awaiting_answer"), beat_id: beatIdPattern, gate_id: gateIdPattern })
+        .strict(),
+      z
+        .object({
+          kind: z.literal("awaiting_workspace"),
+          beat_id: beatIdPattern,
+          gate_id: gateIdPattern,
+          action_id: nonEmptyString,
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal("awaiting_confirmation"),
+          beat_id: beatIdPattern,
+          gate_id: gateIdPattern,
+        })
+        .strict(),
+      z
+        .object({ kind: z.literal("ready_to_continue"), beat_id: beatIdPattern, gate_id: gateIdPattern })
+        .strict(),
+      z.object({ kind: z.literal("recovering"), checkpoint_id: beatIdPattern }).strict(),
+      z.object({ kind: z.literal("completed") }).strict(),
+    ]),
+    inquiry: z.union([
+      z.object({ kind: z.literal("no_inquiry") }).strict(),
+      z
+        .object({
+          kind: z.enum(["clarifying", "supporting", "ready_to_return"]),
+          inquiry_id: inquiryIdPattern,
+          return_checkpoint_id: beatIdPattern,
+        })
+        .strict(),
+    ]),
+    teaching_context: z
+      .object({
+        part_id: partIdPattern.optional(),
+        beat_id: beatIdPattern.optional(),
+        student_facing_progress: z.string().optional(),
+        focus_cue: z.string().optional(),
+        waiting_for: z.string().optional(),
+      })
+      .strict(),
+    current_tutor_turn: z.string().optional(),
+    assistance_available: z.boolean(),
+    replay_available: z.boolean(),
+    transcript: z.array(
+      z
+        .object({
+          turn_id: z.string().regex(/^DT-[A-Za-z0-9._:-]{4,}$/),
+          role: z.enum(["tutor", "student"]),
+          content: nonEmptyString,
+          beat_id: beatIdPattern.optional(),
+          inquiry_id: inquiryIdPattern.optional(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();

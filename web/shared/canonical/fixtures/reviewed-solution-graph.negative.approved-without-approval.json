@@ -1,0 +1,148 @@
+{
+  "schema": "ai_teaching_reviewed_solution_graph/v1",
+  "graph_id": "RG-SMV-002",
+  "version": "v1",
+  "status": "Approved",
+  "question_ref": {
+    "artifact_id": "QT-SMV-002",
+    "version": "v2",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "approach_ref": {
+    "artifact_id": "TA-SMV-002",
+    "version": "v2",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "facts": [
+    {
+      "fact_id": "FN-01",
+      "role": "given",
+      "statement": "DE ∥ BC（E 在 AB 上，D、F 为相应交点）",
+      "reveals_answer": false,
+      "part_id": "1",
+      "reviewed_solution_step": "step-1",
+      "evidence_refs": [
+        "SE-SMV-002"
+      ]
+    },
+    {
+      "fact_id": "FN-02",
+      "role": "given",
+      "statement": "已知 AD=3、AB=6、BC=8",
+      "reveals_answer": false,
+      "part_id": "1",
+      "reviewed_solution_step": "step-1",
+      "evidence_refs": [
+        "SE-SMV-002"
+      ]
+    },
+    {
+      "fact_id": "FN-03",
+      "role": "derived",
+      "statement": "△ADE ∽ △ABC（A 字型）",
+      "reveals_answer": false,
+      "part_id": "1",
+      "reviewed_solution_step": "step-2"
+    },
+    {
+      "fact_id": "FN-04",
+      "role": "derived",
+      "statement": "AD/AB = DE/BC",
+      "reveals_answer": false,
+      "part_id": "1",
+      "reviewed_solution_step": "step-3"
+    },
+    {
+      "fact_id": "FN-05",
+      "role": "intermediate_value",
+      "statement": "DE = AD·BC/AB（代入前先表示出 DE）",
+      "reveals_answer": false,
+      "part_id": "1",
+      "reviewed_solution_step": "step-3"
+    },
+    {
+      "fact_id": "FN-06",
+      "role": "goal",
+      "statement": "EF = 4",
+      "reveals_answer": true,
+      "part_id": "1",
+      "reviewed_solution_step": "step-4"
+    }
+  ],
+  "inferences": [
+    {
+      "inference_id": "IF-01",
+      "premises": [
+        "FN-01"
+      ],
+      "conclusion": "FN-03",
+      "derivation": "由 DE∥BC 得同位角相等，两三角形相似（A 字型）",
+      "reviewed_solution_step": "step-2"
+    },
+    {
+      "inference_id": "IF-02",
+      "premises": [
+        "FN-03"
+      ],
+      "conclusion": "FN-04",
+      "derivation": "相似三角形对应边成比例",
+      "reviewed_solution_step": "step-3"
+    },
+    {
+      "inference_id": "IF-03",
+      "premises": [
+        "FN-02"
+      ],
+      "conclusion": "FN-05",
+      "derivation": "由比例式变形表示 DE",
+      "reviewed_solution_step": "step-3"
+    },
+    {
+      "inference_id": "IF-04",
+      "premises": [
+        "FN-04",
+        "FN-05"
+      ],
+      "conclusion": "FN-06",
+      "derivation": "AND：比例式与已知长度联立，解出 EF（代入求解）",
+      "reviewed_solution_step": "step-4"
+    },
+    {
+      "inference_id": "IF-05",
+      "premises": [
+        "FN-02",
+        "FN-03"
+      ],
+      "conclusion": "FN-06",
+      "derivation": "OR：直接用相似比与已知长度一步求 EF（替代路线）",
+      "reviewed_solution_step": "step-4",
+      "evidence_refs": [
+        "SE-SMV-002"
+      ]
+    }
+  ],
+  "solution_variants": [
+    {
+      "variant_id": "SV-01",
+      "name": "主线：先立比例再代入",
+      "goal_fact_id": "FN-06",
+      "inference_ids": [
+        "IF-01",
+        "IF-02",
+        "IF-03",
+        "IF-04"
+      ]
+    },
+    {
+      "variant_id": "SV-02",
+      "name": "替代：相似比直求",
+      "goal_fact_id": "FN-06",
+      "inference_ids": [
+        "IF-01",
+        "IF-05"
+      ]
+    }
+  ],
+  "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "artifact_uri": "artifact://reviewed-solution-graph/RG-SMV-002@v1"
+}
