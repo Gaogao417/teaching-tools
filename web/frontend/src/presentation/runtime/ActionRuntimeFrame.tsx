@@ -5,8 +5,6 @@ import type {
   ActionPlanResponse,
   ExercisePlan,
 } from "../../../../shared/actionRuntime";
-import { applyDomainCommands } from "../../../../shared/actionWorld";
-import { renderBoardExpression } from "../../../../shared/solutionBoard";
 import { api } from "../../api/client";
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
 import { MathText } from "../../components/math/MathText";
@@ -14,10 +12,13 @@ import { buildGeometryModel } from "../../geometry/adapters/topicGeometryModel";
 import type { EntityRef } from "../../geometry/interaction/events";
 import type { InteractionView, TransientCanvasEmphasis } from "../../geometry/interaction/interaction-view";
 import { GeometryCanvasSurface } from "../../geometry/react/GeometryCanvas";
+import { StudentWorkspaceFrame } from "../workspace/StudentWorkspaceFrame";
 import type { ActionRuntimeEvent } from "../../action-runtime/events";
 import type { SolutionBoardView, TransientEmphasis } from "../../action-runtime/types";
 import type { ActionRuntimeTransport } from "../../action-runtime/types";
 import { useActionPageRuntime } from "../../action-runtime/react/useActionPageRuntime";
+import { TopicCoachDockTrigger, TopicCoachPanel } from "../coach/TopicCoachPanel";
+import { TopicTeachingConfirm, TopicTeachingPlayback } from "../coach/TopicTeachingControls";
 import { useCoachController } from "../coach/useCoachController";
 import { useTeacherSpeech } from "../narration/useTeacherSpeech";
 import { getTrainingSyncQueue } from "../../persistence/training/trainingSyncQueue";
@@ -52,6 +53,18 @@ interface ActionRuntimeFrameProps {
    *  railOpen 状态，dock 收起/展开跨分支一致；缺省回退 Frame 内部状态。 */
   railOpen?: boolean;
   onRailOpenChange?: (open: boolean) => void;
+  /** VS1（mvp/vs-01 REQ-04）：统一 StudentWorkspaceView 的板书投影。
+   *  提供时（Tutor 链路）板书面从服务端统一 View 渲染（hidden 行服务端
+   *  已过滤、与画布同 revision）——操作回合板书不消失；缺省回退 Frame
+   *  内部 plan.solutionBoardContexts 投影（practice 链路，L-08 Isolate）。 */
+  boardView?: SolutionBoardView;
+  /** VS1：统一 View 的 revision（Frame 容器 data-view-revision；供验收
+   *  断言两 surface 同 revision）。 */
+  viewRevision?: number;
+  /** VS1 remediation：提供时替换默认 FocusPrompt（plan.metadata.promptLatex
+   *  的单行题干）——Tutor 链路传 LearnQuestionPrompt（stem+subquestions
+   *  一体化）；practice 链路缺省不变。 */
+  questionPrompt?: ReactNode;
 }
 
 /** Split transient emphasis into the canvas channel (entities + teaching marks). */
@@ -75,14 +88,10 @@ function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoa
   return expressionIds.length ? { key: emphasis.key, expressionIds } : undefined;
 }
 
-export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railTrigger: railTriggerOverride, railOpen: railOpenProp, onRailOpenChange }: ActionRuntimeFrameProps) {
-  // 波次 G 任务 2（(a) 第一层）：demonstration 形态走独立只读渲染（不进
-  // 交互 action 机——无 evidence 通道、无答题区、无播放条；板书随讲解
-  // 出现、画布执行服务端 authored 效果命令；推进权在 Tutor 会话，仅侧栏
-  // 既有重播）。在任何 hook 之前分叉（未调用 hook 的早返回合法）。
-  if (response.plan.mode === "demonstration") {
-    return <DemonstrationRuntimeFrame plan={response.plan} />;
-  }
+export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railTrigger: railTriggerOverride, railOpen: railOpenProp, onRailOpenChange, boardView, viewRevision, questionPrompt }: ActionRuntimeFrameProps) {
+  // VS1：demonstration 形态独立渲染分支已删除——讲解演示内容由统一
+  // StudentWorkspaceView 的 canvas/solutionBoard slice 驱动（服务端组合/
+  // 披露投影），TutorLearnExperience 直接渲染只读面，不经本 Frame。
   const storageKey = `action-runtime-v3:${response.sessionId}:${response.plan.exerciseId}`;
   const localCheckpoint = useMemo(() => {
     try {
@@ -342,93 +351,68 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
       className="topic-runtime-frame"
       railOpen={railOpen}
       railTrigger={railTriggerOverride ?? (
-        <button
-          type="button"
-          className={`topic-coach-dock-avatar${speaking ? " is-speaking" : ""}`}
-          aria-label={railOpen ? "陪练老师" : "展开陪练老师"}
-          aria-expanded={railOpen}
-          onClick={openCoachRail}
-        >
-          <span className="material-symbols-outlined">{view.coach.avatarId}</span>
-          {coachUnread ? <span className="topic-coach-dock-unread" aria-hidden /> : null}
-          {coachPreview ? (
-            <span className="topic-coach-dock-preview" role="status" aria-live="polite">
-              <MathText value={coachPreview.latex} />
-            </span>
-          ) : null}
-        </button>
+        <TopicCoachDockTrigger
+          avatarId={view.coach.avatarId}
+          speaking={speaking}
+          open={railOpen}
+          unread={coachUnread}
+          previewLatex={coachPreview?.latex}
+          onOpen={openCoachRail}
+        />
       )}
-      prompt={<><span>题目</span><div><h1><MathText value={snapshot.plan.metadata.promptLatex} /></h1></div></>}
-      rail={railContent ?? <aside className={`topic-coach-panel tone-${view.coach.tone}`} aria-label="陪练老师" aria-live="polite">
-          <div className="topic-coach-header">
-            <span className="topic-coach-avatar material-symbols-outlined">{view.coach.avatarId}</span>
-            <div><small>{isTeaching ? "教学拍点" : "当前动作"} {view.progress.current}/{view.progress.total}</small><strong>{snapshot.status === "complete" ? "本题讲解完成" : view.title}</strong></div>
-            <button type="button" className="topic-coach-sound" aria-label="重播老师语音" disabled={!speechUrl} onClick={() => replaySpeech()}><span className="material-symbols-outlined">volume_up</span></button>
-            <button type="button" className="topic-coach-close" aria-label="收起指导栏" onClick={closeCoachRail}><span className="material-symbols-outlined">right_panel_close</span></button>
-          </div>
-          <div className="topic-coach-bubble" aria-label="当前 Action 讲解"><MathText value={view.coach.actionPromptLatex} block /></div>
-          {/*
-            ADR-006 §Voice and Coach Integration — instant wrong-candidate
-            feedback rendered in the SAME cycle the wrong candidate appears.
-            `view.feedback` is projected by TrainingFeedbackController from a
-            guard decision the recorder already consumed, so it is pure view
-            state: it adds no attempts, writes no metrics, and never blocks
-            training. The wrong object is already highlighted on the canvas via
-            the machine's wrongObjectId; this is the textual half of the pair.
-            Optional spoken playback (view.feedback.spokenText via
-            controller.requestSpoken) is intentionally deferred: it would need a
-            non-blocking NarrationClient wired alongside the coach audio stream
-            without entangling the two. Per ADR-006, voice failure must not
-            change attempt/world, so visual+text ships first.
-          */}
-          {view.feedback?.active ? (
-            <div
-              className="topic-coach-message"
-              role="status"
-              aria-live="polite"
-              data-testid="training-feedback"
-              data-feedback-tone={view.feedback.tone}
-              data-feedback-focus={view.feedback.focusTargetId}
-            >
-              <MathText value={view.feedback.messageLatex} block />
-            </div>
-          ) : null}
-          {autoplayBlocked ? <p className="topic-coach-recording" role="status">浏览器已阻止自动播放，请点右上角扬声器开始朗读。</p> : null}
-          {coach.thread.length ? <div className="topic-coach-thread" aria-label="答疑对话">{coach.thread.map((turn) => (
-            <div key={turn.id} className={`topic-coach-turn is-${turn.role}${turn.pending ? " is-pending" : ""}${turn.error ? " is-error" : ""}`}>
-              <small>{turn.role === "student" ? "学生" : "老师"}</small>
-              {turn.role === "coach" ? <MathText value={turn.text} /> : <p>{turn.text}</p>}
-            </div>
-          ))}</div> : null}
-          {view.controls.canHelp && snapshot.plan.runtimeCapabilities?.liveCoach !== false && snapshot.plan.mode !== "assessment" ? <div className="topic-coach-realtime">
+      prompt={questionPrompt ?? <><span>题目</span><div><h1><MathText value={snapshot.plan.metadata.promptLatex} /></h1></div></>}
+      rail={railContent ?? (
+        <TopicCoachPanel
+          tone={view.coach.tone}
+          avatarId={view.coach.avatarId}
+          progress={{ label: isTeaching ? "教学拍点" : "当前动作", current: view.progress.current, total: view.progress.total }}
+          title={snapshot.status === "complete" ? "本题讲解完成" : view.title}
+          promptLatex={view.coach.actionPromptLatex}
+          feedback={view.feedback}
+          autoplayBlocked={autoplayBlocked}
+          thread={coach.thread}
+          canHelp={view.controls.canHelp}
+          message={coach.studentMessage}
+          onMessageChange={coach.setStudentMessage}
+          onAsk={() => void coach.askCoach()}
+          inputDisabled={coach.busy || coach.recording || coach.realtime.active}
+          micDisabled={coach.busy || coach.realtime.active}
+          recording={coach.recording}
+          onToggleRecorder={() => void coach.toggleRecorder()}
+          busy={coach.busy}
+          onReplay={() => replaySpeech()}
+          replayDisabled={!speechUrl}
+          onClose={closeCoachRail}
+          realtime={view.controls.canHelp && snapshot.plan.runtimeCapabilities?.liveCoach !== false && snapshot.plan.mode !== "assessment" ? <div className="topic-coach-realtime">
             <button type="button" className={`btn ${coach.realtime.active ? "btn-secondary" : "btn-primary"} topic-coach-realtime-toggle${coach.realtime.active ? " is-active" : ""}`} disabled={coach.realtime.connecting} aria-pressed={coach.realtime.active} onClick={() => { if (coach.realtime.active) coach.realtime.stop(); else void coach.realtime.start({ sessionId: local ? undefined : response.sessionId, taskId: local ? snapshot.plan.metadata.taskId : undefined, exerciseId: snapshot.plan.exerciseId, actionId: snapshot.currentActionId, mode: local ? "learn" : "guided-practice" }); }}><span className="material-symbols-outlined">{coach.realtime.active ? "call_end" : "forum"}</span>{coach.realtime.connecting ? "连接中…" : coach.realtime.active ? "结束对话" : "实时对话"}</button>
             {coach.realtime.active ? <p className="topic-coach-recording" role="status"><span />实时通话中，直接说话即可，说完会自动回答</p> : null}
             {coach.realtime.error ? <p className="topic-coach-recording" role="alert">{coach.realtime.error}</p> : null}
           </div> : null}
-          {view.controls.canHelp ? <div className="topic-coach-composer">
-            <label className="topic-coach-question"><span className="sr-only">向老师提问</span><input value={coach.studentMessage} placeholder="文字或语音问老师" disabled={coach.busy || coach.recording || coach.realtime.active} onKeyDown={(event) => { if (event.key === "Enter") void coach.askCoach(); }} onChange={(event) => coach.setStudentMessage(event.target.value)} /></label>
-            <button type="button" className={`topic-coach-mic${coach.recording ? " is-recording" : ""}`} aria-label={coach.recording ? "结束录音" : "语音提问"} disabled={coach.busy || coach.realtime.active} onClick={() => void coach.toggleRecorder()}><span className="material-symbols-outlined">{coach.recording ? "stop_circle" : "mic"}</span></button>
-            <button type="button" className="topic-coach-send" aria-label="发送问题" disabled={coach.busy || coach.recording || coach.realtime.active || !coach.studentMessage.trim()} onClick={() => void coach.askCoach()}><span className="material-symbols-outlined">send</span></button>
-          </div> : null}
-          {coach.recording ? <p className="topic-coach-recording" role="status"><span />正在听，点停止后发送（最长 45 秒）</p> : null}
-          {coach.busy ? <p className="topic-coach-thinking" role="status">老师正在结合当前解题状态回答…</p> : null}
-          {view.coach.agentCommand && snapshot.plan.mode === "guided-practice" ? <button type="button" className="btn btn-secondary" onClick={() => runtime.applyAgentCommand(view.coach.agentCommand!, true)}>确认执行老师建议</button> : null}
-        </aside>}
+          footerControls={view.coach.agentCommand && snapshot.plan.mode === "guided-practice" ? <button type="button" className="btn btn-secondary" onClick={() => runtime.applyAgentCommand(view.coach.agentCommand!, true)}>确认执行老师建议</button> : null}
+        />)}
       actionBarLeft={isTeaching
-        ? <div className="topic-action-playback" role="group" aria-label="Action 播放面板">
-          <button type="button" className="topic-action-playback-button" aria-label="回到第一个 Action" title="回到第一个 Action" disabled={disabled || (currentActionIndex === 0 && snapshot.status !== "complete")} onClick={() => runtime.seekTeaching(snapshot.plan.actions[0].actionId)}><span className="material-symbols-outlined">first_page</span></button>
-          <button type="button" className="topic-action-playback-button" aria-label="上一个 Action" title="上一个 Action" disabled={disabled || !previousTeachingAction} onClick={() => previousTeachingAction && runtime.seekTeaching(previousTeachingAction.actionId)}><span className="material-symbols-outlined">skip_previous</span></button>
-          <span className="topic-action-playback-position"><strong>Action {currentActionIndex + 1}</strong><small>/ {snapshot.plan.actions.length}</small></span>
-          <button type="button" className="topic-action-playback-button" aria-label="重播当前 Action 讲解" title="重播当前 Action 讲解" disabled={!speechUrl} onClick={() => replaySpeech()}><span className="material-symbols-outlined">replay</span></button>
-          <button type="button" className="topic-action-playback-button is-primary" aria-label="下一个 Action" title="播放到下一个 Action" disabled={coach.busy || disabled || !canAdvanceTeaching} onClick={() => runtime.advanceTeaching()}><span className="material-symbols-outlined">skip_next</span></button>
-          <span className="topic-teaching-pause"><span className="material-symbols-outlined">pause_circle</span>{snapshot.status === "complete" ? "讲解已完成" : "已暂停，等待学生回应后继续演示"}</span>
-        </div>
+        ? <TopicTeachingPlayback
+          positionCurrent={currentActionIndex + 1}
+          positionTotal={snapshot.plan.actions.length}
+          firstDisabled={disabled || (currentActionIndex === 0 && snapshot.status !== "complete")}
+          onFirst={() => runtime.seekTeaching(snapshot.plan.actions[0].actionId)}
+          previousDisabled={disabled || !previousTeachingAction}
+          onPrevious={() => previousTeachingAction && runtime.seekTeaching(previousTeachingAction.actionId)}
+          replayDisabled={!speechUrl}
+          onReplay={() => replaySpeech()}
+          nextDisabled={coach.busy || disabled || !canAdvanceTeaching}
+          onNext={() => runtime.advanceTeaching()}
+          pauseNote={snapshot.status === "complete" ? "讲解已完成" : "已暂停，等待学生回应后继续演示"}
+        />
         : <ActionAnswerFields runtimeSend={send} disabled={disabled} view={view} />}
       actionEnd={
-        isTeaching ? <div className="action-row topic-teaching-controls">
-          <button type="button" className="btn btn-ghost" disabled={coach.busy || snapshot.status === "complete"} onClick={() => void coach.askCoach({ message: "我没听懂这一步，请换一种说法，并说明为什么这样做。" })}>这步没懂</button>
-          <button type="button" className="btn btn-primary" disabled={coach.busy || disabled || snapshot.status === "complete"} onClick={() => runtime.advanceTeaching()}>{snapshot.status === "complete" ? "讲解完成" : "明白，继续"}</button>
-        </div> : <div className="action-row">
+        isTeaching ? <TopicTeachingConfirm
+          confusedDisabled={coach.busy || snapshot.status === "complete"}
+          onConfused={() => void coach.askCoach({ message: "我没听懂这一步，请换一种说法，并说明为什么这样做。" })}
+          understoodDisabled={coach.busy || disabled || snapshot.status === "complete"}
+          understoodLabel={snapshot.status === "complete" ? "讲解完成" : "明白，继续"}
+          onUnderstood={() => runtime.advanceTeaching()}
+        /> : <div className="action-row">
           <button type="button" className="btn btn-ghost" disabled={!view.controls.canBack || disabled} onClick={() => send({ type: "BACK" })}>撤销</button>
           <button type="button" className="btn btn-ghost" disabled={!view.controls.canClear || disabled} onClick={() => send({ type: "CLEAR" })}>清空</button>
           {snapshot.status === "transport-error"
@@ -437,37 +421,55 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
         </div>
       }
     >
-      <div
-        className={`practice-canvas-zone topic-practice-canvas action-runtime-workspace`}
-        data-testid="action-runtime-workspace"
-        data-action-id={snapshot.currentActionId}
-        data-action-state={runtime.getTrace().actionState}
-        data-selected={runtime.getTrace().selectedObjectIds.join(",")}
-        data-board={view.solutionBoard ? "content" : "empty"}
-      >
-        {/* Tutor transport（rail 被替换）时 wrong 反馈落工作区，不依赖 coach 栏。 */}
-        {snapshot.status === "wrong" && snapshot.wrongMessage ? (
-          <div className="topic-coach-message is-wrong" role="status" data-testid="runtime-wrong-feedback">
-            <MathText value={snapshot.wrongMessage} block />
-          </div>
-        ) : null}
-        <div className="artifact-math-object has-diagram">
-          <section className="artifact-diagram-stage" aria-label="几何画布" data-testid="region-geometry">
-            {model ? <GeometryCanvasSurface model={model} view={canvasView} onClickEntity={clickEntity} modelVersion={snapshot.revision + snapshot.world.commandBatches.length} /> : view.canvas.diagramAsset ? <img src={view.canvas.diagramAsset} alt="题目图形" /> : null}
-          </section>
-        </div>
-        {/* VS0（ADR-009 布局不变量 6）：无板书内容时渲染明确 empty surface——
-            Solution Board 区域始终可识别，Geometry/Board 保持双 surface 结构；
-            顶层 Workspace owner 不变（真实 /learn 六区域验收失败的证据支撑，
-            见 mvp/reports/vs-00-scope-ledger.md §9）。 */}
-        {view.solutionBoard ? <SolutionBoardPanel board={view.solutionBoard} emphasis={boardEmphasis} /> : (
-          <section className="topic-answer-panel solution-board-panel is-empty" aria-label="解题板书（暂空）" data-testid="region-solution-board">
-            <div className="solution-board-document">
-              <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
+      {/* VS1 remediation：双 surface 组合经由唯一 canonical
+          StudentWorkspaceFrame（与讲解/完成阶段同一 bounds）；既有
+          action-runtime-workspace 断言锚点与 data-* 透传保留。 */}
+      <StudentWorkspaceFrame
+        frameTestId="action-runtime-workspace"
+        className="action-runtime-workspace"
+        viewRevision={viewRevision}
+        geometry={
+          model
+            ? <GeometryCanvasSurface model={model} view={canvasView} onClickEntity={clickEntity} modelVersion={snapshot.revision + snapshot.world.commandBatches.length} />
+            : view.canvas.diagramAsset ? <img src={view.canvas.diagramAsset} alt="题目图形" /> : null
+        }
+        board={
+          /* VS0（ADR-009 布局不变量 6）：无板书内容时渲染明确 empty surface。
+             VS1：boardView（统一 View 板书投影）优先——Tutor 链路操作回合
+             板书不消失、与画布同 revision；practice 链路维持内部投影。 */
+          boardView
+            ? (boardView.visibleExpressions.length
+                ? <SolutionBoardPanel board={boardView} />
+                : <section className="topic-answer-panel solution-board-panel is-empty" aria-label="解题板书（暂空）" data-testid="region-solution-board">
+                    <div className="solution-board-document">
+                      <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
+                    </div>
+                  </section>)
+            : view.solutionBoard
+              ? <SolutionBoardPanel board={view.solutionBoard} emphasis={boardEmphasis} />
+              : <section className="topic-answer-panel solution-board-panel is-empty" aria-label="解题板书（暂空）" data-testid="region-solution-board">
+                  <div className="solution-board-document">
+                    <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
+                  </div>
+                </section>
+        }
+        overlay={
+          /* Tutor transport（rail 被替换）时 wrong 反馈落工作区，不依赖 coach 栏。 */
+          snapshot.status === "wrong" && snapshot.wrongMessage ? (
+            <div className="topic-coach-message is-wrong" role="status" data-testid="runtime-wrong-feedback">
+              <MathText value={snapshot.wrongMessage} block />
             </div>
-          </section>
-        )}
-      </div>
+          ) : undefined
+        }
+        dataAttributes={{
+          "action-id": snapshot.currentActionId,
+          "action-state": runtime.getTrace().actionState,
+          "selected": runtime.getTrace().selectedObjectIds.join(","),
+          "board": boardView
+            ? (boardView.visibleExpressions.length ? "content" : "empty")
+            : view.solutionBoard ? "content" : "empty",
+        }}
+      />
     </FocusWorkspace>
   );
 }
@@ -481,87 +483,6 @@ const BOARD_EMPHASIS_KEYFRAMES: Keyframe[] = [
   { backgroundColor: "rgba(24,183,183,0)", boxShadow: "0 0 0 0 rgba(24,183,183,0)" },
 ];
 
-/**
- * 波次 G 任务 2（(a) 第一层）：demonstration 形态只读渲染器。
- *
- * 老师讲解演示面：板书按服务端披露快照出现（snapshotAt 产物），画布应用
- * 服务端 authored 效果命令（构造线/标注/对应/强调——applyDomainCommands 纯
- * 应用）；实体全部 disabled、无确认/答题控件、不产生 evidence。推进权在
- * Tutor 会话：每个讲解回合收到新计划（revision=会话 revision），本地不
- * 步进、不回退（播放条有意不用，重播走 Tutor 侧栏）。
- */
-function DemonstrationRuntimeFrame({ plan }: { plan: ExercisePlan }) {
-  const geometry = useMemo(() => {
-    const base = plan.world.geometry;
-    if (!base) return undefined;
-    const disclosed = new Set([...plan.completedActionIds, plan.currentActionId]);
-    const commands = (plan.demonstration?.effects ?? [])
-      .filter((effect) => disclosed.has(effect.actionId))
-      .flatMap((effect) => effect.commands);
-    try {
-      return applyDomainCommands({ ...plan.world, geometry: base }, commands).geometry;
-    } catch {
-      // 效果命令与几何不匹配（内容缺口）：退回题图原样，演示不冒错。
-      return base;
-    }
-  }, [plan]);
-  const model = useMemo(() => geometry ? buildGeometryModel(geometry) : undefined, [geometry]);
-  const canvasView = useMemo<InteractionView>(() => ({
-    prompt: "老师演示",
-    entities: {
-      ...Object.fromEntries((geometry?.points ?? []).map((point) => [point.id, {
-        id: point.id, kind: "point" as const, enabled: false, expected: false, visualState: "idle" as const,
-      }])),
-      ...Object.fromEntries((geometry?.segments ?? []).map((segment) => [segment.id, {
-        id: segment.id, kind: "line" as const, enabled: false, expected: false, visualState: "idle" as const,
-      }])),
-      ...Object.fromEntries((geometry?.derivedLines ?? []).map((line) => [line.id, {
-        id: line.id, kind: "line" as const, enabled: false, expected: false, visualState: "idle" as const,
-      }])),
-    },
-    selected: [],
-    cursor: "default",
-    canCancel: false,
-    canGoBack: false,
-  }), [geometry]);
-  const board = useMemo(() => {
-    const context = plan.solutionBoardContexts?.find((entry) => entry.actionId === plan.currentActionId);
-    const projection = context?.board;
-    if (!projection) return undefined;
-    const current = [...projection.expressions].reverse()
-      .find((expression) => expression.sourceStepId === plan.actions.find((action) => action.actionId === plan.currentActionId)?.sourceStepId)
-      ?? projection.expressions[projection.expressions.length - 1];
-    return {
-      headingLatex: projection.headingLatex,
-      visibleExpressions: projection.expressions
-        .filter((expression) => expression.phase !== "hidden")
-        .map((expression) => ({
-          expressionId: expression.expressionId,
-          sourceStepId: expression.sourceStepId,
-          latex: renderBoardExpression(expression),
-          isCurrent: expression.expressionId === current?.expressionId,
-          isComplete: expression.phase === "complete",
-        })),
-      currentExpressionId: current?.expressionId,
-    };
-  }, [plan]);
-  return (
-    <div
-      className="practice-canvas-zone topic-practice-canvas action-runtime-demonstration"
-      data-testid="tutor-demonstration"
-      data-current-action={plan.currentActionId}
-    >
-      <div className="artifact-math-object has-diagram">
-        <section className="artifact-diagram-stage" aria-label="老师演示画布">
-          {model ? (
-            <GeometryCanvasSurface model={model} view={canvasView} onClickEntity={() => undefined} modelVersion={plan.revision} />
-          ) : null}
-        </section>
-      </div>
-      {board ? <SolutionBoardPanel board={board} /> : null}
-    </div>
-  );
-}
 const BOARD_EMPHASIS_KEYFRAMES_REDUCED: Keyframe[] = [
   { backgroundColor: "rgba(24,183,183,0)" },
   { backgroundColor: "rgba(24,183,183,0.12)" },

@@ -29,7 +29,6 @@ import type {
 import { assertExercisePlan, isActionCheckpointResponse, isActionEvaluationResponse, isActionPlanResponse, isCoachResponse, isCoachTurnResponse, isDirectSpeechResponse } from "../../../shared/actionRuntime";
 import { isTrainingReceipt, type TrainingCheckpoint, type TrainingReceipt, type TrainingResult } from "../../../shared/trainingRuntime";
 import { isCoachTurnEvent, type CoachTurnEvent, type VoiceTelemetryEvent } from "../../../shared/coachMedia";
-import type { SolutionBoardProjection } from "../../../shared/solutionBoard";
 import {
   isTutorExperienceResponse,
   isTutorSessionView,
@@ -40,11 +39,16 @@ import {
   type TutorTurnResponse,
 } from "../../../shared/tutorExperience";
 
-/** 波次 F 任务 1：GET /api/learn/:taskId/solution-board 响应（内容面）。 */
-export interface SolutionBoardReviewResponse {
-  task_id: string;
-  scenario_id: string;
-  board: SolutionBoardProjection | null;
+/** VS1 REQ-08：响应 schema 校验失败的可识别错误——调用方（如
+ *  useTutorLearning.restore）区分「schema 非法 → recoverable error 不重开」
+ *  与「会话丢失（404/网络）→ 允许按默认 Binding 重开」。
+ *  （波次 F 的 GET /api/learn/:taskId/solution-board client 函数已随 VS1
+ *  L-05 学生页迁出移除；endpoint 本身冻结，删除在 VS7。） */
+export class ResponseSchemaError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ResponseSchemaError";
+  }
 }
 
 const API_BASE_URL =
@@ -155,12 +159,6 @@ export const api = {
     request<LearningProjectionSpec>(`/api/learn/${taskId}`),
   getLearningActionPlan: (taskId: TaskId) =>
     requestLearningActionPlan(`/api/learn/${taskId}/action-plan`),
-  /** 波次 F 任务 1：完成页板书回顾（既有 /api/learn 内容面；仅
-   * question_completed 后调用；board 为 null 时完成页不渲染板书）。 */
-  getLearnSolutionBoard: (taskId: TaskId, scenarioId?: string) =>
-    request<SolutionBoardReviewResponse>(
-      `/api/learn/${taskId}/solution-board${scenarioId ? `?scenario=${encodeURIComponent(scenarioId)}` : ""}`,
-    ),
   submitLearningAction: (taskId: TaskId, stepId: string, value: string) =>
     request<LearningActionResponse>("/api/learn/runtime-action", {
       method: "POST",
@@ -245,13 +243,13 @@ export const api = {
     });
     const result = response as LearnExperienceResponse;
     if (result.kind === "tutor" && !isTutorExperienceResponse(response)) {
-      throw new Error("Invalid tutor experience response");
+      throw new ResponseSchemaError("Invalid tutor experience response");
     }
     return result;
   },
   getTutorSession: async (sessionId: string): Promise<TutorSessionView> => {
     const response = await request<unknown>(`/api/tutor-sessions/${sessionId}`);
-    if (!isTutorSessionView(response)) throw new Error("Invalid tutor session view");
+    if (!isTutorSessionView(response)) throw new ResponseSchemaError("Invalid tutor session view");
     return response;
   },
   submitTutorTurn: async (
@@ -264,7 +262,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ clientTurnId, expectedRevision, input }),
     });
-    if (!isTutorTurnResponse(response)) throw new Error("Invalid tutor turn response");
+    if (!isTutorTurnResponse(response)) throw new ResponseSchemaError("Invalid tutor turn response");
     return response;
   },
   completeTutorVoice: async (

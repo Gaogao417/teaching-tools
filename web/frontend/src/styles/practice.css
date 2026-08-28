@@ -2491,6 +2491,11 @@
 .artifact-action-workbench .topic-answer-copy .math-text { color: var(--color-muted); font-size: var(--text-sm); line-height: 1.5; }
 
 /* Action Runtime v3: diagram and continuous teacher solution share one world. */
+/* VS1 remediation：固定双栏 grid 的 owner 是 .student-workspace-frame
+  （canonical composition）；.action-runtime-workspace 是同一布局的
+   既有断言名，与 owner 并列复用同一份定义（非第二套布局）。teach/
+   operate/completed 三阶段经同一 Frame → 同一 bounds。 */
+.student-workspace-frame,
 .action-runtime-workspace {
   min-height: 0;
   height: 100%;

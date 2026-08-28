@@ -16,7 +16,10 @@ import * as path from "node:path";
  * - frontend：vite dev server，API 指向本地 backend（/learn/:taskId 驱动）；
  * - TTS：用例内 route 拦截 /api/action-speech*（真实 CosyVoice 属 exit run）。
  */
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+// web/frontend → web（backend 实际位于 web/backend；此前 "../../.." 误指
+// develop/、backend cwd 不存在 → 干净环境 execSync ENOENT——被残留 server
+// 复用掩盖）。
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const canonicalRoot = process.env.TUTOR_E2E_CANONICAL_ROOT || fs.mkdtempSync(path.join(os.tmpdir(), "tutor-e2e-root-"));
 if (!process.env.TUTOR_E2E_CANONICAL_ROOT || !fs.existsSync(path.join(canonicalRoot, "tutor-plan"))) {
   execSync(`npx tsx scripts/build-tutor-e2e-root.ts ${JSON.stringify(canonicalRoot)}`, {

@@ -156,56 +156,82 @@ export function expectNoTruthLeak(page: Page): void {
   expect(violations, `前端收到答案真值或硬编码 id：${violations.join("; ")}`).toHaveLength(0);
 }
 
-/** 等 tutor 进入某个状态（speaking 瞬态可能跳过，轮询等待）。真实 exit run
- *  的 CosyVoice 播放是真时长——超时按 5× 放宽（TUTOR_E2E_REAL=1）。 */
+/** 等 tutor 进入某个状态。VS1 remediation-2：状态锚点从自建 rail 的
+ *  tutor-state 文本改为页面根 data-tutor-phase（与渲染同源的推导值）。
+ *  真实 exit run 的 CosyVoice 播放是真时长——超时按 5× 放宽。 */
 export const e2eTimeout = (ms: number): number => (process.env.TUTOR_E2E_REAL ? ms * 5 : ms);
 
-const STATE_LABELS: Record<string, string> = {
-  starting: "正在开始",
-  speaking: "讲解中",
-  thinking: "思考中",
-  workspaceActive: "轮到你操作",
-  interrupted: "已打断",
-  recovering: "恢复中",
-  completed: "完成",
-};
-
 export async function waitForTutorState(page: Page, state: string, timeout = 20_000): Promise<void> {
-  await expect(page.getByTestId("tutor-state")).toContainText(state === "awaitingInput" ? "等你发言" : STATE_LABELS[state] ?? state, { timeout: e2eTimeout(timeout) });
+  await expect(page.locator("[data-tutor-phase]")).toHaveAttribute("data-tutor-phase", state, { timeout: e2eTimeout(timeout) });
 }
 
-/** 从学习地图入口进 /learn/:taskId（始终在原 WorkspaceShell 内）。 */
+/** 当前页面 phase（读取同一 data 属性；供需要分支判断的驱动循环）。 */
+export async function tutorPhase(page: Page): Promise<string> {
+  return (await page.locator("[data-tutor-phase]").getAttribute("data-tutor-phase")) ?? "";
+}
+
+/** 从 /learn/:taskId 进入（WorkspaceShell 内）。就绪锚 = 会话 id 属性非空。 */
 export async function openLearnTask(page: Page, taskId: string): Promise<void> {
   await page.goto(`/learn/${taskId}`);
-  await expect(page.getByTestId("tutor-session-id")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".tutor-learn-page[data-session-id]")).not.toHaveAttribute("data-session-id", "", { timeout: 30_000 });
   await waitForTutorState(page, "awaitingInput");
   await expect(page.locator(".ks-app-shell")).toBeVisible();
 }
 
-export function currentCheckpoint(page: Page): Promise<string> {
-  return page.getByTestId("tutor-checkpoint").innerText().then((text) => /CP\d+/.exec(text)![0]);
+/** 当前 checkpoint id（页面根 data 属性；与 Coach 拍点显示同源）。 */
+export async function currentCheckpoint(page: Page): Promise<string> {
+  const value = (await page.locator("[data-checkpoint-id]").getAttribute("data-checkpoint-id")) ?? "";
+  return /CP\d+/.exec(value)![0];
 }
 
+/** 会话 id（页面根 data 属性）。 */
+export async function sessionId(page: Page): Promise<string> {
+  return (await page.locator(".tutor-learn-page[data-session-id]").getAttribute("data-session-id")) ?? "";
+}
+
+/** 主线回答（Mainline Participation：action bar 回答入口，
+ *  reasoning_utterance——ADR-010 双通道，无模式切换）。 */
 export async function answer(page: Page, text: string): Promise<void> {
-  // composer 是「回答/提问」单输入切换：先确保回答模式（提问后回答回用）。
-  await page.getByRole("button", { name: "回答", exact: true }).first().click();
-  await page.getByLabel("回答输入").fill(text);
+  const input = page.getByLabel("回答输入");
+  await expect(input).toBeVisible({ timeout: e2eTimeout(15_000) });
+  await input.fill(text);
   await page.getByTestId("tutor-submit-answer").click();
 }
 
+/** Assistance 提问（canonical Panel composer，question_asked）。 */
 export async function ask(page: Page, text: string): Promise<void> {
-  await page.getByRole("button", { name: "提问", exact: true }).first().click();
-  await page.getByLabel("提问输入").fill(text);
-  await page.getByTestId("tutor-submit-question").click();
+  const input = page.locator(".topic-coach-question input");
+  await expect(input).toBeVisible({ timeout: e2eTimeout(15_000) });
+  await input.fill(text);
+  await page.locator("button[aria-label='发送问题']").click();
 }
 
 export async function readTranscriptTexts(page: Page): Promise<string[]> {
-  return page.locator("[data-testid=tutor-transcript] p").allInnerTexts();
+  return page.locator("[aria-label='答疑对话'] .topic-coach-turn").allInnerTexts();
 }
 
 /** workspace 步出现（真实 ActionRuntimeFrame 挂载）。 */
 export async function waitForWorkspace(page: Page, timeout = 15_000): Promise<void> {
   await expect(page.getByTestId("action-runtime-workspace")).toBeVisible({ timeout: e2eTimeout(timeout) });
+}
+
+/** remediation-2 裁定 2：放行当前回合话术队列——点「明白，继续」直到页面
+ *  静息（awaitingInput/workspaceActive/completed 且 CTA 消失或禁用）。
+ *  回合在途（thinking/首段播放）时 CTA 短暂禁用属正常，必须继续轮询，
+ *  不能提前返回（否则门开后再无人放行）。TTS stub 下每段话术即时完成。 */
+export async function continueThroughNarration(page: Page, maxSteps = 60): Promise<void> {
+  for (let index = 0; index < maxSteps; index += 1) {
+    const understood = page.getByTestId("coach-understood");
+    const hasCta = (await understood.count()) > 0;
+    const ctaEnabled = hasCta && !(await understood.isDisabled().catch(() => true));
+    const state = (await page.locator("[data-tutor-phase]").getAttribute("data-tutor-phase").catch(() => "")) ?? "";
+    const settled = state === "awaitingInput" || state === "workspaceActive" || state === "completed";
+    if (settled && !ctaEnabled) return;
+    if (ctaEnabled) {
+      await understood.click();
+    }
+    await page.waitForTimeout(300);
+  }
 }
 
 /** 期望 utterance 驱动直至出现 workspace 或超轮数（action 节点前逐 checkpoint）。 */
@@ -217,18 +243,22 @@ export async function progressUntilWorkspace(
   const maxTurns = options?.maxTurns ?? 24;
   for (let index = 0; index < maxTurns; index += 1) {
     if (await page.getByTestId("action-runtime-workspace").count()) return;
-    const state = await page.getByTestId("tutor-state").innerText();
-    if (state.includes("轮到你操作")) {
+    const state = await tutorPhase(page);
+    if (state === "workspaceActive") {
       await waitForWorkspace(page);
       return;
     }
-    if (state.includes("等你发言")) {
+    if (state === "speaking") {
+      await continueThroughNarration(page);
+    }
+    if ((await tutorPhase(page)) === "awaitingInput") {
       // checkpoint 显示随回合异步更新：等一拍再读，避免拿到上一个 checkpoint。
       await page.waitForTimeout(400);
-      const checkpointText = await page.getByTestId("tutor-checkpoint").innerText();
-      const checkpointId = /CP\d+/.exec(checkpointText)?.[0];
+      const checkpointId = /CP\d+/.exec((await page.locator("[data-checkpoint-id]").getAttribute("data-checkpoint-id")) ?? "")?.[0];
       if (!checkpointId) break;
       await answer(page, expectedUtterance(plan, checkpointId));
+      // 新回合话术队列先放行完，再等静息（awaitingInput/操作步）。
+      await continueThroughNarration(page);
       await waitForTutorState(page, "awaitingInput", 25_000).catch(() => undefined);
     }
     await page.waitForTimeout(300);

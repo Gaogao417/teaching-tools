@@ -67,6 +67,13 @@ import {
 import type { PolicyProfileSnapshot, PolicyProviderKind } from "./topicQuestionExperience";
 import { studentQuestionGeometry, type TutorWorkspacePlanContext } from "../tutorPresentation/adapters/legacyActionRuntime/workspacePlanProjector";
 import { buildTutorDemonstrationPlan } from "../tutorPresentation/adapters/legacyActionRuntime/demonstrationPlanProjector";
+import {
+  adaptLegacyWorkspaceIntoState,
+  projectStudentWorkspace,
+  type LegacyBoardContext,
+  type LegacyWorkspaceSnapshot,
+} from "./workspaceRuntimeState";
+import type { StudentWorkspaceView } from "../../../../shared/studentWorkspace";
 import { getTopicScenario } from "../runtime/engines/topicPractice/scenarioBank";
 import { projectApprovedPlan, type RuntimeProjectionBody } from "../planBuild/MaterializeTutorPlan";
 import { buildRuntimeRegistrySnapshot, type RuntimeRegistrySnapshot } from "../planBuild/RuntimeRegistrySnapshot";
@@ -207,7 +214,7 @@ export interface TutorTurnResponse {
   client_turn_id: string;
   idempotent_replay: boolean;
   mode: SessionMode;
-  current_checkpoint: { checkpoint_id: string; part_id: string; route_id: string };
+  current_checkpoint: { checkpoint_id: string; part_id: string; route_id: string; index: number; total: number; title?: string };
   alignment?: {
     alignment: Alignment;
     checkpoint_id?: string;
@@ -223,6 +230,12 @@ export interface TutorTurnResponse {
   } | null;
   voice: Array<{ action_id: string; text: string; interruptible: boolean; voice_source?: VoiceSource }>;
   workspace: ValidatedWorkspaceAction[];
+  /**
+   * VS1 统一学生工作台 View（REQ-02/04/05）：Geometry 与 Board 同 revision
+   * 的唯一学生安全投影；turn 与 recovery/session view 复用同一构建入口。
+   * `workspace` 字段冻结为 legacy（L-04，不再新增 consumer，删除在 VS7）。
+   */
+  workspace_view: StudentWorkspaceView;
   fallback?: { used: boolean; failure_class?: string };
   /**
    * Phase 5 UI 集成 §3：structured_action_evidence 回合附带 typed evaluator
@@ -1385,10 +1398,21 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
 
   function currentCheckpointView(state: TutorRuntimeState): TutorTurnResponse["current_checkpoint"] {
     const part = state.curriculum.parts[state.curriculum.current_part_index];
+    // VS1 remediation-2（B3a 只读展示合同）：拍点全局序号/总数——curriculum
+    // 展平定位（跨 part 连续，1-based）；title 缺省由前端按 part 派生。
+    // 纯展示字段，不参与推进/判定/持久化（ADR-010 §5 状态归属不动）。
+    const flattened = state.curriculum.parts.flatMap((entry) => entry.checkpoint_ids);
+    const knownIndex = flattened.indexOf(state.reasoning.current_checkpoint_id);
+    const fallbackIndex =
+      state.curriculum.parts.slice(0, state.curriculum.current_part_index)
+        .reduce((sum, entry) => sum + entry.checkpoint_ids.length, 0)
+      + Math.min(part?.current_index ?? 0, Math.max((part?.checkpoint_ids.length ?? 1) - 1, 0));
     return {
       checkpoint_id: state.reasoning.current_checkpoint_id,
       part_id: part?.part_id ?? "1",
       route_id: part?.route_id ?? "R1",
+      index: (knownIndex >= 0 ? knownIndex : fallbackIndex) + 1,
+      total: flattened.length,
     };
   }
 
@@ -1461,6 +1485,72 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     }
   }
 
+  /** VS1 统一 WorkspaceRuntimeState → StudentWorkspaceView 构建入口
+   *  （REQ-02：turn 与 session view 共用；REQ-03：legacy read adapter 只读
+   *  既有披露产物；REQ-08：adapter/输入失败 fail closed，不静默降级）。
+   *  披露权威不变：demonstration 投影（curriculum 状态确定性重算）；
+   *  无场景记录/无披露时诚实空板书 + authored 题图。 */
+  function buildSessionWorkspaceView(args: {
+    sessionId: string;
+    revision: number;
+    context: SessionContext;
+    state: TutorRuntimeState;
+    operations: ValidatedWorkspaceAction[];
+    pendingVoiceCount: number;
+  }): StudentWorkspaceView {
+    const { context, state } = args;
+    let legacyWorld: LegacyWorkspaceSnapshot = { disclosedEffects: [] };
+    let legacyBoard: LegacyBoardContext | undefined;
+    if (context.experience?.task_id && context.experience.scenario_id) {
+      const question = questionContextOf(context);
+      if (question) {
+        try {
+          const scenario = getTopicScenario(
+            context.experience.task_id as TopicPracticeTaskId,
+            context.experience.scenario_id,
+          );
+          const demonstration = buildTutorDemonstrationPlan({ plan: context.plan, scenario, state, context: question });
+          if (demonstration) {
+            const plan = demonstration.action_plan;
+            legacyWorld = {
+              baseGeometry: plan.world.geometry,
+              disclosedEffects: (plan.demonstration?.effects ?? []).flatMap((effect) => effect.commands),
+            };
+            const board = plan.solutionBoardContexts?.[0]?.board;
+            if (board) {
+              const currentAction = plan.actions.find((action) => action.actionId === plan.currentActionId);
+              const currentExpression = currentAction
+                ? [...board.expressions].reverse()
+                    .find((expression) => expression.sourceStepId === currentAction.sourceStepId)
+                : undefined;
+              legacyBoard = { board, currentExpressionId: currentExpression?.expressionId };
+            }
+          } else {
+            legacyWorld = { baseGeometry: studentQuestionGeometry(context.plan), disclosedEffects: [] };
+          }
+        } catch {
+          // 该题无场景记录/未 Approved（如 benchmark 合成会话）：诚实无披露。
+          legacyWorld = { baseGeometry: studentQuestionGeometry(context.plan), disclosedEffects: [] };
+        }
+      }
+    } else {
+      legacyWorld = { baseGeometry: studentQuestionGeometry(context.plan), disclosedEffects: [] };
+    }
+    const adapted = adaptLegacyWorkspaceIntoState({
+      sessionId: args.sessionId,
+      revision: args.revision,
+      legacyWorldSnapshot: legacyWorld,
+      legacyBoardContext: legacyBoard,
+      operations: args.operations,
+      pendingVoiceCount: args.pendingVoiceCount,
+      completed: state.completed || state.curriculum.completed,
+    });
+    if (!adapted.ok) {
+      throw new TutorSessionCoordinatorError("WORKSPACE_VIEW_INVALID", `统一工作台投影输入非法：${adapted.errors.join("; ")}`);
+    }
+    return projectStudentWorkspace(adapted.state);
+  }
+
   function toTurnResponse(args: {
     sessionId: string;
     clientTurnId: string;
@@ -1471,19 +1561,30 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     revision: number;
     lastSequence: number;
     actionEvidence?: { accepted: boolean; diagnosis: TypedActionDiagnosis };
-    /** 波次 G 任务 2：讲解回合演示投影需要（缺省不附加）。 */
-    context?: SessionContext;
+    /** VS1：统一 View 构建必需（会话级 pending 解析 + 披露投影）。 */
+    context: SessionContext;
+    /** VS1：会话事件流（pending 操作步/pending voice 的权威解析输入）。 */
+    events: StoredV2Event[];
   }): TutorTurnResponse {
     const { turn } = args;
     const operations = turn.presentation.workspace;
-    const demonstration = args.context
-      ? demonstrationWorkspaceEntries({
-          context: args.context,
-          state: args.state,
-          moveType: turn.decision?.move_type,
-          operations,
-        })
-      : [];
+    const demonstration = demonstrationWorkspaceEntries({
+      context: args.context,
+      state: args.state,
+      moveType: turn.decision?.move_type,
+      operations,
+    });
+    // 统一 View 读会话权威 pending 状态（非本回合签发清单）——与
+    // getSessionView 同一解析、同一披露投影、同一 revision（REQ-02/06）。
+    const pendingOperations = resolvePendingWorkspace(args.context, args.events, args.state);
+    const workspaceView = buildSessionWorkspaceView({
+      sessionId: args.sessionId,
+      revision: args.revision,
+      context: args.context,
+      state: args.state,
+      operations: pendingOperations,
+      pendingVoiceCount: pendingVoiceActions(args.events).length,
+    });
     return {
       session_id: args.sessionId,
       revision: args.revision,
@@ -1508,6 +1609,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         ...(voice.voice_source ? { voice_source: voice.voice_source } : {}),
       })),
       workspace: [...operations, ...demonstration],
+      workspace_view: workspaceView,
       ...(turn.policy_failed ? { fallback: { used: turn.policy_failed.fallback_used, failure_class: turn.policy_failed.failure_class } } : {}),
       ...(args.actionEvidence ? { action_evaluation: evidenceOutcomeToResponse(args.actionEvidence, args.revision) } : {}),
       question_completed: args.state.curriculum.completed,
@@ -1538,6 +1640,27 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     const decisionPayload = decisionEvent?.payload as
       | { decision_id: string; move_type: MoveType; purpose_code: string; policy_version: string; fallback?: boolean }
       | undefined;
+    // 学生面重建走 Presenter 同一确定性解析（服务端私有 projection）；
+    // VS1：legacy workspace 字段与统一 workspace_view 共用同一份解析结果。
+    const replayedOperations = workspaceEvents.flatMap((event) => {
+      const command = (typeof (event.payload as { command_payload?: unknown }).command_payload === "string"
+        ? (JSON.parse((event.payload as { command_payload: string }).command_payload) as Record<string, unknown>)
+        : ((event.payload as { command_payload?: unknown }).command_payload ?? {})) as Record<string, unknown>;
+      return resolveWorkspacePresentation(
+        [
+          {
+            action_id: (event.payload as { action_id: string }).action_id,
+            decision_id: (event.payload as { decision_id: string }).decision_id,
+            capability: (event.payload as { capability: string }).capability,
+            target_ids: (event.payload as { target_ids: string[] }).target_ids,
+            command_payload: command,
+          },
+        ],
+        context.plan,
+        context.projection,
+        { registrySnapshot: context.snapshot, sessionKind: "tutoring", question: questionContextOf(context) },
+      ).presentation;
+    });
     return {
       session_id: sessionId,
       revision,
@@ -1587,31 +1710,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         };
       }),
       workspace: [
-        ...workspaceEvents.flatMap((event) => {
-          const payload = event.payload as { command_payload?: unknown };
-          const command = (typeof payload.command_payload === "string"
-            ? (JSON.parse(payload.command_payload) as Record<string, unknown>)
-            : (payload.command_payload ?? {})) as Record<string, unknown>;
-          const resource = context.plan.resources.find((entry) => entry.resource_id === command.resource_id);
-          const template = resource?.content ? (JSON.parse(resource.content) as { actionId?: string }) : undefined;
-          void template;
-          // 学生面重建走 Presenter 同一确定性解析（服务端私有 projection）。
-          const resolution = resolveWorkspacePresentation(
-            [
-              {
-                action_id: (event.payload as { action_id: string }).action_id,
-                decision_id: (event.payload as { decision_id: string }).decision_id,
-                capability: (event.payload as { capability: string }).capability,
-                target_ids: (event.payload as { target_ids: string[] }).target_ids,
-                command_payload: command,
-              },
-            ],
-            context.plan,
-            context.projection,
-            { registrySnapshot: context.snapshot, sessionKind: "tutoring", question: questionContextOf(context) },
-          );
-          return resolution.presentation;
-        }),
+        ...replayedOperations,
         // 波次 G 任务 2：幂等重放同口径附加演示投影（按当前课程状态确定性重算）。
         ...demonstrationWorkspaceEntries({
           context,
@@ -1632,6 +1731,16 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
             : [],
         }),
       ],
+      // VS1：统一 View 与响应 revision 同源（当前权威状态确定性重投影；
+      //  与 workspace legacy 字段同口径——重放响应报告当前 revision）。
+      workspace_view: buildSessionWorkspaceView({
+        sessionId,
+        revision,
+        context,
+        state,
+        operations: resolvePendingWorkspace(context, events, state),
+        pendingVoiceCount: pendingVoiceActions(events).length,
+      }),
       ...(fallbackEvent
         ? {
             fallback: {
@@ -1882,6 +1991,8 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
           state: snapshot.state,
           revision: snapshot.revision,
           lastSequence: snapshot.events.at(-1)?.sequence ?? 0,
+          context: snapshot.context,
+          events: snapshot.events,
         });
       }
       if (snapshot.revision !== expectedRevision && recomputed) {
@@ -1957,6 +2068,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         sessionId,
         clientTurnId: args.clientTurnId,
         context,
+        events: loadSession(sessionId).events,
         turn,
         alignment: {
           alignment: afterEvidence.state.reasoning.last_alignment?.alignment ?? "unclear",
@@ -2034,6 +2146,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
         sessionId,
         clientTurnId: args.clientTurnId,
         context,
+        events: final.events,
         turn,
         alignment,
         state: final.state,
@@ -2079,6 +2192,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       sessionId,
       clientTurnId: args.clientTurnId,
       context,
+      events: final.events,
       turn,
       alignment: record.alignment
         ? {
@@ -2106,11 +2220,56 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       sessionId,
       clientTurnId: `voice.${completion.action_id}`,
       context: final.context,
+      events: final.events,
       turn,
       state: final.state,
       revision: final.revision,
       lastSequence: final.events.at(-1)?.sequence ?? 0,
     });
+  }
+
+  /** 会话级 pending 操作步解析（VS1：turn 与 session view 共用——view 的
+   *  participation 反映会话权威 active action，而非本回合签发清单；空回合
+   *  不丢操作画布的口径由 state.workspace.active_action_id 保证）。 */
+  function resolvePendingWorkspace(
+    context: SessionContext,
+    events: StoredV2Event[],
+    state: TutorRuntimeState,
+  ): ValidatedWorkspaceAction[] {
+    const pendingWorkspace: ValidatedWorkspaceAction[] = [];
+    if (!state.workspace.active_action_id) return pendingWorkspace;
+    const issued = events.find(
+      (event) =>
+        event.event_type === "workspace_action_issued" &&
+        (event.payload as { action_id: string }).action_id === state.workspace.active_action_id,
+    );
+    if (!issued) return pendingWorkspace;
+    const payload = issued.payload as {
+      action_id: string;
+      decision_id: string;
+      capability: string;
+      target_ids: string[];
+      command_payload?: unknown;
+    };
+    const command = (typeof payload.command_payload === "string"
+      ? (JSON.parse(payload.command_payload) as Record<string, unknown>)
+      : (payload.command_payload ?? {})) as Record<string, unknown>;
+    const resolution = resolveWorkspacePresentation(
+      [
+        {
+          action_id: payload.action_id,
+          decision_id: payload.decision_id,
+          capability: payload.capability,
+          target_ids: payload.target_ids,
+          command_payload: command,
+        },
+      ],
+      context.plan,
+      context.projection,
+      { registrySnapshot: context.snapshot, sessionKind: "tutoring", question: questionContextOf(context) },
+    );
+    pendingWorkspace.push(...resolution.presentation);
+    return pendingWorkspace;
   }
 
   /** 学生安全会话视图（GET :sessionId 恢复面：pending actions + revision）。 */
@@ -2123,6 +2282,9 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
     current_checkpoint: TutorTurnResponse["current_checkpoint"];
     pending_voice: Array<{ action_id: string; text: string; interruptible: boolean }>;
     pending_workspace: ValidatedWorkspaceAction[];
+    /** VS1 统一学生工作台 View（REQ-02/06：与 turn response 同一构建入口、
+     *  同一 revision——refresh parity 由同一确定性投影保证）。 */
+    workspace_view: StudentWorkspaceView;
     event_cursor: number;
     task_id?: string;
     question?: {
@@ -2144,41 +2306,7 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       const payload = (issued?.payload ?? { text: "", interruptible: true }) as { text: string; interruptible?: boolean };
       return { action_id: pending.action_id, text: payload.text, interruptible: payload.interruptible ?? true };
     });
-    const pendingWorkspace: ValidatedWorkspaceAction[] = [];
-    if (state.workspace.active_action_id) {
-      const issued = events.find(
-        (event) =>
-          event.event_type === "workspace_action_issued" &&
-          (event.payload as { action_id: string }).action_id === state.workspace.active_action_id,
-      );
-      if (issued) {
-        const payload = issued.payload as {
-          action_id: string;
-          decision_id: string;
-          capability: string;
-          target_ids: string[];
-          command_payload?: unknown;
-        };
-        const command = (typeof payload.command_payload === "string"
-          ? (JSON.parse(payload.command_payload) as Record<string, unknown>)
-          : (payload.command_payload ?? {})) as Record<string, unknown>;
-        const resolution = resolveWorkspacePresentation(
-          [
-            {
-              action_id: payload.action_id,
-              decision_id: payload.decision_id,
-              capability: payload.capability,
-              target_ids: payload.target_ids,
-              command_payload: command,
-            },
-          ],
-          context.plan,
-          context.projection,
-          { registrySnapshot: context.snapshot, sessionKind: "tutoring", question: questionContextOf(context) },
-        );
-        pendingWorkspace.push(...resolution.presentation);
-      }
-    }
+    const pendingWorkspace = resolvePendingWorkspace(context, events, state);
     return {
       session_id: sessionId,
       revision,
@@ -2188,6 +2316,14 @@ export function createTutorSessionCoordinator(deps: TutorSessionDeps) {
       current_checkpoint: currentCheckpointView(state),
       pending_voice: pendingVoice,
       pending_workspace: pendingWorkspace,
+      workspace_view: buildSessionWorkspaceView({
+        sessionId,
+        revision,
+        context,
+        state,
+        operations: pendingWorkspace,
+        pendingVoiceCount: pendingVoice.length,
+      }),
       event_cursor: events.at(-1)?.sequence ?? 0,
       // 刷新恢复的题目/讲法上下文（v4 binding 会话；truth 学生安全面）。
       ...(context.experience

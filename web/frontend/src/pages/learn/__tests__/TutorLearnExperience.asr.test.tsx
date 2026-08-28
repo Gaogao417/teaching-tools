@@ -25,7 +25,6 @@ vi.mock("../../../api/client", () => ({
     completeTutorVoice,
     completeTutorSession: vi.fn(),
     tutorAsr,
-    getLearnSolutionBoard: vi.fn().mockResolvedValue({ task_id: "t", scenario_id: "s", board: null }),
     streamActionSpeech: vi.fn().mockRejectedValue(new Error("tts unavailable")),
     recordSimilarityLearnProgress,
   },
@@ -61,6 +60,7 @@ vi.mock("../../../presentation/coach/useCoachRecorder", () => ({
 
 const { TutorLearnExperience } = await import("../TutorLearnExperience");
 import type { TutorExperienceResponse, TutorTurnResponse } from "../../../../../shared/tutorExperience";
+import { studentWorkspaceViewFixture } from "../../../action-runtime/tutor/tutorTestFixtures";
 import type { TaskId } from "../../../../../shared/contracts";
 
 const TASK = "parallelLineRatios" as TaskId;
@@ -69,10 +69,11 @@ function turn(): TutorTurnResponse {
   return {
     session_id: "TS-6001", revision: 2, client_turn_id: "system.open", idempotent_replay: false,
     mode: "teach",
-    current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1" },
+    current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1", index: 1, total: 3 },
     decision: null,
     voice: [],
     workspace: [],
+    workspace_view: studentWorkspaceViewFixture(),
     event_cursor: 3,
   };
 }
@@ -109,20 +110,20 @@ describe("TutorLearnExperience ASR 接线", () => {
     recordSimilarityLearnProgress.mockResolvedValue({ ok: true });
   });
 
-  it("录音 → tutorAsr 转写 → 回答模式提交 reasoning_utterance", async () => {
+  it("录音 → tutorAsr 转写 → Assistance 通道提交 question_asked（ADR-010：Panel composer 恒为提问）", async () => {
     submitTutorTurn.mockResolvedValue(turn());
-    tutorAsr.mockResolvedValue({ transcript: "内错角相等", model: "qwen3-asr-flash" });
+    tutorAsr.mockResolvedValue({ transcript: "为什么要作这条平行线？", model: "qwen3-asr-flash" });
     const { container, unmount } = mount();
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-state']")).toBeTruthy());
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='region-status']")).toBeTruthy());
     expect(recorderCallbacks.onAudio).toBeTruthy();
     await act(async () => {
-      recorderCallbacks.onAudio!({ dataUrl: "data:audio/webm;codecs=opus;base64,AAAA", durationMs: 1200 });
+      recorderCallbacks.onAudio!({ dataUrl: "data:audio/webm;codecs=opus;base64=AAAA", durationMs: 1200 });
     });
-    await vi.waitFor(() => expect(tutorAsr).toHaveBeenCalledWith("TS-6001", { dataUrl: "data:audio/webm;codecs=opus;base64,AAAA", durationMs: 1200 }));
+    await vi.waitFor(() => expect(tutorAsr).toHaveBeenCalledWith("TS-6001", { dataUrl: "data:audio/webm;codecs=opus;base64=AAAA", durationMs: 1200 }));
     await vi.waitFor(() =>
       expect(submitTutorTurn).toHaveBeenCalledWith("TS-6001", expect.stringMatching(/^turn-/), 2, {
-        input_kind: "reasoning_utterance",
-        text: "内错角相等",
+        input_kind: "question_asked",
+        text: "为什么要作这条平行线？",
       }));
     unmount();
   });
@@ -130,10 +131,10 @@ describe("TutorLearnExperience ASR 接线", () => {
   it("波次 E 回归：录音中停止键可点（旧实现 disabled 含 recording 永远禁用）", async () => {
     recorderState.recording = true;
     const { container, unmount } = mount();
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-state']")).toBeTruthy());
-    // 录音中：按钮可点且语义为结束录音（旧实现 disabled 含 recorder.recording，
-    // 「停止录音」永远点不了——教师实测报告的缺陷）。
-    const mic = container.querySelector("[data-testid='tutor-record']") as HTMLButtonElement;
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='region-status']")).toBeTruthy());
+    // 录音中：canonical Panel mic 可点且语义为结束录音（旧实现 disabled 含
+    // recorder.recording，「停止录音」永远点不了——教师实测报告的缺陷）。
+    const mic = container.querySelector(".topic-coach-mic") as HTMLButtonElement;
     expect(mic.disabled).toBe(false);
     expect(mic.getAttribute("aria-label")).toBe("结束录音");
     expect(container.textContent).toContain("正在听");
@@ -159,31 +160,42 @@ describe("TutorLearnExperience ASR 接线", () => {
     unmount();
   });
 
-  it("提问模式下录音 → question_asked（同一 ASR 通道）", async () => {
+  it("文字提问经 Panel composer → question_asked；「这步没懂」=canonical 预设话术（同一 Assistance 通道）", async () => {
     submitTutorTurn.mockResolvedValue(turn());
-    tutorAsr.mockResolvedValue({ transcript: "为什么要作这条平行线？", model: "qwen3-asr-flash" });
     const { container, unmount } = mount();
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-state']")).toBeTruthy());
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='region-status']")).toBeTruthy());
+    // 文字提问：canonical composer（向老师提问 label + 发送问题按钮）。
+    await vi.waitFor(() => expect(container.querySelector(".topic-coach-question input")).toBeTruthy());
+    const composer = container.querySelector<HTMLInputElement>(".topic-coach-question input");
     await act(async () => {
-      const questionMode = [...container.querySelectorAll("button")].find((button) => button.textContent === "提问"
-        && button.closest(".tutor-learn-composer-mode"));
-      questionMode!.click();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(composer!, "这一步的条件怎么用？");
+      composer!.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      recorderCallbacks.onAudio!({ dataUrl: "data:audio/webm;codecs=opus;base64,AAAA" });
+      container.querySelector("button[aria-label='发送问题']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await vi.waitFor(() =>
       expect(submitTutorTurn).toHaveBeenLastCalledWith("TS-6001", expect.stringMatching(/^turn-/), 2, {
         input_kind: "question_asked",
-        text: "为什么要作这条平行线？",
+        text: "这一步的条件怎么用？",
       }));
+    // 「这步没懂」快捷（canonical 预设话术，同通道；无快捷 chips 残留）。
+    await act(async () => {
+      container.querySelector("[data-testid='coach-confused']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await vi.waitFor(() =>
+      expect(submitTutorTurn).toHaveBeenLastCalledWith("TS-6001", expect.stringMatching(/^turn-/), 2, {
+        input_kind: "question_asked",
+        text: "我没听懂这一步，请换一种说法，并说明为什么这样做。",
+      }));
+    expect(container.querySelector(".tutor-learn-quick-asks")).toBeNull();
     unmount();
   });
 
   it("ASR 不可用 → 降级提示，不伪装成功", async () => {
     tutorAsr.mockRejectedValue(new Error("ASR_UNAVAILABLE"));
     const { container, unmount } = mount();
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-state']")).toBeTruthy());
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='region-status']")).toBeTruthy());
     await act(async () => {
       recorderCallbacks.onAudio!({ dataUrl: "data:audio/webm;codecs=opus;base64,AAAA" });
     });

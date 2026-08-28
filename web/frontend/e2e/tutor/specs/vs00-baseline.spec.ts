@@ -19,12 +19,16 @@ import * as path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 import {
+  ACTIVE_TASKS,
+  continueThroughNarration,
   e2eTimeout,
   expectNoTruthLeak,
   installTutorHarness,
   loadGoldenPlan,
   prepareStudent,
   progressUntilWorkspace,
+  sessionId,
+  waitForTutorState,
 } from "./tutorHarness";
 
 /** 证据落盘目录（REQ-05：trace/screenshot/a11y/View/response 摘要均留文件）。 */
@@ -34,8 +38,12 @@ const writeEvidence = (name: string, body: string): void => {
   fs.writeFileSync(path.join(EVIDENCE_DIR, name), body);
 };
 
-/** ADR-009 golden reference task（taskId 是路由参数，非硬编码内容 id）。 */
-const GOLDEN_TASK_ID = "auxiliaryTwoRatios";
+/** ADR-009 golden reference task（taskId 是路由参数，非硬编码内容 id）。
+ *  VS1：golden 任务集运行时（TUTOR_E2E_TASK_SET=golden）无该合成任务，
+ *  回落第一个 active task——reference 语义（真实入口/六区域/生命周期）
+ *  不依赖具体题目。 */
+const REFERENCE_TASK = ACTIVE_TASKS.find((entry) => entry.taskId === "auxiliaryTwoRatios") ?? ACTIVE_TASKS[0];
+const GOLDEN_TASK_ID = REFERENCE_TASK.taskId;
 const LEGACY_TASK_ID = "meaning";
 const UNKNOWN_TASK_ID = "no-such-vnext-task";
 
@@ -44,7 +52,8 @@ const diagnostics = (page: Page) => page.getByTestId("acceptance-diagnostics");
 
 async function waitForReadyTutor(page: Page, timeout = 90_000): Promise<void> {
   await expect(page.getByTestId("page-lifecycle")).toHaveAttribute("data-lifecycle", "ready", { timeout: e2eTimeout(timeout) });
-  await expect(page.getByTestId("tutor-session-id")).toBeVisible({ timeout: e2eTimeout(timeout) });
+  // remediation-2：就绪锚 = 页面根会话 id 属性非空（canonical Coach 无 session id 文本节点）。
+  await expect(page.locator(".tutor-learn-page[data-session-id]")).not.toHaveAttribute("data-session-id", "", { timeout: e2eTimeout(timeout) });
 }
 
 // REQ-05：基线用例始终留 trace（trace 强制新 worker，必须文件顶层声明）。
@@ -77,19 +86,25 @@ test.describe("VS0 前端验收基线（golden reference: auxiliaryTwoRatios）"
     await expect(diagnostics(page)).toHaveAttribute("data-task-id", GOLDEN_TASK_ID);
     await expect(diagnostics(page)).toHaveAttribute("data-fallback", "false");
     await expect(diagnostics(page)).toBeVisible();
-    const sessionId = await page.getByTestId("tutor-session-id").innerText();
+    const currentSessionId = await sessionId(page);
 
-    // 2. 开场区域（REQ-02）：Question / Tutor / Status / Participation。
+    // 2. 开场区域（REQ-02）：Question / Tutor / Status（canonical Coach 头）。
     await expect(page.getByTestId("region-question")).toBeVisible();
     await expect(page.getByTestId("region-tutor")).toBeVisible();
     await expect(page.getByTestId("region-status")).toBeVisible();
+    // Participation（主线回答入口）在呈现队列走完后出现（Presenting→
+    // ReadyToContinue→AwaitingAnswer，ADR-010 §7）。
+    await continueThroughNarration(page);
+    await waitForTutorState(page, "awaitingInput", 60_000).catch(() => undefined);
     await expect(page.getByTestId("region-participation")).toBeVisible();
-    // 开场题图（有 geometry 时）也登记为 geometry 区域。
-    const openingFigure = page.locator(".tutor-learn-figure [data-testid=region-geometry]");
-    if (await openingFigure.count()) await expect(openingFigure.first()).toBeVisible();
+    await expect(page.getByTestId("coach-progress")).toBeVisible();
+    // VS1 remediation：讲解画布在 canonical StudentWorkspaceFrame 内，
+    // region-geometry 由 Frame 提供（.tutor-learn-figure 已删除）。
+    const openingGeometry = page.locator(".student-workspace-frame [data-testid=region-geometry]");
+    if (await openingGeometry.count()) await expect(openingGeometry.first()).toBeVisible();
 
     // 3. 推进到 workspace：Geometry 与 Solution Board 双 surface 同 workspace。
-    const plan = loadGoldenPlan("TP-E2E-002");
+    const plan = loadGoldenPlan(REFERENCE_TASK.tpId);
     await progressUntilWorkspace(page, plan);
     await expect(page.getByTestId("action-runtime-workspace")).toBeVisible();
     await expect(page.getByTestId("region-geometry")).toBeVisible();
@@ -132,7 +147,7 @@ test.describe("VS0 前端验收基线（golden reference: auxiliaryTwoRatios）"
     // 6. 刷新基线：?session= 恢复同一会话（不靠内存重建）。
     await page.reload();
     await waitForReadyTutor(page, 60_000);
-    await expect(page.getByTestId("tutor-session-id")).toHaveText(sessionId, { timeout: 30_000 });
+    await expect(page.locator(".tutor-learn-page[data-session-id]")).toHaveAttribute("data-session-id", currentSessionId, { timeout: 30_000 });
     await expect(page.getByTestId("action-runtime-workspace")).toBeVisible({ timeout: e2eTimeout(20_000) });
 
     await testInfo.attach("vs00-response-summary", {
@@ -165,8 +180,11 @@ test.describe("VS0 前端验收基线（golden reference: auxiliaryTwoRatios）"
     });
     expect(order.length).toBeGreaterThanOrEqual(3);
 
-    // dock rail 展开后参与入口仍可操作（不变量 3：不遮挡参与）。
-    const composerInput = page.getByLabel(/回答输入|提问输入/).first();
+    // dock rail 展开后参与入口仍可操作（不变量 3：不遮挡参与）——先放行
+    // 开场话术队列，回答入口出现（remediation-2：Participation 双通道）。
+    await continueThroughNarration(page);
+    await waitForTutorState(page, "awaitingInput", 60_000).catch(() => undefined);
+    const composerInput = page.getByLabel("回答输入");
     await expect(composerInput).toBeVisible({ timeout: e2eTimeout(20_000) });
     await composerInput.click();
     await expect(composerInput).toBeFocused();
@@ -224,7 +242,7 @@ test.describe("VS0 前端验收基线（golden reference: auxiliaryTwoRatios）"
     await page.goto(`/learn/${GOLDEN_TASK_ID}?acceptance=1`);
     await expect(page.getByTestId("page-lifecycle")).toHaveAttribute("data-lifecycle", "error", { timeout: 30_000 });
     await expect(page.getByTestId("page-lifecycle-error-detail")).toContainText("Invalid tutor experience response");
-    await expect(page.getByTestId("tutor-session-id")).toHaveCount(0);
+    await expect(page.locator(".tutor-learn-page[data-session-id]")).toHaveCount(0);
     expectNoTruthLeak(page);
   });
 
@@ -236,7 +254,7 @@ test.describe("VS0 前端验收基线（golden reference: auxiliaryTwoRatios）"
     await expect(page.getByTestId("acceptance-diagnostics")).toHaveAttribute("data-route", "legacy", { timeout: 30_000 });
     await expect(page.getByTestId("page-lifecycle")).toHaveAttribute("data-lifecycle", "ready", { timeout: 30_000 });
     // legacy 分支不出现 tutor 会话面（防静默 fallback 的另一半）。
-    await expect(page.getByTestId("tutor-session-id")).toHaveCount(0);
+    await expect(page.locator(".tutor-learn-page[data-session-id]")).toHaveCount(0);
     await expect(page.locator(".ks-focus-workspace").first()).toBeVisible();
     expectNoTruthLeak(page);
   });

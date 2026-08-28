@@ -14,6 +14,7 @@ import {
   alternateUtterance,
   answer,
   ask,
+  continueThroughNarration,
   currentCheckpoint,
   deviationUtterance,
   e2eTimeout,
@@ -32,9 +33,21 @@ interface ScriptDriver {
   run(page: import("@playwright/test").Page, task: (typeof ACTIVE_TASKS)[number], plan: ReturnType<typeof loadGoldenPlan>): Promise<void>;
 }
 
+/** remediation-2：回答/提问后先放行新回合话术队列，再等静息。 */
+async function answerAndContinue(page: import("@playwright/test").Page, text: string): Promise<void> {
+  await answer(page, text);
+  await continueThroughNarration(page);
+}
+
+async function askAndContinue(page: import("@playwright/test").Page, text: string): Promise<void> {
+  await ask(page, text);
+  await continueThroughNarration(page);
+}
+
 async function openSession(page: import("@playwright/test").Page, taskId: string): Promise<void> {
   await page.goto(`/learn/${taskId}`);
-  await expect(page.getByTestId("tutor-session-id")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".tutor-learn-page[data-session-id]")).not.toHaveAttribute("data-session-id", "", { timeout: 30_000 });
+  await continueThroughNarration(page);
   await waitForTutorState(page, "awaitingInput");
   await expect(page.locator(".ks-app-shell")).toBeVisible();
 }
@@ -49,9 +62,9 @@ const SCRIPTS: ScriptDriver[] = [
     title: "答对→confirm；卡住→prompt/hint 阶梯",
     async run(page, _task, plan) {
       const expected = expectedFor(plan);
-      await answer(page, expected(await currentCheckpoint(page)));
-      await expect(page.getByTestId("tutor-transcript")).toContainText(/对，|成立|借助提示|很好/, { timeout: e2eTimeout(20_000) });
-      await answer(page, deviationUtterance(plan));
+      await answerAndContinue(page, expected(await currentCheckpoint(page)));
+      await expect(page.locator("[aria-label='答疑对话']")).toContainText(/对，|成立|借助提示|很好/, { timeout: e2eTimeout(20_000) });
+      await answerAndContinue(page, deviationUtterance(plan));
       await waitForTutorState(page, "awaitingInput");
     },
   },
@@ -59,7 +72,7 @@ const SCRIPTS: ScriptDriver[] = [
     id: "S2",
     title: "提问打断→Explain 回答",
     async run(page) {
-      await ask(page, "这一步的关键条件是什么？");
+      await askAndContinue(page, "这一步的关键条件是什么？");
       await waitForTutorState(page, "awaitingInput");
     },
   },
@@ -68,9 +81,9 @@ const SCRIPTS: ScriptDriver[] = [
     title: "口述正确路径→最小呈现",
     async run(page, _task, plan) {
       const expected = expectedFor(plan);
-      await answer(page, expected(await currentCheckpoint(page)));
+      await answerAndContinue(page, expected(await currentCheckpoint(page)));
       await waitForTutorState(page, "awaitingInput");
-      const transcript = await page.locator("[data-testid=tutor-transcript] p").count();
+      const transcript = await page.locator("[aria-label='答疑对话'] .topic-coach-turn").count();
       expect(transcript).toBeGreaterThan(0);
     },
   },
@@ -79,10 +92,10 @@ const SCRIPTS: ScriptDriver[] = [
     title: "失败尝试后 Hint 利用历史（阶梯不重置）",
     async run(page, _task, plan) {
       for (let index = 0; index < 3; index += 1) {
-        await answer(page, deviationUtterance(plan));
+        await answerAndContinue(page, deviationUtterance(plan));
         await waitForTutorState(page, "awaitingInput");
       }
-      await answer(page, deviationUtterance(plan));
+      await answerAndContinue(page, deviationUtterance(plan));
       await waitForTutorState(page, "awaitingInput");
     },
   },
@@ -91,7 +104,7 @@ const SCRIPTS: ScriptDriver[] = [
     title: "推进后因果链在 UI 进度可见",
     async run(page, _task, plan) {
       const before = await currentCheckpoint(page);
-      await answer(page, expectedFor(plan)(before));
+      await answerAndContinue(page, expectedFor(plan)(before));
       await waitForTutorState(page, "awaitingInput");
       const after = await currentCheckpoint(page);
       expect(after).toBeTruthy();
@@ -101,9 +114,9 @@ const SCRIPTS: ScriptDriver[] = [
     id: "S6",
     title: "偏差后自答（自我修正不记为 Tutor 纠正）",
     async run(page, _task, plan) {
-      await answer(page, deviationUtterance(plan));
+      await answerAndContinue(page, deviationUtterance(plan));
       await waitForTutorState(page, "awaitingInput");
-      await answer(page, expectedFor(plan)(await currentCheckpoint(page)));
+      await answerAndContinue(page, expectedFor(plan)(await currentCheckpoint(page)));
       await waitForTutorState(page, "awaitingInput");
     },
   },
@@ -113,16 +126,16 @@ const SCRIPTS: ScriptDriver[] = [
     async run(page, _task, plan) {
       const alternate = alternateUtterance(plan);
       test.skip(!alternate, "无 alternate 路线");
-      await answer(page, alternate!);
+      await answerAndContinue(page, alternate!);
       // 波次 C-2 裁定 2：confirm 续走可能已签发操作步（标签与画布同源）。
-      await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|轮到你操作/, { timeout: e2eTimeout(20_000) });
+      await expect(page.locator("[data-tutor-phase]")).toHaveAttribute("data-tutor-phase", /awaitingInput|workspaceActive/, { timeout: e2eTimeout(20_000) });
     },
   },
   {
     id: "S8",
     title: "Confirm 只说话、Wait 零动作",
     async run(page, _task, plan) {
-      await answer(page, expectedFor(plan)(await currentCheckpoint(page)));
+      await answerAndContinue(page, expectedFor(plan)(await currentCheckpoint(page)));
       await waitForTutorState(page, "awaitingInput");
       expect(await page.getByTestId("action-runtime-workspace").count()).toBe(0);
     },
@@ -156,7 +169,7 @@ const SCRIPTS: ScriptDriver[] = [
     title: "连续含糊/无进展走 wait/prompt 阶梯（浏览器面）",
     async run(page) {
       for (let index = 0; index < 3; index += 1) {
-        await answer(page, "嗯……不知道");
+        await answerAndContinue(page, "嗯……不知道");
         await waitForTutorState(page, "awaitingInput");
       }
     },
@@ -166,10 +179,10 @@ const SCRIPTS: ScriptDriver[] = [
     title: "多级提示后自答回到正轨",
     async run(page, _task, plan) {
       for (let index = 0; index < 4; index += 1) {
-        await answer(page, deviationUtterance(plan));
+        await answerAndContinue(page, deviationUtterance(plan));
         await waitForTutorState(page, "awaitingInput");
       }
-      await answer(page, expectedFor(plan)(await currentCheckpoint(page)));
+      await answerAndContinue(page, expectedFor(plan)(await currentCheckpoint(page)));
       await waitForTutorState(page, "awaitingInput");
     },
   },
@@ -193,8 +206,9 @@ const SCRIPTS: ScriptDriver[] = [
         });
       }
       await submitWorkspace(page, task, value);
+      await continueThroughNarration(page);
       // 波次 F：画布点选真实提交后恢复严格口径——完成态 = evidence 被接受。
-      await expect(page.getByTestId("tutor-state")).toContainText(/等你发言|完成/, { timeout: e2eTimeout(25_000) });
+      await expect(page.locator("[data-tutor-phase]")).toHaveAttribute("data-tutor-phase", /awaitingInput|completed/, { timeout: e2eTimeout(25_000) });
     },
   },
 ];

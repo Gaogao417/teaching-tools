@@ -105,6 +105,11 @@ describe("单回合多 checkpoint 压缩推进（波次 G 任务 5 / 反馈 (c)�
     expect((decisionEvent?.payload as { checkpoint_id?: string }).checkpoint_id).toBe(part1[1].checkpoint_id);
     // 课程停在第 3 步（结论操作步，等结构化证据）。
     expect(turn.current_checkpoint.checkpoint_id).toBe(part1[2].checkpoint_id);
+    // VS1 remediation-2（B3a）：拍点全局序号/总数只读投影（跨 part 连续、
+    // 1-based；title 缺省不下发，由前端按 part 派生）。
+    expect(turn.current_checkpoint.index).toBe(3);
+    expect(turn.current_checkpoint.total).toBe(plan.checkpoints.length);
+    expect(turn.current_checkpoint.title).toBeUndefined();
     // 接地叙事按压缩后进度说话（已过 2/3）。
     expect(turn.voice[0].text).toContain("2/3");
   });

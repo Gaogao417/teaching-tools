@@ -133,6 +133,9 @@ export function tutorOpeningBody(
       interruptible: voice.interruptible,
     })),
     workspace: turn.presentation.workspace,
+    // VS1：开场（session start）与 turn/recovery 同一 View（REQ-02）；直取
+    // session view 的投影——与刷新路径同源同 revision。
+    workspace_view: view.workspace_view,
     question_completed: view.question_completed ?? false,
     event_cursor: view.event_cursor,
   };

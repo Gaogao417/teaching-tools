@@ -1,5 +1,9 @@
 /**
- * Phase 5 UI 集成（波次 C）：shared tutorExperience 合同 guards 测试。
+ * Phase 5 UI 集成（波次 C）+ VS1（mvp/vs-01）：shared 合同 guards 测试。
+ *
+ * VS1 增补：`workspace_view`（统一 StudentWorkspaceView）必填——缺字段、
+ * canvas/board slice 携带独立 revision、非法 participation mode 均拒绝
+ * （AC-05：缺字段/双 revision/非法状态 fail-closed）。
  */
 import { describe, expect, it } from "vitest";
 
@@ -9,6 +13,21 @@ import {
   isTutorTurnResponse,
   type TutorTurnResponse,
 } from "../../../shared/tutorExperience";
+import {
+  isStudentWorkspaceView,
+  type StudentWorkspaceView,
+} from "../../../shared/studentWorkspace";
+
+function workspaceView(overrides: Partial<StudentWorkspaceView> = {}): StudentWorkspaceView {
+  return {
+    sessionId: "TS-1001",
+    revision: 3,
+    canvas: {},
+    solutionBoard: { headingLatex: "解：", visibleExpressions: [] },
+    participation: { mode: "respond" },
+    ...overrides,
+  };
+}
 
 const BASE_TURN: TutorTurnResponse = {
   session_id: "TS-1001",
@@ -16,10 +35,11 @@ const BASE_TURN: TutorTurnResponse = {
   client_turn_id: "turn-1",
   idempotent_replay: false,
   mode: "teach",
-  current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1" },
+  current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1", index: 1, total: 3 },
   decision: null,
   voice: [{ action_id: "VA-1", text: "我们先看这一问。", interruptible: true }],
   workspace: [],
+  workspace_view: workspaceView(),
   event_cursor: 12,
 };
 
@@ -31,7 +51,60 @@ describe("tutorExperience guards", () => {
     expect(isTutorTurnResponse({ ...BASE_TURN, voice: [{ action_id: "VA-1" }] })).toBe(false);
   });
 
-  it("isTutorTurnResponse：workspace 携带 action_plan 通过（服务端完整学生安全计划）", () => {
+  it("VS1 AC-05：缺 workspace_view / 非法 workspace_view → turn 与 session view 均拒绝", () => {
+    const { workspace_view: _drop, ...turnWithoutView } = BASE_TURN;
+    expect(isTutorTurnResponse(turnWithoutView)).toBe(false);
+    // canvas slice 携带独立 revision（REQ-05 双 revision）→ 拒绝。
+    expect(isTutorTurnResponse({
+      ...BASE_TURN,
+      workspace_view: workspaceView({ canvas: { revision: 9 } as StudentWorkspaceView["canvas"] }),
+    })).toBe(false);
+    // solutionBoard slice 携带独立 revision → 拒绝。
+    expect(isTutorTurnResponse({
+      ...BASE_TURN,
+      workspace_view: workspaceView({ solutionBoard: { headingLatex: "解：", visibleExpressions: [], revision: 9 } as unknown as StudentWorkspaceView["solutionBoard"] }),
+    })).toBe(false);
+    // 非法 participation mode → 拒绝。
+    expect(isTutorTurnResponse({
+      ...BASE_TURN,
+      workspace_view: workspaceView({ participation: { mode: "flying" as "operate" } }),
+    })).toBe(false);
+    // 板书行缺 latex/isComplete → 拒绝。
+    expect(isTutorTurnResponse({
+      ...BASE_TURN,
+      workspace_view: workspaceView({
+        solutionBoard: { headingLatex: "解：", visibleExpressions: [{ expressionId: "E1", sourceStepId: "s1", latex: "x" } as never] },
+      }),
+    })).toBe(false);
+    expect(isTutorTurnResponse({
+      ...BASE_TURN,
+      workspace_view: workspaceView({ solutionBoard: { visibleExpressions: [] } as never }),
+    })).toBe(false);
+    expect(isTutorSessionView({
+      session_id: "TS-1001", revision: 3, mode: "teach", completed: false,
+      current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1", index: 1, total: 3 },
+      pending_voice: [], pending_workspace: [], event_cursor: 5,
+    })).toBe(false);
+  });
+
+  it("isStudentWorkspaceView：operate 态携带 activeAction 计划通过；缺 plan 拒绝", () => {
+    const plan = {
+      planVersion: 5 as const, exerciseId: "tutor:X:a", revision: 1, mode: "assessment" as const,
+      metadata: { taskId: "task-1", title: "t", promptLatex: "p", skillTags: [] },
+      world: { revision: 1 },
+      coach: { profileId: "c", displayName: "老师", avatarId: "school", tone: "supportive" as const },
+      actions: [],
+      currentActionId: "a", completedActionIds: [],
+    };
+    expect(isStudentWorkspaceView(workspaceView({
+      participation: { mode: "operate", activeAction: { actionId: "WA-1", plan } },
+    }))).toBe(true);
+    expect(isStudentWorkspaceView(workspaceView({
+      participation: { mode: "operate", activeAction: { actionId: "WA-1" } as never },
+    }))).toBe(false);
+  });
+
+  it("isTutorTurnResponse：workspace 携带 action_plan 通过（服务端完整学生安全计划；legacy 字段冻结期）", () => {
     const turn: TutorTurnResponse = {
       ...BASE_TURN,
       workspace: [{
@@ -65,12 +138,12 @@ describe("tutorExperience guards", () => {
     expect(isTutorTurnResponse(turn)).toBe(true);
   });
 
-  it("isTutorSessionView：恢复视图（含 question/task_id 扩展字段）", () => {
+  it("isTutorSessionView：恢复视图（含 question/task_id 扩展字段 + workspace_view）", () => {
     expect(isTutorSessionView({
       session_id: "TS-1001", revision: 3, mode: "teach", completed: false,
       question_completed: false,
-      current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1" },
-      pending_voice: [], pending_workspace: [], event_cursor: 5,
+      current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1", index: 1, total: 3 },
+      pending_voice: [], pending_workspace: [], workspace_view: workspaceView(), event_cursor: 5,
       task_id: "task-1",
       question: { artifact_id: "QT-1", stem: "题干", subquestions: [] },
       alternates_available: true,

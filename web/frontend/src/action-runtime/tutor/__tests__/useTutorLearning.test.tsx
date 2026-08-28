@@ -1,13 +1,16 @@
 /**
- * Phase 5 UI 集成（波次 C / C-2）：useTutorLearning 控制器测试（mock
- * api/narration）。
+ * Phase 5 UI 集成（波次 C / C-2）+ VS1（mvp/vs-01）useTutorLearning 测试
+ * （mock api/narration）。
  *
  * 覆盖：/experience 启动（tutor/legacy）、opening narration（TTS 不可用 →
  * failed 上报 + 续走）、回答/提交通一输入合同、SubmitEvidence transport、
- * 刷新恢复（pending workspace）、换讲法（switchFromSessionId）、题目完成
- * （question_completed → /complete）；波次 C-2 裁定 2 phase 推导回归——
- * 播放期间标签与画布形态一致、restore 后 workspaceActive 不被空回合清掉、
- * barge-in → interrupted → resume 链。
+ * 刷新恢复（统一 workspace_view）、换讲法（switchFromSessionId）、题目完成
+ * （question_completed → /complete）；phase 推导回归——播放期间标签与画布
+ * 形态一致、空 workspace 回合不清画布（服务端统一 View 口径）、barge-in →
+ * interrupted → resume 链。
+ *
+ * VS1 增补：workspace_view 是唯一 Workspace 消费面（turn 期间不再 GET
+ * 回读拼装 pending_workspace）；schema 非法 → recoverable error（REQ-08）。
  */
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -33,7 +36,14 @@ const narrationHarness = vi.hoisted(() => ({
     for (const listener of this.listeners) listener({ status });
   },
 }));
+/** VS1 REQ-08：与真实 client 同形——schema 校验失败抛可识别错误类型
+ *  （hoisted 供测试构造同 class 实例，保证 instanceof 判定）。 */
+const { ResponseSchemaErrorMock } = vi.hoisted(() => {
+  class ResponseSchemaErrorMock extends Error {}
+  return { ResponseSchemaErrorMock };
+});
 vi.mock("../../../api/client", () => ({
+  ResponseSchemaError: ResponseSchemaErrorMock,
   api: {
     startLearnExperience,
     getTutorSession,
@@ -77,21 +87,14 @@ import type { TaskId } from "../../../../../shared/contracts";
 
 const TUTOR_TASK = "task-tutor-1" as TaskId;
 import type { TutorExperienceResponse, TutorTurnResponse } from "../../../../../shared/tutorExperience";
+import type { StudentWorkspaceView } from "../../../../../shared/studentWorkspace";
+import { studentWorkspaceViewFixture, tutorTurnFixture } from "../tutorTestFixtures";
 
 function turn(overrides: Partial<TutorTurnResponse> = {}): TutorTurnResponse {
-  return {
-    session_id: "TS-5001",
-    revision: 2,
-    client_turn_id: "system.open",
-    idempotent_replay: false,
-    mode: "teach",
-    current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1" },
-    decision: null,
+  return tutorTurnFixture({
     voice: [{ action_id: "VA-1", text: "我们先看这一问。", interruptible: true }],
-    workspace: [],
-    event_cursor: 3,
     ...overrides,
-  };
+  });
 }
 
 function experience(overrides: Partial<TutorExperienceResponse> = {}): TutorExperienceResponse {
@@ -105,6 +108,37 @@ function experience(overrides: Partial<TutorExperienceResponse> = {}): TutorExpe
     opening: turn(),
     ...overrides,
   };
+}
+
+/** 操作步计划（assessment 形态学生安全 plan；与旧 workspace 条目的
+ *  action_plan 同形状——VS1 起经统一 View 的 participation 槽下发）。 */
+function operationPlan() {
+  return {
+    planVersion: 5 as const, exerciseId: "tutor:TP-1:a", revision: 1, mode: "assessment" as const,
+    metadata: { taskId: "task-tutor-1", title: "t", promptLatex: "p", skillTags: [] },
+    world: { revision: 1 },
+    coach: { profileId: "c", displayName: "老师", avatarId: "school", tone: "supportive" as const },
+    actions: [{
+      actionId: "tp:TP-1:1:enter-text", sourceStepId: "S3", kind: "enter-text" as const, version: 1 as const,
+      title: "本题结论", instruction: "写出结论", input: { placeholder: "写出结论" },
+      capabilities: [], answerSlots: [{ id: "value", label: "本题结论", kind: "text" as const, required: true }],
+      validationPolicy: "server-authoritative" as const, submitOnComplete: true,
+    }],
+    currentActionId: "tp:TP-1:1:enter-text", completedActionIds: [],
+    runtimeCapabilities: {
+      practiceValidation: "server-authoritative" as const, trainingSync: "local-only" as const,
+      narrationTransport: "off" as const, coachTurnTransport: "request-response" as const, liveCoach: false,
+    },
+  };
+}
+
+/** 统一 View 的 operate 态夹具（含 activeAction 操作步）。 */
+function operateWorkspaceView(overrides: Partial<StudentWorkspaceView> = {}): StudentWorkspaceView {
+  return studentWorkspaceViewFixture({
+    revision: 5,
+    participation: { mode: "operate", activeAction: { actionId: "WA-9", plan: operationPlan() } },
+    ...overrides,
+  });
 }
 
 type Tutor = ReturnType<typeof useTutorLearning>;
@@ -134,7 +168,7 @@ describe("useTutorLearning", () => {
     narrationHarness.listeners.clear();
   });
 
-  it("start：tutor 体验 → 会话/题目就位；TTS 不可用 → voice failed 上报并回到等输入", async () => {
+  it("start：tutor 体验 → 会话/题目就位（统一 View 采用）；TTS 不可用 → voice failed 上报并回到等输入", async () => {
     startLearnExperience.mockResolvedValue(experience());
     completeTutorVoice.mockResolvedValue(null);
     const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
@@ -143,6 +177,9 @@ describe("useTutorLearning", () => {
     expect(startLearnExperience).toHaveBeenCalledWith("task-tutor-1", { studentId: "student-1" });
     expect(tutor().sessionId).toBe("TS-5001");
     expect(tutor().question?.stem).toContain("相似");
+    // VS1：opening 的 workspace_view 已采用（respond 态、与 revision 同源）。
+    expect(tutor().workspaceView?.revision).toBe(2);
+    expect(tutor().workspaceView?.participation.mode).toBe("respond");
     // TTS failed → completeTutorVoice(failed) 上报，流程不悬挂。
     await vi.waitFor(() => expect(completeTutorVoice).toHaveBeenCalledWith("TS-5001", "VA-1", "failed"));
     await vi.waitFor(() => expect(tutor().phase).toBe("awaitingInput"));
@@ -150,7 +187,7 @@ describe("useTutorLearning", () => {
     unmount();
   });
 
-  it("submitStudentInput：回答/提问走同一输入合同（revision 携带）", async () => {
+  it("submitStudentInput：回答/提问走同一输入合同（revision 携带；turn 期间不 GET 回读）", async () => {
     startLearnExperience.mockResolvedValue(experience());
     completeTutorVoice.mockResolvedValue(null);
     const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
@@ -166,6 +203,8 @@ describe("useTutorLearning", () => {
       { input_kind: "reasoning_utterance", text: "内错角相等" },
     );
     expect(tutor().transcript.some((entry) => entry.role === "student" && entry.text.includes("内错角"))).toBe(true);
+    // VS1：workspace 状态只来自 turn 响应的统一 View，无 GET 回读拼装。
+    expect(getTutorSession).not.toHaveBeenCalled();
 
     submitTutorTurn.mockResolvedValue(turn({ client_turn_id: "t-question", voice: [], workspace: [] }));
     await act(async () => { await tutor().submitStudentInput({ input_kind: "question_asked", text: "为什么要看这两个三角形？" }); });
@@ -214,49 +253,41 @@ describe("useTutorLearning", () => {
     unmount();
   });
 
-  it("restore：pending workspace 恢复（不靠内存重建）", async () => {
+  it("restore：统一 View 恢复（operate 态 workspaceActive；不靠内存重建）", async () => {
+    const restoredView = operateWorkspaceView({ sessionId: "TS-5002", revision: 7 });
     getTutorSession.mockResolvedValue({
       session_id: "TS-5002", revision: 7, mode: "teach", completed: false, question_completed: false,
-      current_checkpoint: { checkpoint_id: "CP3", part_id: "1", route_id: "R1" },
+      current_checkpoint: { checkpoint_id: "CP3", part_id: "1", route_id: "R1", index: 3, total: 3 },
       pending_voice: [],
-      pending_workspace: [{
-        action_id: "WA-9", decision_id: "TD-9", capability: "action.enter-text", target_ids: [],
-        resource_id: "RES9", action_ref: "tp:TP-1:1:enter-text",
-        student_view: {
-          actionId: "tp:TP-1:1:enter-text", sourceStepId: "S3", kind: "enter-text", version: 1,
-          title: "本题结论", instruction: "写出结论", input: { placeholder: "写出结论" },
-          capabilities: [], answerSlots: [], validationPolicy: "server-authoritative", submitOnComplete: true,
-        },
-        action_plan: {
-          planVersion: 5, exerciseId: "tutor:TP-1:a", revision: 1, mode: "assessment",
-          metadata: { taskId: "task-tutor-1", title: "t", promptLatex: "p", skillTags: [] },
-          world: { revision: 1 },
-          coach: { profileId: "c", displayName: "老师", avatarId: "school", tone: "supportive" },
-          actions: [{
-            actionId: "tp:TP-1:1:enter-text", sourceStepId: "S3", kind: "enter-text", version: 1,
-            title: "本题结论", instruction: "写出结论", input: { placeholder: "写出结论" },
-            capabilities: [], answerSlots: [{ id: "value", label: "本题结论", kind: "text", required: true }],
-            validationPolicy: "server-authoritative", submitOnComplete: true,
-          }],
-          currentActionId: "tp:TP-1:1:enter-text", completedActionIds: [],
-          runtimeCapabilities: {
-            practiceValidation: "server-authoritative", trainingSync: "local-only",
-            narrationTransport: "off", coachTurnTransport: "request-response", liveCoach: false,
-          },
-        },
-      }],
+      pending_workspace: [],
+      workspace_view: restoredView,
       event_cursor: 20,
       task_id: "task-tutor-1",
       question: { artifact_id: "QT-1", stem: "如图，求证相似。", subquestions: [] },
       alternates_available: false,
     });
     const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1", restoreSessionId: "TS-5002" });
-    let restored = false;
-    await act(async () => { restored = await tutor().restore("TS-5002"); });
-    expect(restored).toBe(true);
+    let outcome: string | undefined;
+    await act(async () => { outcome = await tutor().restore("TS-5002"); });
+    expect(outcome).toBe("restored");
     expect(tutor().phase).toBe("workspaceActive");
-    expect(tutor().workspace).toHaveLength(1);
-    expect(tutor().workspace[0].action_plan.actions[0].kind).toBe("enter-text");
+    expect(tutor().workspaceView).toEqual(restoredView);
+    expect(tutor().activeOperation?.plan.actions[0].kind).toBe("enter-text");
+    unmount();
+  });
+
+  it("VS1 REQ-08：session view schema 非法（缺 workspace_view）→ invalid（recoverable error，不静默重开）", async () => {
+    // 剥掉 workspace_view 的「旧形状」响应——真实 api client guard 会抛
+    // ResponseSchemaError；mock 直接复现该行为语义。
+    getTutorSession.mockRejectedValue(new ResponseSchemaErrorMock("Invalid tutor session view"));
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1", restoreSessionId: "TS-5002" });
+    let outcome: string | undefined;
+    await act(async () => { outcome = await tutor().restore("TS-5002"); });
+    expect(outcome).toBe("invalid");
+    // recoverable error 显示（phase=recovering）；不触发重开（start 未调用）。
+    expect(tutor().error).toContain("Invalid tutor session view");
+    expect(tutor().phase).toBe("recovering");
+    expect(startLearnExperience).not.toHaveBeenCalled();
     unmount();
   });
 
@@ -315,58 +346,10 @@ describe("useTutorLearning", () => {
   });
 
   // ----------------------------------------------------------------- //
-  // 波次 C-2 裁定 2：phase 推导回归
+  // 波次 C-2 裁定 2：phase 推导回归（VS1 口径：读统一 View 的 participation）
   // ----------------------------------------------------------------- //
 
-  function workspaceAction(overrides: Record<string, unknown> = {}): TutorTurnResponse["workspace"][number] {
-    return {
-      action_id: "WA-9",
-      decision_id: "TD-9",
-      capability: "action.enter-text",
-      target_ids: [],
-      resource_id: "RES9",
-      action_ref: "tp:TP-1:1:enter-text",
-      student_view: {
-        actionId: "tp:TP-1:1:enter-text", sourceStepId: "S3", kind: "enter-text", version: 1,
-        title: "本题结论", instruction: "写出结论", input: { placeholder: "写出结论" },
-        capabilities: [], answerSlots: [], validationPolicy: "server-authoritative", submitOnComplete: true,
-      },
-      action_plan: {
-        planVersion: 5, exerciseId: "tutor:TP-1:a", revision: 1, mode: "assessment",
-        metadata: { taskId: "task-tutor-1", title: "t", promptLatex: "p", skillTags: [] },
-        world: { revision: 1 },
-        coach: { profileId: "c", displayName: "老师", avatarId: "school", tone: "supportive" },
-        actions: [{
-          actionId: "tp:TP-1:1:enter-text", sourceStepId: "S3", kind: "enter-text", version: 1,
-          title: "本题结论", instruction: "写出结论", input: { placeholder: "写出结论" },
-          capabilities: [], answerSlots: [{ id: "value", label: "本题结论", kind: "text", required: true }],
-          validationPolicy: "server-authoritative", submitOnComplete: true,
-        }],
-        currentActionId: "tp:TP-1:1:enter-text", completedActionIds: [],
-        runtimeCapabilities: {
-          practiceValidation: "server-authoritative", trainingSync: "local-only",
-          narrationTransport: "off", coachTurnTransport: "request-response", liveCoach: false,
-        },
-      },
-      ...overrides,
-    } as TutorTurnResponse["workspace"][number];
-  }
-
-  function sessionViewWithPendingWorkspace(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-    return {
-      session_id: "TS-5002", revision: 7, mode: "teach", completed: false, question_completed: false,
-      current_checkpoint: { checkpoint_id: "CP3", part_id: "1", route_id: "R1" },
-      pending_voice: [],
-      pending_workspace: [workspaceAction()],
-      event_cursor: 20,
-      task_id: "task-tutor-1",
-      question: { artifact_id: "QT-1", stem: "如图，求证相似。", subquestions: [] },
-      alternates_available: false,
-      ...overrides,
-    };
-  }
-
-  it("phase 推导：播放期间 speaking、播完后标签追上画布（workspace 不因空回合标签脱节）", async () => {
+  it("phase 推导：播放期间 speaking、播完后标签追上画布（空 workspace 回合不清画布）", async () => {
     narrationHarness.audioUrl = "blob:tts";
     startLearnExperience.mockResolvedValue(experience());
     completeTutorVoice.mockResolvedValue(null);
@@ -378,33 +361,35 @@ describe("useTutorLearning", () => {
     narrationHarness.emit("idle");
     await vi.waitFor(() => expect(tutor().phase).toBe("awaitingInput"));
 
-    // 回合 A：签发 workspace（无 voice）→ workspaceActive。
-    const action = workspaceAction();
-    submitTutorTurn.mockResolvedValue(turn({ client_turn_id: "t-ws", voice: [], workspace: [action] }));
+    // 回合 A：服务端统一 View 进入 operate（签发操作步）→ workspaceActive。
+    const operateView = operateWorkspaceView();
+    submitTutorTurn.mockResolvedValue(turn({
+      client_turn_id: "t-ws", voice: [], revision: 5,
+      workspace_view: operateView,
+    }));
     await act(async () => { await tutor().submitStudentInput({ input_kind: "reasoning_utterance", text: "看到了" }); });
     expect(tutor().phase).toBe("workspaceActive");
-    expect(tutor().workspace).toHaveLength(1);
+    expect(tutor().activeOperation?.actionId).toBe("WA-9");
 
-    // 回合 B：老师只讲（voice、workspace 空），pending 重读仍有待操作步——
-    // 播放期间标签 speaking 且画布仍在（同一份事实）。
-    getTutorSession.mockResolvedValue(sessionViewWithPendingWorkspace());
+    // 回合 B：老师只讲（voice、无新操作签发）——服务端 View 仍 operate
+    //（会话权威 pending 步在统一 View 里），播放期间标签 speaking 且
+    // 操作步仍在（同一份事实）；不再 GET 回读。
     submitTutorTurn.mockResolvedValue(turn({
       client_turn_id: "t-talk",
       voice: [{ action_id: "VA-2", text: "注意这两个角。", interruptible: true }],
       workspace: [],
+      workspace_view: operateWorkspaceView({ revision: 6 }),
     }));
-    // 播放会挂起（media 不主动发状态）：提交链不进 act（act 会缓冲作用域内
-    // 更新，中途观察不到 speaking），观察后再推进播放。
     const submission = tutor().submitStudentInput({ input_kind: "reasoning_utterance", text: "内错角" });
     await vi.waitFor(() => expect(tutor().phase).toBe("speaking"));
-    expect(tutor().workspace).toHaveLength(1);
-    // 播完：标签追上画布 → workspaceActive（旧实现的 turn.workspace 尾判
-    // 会给出 awaitingInput，与画布脱节）。
+    expect(tutor().activeOperation?.actionId).toBe("WA-9");
+    expect(getTutorSession).not.toHaveBeenCalled();
+    // 播完：标签追上画布 → workspaceActive。
     narrationHarness.emit("playing");
     narrationHarness.emit("idle");
     await submission;
     await vi.waitFor(() => expect(tutor().phase).toBe("workspaceActive"));
-    expect(tutor().workspace).toHaveLength(1);
+    expect(tutor().workspaceView?.revision).toBe(6);
     unmount();
   });
 
@@ -428,21 +413,162 @@ describe("useTutorLearning", () => {
   });
 
   it("restore 后 workspaceActive：空 workspace 回合不清画布、标签保持一致", async () => {
-    getTutorSession.mockResolvedValue(sessionViewWithPendingWorkspace());
+    const restoredView = operateWorkspaceView({ sessionId: "TS-5002", revision: 7 });
+    getTutorSession.mockResolvedValue({
+      session_id: "TS-5002", revision: 7, mode: "teach", completed: false, question_completed: false,
+      current_checkpoint: { checkpoint_id: "CP3", part_id: "1", route_id: "R1", index: 3, total: 3 },
+      pending_voice: [],
+      pending_workspace: [],
+      workspace_view: restoredView,
+      event_cursor: 20,
+      task_id: "task-tutor-1",
+      question: { artifact_id: "QT-1", stem: "如图，求证相似。", subquestions: [] },
+      alternates_available: false,
+    });
     const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1", restoreSessionId: "TS-5002" });
-    let restored = false;
-    await act(async () => { restored = await tutor().restore("TS-5002"); });
-    expect(restored).toBe(true);
+    let outcome: string | undefined;
+    await act(async () => { outcome = await tutor().restore("TS-5002"); });
+    expect(outcome).toBe("restored");
     expect(tutor().phase).toBe("workspaceActive");
-    expect(tutor().workspace).toHaveLength(1);
+    expect(tutor().activeOperation?.actionId).toBe("WA-9");
 
-    // 学生回答 → 回应回合 workspace 为空，但服务端 pending_workspace 仍在：
-    // 画布保留，标签仍是 workspaceActive（不被空回合清成 awaitingInput）。
+    // 学生回答 → 回应回合 legacy workspace 为空，但服务端统一 View 仍
+    // operate（pending 操作步还在）：画布保留，标签仍是 workspaceActive。
     completeTutorVoice.mockResolvedValue(null);
-    submitTutorTurn.mockResolvedValue(turn({ client_turn_id: "t-after-restore", voice: [], workspace: [] }));
+    submitTutorTurn.mockResolvedValue(turn({
+      client_turn_id: "t-after-restore", voice: [], workspace: [],
+      session_id: "TS-5002", revision: 8,
+      workspace_view: operateWorkspaceView({ sessionId: "TS-5002", revision: 8 }),
+    }));
     await act(async () => { await tutor().submitStudentInput({ input_kind: "reasoning_utterance", text: "AA 判定" }); });
-    expect(tutor().workspace).toHaveLength(1);
+    expect(tutor().activeOperation?.actionId).toBe("WA-9");
     expect(tutor().phase).toBe("workspaceActive");
+    unmount();
+  });
+
+  it("VS1 REQ-06 修复回归：完成链的续走 voice 不丢弃同回合剩余 sibling（无 pending 泄漏）", async () => {
+    startLearnExperience.mockResolvedValue(experience({
+      opening: turn({
+        voice: [
+          { action_id: "VA-1", text: "先看条件。", interruptible: true },
+          { action_id: "VA-2", text: "再看结论方向。", interruptible: true },
+        ],
+      }),
+    }));
+    // VA-1 完成 → 续走回合带 VA-3；VA-2/VA-3 也必须被完成（旧实现丢弃 VA-2）。
+    completeTutorVoice
+      .mockResolvedValueOnce(turn({
+        client_turn_id: "voice.VA-1",
+        voice: [{ action_id: "VA-3", text: "所以我们先证相似。", interruptible: true }],
+      }))
+      .mockResolvedValue(null);
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
+    await act(async () => { await tutor().start(); });
+    // remediation-2 呈现门：VA-1 自动播 → 门（VA-2 在队、VA-3 待续走追加）；
+    // 逐次放行后队列走完。
+    await vi.waitFor(() => expect(tutor().presentation.awaitingContinue).toBe(true));
+    expect(tutor().presentation.playedCount).toBe(1);
+    await act(async () => { tutor().advancePresentation(); });
+    await vi.waitFor(() => expect(tutor().presentation.awaitingContinue).toBe(true));
+    expect(tutor().presentation.playedCount).toBe(2);
+    await act(async () => { tutor().advancePresentation(); });
+    await vi.waitFor(() => expect(tutor().phase).toBe("awaitingInput"));
+    const completedIds = completeTutorVoice.mock.calls.map((call) => call[1]);
+    expect(completedIds).toEqual(["VA-1", "VA-2", "VA-3"]);
+    unmount();
+  });
+
+  it("remediation-2 裁定 2：「明白，继续」放行恰一步——快速双击不双推进、队列耗尽后 no-op", async () => {
+    startLearnExperience.mockResolvedValue(experience({
+      opening: turn({
+        voice: [
+          { action_id: "VA-1", text: "第一段。", interruptible: true },
+          { action_id: "VA-2", text: "第二段。", interruptible: true },
+          { action_id: "VA-3", text: "第三段。", interruptible: true },
+        ],
+      }),
+    }));
+    completeTutorVoice.mockResolvedValue(null);
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
+    await act(async () => { await tutor().start(); });
+    await vi.waitFor(() => expect(tutor().presentation.playedCount).toBe(1));
+    expect(tutor().presentation.awaitingContinue).toBe(true);
+    expect(tutor().presentation.totalCount).toBe(3);
+    // 同步双击：第一次点击已把门置 null，第二次 no-op——只放行一步。
+    act(() => { tutor().advancePresentation(); tutor().advancePresentation(); });
+    await vi.waitFor(() => expect(tutor().presentation.playedCount).toBe(2));
+    expect(tutor().presentation.awaitingContinue).toBe(true);
+    await act(async () => { tutor().advancePresentation(); });
+    await vi.waitFor(() => expect(tutor().phase).toBe("awaitingInput"));
+    expect(completeTutorVoice.mock.calls.map((call) => call[1])).toEqual(["VA-1", "VA-2", "VA-3"]);
+    // 队列耗尽后无门可放：再点不推进（仍 awaitingInput）。
+    act(() => tutor().advancePresentation());
+    expect(tutor().phase).toBe("awaitingInput");
+    expect(tutor().presentation.playedCount).toBe(3);
+    unmount();
+  });
+
+  it("remediation-2 裁定 1：上一拍/回开头=纯回看——零 API 写入、revision/checkpoint 不变", async () => {
+    startLearnExperience.mockResolvedValue(experience({
+      opening: turn({
+        voice: [
+          { action_id: "VA-1", text: "第一段。", interruptible: true },
+          { action_id: "VA-2", text: "第二段。", interruptible: true },
+        ],
+      }),
+    }));
+    completeTutorVoice.mockResolvedValue(null);
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
+    await act(async () => { await tutor().start(); });
+    await vi.waitFor(() => expect(tutor().presentation.awaitingContinue).toBe(true));
+    await act(async () => { tutor().advancePresentation(); });
+    await vi.waitFor(() => expect(tutor().presentation.playedCount).toBe(2));
+    expect(tutor().presentation.currentText).toBe("第二段。");
+    const revisionBefore = tutor().revision;
+    const checkpointBefore = tutor().currentCheckpoint?.checkpoint_id;
+    const completionCalls = completeTutorVoice.mock.calls.length;
+    const submitCalls = submitTutorTurn.mock.calls.length;
+    await act(async () => { await tutor().reviewPreviousNarration(); });
+    // 回看结束：气泡回到当前拍（指针不动）。
+    expect(tutor().presentation.reviewing).toBe(false);
+    expect(tutor().presentation.currentText).toBe("第二段。");
+    // 不二次上报 voice completion、不提交学生输入、revision/checkpoint 不变。
+    expect(completeTutorVoice.mock.calls.length).toBe(completionCalls);
+    expect(submitTutorTurn.mock.calls.length).toBe(submitCalls);
+    expect(tutor().revision).toBe(revisionBefore);
+    expect(tutor().currentCheckpoint?.checkpoint_id).toBe(checkpointBefore);
+    unmount();
+  });
+
+  it("remediation-2：门上等待时学生输入 → 旧队列 abandon（单活跃队列），新回合正常播", async () => {
+    startLearnExperience.mockResolvedValue(experience({
+      opening: turn({
+        voice: [
+          { action_id: "VA-1", text: "第一段。", interruptible: true },
+          { action_id: "VA-2", text: "旧队列剩余段。", interruptible: true },
+        ],
+      }),
+    }));
+    completeTutorVoice.mockResolvedValue(null);
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
+    await act(async () => { await tutor().start(); });
+    await vi.waitFor(() => expect(tutor().presentation.awaitingContinue).toBe(true));
+    submitTutorTurn.mockResolvedValue(turn({
+      client_turn_id: "t-gate-question",
+      revision: 2,
+      voice: [{ action_id: "VB-1", text: "新回合第一段。", interruptible: true }],
+    }));
+    let submission: Promise<void> | undefined;
+    await act(async () => {
+      submission = tutor().submitStudentInput({ input_kind: "question_asked", text: "这一步为什么？" });
+    });
+    // 旧队列的 VA-2 被 abandon：只有 VA-1 与新回合 VB-1 被完成上报。
+    await vi.waitFor(() => expect(tutor().presentation.currentText).toBe("新回合第一段。"));
+    await vi.waitFor(() => expect(tutor().presentation.awaitingContinue).toBe(false));
+    expect(completeTutorVoice.mock.calls.map((call) => call[1])).toEqual(["VA-1", "VB-1"]);
+    await act(async () => { tutor().advancePresentation(); });
+    await act(async () => { await submission; });
+    expect(tutor().phase).toBe("awaitingInput");
     unmount();
   });
 
@@ -458,6 +584,22 @@ describe("useTutorLearning", () => {
     expect(completeTutorVoice).toHaveBeenCalledWith("TS-5001", "VA-1", "interrupted");
     await act(async () => { tutor().resumeFromInterrupt(); });
     expect(tutor().phase).toBe("awaitingInput");
+    unmount();
+  });
+
+  it("VS1 REQ-08：turn 响应缺 workspace_view（guard 拒绝）→ recoverable error，不渲染旧链", async () => {
+    startLearnExperience.mockResolvedValue(experience());
+    completeTutorVoice.mockResolvedValue(null);
+    const { tutor, unmount } = mountHarness({ taskId: TUTOR_TASK, studentId: "student-1" });
+    await act(async () => { await tutor().start(); });
+    await vi.waitFor(() => expect(tutor().phase).toBe("awaitingInput"));
+
+    submitTutorTurn.mockRejectedValue(new ResponseSchemaErrorMock("Invalid tutor turn response"));
+    await act(async () => { await tutor().submitStudentInput({ input_kind: "reasoning_utterance", text: "试试" }); });
+    expect(tutor().error).toContain("Invalid tutor turn response");
+    expect(tutor().phase).toBe("recovering");
+    // 统一 View 未被伪造推进（仍为 opening 版本）。
+    expect(tutor().workspaceView?.revision).toBe(2);
     unmount();
   });
 });

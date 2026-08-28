@@ -1,11 +1,18 @@
 /* VS0 验收诊断条（?acceptance=1 才渲染）——只读信息条，不参与学生布局。
-   独立于 focus-workspace.css 的 shell 布局（ADR-009：诊断不是学生工作台骨架）。 */
+   独立于 focus-workspace.css 的 shell 布局（ADR-009：诊断不是学生工作台骨架）。
+   VS1 remediation：fixed 覆盖层（不占布局流）——诊断条曾把 1440×900 的
+   页面推高出一屏（门禁 9），且它本就是证据采集面而非学生功能。 */
 .acceptance-diagnostics {
+  position: fixed;
+  top: calc(var(--ks-top-nav-height, 64px) + 4px);
+  right: 8px;
+  z-index: 40;
+  max-width: min(560px, 90vw);
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--space-3, 12px);
-  margin: 0 0 var(--space-2, 8px);
+  margin: 0;
   padding: 6px 10px;
   border: 1px dashed var(--ks-border, #9aa5b1);
   border-radius: 8px;

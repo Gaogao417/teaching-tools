@@ -1,12 +1,12 @@
-/* Phase 5 UI 集成（波次 C）：/learn/:taskId 的 Tutor 驱动工作台。
-   复用 ks-focus-page / FocusWorkspace 布局；这里只补右侧一对一老师栏。 */
+/* /learn/:taskId 的 Tutor 驱动工作台（VS1 remediation-2 起 Coach 面为共享
+   canonical TopicCoachPanel——样式主库 practice.css 的 topic-coach-*；本文件
+   只保留 tutor 页作用域的少量补充：dock 让位、会话控件、回答入口、完成页
+   板书回顾。自建 rail/模式切换/快捷 chips 的样式已随交互一并删除。 */
 
 /* 波次 F（a9cde3b 回归修复）：Tutor 页 dock 抽屉展开时画布内容让位。
    dock 抽屉是 overlay（不重排是 legacy 只读画面的设计约定），但 Tutor
-   工作台画布是交互面——几何点选/输入控件被抽屉盖住的区域点不到
-   （探针实证：B 点 rect 落在抽屉下，elementFromPoint 命中 rail 的麦克风
-   按钮）。只在 .tutor-learn-page 作用域内预留抽屉宽度，legacy dock
-   用法（默认收起、只读画面）不受影响。 */
+   工作台画布是交互面——几何点选/输入控件被抽屉盖住的区域点不到。
+   只在 .tutor-learn-page 作用域内预留抽屉宽度，legacy dock 用法不受影响。 */
 .tutor-learn-page .ks-focus-workspace--dock.is-rail-open .ks-focus-canvas {
   padding-right: min(340px, 38%);
   transition: padding-right 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -18,39 +18,11 @@
   }
 }
 
-.tutor-learn-rail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-height: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--color-line);
-  border-radius: 14px;
-  background: var(--color-panel);
-}
-
-.tutor-learn-status {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  font-size: 0.85rem;
-  color: var(--color-muted);
-}
-
-.tutor-learn-status [data-testid="tutor-state"] {
-  font-weight: 600;
-  color: var(--color-ink);
-}
-
-.tutor-learn-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.tutor-learn-controls button {
-  font-size: 0.85rem;
-  padding: 4px 10px;
+/* Panel header 的会话级控件（打断/继续学习/重试/换讲法——canonical 不渲染，
+   tutor 作用域小按钮，不构成第二套 Panel 样式）。 */
+.tutor-session-control {
+  font-size: 0.8rem;
+  padding: 3px 10px;
   border: 1px solid var(--color-line);
   border-radius: 999px;
   background: var(--color-accent-bg);
@@ -58,7 +30,7 @@
   cursor: pointer;
 }
 
-.tutor-learn-controls button:disabled {
+.tutor-session-control:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -75,135 +47,18 @@
   color: var(--color-danger);
 }
 
-.tutor-learn-transcript {
-  flex: 1;
-  min-height: 80px;
-  overflow-y: auto;
+/* 主线回答入口（Mainline Participation，ADR-010：与 Assistance 分离）。 */
+.tutor-participation {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding-right: var(--space-1);
-}
-
-/* 波次 G 任务 1：transcript 降级为可折叠历史流（display:flex 会盖掉
-   hidden 属性的 UA display:none，需显式让位）。 */
-.tutor-learn-transcript[hidden] {
-  display: none;
-}
-
-/* 波次 G 任务 1：老师当前话术主面——topic-coach-bubble（practice.css，
-   含尾巴）之上的 tutor 作用域样式；speaking 态用主色描边 + 徽标脉冲强调。 */
-.tutor-learn-rail .tutor-current-speech {
-  max-width: 100%;
-}
-
-.tutor-learn-rail .tutor-current-speech.is-speaking {
-  border-color: color-mix(in srgb, var(--color-primary) 64%, var(--color-line));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
-}
-
-.tutor-current-speech-badge {
-  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.75rem;
-  color: var(--color-primary);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .tutor-current-speech-badge::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-primary);
-    animation: tutor-current-speech-pulse 1.2s ease-in-out infinite;
-  }
-}
-
-@keyframes tutor-current-speech-pulse {
-  0% { opacity: 0.35; }
-  50% { opacity: 1; }
-  100% { opacity: 0.35; }
-}
-
-.tutor-learn-history {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-height: 0;
-  flex: 1;
-}
-
-.tutor-learn-history-toggle {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 0.8rem;
-  color: var(--color-muted);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 2px 4px;
-}
-
-.tutor-learn-history-toggle .material-symbols-outlined {
-  font-size: 1rem;
-}
-
-.tutor-learn-transcript p {
-  margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.55;
-}
-
-.tutor-learn-transcript .tutor-says b {
-  color: var(--color-primary);
-}
-
-.tutor-learn-transcript .student-says {
-  color: var(--color-slate-700);
-}
-
-.tutor-learn-composer {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-2);
 }
 
-.tutor-learn-composer-mode {
-  display: flex;
-  gap: var(--space-1);
+.tutor-participation input {
+  min-width: 220px;
 }
 
-.tutor-learn-composer-mode button {
-  flex: 1;
-  font-size: 0.85rem;
-  padding: 4px 0;
-  border: 1px solid var(--color-line);
-  border-radius: 8px;
-  background: var(--color-panel);
-  cursor: pointer;
-}
-
-.tutor-learn-composer-mode button.is-active {
-  background: var(--color-accent-bg);
-  color: var(--color-accent-text);
-  border-color: var(--color-primary);
-}
-
-.tutor-learn-composer form {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.tutor-learn-composer input {
-  flex: 1;
-  min-width: 0;
-}
-
-.tutor-learn-composer button {
+.tutor-participation button {
   font-size: 0.85rem;
   padding: 4px 12px;
   border-radius: 8px;
@@ -212,75 +67,24 @@
   cursor: pointer;
 }
 
-.tutor-learn-composer button:disabled {
+.tutor-participation button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.tutor-learn-composer > button[data-testid="tutor-record"] {
-  align-self: flex-start;
-}
-
-/* 波次 F 任务 2：快捷提问 chips——一键发送 question_asked。 */
-.tutor-learn-quick-asks {
+.tutor-participation-row {
   display: flex;
+  align-items: center;
+  gap: var(--space-3);
   flex-wrap: wrap;
-  gap: var(--space-1);
 }
 
-.tutor-learn-composer .tutor-learn-quick-asks button {
-  font-size: 0.8rem;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--color-accent-bg);
-  color: var(--color-accent-text);
-}
-
-.tutor-learn-question {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-5);
-  border: 1px solid var(--color-line);
-  border-radius: 14px;
-  background: var(--color-panel);
-  font-size: 1rem;
-  line-height: 1.7;
-}
-
-/* 波次 C-2 裁定 1：开场讲解的只读题目画布（authored 学生安全面）。
-   只占一行自然高度，不与 workspace 两列 grid 混用。 */
-.tutor-learn-figure {
-  min-height: 0;
-  padding: var(--space-3);
-  border: 1px solid var(--color-line);
-  border-radius: 14px;
-  background: var(--color-panel);
-}
-
-.tutor-learn-figure .artifact-diagram-stage {
-  padding: var(--space-3);
-}
-
-.tutor-learn-done {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  align-items: flex-start;
-  padding: var(--space-6);
-  border: 1px solid var(--color-line);
-  border-radius: 14px;
-  background: var(--color-panel);
-}
-
-/* 波次 F 任务 1：完成页板书回顾——SolutionBoardPanel 整卷回顾，限高可滚
-   （面板本体 overflow:auto 来自 practice.css 的 topic-answer-panel 基线）。 */
-.tutor-learn-done .tutor-learn-board {
-  align-self: stretch;
+/* 完成页板书回顾——SolutionBoardPanel 整卷回顾，限高可滚。 */
+.tutor-learn-board {
   width: 100%;
   min-width: 0;
 }
 
-.tutor-learn-done .tutor-learn-board .solution-board-panel {
+.tutor-learn-board .solution-board-panel {
   max-height: min(56vh, 640px);
 }

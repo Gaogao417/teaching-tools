@@ -12,6 +12,7 @@ import type {
   ExercisePlan,
 } from "./actionRuntime";
 import type { TopicGeometryModel } from "./topicPractice";
+import { isStudentWorkspaceView, type StudentWorkspaceView } from "./studentWorkspace";
 
 export type TutorInputKind =
   | "reasoning_utterance"
@@ -55,13 +56,26 @@ export interface TutorWorkspaceAction {
   form?: "operation" | "demonstration";
 }
 
+export interface TutorCheckpointView {
+  checkpoint_id: string;
+  part_id: string;
+  route_id: string;
+  /** VS1 remediation-2（只读展示合同）：全局拍点序号/总数（1-based，跨
+   *  part 连续计数）——Coach Panel「教学拍点 N/M」数据源；不参与推进。 */
+  index: number;
+  total: number;
+  /** 当前拍标题（可选；缺省由前端按 part_id 派生「第N小问」，VS4 Beat
+   *  化后改由协议下发）。 */
+  title?: string;
+}
+
 export interface TutorTurnResponse {
   session_id: string;
   revision: number;
   client_turn_id: string;
   idempotent_replay: boolean;
   mode: "teach" | "guided_solve" | "repair";
-  current_checkpoint: { checkpoint_id: string; part_id: string; route_id: string };
+  current_checkpoint: TutorCheckpointView;
   alignment?: {
     alignment: string;
     checkpoint_id?: string;
@@ -76,7 +90,14 @@ export interface TutorTurnResponse {
     fallback?: boolean;
   } | null;
   voice: TutorVoiceAction[];
+  /** L-04 冻结（VS1）：legacy workspace 条目。新 UI 只消费 workspace_view。 */
   workspace: TutorWorkspaceAction[];
+  /**
+   * VS1 统一学生工作台 View（REQ-02/04/05）：Geometry/Board/Participation
+   * 同 revision 的唯一学生安全投影；与 GET session view 同一类型。必填
+   * （guard fail-closed——缺字段按 schema 失败进 recoverable error）。
+   */
+  workspace_view: StudentWorkspaceView;
   fallback?: { used: boolean; failure_class?: string };
   /** structured_action_evidence 回合附带 typed evaluator 判定（更新 Action Runtime）。 */
   action_evaluation?: ActionEvaluationResponse;
@@ -104,9 +125,12 @@ export interface TutorSessionView {
   mode: "teach" | "guided_solve" | "repair";
   completed: boolean;
   question_completed?: boolean;
-  current_checkpoint: { checkpoint_id: string; part_id: string; route_id: string };
+  current_checkpoint: TutorCheckpointView;
   pending_voice: TutorVoiceAction[];
+  /** L-04 冻结（VS1）：legacy pending workspace。新 UI 只消费 workspace_view。 */
   pending_workspace: TutorWorkspaceAction[];
+  /** VS1：与 turn response 同一 View（REQ-02/06：refresh parity）。 */
+  workspace_view: StudentWorkspaceView;
   event_cursor: number;
   /** 刷新恢复时的题目/讲法上下文（v4 binding 会话）。 */
   task_id?: string;
@@ -172,19 +196,26 @@ export function isTutorWorkspaceAction(value: unknown): value is TutorWorkspaceA
     && isRecord(value.action_plan) && Array.isArray((value.action_plan as Record<string, unknown>).actions);
 }
 
+function isTutorCheckpointView(value: unknown): value is TutorCheckpointView {
+  return isRecord(value) && hasString(value, "checkpoint_id") && hasString(value, "part_id")
+    && hasString(value, "route_id") && typeof value.index === "number" && typeof value.total === "number";
+}
+
 export function isTutorTurnResponse(value: unknown): value is TutorTurnResponse {
   if (!isRecord(value) || !hasString(value, "session_id") || !hasString(value, "client_turn_id")
-    || typeof value.revision !== "number" || !isRecord(value.current_checkpoint)
+    || typeof value.revision !== "number" || !isTutorCheckpointView(value.current_checkpoint)
     || !Array.isArray(value.voice) || !Array.isArray(value.workspace)) return false;
+  if (!isStudentWorkspaceView(value.workspace_view)) return false;
   return value.voice.every(isTutorVoiceAction) && value.workspace.every(isTutorWorkspaceAction);
 }
 
 export function isTutorSessionView(value: unknown): value is TutorSessionView {
   return isRecord(value) && hasString(value, "session_id") && typeof value.revision === "number"
-    && typeof value.completed === "boolean" && isRecord(value.current_checkpoint)
+    && typeof value.completed === "boolean" && isTutorCheckpointView(value.current_checkpoint)
     && Array.isArray(value.pending_voice) && Array.isArray(value.pending_workspace)
     && (value.pending_voice as unknown[]).every(isTutorVoiceAction)
-    && (value.pending_workspace as unknown[]).every(isTutorWorkspaceAction);
+    && (value.pending_workspace as unknown[]).every(isTutorWorkspaceAction)
+    && isStudentWorkspaceView(value.workspace_view);
 }
 
 export function isTutorExperienceResponse(value: unknown): value is TutorExperienceResponse {

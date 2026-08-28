@@ -60,6 +60,30 @@
   line-height: 1.55;
 }
 
+/* VS1 remediation：Learn Question 一体化——stem 之下的小问列表（带
+   part_id 派生编号）。列表无默认序号（编号由 LearnQuestionPrompt 显式
+   呈现，保证 data-part-id 与视觉编号一一对应）。 */
+.learn-question-body { min-width: 0; }
+.learn-question-subquestions {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-2, 8px) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.learn-question-subquestions li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2, 8px);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.learn-question-part-number {
+  flex: none;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
 /* ── Canvas — row 2, col 1 ── */
 .ks-focus-canvas {
   grid-column: 1;

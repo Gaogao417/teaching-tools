@@ -26,7 +26,6 @@ vi.mock("../../../api/client", () => ({
     completeTutorVoice,
     completeTutorSession,
     tutorAsr: vi.fn(),
-    getLearnSolutionBoard,
     streamActionSpeech: vi.fn().mockRejectedValue(new Error("tts unavailable")),
     recordSimilarityLearnProgress: vi.fn().mockResolvedValue({ ok: true }),
   },
@@ -55,6 +54,7 @@ vi.mock("../../../geometry/react/GeometryCanvas", () => ({
 
 const { TutorLearnExperience } = await import("../TutorLearnExperience");
 import type { TutorExperienceResponse, TutorTurnResponse } from "../../../../../shared/tutorExperience";
+import { studentWorkspaceViewFixture } from "../../../action-runtime/tutor/tutorTestFixtures";
 import type { TaskId } from "../../../../../shared/contracts";
 
 const TASK = "parallelLineRatios" as TaskId;
@@ -63,10 +63,11 @@ function turn(overrides: Partial<TutorTurnResponse> = {}): TutorTurnResponse {
   return {
     session_id: "TS-6401", revision: 2, client_turn_id: "ct-1", idempotent_replay: false,
     mode: "teach",
-    current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1" },
+    current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1", index: 1, total: 3 },
     decision: null,
     voice: [],
     workspace: [],
+    workspace_view: studentWorkspaceViewFixture(),
     event_cursor: 4,
     ...overrides,
   };
@@ -127,7 +128,7 @@ describe("TutorLearnExperience dock 预览气泡（波次 F 任务 3）", () => 
 
   it("收起 → 新老师消息 → 气泡出现（含未读点）→ 展开清除", async () => {
     const { container, unmount } = mount(experience());
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-state']")).toBeTruthy());
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='region-status']")).toBeTruthy());
 
     // 展开状态：无气泡（legacy 行为——气泡只服务收起态）。
     expect(container.querySelector(".topic-coach-dock-preview")).toBeNull();
@@ -143,7 +144,7 @@ describe("TutorLearnExperience dock 预览气泡（波次 F 任务 3）", () => 
 
     // 展开：气泡与未读点都清除，指导栏恢复。
     await act(async () => {
-      container.querySelector("button[aria-label='展开一对一老师']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      container.querySelector("button[aria-label='展开陪练老师']")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(container.querySelector(".topic-coach-dock-preview")).toBeNull();
     expect(container.querySelector(".topic-coach-dock-unread")).toBeNull();
@@ -153,7 +154,7 @@ describe("TutorLearnExperience dock 预览气泡（波次 F 任务 3）", () => 
 
   it("新消息更新气泡内容（后一条覆盖前一条）", async () => {
     const { container, unmount } = mount(experience());
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-state']")).toBeTruthy());
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='region-status']")).toBeTruthy());
     await collapseRail(container);
 
     await newTutorMessage(container, "第一条新消息。");

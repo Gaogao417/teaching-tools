@@ -1,9 +1,10 @@
 /**
- * 波次 G 任务 1：讲解气泡主面测试。
+ * VS1 remediation-2：canonical Coach 气泡/对话流测试。
  *
- * topic-coach-bubble（含尾巴样式）是老师当前话术主呈现面：挂 transcript
- * 之上、显示最近一条老师话术、speaking 态有「正在讲」强调；transcript
- * 降级为可折叠历史流（学生条目不进气泡）。
+ * 气泡（topic-coach-bubble / data-testid=coach-prompt）= 当前拍老师话术
+ * 主呈现面（呈现指针 currentText，回看时临时显示被回看条）；学生条目
+ * 不进气泡；对话历史进 canonical thread（aria-label=答疑对话，无折叠
+ * toggle——ADR-010 §2 Transcript 为次级呈现，样式随 canonical 组件）。
  */
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -16,7 +17,6 @@ const startLearnExperience = vi.fn();
 const submitTutorTurn = vi.fn();
 const completeTutorVoice = vi.fn();
 const completeTutorSession = vi.fn();
-const getLearnSolutionBoard = vi.fn();
 
 vi.mock("../../../api/client", () => ({
   api: {
@@ -26,7 +26,6 @@ vi.mock("../../../api/client", () => ({
     completeTutorVoice,
     completeTutorSession,
     tutorAsr: vi.fn(),
-    getLearnSolutionBoard,
     streamActionSpeech: vi.fn().mockRejectedValue(new Error("tts unavailable")),
     recordSimilarityLearnProgress: vi.fn().mockResolvedValue({ ok: true }),
   },
@@ -40,11 +39,9 @@ vi.mock("../../../presentation/audio/MediaSessionController", () => ({
     replay() {}
   },
 }));
-/** enter 永不 resolve：speakTurn 停在播放位（speechActive 持续为真，
- *  phase=speaking），用于观察「正在讲」强调态。 */
 vi.mock("../../../presentation/narration/NarrationController", () => ({
   NarrationController: class {
-    enter = vi.fn().mockImplementation(() => new Promise(() => undefined));
+    enter = vi.fn().mockResolvedValue(undefined);
     stop = vi.fn();
     replay = vi.fn();
   },
@@ -58,6 +55,7 @@ vi.mock("../../../geometry/react/GeometryCanvas", () => ({
 
 const { TutorLearnExperience } = await import("../TutorLearnExperience");
 import type { TutorExperienceResponse, TutorTurnResponse } from "../../../../../shared/tutorExperience";
+import { studentWorkspaceViewFixture } from "../../../action-runtime/tutor/tutorTestFixtures";
 import type { TaskId } from "../../../../../shared/contracts";
 
 const TASK = "parallelLineRatios" as TaskId;
@@ -66,10 +64,11 @@ function turn(overrides: Partial<TutorTurnResponse> = {}): TutorTurnResponse {
   return {
     session_id: "TS-6410", revision: 2, client_turn_id: "ct-1", idempotent_replay: false,
     mode: "teach",
-    current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1" },
+    current_checkpoint: { checkpoint_id: "CP1", part_id: "1", route_id: "R1", index: 1, total: 3 },
     decision: null,
     voice: [],
     workspace: [],
+    workspace_view: studentWorkspaceViewFixture(),
     event_cursor: 4,
     ...overrides,
   };
@@ -102,6 +101,7 @@ function mount(initial: TutorExperienceResponse): { container: HTMLElement; unmo
 }
 
 async function submitAnswer(container: HTMLElement, text: string): Promise<void> {
+  await vi.waitFor(() => expect(container.querySelector("input[aria-label='回答输入']")).toBeTruthy());
   const input = container.querySelector<HTMLInputElement>("input[aria-label='回答输入']");
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input!, text);
@@ -112,69 +112,69 @@ async function submitAnswer(container: HTMLElement, text: string): Promise<void>
   });
 }
 
-describe("TutorLearnExperience 讲解气泡主面（波次 G 任务 1）", () => {
+describe("TutorLearnExperience canonical Coach 气泡与对话流（VS1 remediation-2）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     completeTutorVoice.mockResolvedValue(null);
     completeTutorSession.mockResolvedValue({ session_id: "TS-6410", completed: true });
     submitTutorTurn.mockResolvedValue(turn());
-    getLearnSolutionBoard.mockResolvedValue({ task_id: TASK, scenario_id: "SC-BUBBLE-1", board: null });
   });
 
-  it("气泡显示最新老师话术（开场讲解进入气泡，speaking 态带强调）", async () => {
+  it("气泡=当前拍老师话术（coach-prompt；开场讲解进入 canonical bubble）", async () => {
     const { container, unmount } = mount(experience("我们先看这两个三角形的公共角。"));
     await vi.waitFor(() => {
-      const bubble = container.querySelector("[data-testid='tutor-current-speech']");
+      const bubble = container.querySelector("[data-testid='coach-prompt']");
       expect(bubble).toBeTruthy();
       expect(bubble!.textContent).toContain("我们先看这两个三角形的公共角。");
     });
-    // narration 挂起播放位 → speaking 态：气泡带 is-speaking 与「正在讲」徽标。
-    await vi.waitFor(() => {
-      expect(container.querySelector(".tutor-current-speech")!.classList.contains("is-speaking")).toBe(true);
-      expect(container.querySelector("[data-testid='tutor-speaking-badge']")).toBeTruthy();
-    });
+    // canonical bubble 结构（topic-coach-bubble，含 aria 语义）。
+    expect(container.querySelector("[data-testid='coach-prompt']")!.className).toContain("topic-coach-bubble");
+    expect(container.querySelector("[data-testid='coach-prompt']")!.getAttribute("aria-label")).toBe("当前 Action 讲解");
     unmount();
   });
 
   it("气泡随回合更新（后一条老师话术覆盖前一条）", async () => {
     const { container, unmount } = mount(experience("第一条老师话术。"));
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-current-speech']")!.textContent).toContain("第一条老师话术。"));
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='coach-prompt']")!.textContent).toContain("第一条老师话术。"));
 
     submitTutorTurn.mockResolvedValue(turn({
       voice: [{ action_id: "VA-2", text: "第二条老师话术覆盖。", interruptible: true }],
     }));
     await submitAnswer(container, "我来说这一步");
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-current-speech']")!.textContent).toContain("第二条老师话术覆盖。"));
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='coach-prompt']")!.textContent).toContain("第二条老师话术覆盖。"));
     unmount();
   });
 
-  it("学生条目不进气泡（学生发言后气泡仍是最近老师话术）", async () => {
+  it("学生条目不进气泡（学生发言后气泡仍是最近老师话术，学生文本只进 thread）", async () => {
     const { container, unmount } = mount(experience("开场讲解话术。"));
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-current-speech']")!.textContent).toContain("开场讲解话术。"));
+    await vi.waitFor(() => expect(container.querySelector("[data-testid='coach-prompt']")!.textContent).toContain("开场讲解话术。"));
 
     // 学生发言且回合无老师话术：气泡保持上一条老师话术，不显示学生文本。
     submitTutorTurn.mockResolvedValue(turn());
     await submitAnswer(container, "学生自己的一段推理内容不应出现在气泡里");
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-transcript']")!.textContent).toContain("学生自己的一段推理内容"));
-    expect(container.querySelector("[data-testid='tutor-current-speech']")!.textContent).not.toContain("学生自己的一段推理内容");
-    expect(container.querySelector("[data-testid='tutor-current-speech']")!.textContent).toContain("开场讲解话术。");
+    const thread = container.querySelector("[aria-label='答疑对话']");
+    await vi.waitFor(() => expect(thread!.textContent).toContain("学生自己的一段推理内容"));
+    expect(container.querySelector("[data-testid='coach-prompt']")!.textContent).not.toContain("学生自己的一段推理内容");
+    expect(container.querySelector("[data-testid='coach-prompt']")!.textContent).toContain("开场讲解话术。");
     unmount();
   });
 
-  it("transcript 降级为可折叠历史流（默认折叠，展开见历史条目）", async () => {
+  it("对话历史=canonical thread（常驻、师生条目都在；无折叠 toggle/无模式切换/无快捷 chips）", async () => {
     const { container, unmount } = mount(experience("开场讲解话术。"));
-    await vi.waitFor(() => expect(container.querySelector("[data-testid='tutor-current-speech']")).toBeTruthy());
+    await vi.waitFor(() => expect(container.querySelector("[aria-label='答疑对话']")).toBeTruthy());
+    await vi.waitFor(() => expect(container.querySelector("[aria-label='答疑对话']")!.textContent).toContain("开场讲解话术。"));
 
-    // 默认折叠：历史流 hidden，但条目仍在 DOM（textContent 语义不回归）。
-    const transcript = container.querySelector("[data-testid='tutor-transcript']")!;
-    expect(transcript.hasAttribute("hidden")).toBe(true);
-    expect(transcript.textContent).toContain("开场讲解话术。");
-
-    const toggle = container.querySelector("[data-testid='tutor-transcript-toggle']")! as HTMLButtonElement;
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    await act(async () => { toggle.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-    expect(container.querySelector("[data-testid='tutor-transcript']")!.hasAttribute("hidden")).toBe(false);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    // 学生发言 → 师生两类条目都在 thread（canonical topic-coach-turn 结构）。
+    submitTutorTurn.mockResolvedValue(turn({
+      voice: [{ action_id: "VA-2", text: "老师回应。", interruptible: true }],
+    }));
+    await submitAnswer(container, "我的回答");
+    await vi.waitFor(() => expect(container.querySelectorAll("[aria-label='答疑对话'] .topic-coach-turn").length).toBeGreaterThanOrEqual(3));
+    // 旧交互面零残留（remediation-2 裁定：折叠历史 toggle/模式切换/快捷 chips 全删）。
+    expect(container.querySelector("[data-testid='tutor-transcript-toggle']")).toBeNull();
+    expect(container.querySelector("[data-testid='tutor-transcript']")).toBeNull();
+    expect(container.querySelector(".tutor-learn-composer-mode")).toBeNull();
+    expect(container.querySelector(".tutor-learn-quick-asks")).toBeNull();
     unmount();
   });
 });
