@@ -2065,7 +2065,10 @@ const graphInferenceIdPattern = z.string().regex(/^IF-[0-9]{1,3}$/);
 const solutionVariantIdPattern = z.string().regex(/^SV-[0-9]{1,3}$/);
 const solutionEvidenceRefPattern = z
   .string()
-  .regex(/^(SE-[A-Z0-9]+-[0-9]{3,}|artifact:\/[a-z][a-z0-9-]*\/[A-Za-z0-9._~!$&'()*+,;=:%@\/-]+)$/);
+  // F4（2026-08-28）镜像漂移修复：canonical schema 的 artifact:// 分支是双斜杠，
+  // 初版镜像误写单斜杠导致 canonical 合法的 artifact:// 溯源被拒（新 fixture
+  // reviewed-solution-graph.positive.artifact-evidence.json 钉死该分支）。
+  .regex(/^(SE-[A-Z0-9]+-[0-9]{3,}|artifact:\/\/[a-z][a-z0-9-]*\/[A-Za-z0-9._~!$&'()*+,;=:%@\/-]+)$/);
 const reviewedSolutionStepPattern = z.string().regex(/^step-[0-9]{1,3}$/);
 const surfaceActionIdPattern = z.string().regex(/^WSA-[A-Za-z0-9._:-]{4,}$/);
 const studentCommandIdPattern = z.string().regex(/^SC-[A-Za-z0-9._:-]{4,}$/);

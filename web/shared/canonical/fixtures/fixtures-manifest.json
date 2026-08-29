@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 101,
+  "fixture_count": 102,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -266,6 +266,14 @@
       "expect_schema": "invalid",
       "expect_publication": "n/a",
       "sha256": "sha256:24b94f0f1815561ffb6f213421745e4d9b2f7c4de5c0c0b4dc97c93329077765"
+    },
+    {
+      "file": "reviewed-solution-graph.positive.artifact-evidence.json",
+      "object_schema": "ai_teaching_reviewed_solution_graph/v1",
+      "schema_ref": "../schemas/planning/v4/reviewed-solution-graph.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:af3dd166556712a9e490d338e5b2ae45743fdbda54f5f31a14485a8dafeae472"
     },
     {
       "file": "reviewed-solution-graph.positive.json",

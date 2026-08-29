@@ -1,0 +1,64 @@
+{
+  "schema": "ai_teaching_reviewed_solution_graph/v1",
+  "graph_id": "RG-SMV-001",
+  "version": "v1",
+  "status": "Approved",
+  "approval": {
+    "reviewer_id": "teacher:gaochong",
+    "approved_at": "2026-08-28T08:00:00Z",
+    "review_note": "F4 新增：钉死 evidence_refs 的 artifact:// 溯源分支（F1 初版正例只用 SE- 引用，TS 镜像曾漂移为单斜杠）"
+  },
+  "question_ref": {
+    "artifact_id": "QT-SMV-001",
+    "version": "v2",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "approach_ref": {
+    "artifact_id": "TA-SMV-009",
+    "version": "v1",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "facts": [
+    {
+      "fact_id": "FN-01",
+      "role": "given",
+      "statement": "在等腰 △ABC 中 AB=AC=4、BC=6，点 D 在底边 BC 上",
+      "reveals_answer": false,
+      "evidence_refs": ["artifact://source-evidence/SE-SMV-036"]
+    },
+    {
+      "fact_id": "FN-02",
+      "role": "given",
+      "statement": "∠DAC=∠ACD",
+      "reveals_answer": false,
+      "evidence_refs": ["SE-SMV-036"]
+    },
+    {
+      "fact_id": "FN-03",
+      "role": "goal",
+      "statement": "AD=DC=t（等角对等边）",
+      "reveals_answer": false,
+      "skill_refs": ["SKILL-SMV-001"],
+      "evidence_refs": ["artifact://teaching-approach/TA-SMV-009@v1"]
+    }
+  ],
+  "inferences": [
+    {
+      "inference_id": "IF-01",
+      "premises": ["FN-01", "FN-02"],
+      "conclusion": "FN-03",
+      "derivation": "在等腰 △ADC 中由 ∠DAC=∠ACD 得 AD=DC（等角对等边）",
+      "evidence_refs": ["artifact://teaching-approach/TA-SMV-009@v1"]
+    }
+  ],
+  "solution_variants": [
+    {
+      "variant_id": "SV-01",
+      "name": "主线：等角对等边",
+      "goal_fact_id": "FN-03",
+      "inference_ids": ["IF-01"]
+    }
+  ],
+  "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "artifact_uri": "artifact://reviewed-solution-graph/RG-SMV-001@v1"
+}

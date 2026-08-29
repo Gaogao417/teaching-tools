@@ -9,3 +9,7 @@ __pycache__/
 **/benchmark-results/voice/
 # Reproducible voice-benchmark mic fixtures (regenerate via benchmarks/voice/fixtures/generate.sh).
 web/frontend/benchmarks/voice/fixtures/generated/
+# F2 v5 kernel tests write a throwaway sqlite next to the suite (tutorSessionKernelV5 tests).
+web/backend/.tutor-*.test.sqlite
+# Playwright tutor e2e run outputs (curated evidence lives in PRDS mvp/reports/).
+web/frontend/e2e/tutor/results-*/
