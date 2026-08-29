@@ -12,7 +12,10 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": {
+      "zod": ["../backend/node_modules/zod/index.d.ts"]
+    }
   },
   "include": ["src", "../shared/**/*.ts"],
   "exclude": ["src/poc/geometry-actions/__tests__", "../shared/canonical/**"]

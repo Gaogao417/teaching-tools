@@ -6,6 +6,10 @@ import { TaskOverviewPanel } from "./pages/TaskOverviewPanel";
 import { ReviewPage } from "./pages/ReviewPage";
 import { LearnPage } from "./pages/LearnPage";
 import { SimilarityLearningMapPage } from "./pages/SimilarityLearningMapPage";
+// fe-prep（2026-08-28）：canonical view/v1 fixtures 驱动的 dev/test harness
+// 页——顶层注册（不进 WorkspaceShell、无 API 依赖、不触 /learn 数据流）；
+// 非产品路径，F6 真实链接入后删除或降级为诊断页（fe-prep exit report 登记）。
+import { CanonicalViewHarnessPage } from "./pages/dev/CanonicalViewHarnessPage";
 
 export default function App() {
   return (
@@ -19,6 +23,7 @@ export default function App() {
         <Route path="result/:sessionId" element={<ResultPage />} />
       </Route>
       <Route path="/tasks" element={<Navigate to="/" replace />} />
+      <Route path="/__fe-prep__/canonical-view" element={<CanonicalViewHarnessPage />} />
     </Routes>
   );
 }
