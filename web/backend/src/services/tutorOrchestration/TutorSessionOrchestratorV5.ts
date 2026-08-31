@@ -140,7 +140,9 @@ export type OrchestratorErrorCode =
   | "PLAN_IMPORT_FAILED"
   | "ASSESSMENT_INTENT_FORBIDDEN"
   | "WORKSPACE_COMMAND_REQUIRED"
-  | "NO_EXECUTABLE_DECISION";
+  | "NO_EXECUTABLE_DECISION"
+  | "WORKSPACE_COMMAND_PAYLOAD_DRIFT"
+  | "WORKSPACE_COMMAND_UNRESOLVABLE";
 
 export class OrchestratorError extends Error {
   constructor(readonly code: OrchestratorErrorCode, message: string) {
@@ -249,6 +251,16 @@ export class TutorSessionOrchestratorV5 {
    * 恢复（refresh/reconnect/replay）：verified rebuild + catalog pin + model pin
    * + Plan-aware gate 归属全对账；**零模型调用**（R3：replay 不重新调模型）。
    * pin 不符 fail closed（零事件追加）。
+   *
+   * F6.1（P1-1 修复）：catalog 形态与 assessment 模式**由 committed 事实恢复**——
+   * `session_started.workspace_catalog_pin` 是 start 时 pin 的 catalog hash；
+   * assessment 会话 pin 的是 locked 变体（`initialInteractionMode:"locked"`，
+   * digest 含该字段 → 两形态 hash 必不相同）。resume 枚举服务端可构造的两种
+   * 形态并对账唯一匹配：匹配 locked → `assessmentMode=true` 并以 locked catalog
+   * 重建；匹配 construction → 常规恢复；两者皆不匹配 → 以 construction 交给
+   * F3 catalog pin 对账 fail closed（HASH_MISMATCH，零事件）。不新增跨仓字段：
+   * committed pin 已足以表达「当时 pin 的 catalog 形态」（验收复核 §6.1 授权的
+   * 「现有事实已足够表达」路线，避免合同变更）。
    */
   static resume(input: OrchestratorResumeInput): TutorSessionOrchestratorV5 {
     const imported = importApprovedPlanV4({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? "TP-SMV-009");
@@ -264,6 +276,7 @@ export class TutorSessionOrchestratorV5 {
       task_id?: string;
       scenario_id?: string;
       model_gate_pin?: V5ModelGatePin;
+      workspace_catalog_pin?: { content_hash?: string };
     };
     // model pin 对账（实现级边界：不符即拒，与 catalog pin 对账同型）。
     const expected = input.model.pin;
@@ -275,6 +288,14 @@ export class TutorSessionOrchestratorV5 {
         `session ${input.sessionId} model_gate_pin mismatch: stream=${JSON.stringify(actual)} vs resumed provider=${JSON.stringify(expected)} (fail closed; zero events appended)`,
       );
     }
+    // catalog 形态对账：committed pin 唯一匹配 → 恢复当时 pin 的 catalog 与
+    // assessment 模式（教学工具禁用边界随模式恢复；不得硬编码 false）。
+    const assessmentCatalog = { ...golden.catalog, initialInteractionMode: "locked" as const };
+    const constructionHash = workspaceCatalogPin(golden.catalog).content_hash;
+    const assessmentHash = workspaceCatalogPin(assessmentCatalog).content_hash;
+    const streamCatalogHash = started.workspace_catalog_pin?.content_hash;
+    const assessment = streamCatalogHash !== undefined && streamCatalogHash === assessmentHash && assessmentHash !== constructionHash;
+    const catalog = assessment ? assessmentCatalog : golden.catalog;
     const navigator = NavigatorSessionV5.resume({
       sessionId: input.sessionId,
       canonicalRoot: input.canonicalRoot,
@@ -282,18 +303,18 @@ export class TutorSessionOrchestratorV5 {
       gateProvider: input.model.provider,
       modelTimeoutMs: input.modelTimeoutMs,
     });
-    const workspace = WorkspaceSessionRuntimeV5.resume(input.sessionId, golden.catalog);
+    const workspace = WorkspaceSessionRuntimeV5.resume(input.sessionId, catalog);
     return new TutorSessionOrchestratorV5({
       sessionId: input.sessionId,
       canonicalRoot: input.canonicalRoot,
       tpId: input.tpId ?? "TP-SMV-009",
       taskId: started.task_id ?? GOLDEN_CATALOG_TASK_ID,
       scenarioId: started.scenario_id ?? "golden-similarity-mvp-001:QT-SMV-001",
-      assessment: false,
+      assessment,
       model: input.model,
       modelTimeoutMs: input.modelTimeoutMs,
       imported: imported.imported,
-      golden,
+      golden: { ...golden, catalog },
       navigator,
       workspace,
     });
@@ -377,6 +398,16 @@ export class TutorSessionOrchestratorV5 {
    * target/mode/truth/stale/幂等全部校验，intent+outcome 经 kernel 真实提交）
    * → Navigator `consumeWorkspaceCommandOutcome` 消费已提交回执（R1 硬边界：
    * Navigator 永不自报 outcome）→ 呈现执行 → 统一投影。
+   *
+   * F6.1（P1-2 修复）幂等重试语义（同 `client_command_id` 已提交，F3 返回
+   * `duplicate`）：一律按 client_command_id 解析到**已提交事实**（重试携带的
+   * 新 `command_id` 不得用于查旧事实）——
+   * - 载荷漂移（surface/capability/target_ids/params 与 committed 命令不一致）
+   *   → 显式拒绝 `WORKSPACE_COMMAND_PAYLOAD_DRIFT`（fail closed，零事件）；
+   * - committed outcome=completed 且尚未消费（崩溃窗口：F3 两批已提交、消费
+   *   未及执行）→ 现在消费，与首次提交同一效果、恰好一次；
+   * - 其余（已消费 / 先前 outcome=rejected——首次提交本就不消费回执）→
+   *   幂等回放：零新事件、零呈现、返回 committed 决策（若有）。
    */
   submitWorkspaceCommand(command: unknown, options: TurnExecutionOptions = {}): OrchestratorTurn {
     this.refreshWrappers();
@@ -385,7 +416,10 @@ export class TutorSessionOrchestratorV5 {
       return conflict;
     }
     const receipt: WorkspaceExecutionReceipt = this.workspace.executeStudentCommand(command);
-    if (receipt.status === "completed" || receipt.status === "duplicate") {
+    if (receipt.status === "duplicate") {
+      return this.replayCommittedStudentCommand(command);
+    }
+    if (receipt.status === "completed") {
       const commandId = (command as { command_id?: string }).command_id;
       if (typeof commandId === "string") {
         const turn = this.navigator.consumeWorkspaceCommandOutcome({ command_id: commandId });
@@ -400,6 +434,62 @@ export class TutorSessionOrchestratorV5 {
     return {
       revision: this.navigator.revision,
       turn: { revision: this.navigator.revision, intentSequence: receipt.appendedSequences[0] ?? this.navigator.revision },
+      presentations: [],
+      projection: this.projectUnifiedViews(),
+    };
+  }
+
+  /**
+   * 幂等重试/崩溃恢复（F6.1）：duplicate 回执的编排层收口。解析、对账、消费
+   * 判定全部只读 committed 事件流——不信任重试载荷里的任何 id。
+   */
+  private replayCommittedStudentCommand(command: unknown): OrchestratorTurn {
+    const clientCommandId = (command as { client_command_id?: unknown }).client_command_id;
+    if (typeof clientCommandId !== "string") {
+      throw new OrchestratorError(
+        "WORKSPACE_COMMAND_UNRESOLVABLE",
+        "duplicate workspace command receipt carries no client_command_id (fail closed; nothing to resolve)",
+      );
+    }
+    const committed = findCommittedStudentCommand(this.events, clientCommandId);
+    if (!committed || committed.outcomeSequence === undefined || committed.outcome === undefined) {
+      throw new OrchestratorError(
+        "WORKSPACE_COMMAND_UNRESOLVABLE",
+        `duplicate client_command_id=${clientCommandId} has no committed intent+outcome receipt to replay (fail closed; nothing to consume)`,
+      );
+    }
+    // 载荷漂移：同键异载荷显式拒绝（零事件）——语义载荷字段集见 F6.1 remediation
+    // 登记（surface/capability/target_ids/params；id 族与 expected_workspace_revision
+    // 属每次尝试自然的差异面，不参与漂移判定）。
+    const retryPayload = semanticCommandFields(command);
+    if (!fieldsDeepEqual(retryPayload, committed.semanticFields)) {
+      throw new OrchestratorError(
+        "WORKSPACE_COMMAND_PAYLOAD_DRIFT",
+        `client_command_id=${clientCommandId} retry payload drifts from the committed command (committed=${JSON.stringify(committed.semanticFields)} vs retry=${JSON.stringify(retryPayload)}); explicit refusal, zero facts (ledger-registered semantics)`,
+      );
+    }
+    // 消费状态：committed outcome 是否已引发下游事实（consume 产出的
+    // gate_evaluated 以 outcome sequence 为 causation/evidence）。
+    const consumed = this.events.some((event) => event.causation_sequence === committed.outcomeSequence);
+    if (!consumed && committed.outcome === "completed") {
+      // 崩溃窗口恢复：outcome 已提交、消费未及执行 → 现在恰好消费一次。
+      const turn = this.navigator.consumeWorkspaceCommandOutcome({ command_id: committed.commandId });
+      const presentations = this.presentAfterDecision(turn);
+      this.refreshWrappers();
+      return { revision: this.navigator.revision, turn, presentations, projection: this.projectUnifiedViews() };
+    }
+    // 幂等回放：零新事件、零呈现；返回 committed 决策（若有）——与自然语言
+    // client_request_id 重试同型（读已提交判断，不重复裁决/呈现）。
+    this.refreshWrappers();
+    return {
+      revision: this.navigator.revision,
+      turn: {
+        revision: this.navigator.revision,
+        intentSequence: committed.intentSequence,
+        ...(committed.gateSequence !== undefined ? { gateSequence: committed.gateSequence } : {}),
+        ...(committed.decisionSequence !== undefined ? { decisionSequence: committed.decisionSequence } : {}),
+        ...(committed.decision !== undefined ? { decision: committed.decision } : {}),
+      },
       presentations: [],
       projection: this.projectUnifiedViews(),
     };
@@ -746,6 +836,116 @@ function latestExecuteBeatDecision(
     }
   }
   return undefined;
+}
+
+/**
+ * 幂等重试的语义载荷字段集（F6.1 登记）：参与漂移判定的命令内容面——
+ * surface/capability/target_ids/params（committed intent 内嵌 workspace_command
+ * 实际携带的语义字段；origin 由学生命令路径结构性保证，不在 committed 形状内，
+ * 不参与判定；command_id/client_command_id/expected_workspace_revision 属每次
+ * 尝试自然的差异面，亦不参与）。
+ */
+type SemanticCommandFields = {
+  surface: unknown;
+  capability: unknown;
+  target_ids: unknown;
+  params: unknown;
+};
+
+function semanticCommandFields(command: unknown): SemanticCommandFields {
+  const record = typeof command === "object" && command !== null ? command as Record<string, unknown> : {};
+  return {
+    surface: record.surface,
+    capability: record.capability,
+    target_ids: record.target_ids,
+    params: record.params,
+  };
+}
+
+function fieldsDeepEqual(left: SemanticCommandFields, right: SemanticCommandFields): boolean {
+  return JSON.stringify(normalizeJsonish(left)) === JSON.stringify(normalizeJsonish(right));
+}
+
+/** 键序无关的稳定序列化（对象键排序；数组保序）。 */
+function normalizeJsonish(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeJsonish);
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record).sort().map((key) => [key, normalizeJsonish(record[key])]),
+    );
+  }
+  return value;
+}
+
+/**
+ * F6.1（P1-2）：按 `client_command_id` 解析已提交的学生命令事实（唯一 intent +
+ * 配对 outcome + 消费产物）。只读 committed 流；重试载荷的任何 id 不参与解析。
+ */
+function findCommittedStudentCommand(events: readonly StoredV5Event[], clientCommandId: string): {
+  commandId: string;
+  intentSequence: number;
+  semanticFields: SemanticCommandFields;
+  outcome?: "completed" | "rejected" | "interrupted" | "failed";
+  outcomeSequence?: number;
+  gateSequence?: number;
+  decisionSequence?: number;
+  decision?: NavigatorDecision;
+} | undefined {
+  let intent: { sequence: number; commandId: string; semanticFields: SemanticCommandFields } | undefined;
+  for (const event of events) {
+    if (event.event_type !== "student_intent_recorded") continue;
+    const command = (event.payload as { workspace_command?: Record<string, unknown> }).workspace_command;
+    if (command && command.client_command_id === clientCommandId) {
+      // F3 以 client_command_id 幂等去重：同键只可能 committed 一次；防御取最后。
+      intent = {
+        sequence: event.sequence,
+        commandId: String(command.command_id),
+        semanticFields: {
+          surface: command.surface,
+          capability: command.capability,
+          target_ids: command.target_ids,
+          params: command.params,
+        },
+      };
+    }
+  }
+  if (!intent) return undefined;
+  let outcome: { kind: "completed" | "rejected" | "interrupted" | "failed"; sequence: number } | undefined;
+  for (const event of events) {
+    if (event.event_type !== "action_outcome_recorded") continue;
+    const payload = event.payload as { action_id: string; action_kind: string; outcome: "completed" | "rejected" | "interrupted" | "failed" };
+    if (payload.action_id === intent.commandId && payload.action_kind === "student_command") {
+      outcome = { kind: payload.outcome, sequence: event.sequence };
+    }
+  }
+  if (!outcome) return { commandId: intent.commandId, intentSequence: intent.sequence, semanticFields: intent.semanticFields };
+  // 消费产物（若已消费）：gate_evaluated 以 outcome sequence 为 causation/evidence；
+  // 其后的 policy_decision_made 以 gate sequence 为 causation。
+  let gateSequence: number | undefined;
+  let decisionSequence: number | undefined;
+  let decision: NavigatorDecision | undefined;
+  for (const event of events) {
+    if (gateSequence === undefined && event.event_type === "gate_evaluated" && event.causation_sequence === outcome.sequence) {
+      gateSequence = event.sequence;
+      continue;
+    }
+    if (gateSequence !== undefined && decisionSequence === undefined
+      && event.event_type === "policy_decision_made" && event.causation_sequence === gateSequence) {
+      decisionSequence = event.sequence;
+      decision = event.payload as unknown as NavigatorDecision;
+    }
+  }
+  return {
+    commandId: intent.commandId,
+    intentSequence: intent.sequence,
+    semanticFields: intent.semanticFields,
+    outcome: outcome.kind,
+    outcomeSequence: outcome.sequence,
+    ...(gateSequence !== undefined ? { gateSequence } : {}),
+    ...(decisionSequence !== undefined ? { decisionSequence } : {}),
+    ...(decision !== undefined ? { decision } : {}),
+  };
 }
 
 export type { UnifiedProjection, F6FailureCategory, StartTutorSessionV5Input, RebuildV5Options, TutorPresenterError };

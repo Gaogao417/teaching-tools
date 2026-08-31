@@ -20,6 +20,17 @@
  *    同一 committed 判断 replay 不再调模型；
  * 4. canonical fixtures 消费（presentation-plan/coach-panel-view/mainline-
  *    participation 正负 + model_gate_pin 负例）。
+ *
+ * F6.1（G6 验收复核 P1×2 修复 + D1 回归固化，2026-09-01 裁定后增补）：
+ * 5. Assessment resume（P1-1）：start({assessment:true}) → resume 依据 committed
+ *    workspace_catalog_pin 重建 locked catalog 并恢复 assessmentMode；投影
+ *    deep-equal；工具禁用边界（intent 拒绝 / locked 拒 reveal / presenter 无
+ *    workspace 动作）resume 后仍成立；construction resume 不回归（#2 既有）；
+ * 6. workspace command 幂等重试（P1-2）：首次 completed / 首次 rejected / 同键
+ *    同载荷重试 / 同键换新 command_id / 同键异载荷显式拒绝 / 崩溃后仅 outcome
+ *    已提交的恢复（恰好消费一次）——逐例断言事件流零新增（恢复例断言恰一次）；
+ * 7. D1 另两种锚定强制 reveal 拒绝固化（复核 P2-2）：①gate 刚满足但 cursor 已
+ *    离开绑定 Beat（stale-gate 腿）；②旧 Beat 决策回看锚（wrong-beat 因果腿）。
  */
 import assert from "node:assert/strict";
 import type { FixedResponseGateProvider, GateAdjudicationProvider } from "../../tutorNavigator/ModelGateAdjudicatorV5";
@@ -688,6 +699,264 @@ async function main(): Promise<void> {
       }),
       (error: unknown) => error instanceof presenterModule.TutorPresenterError,
     );
+  });
+
+  // ------------------------------------------------------------------------- //
+  // F6.1（G6 验收复核 P1×2 修复 + D1 固化；g6-acceptance-review.md §6.1–6.3） //
+
+  await runTest("G6.1 assessment resume: pinned locked catalog + assessmentMode restored from committed facts, tool bans intact", async () => {
+    const provider = journeyProvider();
+    const orch = TutorSessionOrchestratorV5.start({
+      sessionId: "TS-7031", studentId: "student-f6", canonicalRoot: ROOT,
+      model: f6Model(provider, "fixed-response/fixed-f6-journey"), assessment: true,
+    });
+    // 非平凡流：assessment 下结构化 confirm 推进一轮（呈现 voice-only）。
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7031-1" });
+    const live = orch.projectUnifiedViews();
+    const before = countEvents("TS-7031");
+    const started = eventsOf("TS-7031")[0].payload as { workspace_catalog_pin?: { content_hash?: string } };
+    assert.ok(started.workspace_catalog_pin?.content_hash, "assessment session pinned the locked catalog hash");
+    const resumed = TutorSessionOrchestratorV5.resume({ sessionId: "TS-7031", canonicalRoot: ROOT, model: f6Model(provider, "fixed-response/fixed-f6-journey") });
+    assert.equal(resumed.assessmentMode, true, "assessment mode restored from the committed catalog pin (no caller arg, no hardcode)");
+    assert.deepEqual(resumed.state, orch.state, "rebuilt teaching state equals live state");
+    assert.deepEqual(resumed.projectUnifiedViews(), live, "resume projection deep-equals the live projection (same reducer/projector)");
+    assert.equal(countEvents("TS-7031"), before, "resume appends nothing");
+    assert.equal(resumed.projectUnifiedViews().studentWorkspaceView.canvas.interaction_enabled, false, "workspace stays locked after resume");
+    assert.equal(provider.callCount, 0, "resume never calls the model");
+    // resume 后教学工具禁用边界仍成立：教学类 intent 边界拒绝（零事实）。
+    await assert.rejects(
+      () => resumed.submitStudentIntent({ intent_kind: "request_scaffold", client_request_id: "cr-7031-x" }),
+      (error: unknown) => error instanceof OrchestratorError && error.code === "ASSESSMENT_INTENT_FORBIDDEN",
+    );
+    assert.equal(countEvents("TS-7031"), before, "post-resume intent refusal leaves zero facts");
+    // locked 拒 reveal：resume 后强制 tutor reveal（真实公开入口）→ mode 拒绝、零 issued。
+    const decision = [...eventsOf("TS-7031")].reverse().find((event) => event.event_type === "policy_decision_made")!;
+    const decisionPayload = decision.payload as { decision_id: string; protocol_id: string; beat_id: string };
+    const forced = resumed.executePresentationPlan({
+      schema: "ai_teaching_presentation_plan/v1",
+      session_id: "TS-7031", plan_id: "PPT-TS-7031-9001", decision_id: decisionPayload.decision_id,
+      protocol_id: decisionPayload.protocol_id, beat_id: decisionPayload.beat_id,
+      voice_actions: [],
+      workspace_actions: [{ action_id: "WSA-TS-7031-9001", decision_id: decisionPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-04"], reveal_scope: "step_narration" as const }],
+    } as Parameters<typeof resumed.executePresentationPlan>[0], decision.sequence);
+    assert.equal(forced.failure?.failure_class, "action_validation_rejected");
+    assert.ok(
+      forced.receipts.some((receipt) => receipt.reason?.includes("mode 不匹配") || receipt.reason?.includes("locked")),
+      `locked mode refuses reveal after resume: ${JSON.stringify(forced.receipts.map((receipt) => receipt.reason))}`,
+    );
+    assert.equal(eventsOf("TS-7031").some((event) => event.event_type === "workspace_surface_action_issued"), false, "zero workspace issued facts");
+    // presenter 路径：resume 后再呈现当前 Beat 仍无任何 workspace 动作。
+    const presentPlan = resumed.presentCurrentBeat();
+    assert.deepEqual(presentPlan.plan.workspace_actions, [], "assessment teaching tools stay disabled after resume");
+    auditCausalityChain("TS-7031");
+  });
+
+  await runTest("G6.1 construction resume non-regression: resumed sessions report assessmentMode=false and stay unconstrained", async () => {
+    const provider = journeyProvider();
+    const orch = startOrchestrator("TS-7032", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7032-1" });
+    const live = orch.projectUnifiedViews();
+    const resumed = TutorSessionOrchestratorV5.resume({ sessionId: "TS-7032", canonicalRoot: ROOT, model: f6Model(provider, "fixed-response/fixed-f6-journey") });
+    assert.equal(resumed.assessmentMode, false, "construction sessions resume in construction mode");
+    assert.deepEqual(resumed.projectUnifiedViews(), live);
+    assert.equal(resumed.projectUnifiedViews().studentWorkspaceView.canvas.interaction_enabled, true);
+    // construction 会话教学工具不受禁：request_scaffold 走正常裁决（不抛边界拒绝）。
+    const scaffoldTurn = await resumed.submitStudentIntent({ intent_kind: "request_scaffold", client_request_id: "cr-7032-s" });
+    void scaffoldTurn;
+    assert.equal(resumed.state.teaching_cursor.beat_id, "BT-02", "scaffold request is adjudicated (not boundary-refused) in construction mode");
+    auditCausalityChain("TS-7032");
+  });
+
+  await runTest("G6.1 workspace command retry idempotence (completed): same-key replays add zero events; new command_id resolves by client_command_id; payload drift refused", async () => {
+    const provider = journeyProvider();
+    const orch = startOrchestrator("TS-7033", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7033-1" });
+    // (1) 首次 completed：intent+outcome+gate_evaluated+policy_decision_made+新 Beat 呈现。
+    const first = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7033", commandId: "SC-TS-7033-0001", clientCommandId: "cc-7033-1", expectedWorkspaceRevision: 1,
+    }));
+    assert.equal(first.turn.decision?.decision_kind, "transition_beat");
+    assert.equal(first.turn.decision?.to_beat_id, "BT-03");
+    const afterFirst = countEvents("TS-7033");
+    const revisionAfterFirst = orch.revision;
+    const cursorAfterFirst = orch.state.teaching_cursor.beat_id;
+    // (2) 同键同载荷重试（同 command_id）：零新增事件、零呈现、返回 committed 决策。
+    const replaySame = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7033", commandId: "SC-TS-7033-0001", clientCommandId: "cc-7033-1", expectedWorkspaceRevision: 2,
+    }));
+    assert.equal(countEvents("TS-7033"), afterFirst, "same-key same-payload retry appends nothing");
+    assert.equal(orch.revision, revisionAfterFirst, "revision does not advance on replay");
+    assert.equal(orch.state.teaching_cursor.beat_id, cursorAfterFirst);
+    assert.equal(replaySame.presentations.length, 0, "no re-presentation on replay");
+    assert.equal(replaySame.turn.decision?.decision_kind, "transition_beat", "replay returns the committed decision");
+    assert.equal(replaySame.turn.decision?.to_beat_id, "BT-03");
+    assert.ok(replaySame.turn.decisionSequence !== undefined && replaySame.turn.decisionSequence <= afterFirst, "decisionSequence points into the committed stream");
+    // (3) 同键重试携带新 command_id：按 client_command_id 解析到已提交事实（不抛
+    // nothing-to-consume、不按新 ID 查旧事实），零新增。
+    const replayNewId = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7033", commandId: "SC-TS-7033-0099", clientCommandId: "cc-7033-1", expectedWorkspaceRevision: 2,
+    }));
+    assert.equal(countEvents("TS-7033"), afterFirst, "new command_id on the same client key appends nothing");
+    assert.equal(replayNewId.presentations.length, 0);
+    assert.equal(replayNewId.turn.decision?.decision_kind, "transition_beat", "resolved to the committed receipt, not the retry id");
+    assert.equal(replayNewId.turn.decisionSequence, replaySame.turn.decisionSequence, "both retries resolve the same committed decision");
+    // (4) 同键异载荷（target 漂移）：显式拒绝（零事件）——F6.1 ledger 登记语义。
+    assert.throws(
+      () => orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+        sessionId: "TS-7033", commandId: "SC-TS-7033-0001", clientCommandId: "cc-7033-1", expectedWorkspaceRevision: 2, targetIds: ["segment-AB"],
+      })),
+      (error: unknown) => error instanceof OrchestratorError && error.code === "WORKSPACE_COMMAND_PAYLOAD_DRIFT",
+    );
+    assert.equal(countEvents("TS-7033"), afterFirst, "payload drift refusal leaves zero facts");
+    auditCausalityChain("TS-7033");
+  });
+
+  await runTest("G6.1 workspace command retry idempotence (rejected at the gated beat): replay commits zero new gate/decision events", async () => {
+    const provider = journeyProvider();
+    const orch = startOrchestrator("TS-7034", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7034-1" });
+    const before = countEvents("TS-7034");
+    // BT-02（GT-02=workspace_command）：canonical 合法但 target 非法 → 首次 rejected
+    // 提交 intent+outcome(rejected)（恰 +2），零 gate/decision。
+    const rejected = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7034", commandId: "SC-TS-7034-0001", clientCommandId: "cc-7034-1", expectedWorkspaceRevision: 1, targetIds: ["seg-XX"],
+    }));
+    void rejected;
+    const afterFirst = countEvents("TS-7034");
+    assert.equal(afterFirst - before, 2, "first rejection commits exactly intent + outcome(rejected)");
+    assert.equal(eventsOf("TS-7034").filter((event) => event.event_type === "gate_evaluated" && (event.payload as { gate_id: string }).gate_id === "GT-02").length, 0, "rejected command never satisfies or evaluates the gated beat's gate on first submit");
+    const revisionAfterFirst = orch.revision;
+    // 同键同载荷重试（P1-2 复现点：旧实现在此追加 gate_evaluated+policy_decision_made）。
+    const replay = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7034", commandId: "SC-TS-7034-0001", clientCommandId: "cc-7034-1", expectedWorkspaceRevision: 1, targetIds: ["seg-XX"],
+    }));
+    assert.equal(countEvents("TS-7034"), afterFirst, "retry of a rejected command appends zero events");
+    assert.equal(orch.revision, revisionAfterFirst, "revision does not advance");
+    assert.equal(replay.presentations.length, 0);
+    assert.equal(replay.turn.decision, undefined, "no teaching decision ever came out of the rejected receipt");
+    // 同键换新 command_id：解析到旧 receipt，零新增、不抛 nothing to consume。
+    const replayNewId = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7034", commandId: "SC-TS-7034-0099", clientCommandId: "cc-7034-1", expectedWorkspaceRevision: 1, targetIds: ["seg-XX"],
+    }));
+    assert.equal(countEvents("TS-7034"), afterFirst, "new-id retry on a rejected receipt appends zero events");
+    assert.equal(replayNewId.presentations.length, 0);
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-02", "no gate satisfied, no beat advance");
+    // 首次 rejected 之后仍可正常提交合法命令（幂等层不吞掉后续合法输入）。
+    const legal = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7034", commandId: "SC-TS-7034-0002", clientCommandId: "cc-7034-2", expectedWorkspaceRevision: 1,
+    }));
+    assert.equal(legal.turn.decision?.decision_kind, "transition_beat", "a fresh legal command after retries still advances normally");
+    auditCausalityChain("TS-7034");
+  });
+
+  await runTest("G6.1 workspace command crash recovery: committed outcome without consumption is consumed exactly once on retry", async () => {
+    const provider = journeyProvider();
+    const orch = startOrchestrator("TS-7035", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7035-1" });
+    // 崩溃窗口模拟：直接经 F3 公开 runtime 提交命令（两批已提交），编排层在
+    // consumeWorkspaceCommandOutcome 之前崩溃——恢复时 outcome 已提交、未消费。
+    const rawRuntime = workspaceRuntimeModule.WorkspaceSessionRuntimeV5.resume("TS-7035", orch.catalog);
+    const committed = rawRuntime.executeStudentCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7035", commandId: "SC-TS-7035-0001", clientCommandId: "cc-7035-1", expectedWorkspaceRevision: 1,
+    }));
+    assert.equal(committed.status, "completed", "F3 committed intent+outcome while the orchestrator was down");
+    const outcomeSequence = committed.appendedSequences.at(-1)!;
+    assert.equal(eventsOf("TS-7035").some((event) => event.causation_sequence === outcomeSequence), false, "no downstream fact of the outcome at the recovery point (not yet consumed)");
+    // 恢复：同键重试 → duplicate → 恰好消费一次（gate+decision+新 Beat 呈现）。
+    const recovered = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7035", commandId: "SC-TS-7035-0001", clientCommandId: "cc-7035-1", expectedWorkspaceRevision: 2,
+    }));
+    assert.equal(recovered.turn.decision?.decision_kind, "transition_beat", "recovery consumes the committed receipt (exactly once)");
+    assert.equal(recovered.turn.decision?.to_beat_id, "BT-03");
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-03");
+    const gateEvents = eventsOf("TS-7035").filter((event) => event.event_type === "gate_evaluated" && (event.payload as { gate_id: string }).gate_id === "GT-02");
+    assert.equal(gateEvents.length, 1, "GT-02 evaluated exactly once for the committed receipt");
+    assert.equal((gateEvents[0].payload as { evidence_sequence?: number }).evidence_sequence, outcomeSequence, "gate evidence references the committed outcome sequence");
+    // 已消费后的再次重试（换新 command_id）：幂等回放零新增。
+    const afterRecovery = countEvents("TS-7035");
+    const replay = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7035", commandId: "SC-TS-7035-0099", clientCommandId: "cc-7035-1", expectedWorkspaceRevision: 3,
+    }));
+    assert.equal(countEvents("TS-7035"), afterRecovery, "post-consumption retry appends nothing");
+    assert.equal(replay.presentations.length, 0);
+    assert.equal(replay.turn.decision?.decision_kind, "transition_beat", "replay returns the committed decision");
+    auditCausalityChain("TS-7035");
+  });
+
+  await runTest("G6.1 D1 fixation: gate just satisfied but cursor left the binding beat -> final reveal refused (stale-gate leg)", async () => {
+    const provider = journeyProvider();
+    const orch = startOrchestrator("TS-7036", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7036-1" });
+    orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7036", commandId: "SC-TS-7036-0001", clientCommandId: "cc-7036-1", expectedWorkspaceRevision: 1,
+    }));
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7036-3" });
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7036-4" });
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-05", "GT-04 satisfied at BT-04 and the cursor has left the binding beat");
+    // 偏差精确场景（复核 P2-2 ①）：锚定当前 BT-05 execute_beat 决策强制 reveal
+    // final 条目 BE-08 —— gate 虽刚满足，Beat 腿已关闭（stale-gate）。
+    const anchor = [...eventsOf("TS-7036")].reverse().find(
+      (event) => event.event_type === "policy_decision_made"
+        && (event.payload as { decision_kind: string }).decision_kind === "execute_beat"
+        && (event.payload as { beat_id: string }).beat_id === "BT-05",
+    )!;
+    const anchorPayload = anchor.payload as { decision_id: string; protocol_id: string; beat_id: string };
+    const forced = orch.executePresentationPlan({
+      schema: "ai_teaching_presentation_plan/v1",
+      session_id: "TS-7036", plan_id: "PPT-TS-7036-9001", decision_id: anchorPayload.decision_id,
+      protocol_id: anchorPayload.protocol_id, beat_id: "BT-05",
+      voice_actions: [],
+      workspace_actions: [{ action_id: "WSA-TS-7036-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-08"], reveal_scope: "final_result" as const }],
+    } as Parameters<typeof orch.executePresentationPlan>[0], anchor.sequence);
+    assert.equal(forced.failure?.failure_class, "action_validation_rejected");
+    assert.ok(
+      forced.receipts.some((receipt) => receipt.reason?.includes("stale-gate")),
+      `stale-gate leg refuses the final reveal: ${JSON.stringify(forced.receipts.map((receipt) => receipt.reason))}`,
+    );
+    assert.equal(
+      eventsOf("TS-7036").some((event) => event.event_type === "workspace_surface_action_issued" && (event.payload as { action_id: string }).action_id === "WSA-TS-7036-9001"),
+      false,
+      "zero issued facts",
+    );
+    auditCausalityChain("TS-7036");
+  });
+
+  await runTest("G6.1 D1 fixation: old-beat decision look-back anchor -> final reveal refused (wrong-beat causation leg)", async () => {
+    const provider = journeyProvider();
+    const orch = startOrchestrator("TS-7037", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7037-1" });
+    orch.submitWorkspaceCommand(markKnownSegmentsCommand({
+      sessionId: "TS-7037", commandId: "SC-TS-7037-0001", clientCommandId: "cc-7037-1", expectedWorkspaceRevision: 1,
+    }));
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7037-3" });
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7037-4" });
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-05");
+    // 复核 P2-2 ②：伪造回看窗口——重新锚定 BT-04 旧 execute_beat 决策强制 reveal
+    // BE-08 —— F3 决策-游标因果强制（wrong-beat）拒绝。
+    const anchor = eventsOf("TS-7037").find(
+      (event) => event.event_type === "policy_decision_made"
+        && (event.payload as { decision_kind: string }).decision_kind === "execute_beat"
+        && (event.payload as { beat_id: string }).beat_id === "BT-04",
+    )!;
+    const anchorPayload = anchor.payload as { decision_id: string; protocol_id: string; beat_id: string };
+    const forced = orch.executePresentationPlan({
+      schema: "ai_teaching_presentation_plan/v1",
+      session_id: "TS-7037", plan_id: "PPT-TS-7037-9001", decision_id: anchorPayload.decision_id,
+      protocol_id: anchorPayload.protocol_id, beat_id: "BT-04",
+      voice_actions: [],
+      workspace_actions: [{ action_id: "WSA-TS-7037-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-08"], reveal_scope: "final_result" as const }],
+    } as Parameters<typeof orch.executePresentationPlan>[0], anchor.sequence);
+    assert.equal(forced.failure?.failure_class, "action_validation_rejected");
+    assert.ok(
+      forced.receipts.some((receipt) => receipt.reason?.includes("wrong-beat")),
+      `wrong-beat causation refuses the look-back anchor: ${JSON.stringify(forced.receipts.map((receipt) => receipt.reason))}`,
+    );
+    assert.equal(
+      eventsOf("TS-7037").some((event) => event.event_type === "workspace_surface_action_issued" && (event.payload as { action_id: string }).action_id === "WSA-TS-7037-9001"),
+      false,
+      "zero issued facts",
+    );
+    auditCausalityChain("TS-7037");
   });
 }
 

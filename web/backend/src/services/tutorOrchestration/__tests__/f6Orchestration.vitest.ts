@@ -281,6 +281,26 @@ describe("F6 vitest 进程下的 orchestrator 旅程闭环（kernel 真实提交
     expect(ANSWER_GOAL_OK.length).toBeGreaterThan(0);
   });
 
+  it("assessment start → resume：committed catalog pin 恢复 locked catalog 与 assessmentMode（F6.1 P1-1）", async () => {
+    const { FixedResponseGateProvider } = await import("../../tutorNavigator/ModelGateAdjudicatorV5");
+    const provider = new FixedResponseGateProvider([
+      JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-05"] }),
+    ], "fixed-vitest-f6a");
+    const orch = TutorSessionOrchestratorV5.start({
+      sessionId: "TS-8102", studentId: "student-f6", canonicalRoot: ROOT,
+      model: f6Model(provider, "fixed-response/fixed-vitest-f6a"), assessment: true,
+    });
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-8102-1" });
+    const live = orch.projectUnifiedViews();
+    const resumed = TutorSessionOrchestratorV5.resume({ sessionId: "TS-8102", canonicalRoot: ROOT, model: f6Model(provider, "fixed-response/fixed-vitest-f6a") });
+    expect(resumed.assessmentMode).toBe(true);
+    expect(resumed.state).toEqual(orch.state);
+    expect(resumed.projectUnifiedViews()).toEqual(live);
+    expect(resumed.projectUnifiedViews().studentWorkspaceView.canvas.interaction_enabled).toBe(false);
+    expect(provider.callCount).toBe(0);
+    await expect(resumed.submitStudentIntent({ intent_kind: "request_scaffold", client_request_id: "cr-8102-x" })).rejects.toThrow(/assessment mode forbids/);
+  });
+
   it("canonical fixtures：model_gate_pin 负例拒绝 + presentation-plan 正负（vitest 进程同口径）", () => {
     expect(validatePayload(readFixtureJson("tutor-session-event.v5.negative.session-started-bad-model-gate-pin.json")).ok).toBe(false);
     expect(validatePayload(readFixtureJson("presentation-plan.positive.json")).ok).toBe(true);
