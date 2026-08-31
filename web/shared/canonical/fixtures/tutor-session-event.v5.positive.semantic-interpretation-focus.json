@@ -1,0 +1,38 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v5",
+  "session_id": "TS-4242",
+  "sequence": 6,
+  "state_revision": 4,
+  "occurred_at": "2026-08-31T09:10:00Z",
+  "event_type": "semantic_interpretation_recorded",
+  "causation_sequence": 5,
+  "idempotency_key": "idem-20260831-0006",
+  "payload": {
+    "intent": "revisit_old_reasoning_region",
+    "reasoning_location": "aligned",
+    "confidence": 0.82,
+    "interpreter_version": "si-5.0.0",
+    "grounding_refs": [
+      "FN-03",
+      "FN-04",
+      "BT-02"
+    ],
+    "reasoning_focus": {
+      "part_id": "2",
+      "graph_fact_refs": [
+        "FN-03",
+        "FN-04"
+      ]
+    },
+    "reasoning_alignment": {
+      "kind": "expected_region",
+      "fact_ids": [
+        "FN-03",
+        "FN-04"
+      ],
+      "inference_ids": [
+        "IF-02"
+      ]
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v5",
+  "session_id": "TS-4242",
+  "sequence": 9,
+  "state_revision": 6,
+  "occurred_at": "2026-08-31T09:20:00Z",
+  "event_type": "policy_decision_made",
+  "causation_sequence": 8,
+  "idempotency_key": "idem-20260831-0009",
+  "payload": {
+    "decision_id": "TD-20260831-0002",
+    "decision_kind": "open_inquiry",
+    "protocol_id": "PR-SMV-002",
+    "beat_id": "BT-03",
+    "policy_version": "navigator-1.1.0",
+    "source_event_sequence": 8,
+    "source_state_revision": 6,
+    "inquiry": {
+      "inquiry_id": "IQ-TS4242-0001",
+      "return_beat_id": "BT-03"
+    },
+    "local_inquiry_protocol": {
+      "local_protocol_id": "LPR-TS4242-0001",
+      "source_plan": {
+        "artifact_id": "TP-SMV-002",
+        "version": "v6",
+        "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "anchor_fact_ids": [
+        "FN-03"
+      ],
+      "anchor_inference_ids": [
+        "IF-02"
+      ],
+      "beats": [
+        {
+          "beat_id": "LBT-01",
+          "purpose": "clarify premise FN-03 meaning",
+          "graph_fact_refs": [
+            "FN-03"
+          ],
+          "cognitive_activity": "explain",
+          "completion_evidence": {
+            "evidence_kind": "student_confirmation",
+            "gate": {
+              "gate_id": "GT-07",
+              "requirement": "student confirms premise meaning",
+              "graph_fact_id": "FN-03"
+            }
+          },
+          "participation": "answer",
+          "pacing": {
+            "wait_policy": "bounded_wait",
+            "max_wait_seconds": 120
+          },
+          "resource_ids": [
+            "RES003"
+          ],
+          "support_boundary": {
+            "may_reveal_answer": false,
+            "may_reveal_intermediate": true,
+            "max_support": "orient"
+          }
+        },
+        {
+          "beat_id": "LBT-02",
+          "purpose": "re-derive step via IF-02 with student",
+          "graph_fact_refs": [
+            "FN-03",
+            "FN-04"
+          ],
+          "cognitive_activity": "apply",
+          "completion_evidence": {
+            "evidence_kind": "workspace_command",
+            "gate": {
+              "gate_id": "GT-08",
+              "requirement": "student completes construction",
+              "capability": "geometry.construct-parallel"
+            }
+          },
+          "participation": "operate",
+          "pacing": {
+            "wait_policy": "student_driven"
+          },
+          "support_boundary": {
+            "may_reveal_answer": false,
+            "may_reveal_intermediate": true,
+            "max_support": "specify_operation"
+          }
+        }
+      ],
+      "transitions": [
+        {
+          "from_beat": "LBT-01",
+          "to_beat": "LBT-02",
+          "on": "evidence_collected"
+        },
+        {
+          "from_beat": "LBT-02",
+          "to_beat": "BT-09",
+          "on": "evidence_collected"
+        }
+      ],
+      "return_beat_id": "BT-04",
+      "expires_with_session": true
+    }
+  }
+}

@@ -202,6 +202,38 @@ export interface V5SessionStartedPayload {
   initial_cursor: { protocol_id: string; beat_id: string };
   previous_session_id?: string;
   switch_reason?: "alternate_approach";
+  /**
+   * 2026-08-31 R0 增补（F3/F5 修复波次）读侧窄类型：workspace presentation
+   * catalog 的持久 pin。canonical 可选字段（旧流合法缺省）；F3 实现写入门禁
+   * 要求新会话必带（start 注入服务端计算值，resume 重算对账——不符即
+   * HASH_MISMATCH fail closed，不接受未经对账的任意 catalog）。
+   */
+  workspace_catalog_pin?: {
+    catalog_schema_version: number;
+    content_hash: string;
+    entry_count?: number;
+  };
+}
+
+/**
+ * student_intent_recorded payload 窄形状（2026-08-29 F3 增补：canonical v5 事件
+ * payload 新增可选 workspace_command 内嵌——PRDS 合同流程同步；形状与 standalone
+ * ai_teaching_student_intent/v1 的内嵌 body 同构，F3 workspace 重建的 student
+ * 命令事实真源）。
+ */
+export interface V5StudentIntentRecordedPayload {
+  intent_kind: string;
+  text?: string;
+  client_request_id: string;
+  workspace_command?: {
+    command_id: string;
+    surface: "geometry" | "solution_board";
+    capability: string;
+    target_ids: string[];
+    params?: Record<string, unknown>;
+    expected_workspace_revision: number;
+    client_command_id: string;
+  };
 }
 
 export interface V5PolicyDecisionPayload {
@@ -214,6 +246,8 @@ export interface V5PolicyDecisionPayload {
   source_event_sequence: number;
   source_state_revision: number;
   inquiry?: { inquiry_id: string; inquiry_protocol_id?: string; return_beat_id: string };
+  /** 2026-08-31 R0 增补：只随 decision_kind=open_inquiry（无 inquiry_protocol_id）携带。 */
+  local_inquiry_protocol?: V5LocalInquiryProtocolPayload;
 }
 
 export interface V5GateEvaluatedPayload {
@@ -238,4 +272,76 @@ export interface V5InquiryPayload {
   return_beat_id: string;
   local?: boolean;
   trigger?: string;
+}
+
+// --------------------------------------------------------------------------- //
+// 2026-08-31 R0 增补（F3/F5 修复波次）读侧窄类型：semantic_interpretation_recorded
+// 新增可选 reasoning_focus / reasoning_alignment；policy_decision_made 新增可选
+// local_inquiry_protocol。canonical 真源 = tutor-session-event.schema.json
+// （TS 镜像 v5SemanticInterpretationPayload / v5PolicyDecisionPayload 的
+// superRefine 条件在此不重复——事件入流前已过 canonical 判定，此处只约束读取形状）。
+// --------------------------------------------------------------------------- //
+
+/** state/v1 reasoning_focus 与事件载荷逐字段同构（R0 §1：携带即覆写、缺省不动）。 */
+export interface V5ReasoningFocusPayload {
+  part_id?: string;
+  graph_fact_refs: string[];
+}
+
+/** 09:1118 五类 ReasoningAlignment 的合同形状（kind 条件引用集由 canonical 强制）。 */
+export interface V5ReasoningAlignmentPayload {
+  kind: "expected_region" | "alternate_valid_path" | "incorrect_reasoning" | "unclear_reasoning" | "no_progress";
+  fact_ids?: string[];
+  inference_ids?: string[];
+  anchored_fact_ids?: string[];
+}
+
+/** semantic_interpretation_recorded payload 读侧窄形状。 */
+export interface V5SemanticInterpretationPayload {
+  intent: string;
+  reasoning_location: "aligned" | "partially_aligned" | "misaligned" | "unknown";
+  confidence: number;
+  interpreter_version: string;
+  grounding_refs?: string[];
+  reasoning_focus?: V5ReasoningFocusPayload;
+  reasoning_alignment?: V5ReasoningAlignmentPayload;
+}
+
+/** session-local LocalInquiryProtocol（09:1288 六要素；LPR-/LBT- 命名空间）。 */
+export interface V5LocalInquiryProtocolPayload {
+  local_protocol_id: string;
+  source_plan: V5ArtifactRefLike;
+  anchor_fact_ids: string[];
+  anchor_inference_ids?: string[];
+  beats: Array<{
+    beat_id: string;
+    purpose: string;
+    graph_fact_refs: string[];
+    cognitive_activity: "attend" | "recall" | "relate" | "apply" | "verify" | "explain";
+    completion_evidence: {
+      evidence_kind:
+        | "student_answer"
+        | "workspace_command"
+        | "student_confirmation"
+        | "narration_completed"
+        | "explicit_gate_pass"
+        | "tutor_observed";
+      gate?: { gate_id: string; requirement: string; capability?: string; graph_fact_id?: string };
+    };
+    participation: "listen" | "answer" | "operate" | "confirm" | "continue";
+    pacing: { wait_policy: "student_driven" | "bounded_wait"; max_wait_seconds?: number };
+    resource_ids?: string[];
+    support_boundary: {
+      may_reveal_answer: false;
+      may_reveal_intermediate: boolean;
+      max_support: "orient" | "foreground" | "name_strategy" | "specify_operation" | "provide_intermediate_conclusion";
+    };
+  }>;
+  transitions: Array<{
+    from_beat: string;
+    to_beat: string;
+    on: "gate_satisfied" | "evidence_collected" | "student_request" | "timeout" | "tutor_discretion";
+  }>;
+  return_beat_id: string;
+  expires_with_session: true;
 }

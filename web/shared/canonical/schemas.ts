@@ -2881,6 +2881,17 @@ const v5SessionStartedPayload = z
       .strict(),
     previous_session_id: sessionId.optional(),
     switch_reason: z.literal("alternate_approach").optional(),
+    // 2026-08-31 R0 增补（PRDS contracts/schemas/runtime/v5/tutor-session-event.schema.json
+    // 同步）：F3 WorkspacePresentationCatalogV5 的持久 pin（resume 对账依据；
+    // content_hash 计算口径冻结于 mvp/foundation/f3-f5-rework/r0-contract-wave.md）。
+    workspace_catalog_pin: z
+      .object({
+        catalog_schema_version: z.number().int().min(1),
+        content_hash: sha256,
+        entry_count: z.number().int().min(1).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -2901,6 +2912,45 @@ const v5StudentIntentRecordedPayload = z
     ]),
     text: nonEmptyString.optional(),
     client_request_id: clientRequestIdPattern,
+    // 2026-08-29 F3 增补（PRDS contracts/schemas/runtime/v5/tutor-session-event.schema.json
+    // 同步）：submit_workspace_command 时内嵌完整 StudentWorkspaceCommand 形状——
+    // Workspace 状态转换内核（F3）重建 WorkspaceRuntimeState 的唯一 student
+    // 命令事实真源。
+    workspace_command: studentWorkspaceCommandBody.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.intent_kind === "submit_workspace_command" && !value.workspace_command) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "intent_kind=submit_workspace_command requires workspace_command",
+      });
+    }
+  });
+
+const v5ReasoningFocus = z
+  .object({
+    part_id: partIdPattern.optional(),
+    graph_fact_refs: z.array(graphFactIdPattern).min(1),
+  })
+  .strict();
+
+const v5ReasoningAlignment = z
+  .object({
+    kind: z.enum([
+      "expected_region",
+      "alternate_valid_path",
+      "incorrect_reasoning",
+      "unclear_reasoning",
+      "no_progress",
+    ]),
+    // 09:1118 五类 ReasoningAlignment：expected_region/alternate_valid_path 携
+    // fact_ids+inference_ids；incorrect_reasoning 携 anchored_fact_ids；
+    // unclear_reasoning/no_progress 无参数（条件由 superRefine 强制，与
+    // PRDS schema payload 级 allOf 一致）。
+    fact_ids: z.array(graphFactIdPattern).min(1).optional(),
+    inference_ids: z.array(graphInferenceIdPattern).min(1).optional(),
+    anchored_fact_ids: z.array(graphFactIdPattern).min(1).optional(),
   })
   .strict();
 
@@ -2911,8 +2961,171 @@ const v5SemanticInterpretationPayload = z
     confidence: z.number().min(0).max(1),
     interpreter_version: nonEmptyString,
     grounding_refs: z.array(z.string().regex(/^[A-Za-z0-9_.\[\]-]{3,64}$/)).max(8).optional(),
+    // 2026-08-31 R0 增补（PRDS contracts/schemas/runtime/v5/tutor-session-event.schema.json
+    // 同步）：reasoning_focus 携带时由 reducer 整体覆写 state/v1 reasoning_focus
+    //（主线游标不动）；缺省不改。形状与 state/v1 reasoning_focus 逐字段同构。
+    reasoning_focus: v5ReasoningFocus.optional(),
+    reasoning_alignment: v5ReasoningAlignment.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const alignment = value.reasoning_alignment;
+    if (!alignment) return;
+    const regionKinds = alignment.kind === "expected_region" || alignment.kind === "alternate_valid_path";
+    if (regionKinds) {
+      if (!alignment.fact_ids || !alignment.inference_ids) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `reasoning_alignment.kind=${alignment.kind} requires fact_ids and inference_ids`,
+        });
+      }
+      if (alignment.anchored_fact_ids) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `reasoning_alignment.kind=${alignment.kind} must not carry anchored_fact_ids`,
+        });
+      }
+    } else if (alignment.kind === "incorrect_reasoning") {
+      if (!alignment.anchored_fact_ids) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "reasoning_alignment.kind=incorrect_reasoning requires anchored_fact_ids",
+        });
+      }
+      if (alignment.fact_ids || alignment.inference_ids) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "reasoning_alignment.kind=incorrect_reasoning must not carry fact_ids/inference_ids",
+        });
+      }
+    } else if (alignment.fact_ids || alignment.inference_ids || alignment.anchored_fact_ids) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `reasoning_alignment.kind=${alignment.kind} must not carry region/anchor refs`,
+      });
+    }
+  });
+
+// 2026-08-31 R0 增补：session-local LocalInquiryProtocol（09:1288 六要素）的
+// 结构化持久表达，只随 decision_kind=open_inquiry 事件出现。本地 id 命名空间
+// LPR-/LBT-（id-registry）与 Approved PR-/BT- 构造性隔离；跨字段相等性
+//（return 同值、to_beat 的 BT- 值=return_beat_id、转移引用本地 beats）在
+// superRefine fail closed；锚点/资源在 Pinned RG/Plan 内由实现（F5 Builder
+// 边界校验）保证——schema 无法跨 artifact 引用。
+const v5LocalInquiryBeat = z
+  .object({
+    beat_id: z.string().regex(/^LBT-[0-9]{1,3}$/),
+    purpose: nonEmptyString,
+    graph_fact_refs: z.array(graphFactIdPattern).min(1),
+    cognitive_activity: z.enum(["attend", "recall", "relate", "apply", "verify", "explain"]),
+    completion_evidence: z
+      .object({
+        evidence_kind: z.enum([
+          "student_answer",
+          "workspace_command",
+          "student_confirmation",
+          "narration_completed",
+          "explicit_gate_pass",
+          "tutor_observed",
+        ]),
+        gate: z
+          .object({
+            gate_id: gateIdPattern,
+            requirement: nonEmptyString,
+            capability: nonEmptyString.optional(),
+            graph_fact_id: graphFactIdPattern.optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+    participation: z.enum(["listen", "answer", "operate", "confirm", "continue"]),
+    pacing: z
+      .object({
+        wait_policy: z.enum(["student_driven", "bounded_wait"]),
+        max_wait_seconds: z.number().int().min(5).max(3600).optional(),
+      })
+      .strict(),
+    resource_ids: z.array(resourceIdPattern).optional(),
+    support_boundary: z
+      .object({
+        may_reveal_answer: z.literal(false),
+        may_reveal_intermediate: z.boolean(),
+        max_support: z.enum([
+          "orient",
+          "foreground",
+          "name_strategy",
+          "specify_operation",
+          "provide_intermediate_conclusion",
+        ]),
+      })
+      .strict(),
   })
   .strict();
+
+const v5LocalInquiryProtocol = z
+  .object({
+    local_protocol_id: z.string().regex(/^LPR-[A-Za-z0-9._:-]{4,}$/),
+    source_plan: planArtifactRefV4,
+    anchor_fact_ids: z.array(graphFactIdPattern).min(1),
+    anchor_inference_ids: z.array(graphInferenceIdPattern).optional(),
+    beats: z.array(v5LocalInquiryBeat).min(1),
+    transitions: z
+      .array(
+        z
+          .object({
+            from_beat: z.string().regex(/^LBT-[0-9]{1,3}$/),
+            to_beat: z.string().regex(/^(LBT|BT)-[0-9]{1,3}$/),
+            on: z.enum([
+              "gate_satisfied",
+              "evidence_collected",
+              "student_request",
+              "timeout",
+              "tutor_discretion",
+            ]),
+          })
+          .strict(),
+      )
+      .min(1),
+    return_beat_id: beatIdPattern,
+    expires_with_session: z.literal(true),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const localBeatIds = new Set<string>();
+    for (const [index, beat] of value.beats.entries()) {
+      if (localBeatIds.has(beat.beat_id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `beats[${index}].beat_id ${beat.beat_id} is duplicated within this local protocol`,
+        });
+      }
+      localBeatIds.add(beat.beat_id);
+    }
+    for (const [index, transition] of value.transitions.entries()) {
+      if (!localBeatIds.has(transition.from_beat)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `transitions[${index}].from_beat ${transition.from_beat} is not a beat of this local protocol`,
+        });
+      }
+      if (
+        transition.to_beat.startsWith("LBT-") &&
+        !localBeatIds.has(transition.to_beat)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `transitions[${index}].to_beat ${transition.to_beat} is not a beat of this local protocol`,
+        });
+      }
+      if (transition.to_beat.startsWith("BT-") && transition.to_beat !== value.return_beat_id) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `transitions[${index}].to_beat ${transition.to_beat} must equal return_beat_id ${value.return_beat_id} (mainline beats are only reachable via the return point)`,
+        });
+      }
+    }
+  });
 
 const v5PolicyDecisionPayload = z
   .object({
@@ -2941,6 +3154,7 @@ const v5PolicyDecisionPayload = z
       .strict()
       .optional(),
     inquiry: inquiryBlock.optional(),
+    local_inquiry_protocol: v5LocalInquiryProtocol.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -2961,6 +3175,33 @@ const v5PolicyDecisionPayload = z
         code: z.ZodIssueCode.custom,
         message: `decision_kind=${value.decision_kind} requires to_beat_id`,
       });
+    }
+    if (value.local_inquiry_protocol) {
+      if (value.decision_kind !== "open_inquiry") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `local_inquiry_protocol is only allowed with decision_kind=open_inquiry (got ${value.decision_kind})`,
+        });
+      }
+      if (!value.inquiry) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "local_inquiry_protocol requires inquiry (with return_beat_id)",
+        });
+      } else {
+        if (value.inquiry.inquiry_protocol_id) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "local_inquiry_protocol must not coexist with inquiry.inquiry_protocol_id (session-local protocols are not PR- artifacts)",
+          });
+        }
+        if (value.inquiry.return_beat_id !== value.local_inquiry_protocol.return_beat_id) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `local_inquiry_protocol.return_beat_id ${value.local_inquiry_protocol.return_beat_id} differs from inquiry.return_beat_id ${value.inquiry.return_beat_id}`,
+          });
+        }
+      }
     }
   });
 

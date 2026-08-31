@@ -9,6 +9,9 @@
  *   ephemeral boundary 设计为全持久语义（hover/drag/pan/animation 留在前端，
  *   ADR-008 §6 不变量 6），因此 live 与 rebuilt 的 TutorRuntimeState 语义比较
  *   不允许忽略任何 canonical 字段——白名单为空是设计事实，不是遗漏。
+ *   2026-08-31 R1 复核：`reasoning_focus`（R0 增补的事件驱动写径）属**持久
+ *   教学语义**（焦点转移是已发生事实），必须参与比较，**不得**进入忽略白名单；
+ *   同名 fold 血缘索引（student 命令记账）不是 state 字段、不参与比较。
  *   未来要加入任何字段，必须先在 f2-scope-ledger 与此处同步登记理由。
  * - EVENT 行层：`SEMANTICALLY_IGNORED_EVENT_FIELDS = ["recorded_at"]`。DB 写入
  *   时间戳是写入侧元数据，不属于 canonical v5 envelope；重放/迁移对账时忽略。

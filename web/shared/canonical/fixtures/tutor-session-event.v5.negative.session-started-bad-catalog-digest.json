@@ -1,0 +1,57 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v5",
+  "session_id": "TS-4242",
+  "sequence": 1,
+  "state_revision": 0,
+  "occurred_at": "2026-08-27T08:00:00Z",
+  "event_type": "session_started",
+  "payload": {
+    "task_id": "goldenMinhangCross2020",
+    "scenario_id": "golden-similarity-mvp-001:QT-SMV-002",
+    "question_ref": {
+      "artifact_id": "QT-SMV-002",
+      "version": "v2",
+      "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "approach_set_ref": {
+      "artifact_id": "AS-SMV-002",
+      "version": "v1",
+      "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "solution_graph_ref": {
+      "artifact_id": "RG-SMV-002",
+      "version": "v1",
+      "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "protocol_refs": [
+      {
+        "artifact_id": "PR-SMV-002",
+        "version": "v1",
+        "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ],
+    "tutor_plan_ref": {
+      "artifact_id": "TP-SMV-002",
+      "version": "v6",
+      "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "policy_profile_snapshot": {
+      "profile_id": "PP-SMV-001",
+      "version": "v1",
+      "primary_provider": "deterministic-rules",
+      "fallback_provider": "safe-fallback",
+      "model_id": "none",
+      "prompt_version": "pv-1"
+    },
+    "initial_cursor": {
+      "protocol_id": "PR-SMV-002",
+      "beat_id": "BT-01"
+    },
+    "workspace_catalog_pin": {
+      "catalog_schema_version": 1,
+      "content_hash": "md5:5d41402abc4b2a76b9719d911017c592",
+      "entry_count": 5
+    }
+  },
+  "idempotency_key": "idem-20260827-0001"
+}

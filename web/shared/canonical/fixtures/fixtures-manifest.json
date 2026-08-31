@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 102,
+  "fixture_count": 118,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -716,6 +716,22 @@
       "sha256": "sha256:5fbff66cb4c51c328530b4e8ddb7aefe62db022d2d6e9da2a49f9a31fd5113b6"
     },
     {
+      "file": "tutor-session-event.v5.negative.alignment-incorrect-with-region-refs.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:f61125b37fadb9c7686173e558f94922dc1a3620f08a4c9075090011accae818"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.alignment-without-required-refs.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:08be49970c480110e03f068bf34ea2b469b6f8ff1dda729d010418dfeca443dc"
+    },
+    {
       "file": "tutor-session-event.v5.negative.decision-missing-causation.json",
       "object_schema": "ai_teaching_tutor_session_event/v5",
       "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
@@ -732,12 +748,92 @@
       "sha256": "sha256:af6b3e2ed82b7ba3bfbc6890ec768a033f68162ce6bd70a198ad306e7b279ef6"
     },
     {
+      "file": "tutor-session-event.v5.negative.intent-without-command.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0319efd4fd7f43e87feb6be9baef567c4363eb93119248b80bad75ef69c02caa"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.local-inquiry-mismatched-return.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:faa315c8aea54d3a725e67ac360037fe22abffd66beed37d117ff8af7e192d9e"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.local-inquiry-on-wrong-decision-kind.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:2cc7b32b65c2550d2aa65d9933ac125db24a8b2d1215d444a144a8ed8315afa0"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.local-inquiry-persistent.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:c7f451cf33e3079c56213c96f5a3aac66dfc25bbb87dce9acc304e26377b6187"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.local-inquiry-transition-to-foreign-beat.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:690e7e7f729ae6e70f41cee5bc5315c8c224d5d8acf8a93f1ae672f2ab4cabbb"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.local-inquiry-unknown-beat-transition.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:136f5d78ebf7584a61f2db8d72003adb0f7f2d9001badfc27ff377737e9af2a5"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.local-inquiry-with-plan-protocol-id.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e1bb10821ebecf88ebfba026008008f44d390a414a14b621789486efd52da865"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.semantic-interpretation-focus-empty-refs.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:be9362b48e961dbe34e540c6c1b521f34851b4514769e17d566329581fb34a13"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.session-started-bad-catalog-digest.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:78fd2eb047556e4c9dc253dbdca4d60c3a149bb5d018c5d7597efcd14dc44aa0"
+    },
+    {
       "file": "tutor-session-event.v5.negative.session-started-empty-protocols.json",
       "object_schema": "ai_teaching_tutor_session_event/v5",
       "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
       "expect_schema": "invalid",
       "expect_publication": "n/a",
       "sha256": "sha256:7f1ccf56c13a9a96571af34694d4ea6346f9454a61d30f8aaf731380e6a4e0fc"
+    },
+    {
+      "file": "tutor-session-event.v5.positive.local-inquiry-protocol.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:1c165f7213d85d39c3d8b2a68ff78ff6b649bf22a6d8eafa92a766160ecf37b9"
     },
     {
       "file": "tutor-session-event.v5.positive.policy-decision.json",
@@ -748,12 +844,44 @@
       "sha256": "sha256:30349088d6d482eef2b3f6987861992f91282641d3274326bded66db4d2d967b"
     },
     {
+      "file": "tutor-session-event.v5.positive.semantic-interpretation-focus.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0fab4b5d9841503f64f6e978b4e258bdc4e98b88227e0d0dd2ed3ff5e2e085c8"
+    },
+    {
+      "file": "tutor-session-event.v5.positive.semantic-interpretation-no-progress.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:db27c1a39d563beb74b5fb4b05815fac76f4c591ea0359c7c5443f242665d7b8"
+    },
+    {
+      "file": "tutor-session-event.v5.positive.session-started-catalog-pin.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:7bcbad01c6c76863028df4c48833bb4e3a8397069d0cf969e87c506cd12c7686"
+    },
+    {
       "file": "tutor-session-event.v5.positive.session-started.json",
       "object_schema": "ai_teaching_tutor_session_event/v5",
       "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:8f97ebf4576fe096c84331f02ae1b6e07152a018c712eda0bc8d462760682cd4"
+    },
+    {
+      "file": "tutor-session-event.v5.positive.student-workspace-command.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:efb680a3e31509ba4fa0d535ba80cf11dd980f0b8e8f1be9a13f0187aa84b579"
     },
     {
       "file": "tutor-session-event.v5.positive.support-evidence.json",

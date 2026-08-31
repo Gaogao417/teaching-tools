@@ -11,5 +11,7 @@ __pycache__/
 web/frontend/benchmarks/voice/fixtures/generated/
 # F2 v5 kernel tests write a throwaway sqlite next to the suite (tutorSessionKernelV5 tests).
 web/backend/.tutor-*.test.sqlite
+# F3 workspace kernel tests write a throwaway sqlite next to the suite (workspaceKernelV5 tests).
+web/backend/.workspace-*.test.sqlite
 # Playwright tutor e2e run outputs (curated evidence lives in PRDS mvp/reports/).
 web/frontend/e2e/tutor/results-*/

@@ -8,6 +8,24 @@
  * 只含可见内容；canvas 为组合后的学生安全画布（authored 题图 + 已披露
  * 演示效果）。任何 truth 键（localTruth/teachingInput/expectedValues）
  * 不得出现在本文件的任何载荷里。
+ *
+ * ---------------------------------------------------------------------------
+ * 【收敛登记（F3，2026-08-29；G1 报告 §2 指定收敛位）】
+ * 本文件是手写 View 类型（F0 contract matrix §2 第 1 行登记债），目标形态由
+ * canonical `ai_teaching_student_workspace_view/v1`（PRDS contracts/schemas/
+ * view/v1；TS 镜像 web/shared/canonical studentWorkspaceViewV1Schema）取代。
+ *
+ * - F3 侧收敛已完成：vNext Workspace 投影（tutorSession/WorkspaceViewProjectorV5）
+ *   只消费 canonical Zod 推导类型，不再引用本文件；
+ * - 剩余 consumer（legacy 链，冻结不改、删除属 F7+）：
+ *   backend：tutorSession/TutorSession.ts（v2–v4 主链 response）、
+ *   tutorSession/workspaceRuntimeState.ts（VS1 只读 adapter，L-04 冻结面）；
+ *   shared：tutorExperience.ts（legacy response，L-04）；
+ *   frontend：action-runtime/tutor/useTutorLearning.ts、
+ *   action-runtime/tutor/tutorTestFixtures.ts、
+ *   presentation/workspace/StudentWorkspaceFrame.tsx 及相关测试（F7 收敛）。
+ * 新代码禁止 import 本文件（frontend/presentation/canonicalView 已用 canonical）。
+ * ---------------------------------------------------------------------------
  */
 import type { ExercisePlan, LearningMode } from "./actionRuntime";
 import type { TopicGeometryModel } from "./topicPractice";
