@@ -157,7 +157,11 @@ export class TutorSessionIntegrityError extends Error {
 }
 
 /** reducer 语义校验错误（同一事件流内部不变量被破坏时 fail closed）。 */
-export type V5ReducerErrorCode = "MISSING_SESSION_START" | "INQUIRY_RETURN_MISMATCH" | "REDUCER_INVARIANT";
+export type V5ReducerErrorCode =
+  | "MISSING_SESSION_START"
+  | "INQUIRY_RETURN_MISMATCH"
+  | "GATE_BEAT_MISMATCH"
+  | "REDUCER_INVARIANT";
 
 export class RuntimeStateReducerV5Error extends Error {
   readonly code: V5ReducerErrorCode;

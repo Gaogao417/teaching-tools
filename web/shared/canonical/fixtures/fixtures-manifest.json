@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 118,
+  "fixture_count": 121,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -588,6 +588,22 @@
       "sha256": "sha256:a87b5111816a243d580c0f19c7fe580a07746c9148794c65e4c60995ae5aec2a"
     },
     {
+      "file": "tutor-policy-decision.negative.local-inquiry-persistent.json",
+      "object_schema": "ai_teaching_tutor_policy_decision/v1",
+      "schema_ref": "../schemas/runtime/v5/tutor-policy-decision.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:316725a658079c7a76ef0ed1cc8e9297735ec662939d323ea6878f1ed99b0ebb"
+    },
+    {
+      "file": "tutor-policy-decision.negative.local-inquiry-with-plan-protocol-id.json",
+      "object_schema": "ai_teaching_tutor_policy_decision/v1",
+      "schema_ref": "../schemas/runtime/v5/tutor-policy-decision.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:c2e2cfadadb956cd922e771254759f9615d0a270294260638cd396957acb070f"
+    },
+    {
       "file": "tutor-policy-decision.negative.move-type-field.json",
       "object_schema": "ai_teaching_tutor_policy_decision/v1",
       "schema_ref": "../schemas/runtime/v5/tutor-policy-decision.schema.json",
@@ -602,6 +618,14 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:66b0c05068bfb12b67c27bd2a4a31cbe55f848c06eb2d498487a81319ce0dc09"
+    },
+    {
+      "file": "tutor-policy-decision.positive.local-inquiry-protocol.json",
+      "object_schema": "ai_teaching_tutor_policy_decision/v1",
+      "schema_ref": "../schemas/runtime/v5/tutor-policy-decision.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:397337bfeb5ec5d24e44dfd5bab3767397b09998fe9d9f85838990a7195a1219"
     },
     {
       "file": "tutor-policy-profile.negative.missing-profile-version.json",

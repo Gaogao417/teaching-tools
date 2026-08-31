@@ -55,6 +55,11 @@ export interface NavigatorProtocolView {
 export interface NavigatorPlanV5 {
   readonly tutor_plan_ref: { artifact_id: string; version: string; content_hash: string };
   readonly question_ref: { artifact_id: string; version: string; content_hash: string };
+  /**
+   * R3：题目内容摘要（裁决上下文的 question 最小集——stem/question_type 取自
+   * F4 importer 的 QuestionTruth；只读投影，不是第二真源）。
+   */
+  readonly question: { artifact_id: string; question_type: string; stem: string };
   readonly approach_set_ref: { artifact_id: string; version: string; content_hash: string };
   readonly solution_graph_ref: { artifact_id: string; version: string; content_hash: string };
   readonly policy_profile_ref: { artifact_id: string; version: string; content_hash: string };
@@ -210,6 +215,11 @@ export function buildNavigatorPlan(imported: ImportedApprovedPlanV4): NavigatorP
       content_hash: imported.plan.content_hash,
     },
     question_ref: { ...imported.plan.question_ref },
+    question: {
+      artifact_id: imported.truth.artifact_id,
+      question_type: imported.truth.question_type,
+      stem: imported.truth.stem,
+    },
     approach_set_ref: { ...imported.plan.approach_set_ref },
     solution_graph_ref: { ...imported.plan.solution_graph_ref },
     policy_profile_ref: { ...imported.plan.policy_profile_ref },

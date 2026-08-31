@@ -1,5 +1,5 @@
 /**
- * NavigatorSessionV5（F5 — Session 与 Protocol Navigator 内核）。
+ * NavigatorSessionV5（F5 — Session 与 Protocol Navigator 内核；R3 加固，2026-08-31）。
  *
  * headless 教学闭环编排（09-target-architecture §10.2 的 F5 切片）：
  * - session start 的 Plan pin 来自 F4 importer 真实产物（`importApprovedPlanV4`
@@ -8,19 +8,37 @@
  * - 全部成功持久 transition 经 F2 内核（TutorSessionKernelV5.start / append——
  *   只读消费，不修改内核；store 事务内先纯折叠后落库对 navigator 批同样
  *   生效：reducer 拒绝 ⇒ 整批回滚）；
- * - 每轮顺序（计划 §3.3）：append 学生输入事实 → interpreter 假设事实 →
- *   （证据评估 → gate 事实）→ Navigator 确定性裁决 → decision 事实（+
- *   inquiry_opened/returned、ESE、失败 policy_failed）——因果链全程
- *   causation_sequence 可追溯；
- * - G5 对账入口：`kernel.rebuild()` 与在线 state 逐字段一致（F2 comparator
+ * - 每轮顺序（计划 §3.3 + R3）：append 学生输入事实 →（自然语言）模型裁决 →
+ *   服务端校验 → interpreter 假设事实 →（证据评估 → gate 事实）→ Navigator
+ *   确定性裁决 → decision 事实（interpretation/gate/decision 尽量同批原子
+ *   append）——因果链全程 causation_sequence 可追溯；
+ * - G5 对账入口：`rebuildState()` 与在线 state 逐字段一致（F2 comparator
  *   白名单空集），mainline/gate/inquiry/return/barge-in/unclear/out-of-bound
  *   轨迹都由 committed events 重建。
+ *
+ * ## R3（计划 §5 R3 工作项 4）
+ *
+ * - `acceptStudentIntent` **异步化**：先持久化学生输入 → 调模型（注入的
+ *   provider）→ 服务端校验（候选集复核、canonical ID 采信）→ 同批原子 append。
+ *   同 `client_request_id` 重试：读已提交的模型判断，不重复裁决、不双写。
+ * - 模型失败（timeout/provider 错误/非法 JSON/候选集外）→ `runtime_failure`
+ *   事实（canonical 封闭枚举下 failure_class=internal_error，message 前缀
+ *   gate_adjudicator_model_failure）+ unclear 假设 → 澄清/安全 fallback——
+ *   **不是 student incorrect**（ADR-007 不变量 6），绝不回退字符串规则 pass。
+ * - `kernel` 字段私有化（`private kernelRef`）：对外只暴露 state/revision/
+ *   events 与受控用例接口（appendExternalFacts/rebuildState）；仓内 consumer
+ *   迁移至公开 API。
+ * - `static resume`：kernel verified rebuild 之上叠加 **pinned Plan 逐事件
+ *   gate 归属核对**（gate_id 绑定当前 Beat 的 completion gate、satisfied 的
+ *   evidence_sequence 指向已提交学生证据）——伪造/损坏流拒绝恢复（设计明示
+ *   通用 F2 reducer 不必加载整个 Plan，Plan-aware 校验落本边界）。
+ * - replay/rebuild 不重新调模型（裁决以 committed 事实存在；resume 零模型调用）。
  */
 import { importApprovedPlanV4, type ImportedApprovedPlanV4 } from "../planBuild/v4/ImportApprovedPlanV4";
 import { readTutorSessionEventsV5 } from "../tutorSession/TutorSessionEventStoreV5";
 import type { PendingV5Event, StoredV5Event } from "../tutorSession/TutorSessionEventV5";
 import { TutorSessionKernelV5 } from "../tutorSession/TutorSessionKernelV5";
-import type { TutorRuntimeStateV5 } from "../tutorSession/TutorRuntimeStateReducerV5";
+import { applyV5Event, initialStateFromSessionStarted, type TutorRuntimeStateV5 } from "../tutorSession/TutorRuntimeStateReducerV5";
 import {
   buildNavigatorPlan,
   buildSessionStartedPayload,
@@ -31,15 +49,26 @@ import {
 import {
   INTERPRETER_V5_VERSION,
   hypothesisEventPayload,
+  hypothesisFromAdjudication,
+  interpretationMatchScore,
   interpretStudentInput,
+  isNaturalLanguageInput,
   noProgressHypothesis,
   type IntentKind,
   type NavigatorInterpretation,
 } from "./SemanticInterpreterV5";
 import { evaluateGateEvidence, type GateEvidenceInput } from "./GateEvidenceEvaluatorV5";
 import {
+  ModelGateAdjudicatorV5,
+  UnavailableGateProvider,
+  buildGateAdjudicationContext,
+  type GateAdjudicationProvider,
+  type GateAdjudicationResult,
+} from "./ModelGateAdjudicatorV5";
+import {
   MAX_LOCAL_INQUIRY_STEPS,
   NAVIGATOR_V5_VERSION,
+  canonicalPolicyFailureClass,
   decideNavigation,
   deriveLocalInquirySteps,
   deriveUnresolvedClarifications,
@@ -61,6 +90,14 @@ export interface NavigatorSessionStartInput {
   readonly tpId?: string;
   readonly taskId?: string;
   readonly scenarioId?: string;
+  /**
+   * R3：Gate 裁决 provider（依赖注入）。缺省 UnavailableGateProvider（fail
+   * closed——自然语言输入不会因模型缺失回退字符串规则 pass）；确定性测试注入
+   * FixedResponseGateProvider，真模型实证注入 ClaudeCodeGateProvider。
+   */
+  readonly gateProvider?: GateAdjudicationProvider;
+  /** 模型调用超时（ms）；超时 → unclear（provider_timeout）。 */
+  readonly modelTimeoutMs?: number;
 }
 
 export interface StudentIntentInput {
@@ -87,10 +124,39 @@ export interface TurnResult {
   readonly failure?: { failure_class: string; message: string };
 }
 
+/** resume 边界的 Plan-aware 完整性错误（伪造/损坏流拒绝恢复）。 */
+export type NavigatorResumeErrorCode =
+  | "CURSOR_OUTSIDE_PINNED_PLAN"
+  | "GATE_BEAT_MISMATCH"
+  | "PLAN_GATE_BINDING_MISMATCH"
+  | "GATE_EVIDENCE_FORGED";
+
+export class NavigatorResumeIntegrityError extends Error {
+  readonly code: NavigatorResumeErrorCode;
+  readonly relatedSequence?: number;
+
+  constructor(code: NavigatorResumeErrorCode, message: string, relatedSequence?: number) {
+    super(message);
+    this.name = "NavigatorResumeIntegrityError";
+    this.code = code;
+    if (relatedSequence !== undefined) this.relatedSequence = relatedSequence;
+  }
+}
+
+export interface NavigatorResumeInput {
+  readonly sessionId: string;
+  readonly canonicalRoot: string;
+  readonly tpId?: string;
+  readonly gateProvider?: GateAdjudicationProvider;
+  readonly modelTimeoutMs?: number;
+}
+
 export class NavigatorSessionV5 {
   readonly sessionId: string;
   readonly plan: NavigatorPlanV5;
-  readonly kernel: TutorSessionKernelV5;
+  /** R3：kernel 私有化——对外只经 state/revision/events 与受控用例接口。 */
+  private kernelRef: TutorSessionKernelV5;
+  private readonly adjudicator: ModelGateAdjudicatorV5;
   /** inquiry 打开时的当前 inquiry Beat id（mainline 游标冻结在 state）。 */
   private inquiryBeatId: string | undefined;
   private imported: ImportedApprovedPlanV4;
@@ -100,11 +166,13 @@ export class NavigatorSessionV5 {
     plan: NavigatorPlanV5,
     imported: ImportedApprovedPlanV4,
     kernel: TutorSessionKernelV5,
+    adjudicator: ModelGateAdjudicatorV5,
   ) {
     this.sessionId = sessionId;
     this.plan = plan;
     this.imported = imported;
-    this.kernel = kernel;
+    this.kernelRef = kernel;
+    this.adjudicator = adjudicator;
   }
 
   /** 启动 navigator 会话：真实 Approved 链导入 → F2 kernel.start（原子 pin）。 */
@@ -125,14 +193,46 @@ export class NavigatorSessionV5 {
       sessionStarted: payload,
       occurred_at: new Date().toISOString(),
     });
-    const session = new NavigatorSessionV5(input.sessionId, plan, imported.imported, kernel);
+    const adjudicator = new ModelGateAdjudicatorV5(input.gateProvider ?? new UnavailableGateProvider(), {
+      ...(input.modelTimeoutMs !== undefined ? { timeoutMs: input.modelTimeoutMs } : {}),
+    });
+    const session = new NavigatorSessionV5(input.sessionId, plan, imported.imported, kernel, adjudicator);
     // 起步决策：execute entry Beat（causation→session_started sequence 1）。
     session.commitDecisions(1, [{ kind: "session_start" }]);
     return session;
   }
 
+  /**
+   * 恢复会话（refresh/replay/reconnect）：kernel verified rebuild（gap/corrupt/
+   * revision/pin fail closed——F2 边界不动）+ **pinned Plan 逐事件 gate 归属
+   * 核对**（R3 工作项 6：通用 F2 reducer 不必加载整个 Plan，Plan-aware 校验
+   * 落本边界）。伪造 gate 事件（候选外 gate_id / 未来 Beat / pass 无对应学生
+   * 证据 sequence）→ NavigatorResumeIntegrityError，拒绝恢复。零模型调用。
+   */
+  static resume(input: NavigatorResumeInput): NavigatorSessionV5 {
+    const imported = importApprovedPlanV4({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? GOLDEN_TP_ID);
+    if (!imported.ok) {
+      throw new Error(`approved plan import failed (fail closed): ${imported.errors.join("; ")}`);
+    }
+    const plan = buildNavigatorPlan(imported.imported);
+    const kernel = TutorSessionKernelV5.resume(input.sessionId, { expectedTutorPlanRef: plan.tutor_plan_ref });
+    const events = readTutorSessionEventsV5(input.sessionId);
+    verifyGateAttributionAgainstPlan(plan, events);
+    const adjudicator = new ModelGateAdjudicatorV5(input.gateProvider ?? new UnavailableGateProvider(), {
+      ...(input.modelTimeoutMs !== undefined ? { timeoutMs: input.modelTimeoutMs } : {}),
+    });
+    const session = new NavigatorSessionV5(input.sessionId, plan, imported.imported, kernel, adjudicator);
+    session.inquiryBeatId = reconstructInquiryBeatId(events);
+    return session;
+  }
+
   get state(): TutorRuntimeStateV5 {
-    return this.kernel.state;
+    return this.kernelRef.state;
+  }
+
+  /** 当前 session revision（受控公开接口；kernel 私有化的替代入口）。 */
+  get revision(): number {
+    return this.kernelRef.revision;
   }
 
   get events(): StoredV5Event[] {
@@ -156,6 +256,24 @@ export class NavigatorSessionV5 {
     return beat;
   }
 
+  /** 全量重建（受控公开接口；对账/恢复用）。 */
+  rebuildState(): TutorRuntimeStateV5 {
+    return this.kernelRef.rebuild();
+  }
+
+  /**
+   * 受控用例 append：F3 侧执行回执 / 编排外部事实（原 `session.kernel.append`
+   * 的公开替代——kernel 私有化后，外部事实必须经此显式入口，教学决策仍只经
+   * 本类内部路径产生）。
+   */
+  appendExternalFacts(expectedRevision: number, events: PendingV5Event[]): {
+    revision: number;
+    appendedSequences: number[];
+    state: TutorRuntimeStateV5;
+  } {
+    return this.kernelRef.append(expectedRevision, events);
+  }
+
   private nextSequence(): number {
     return this.events.length + 1;
   }
@@ -165,8 +283,8 @@ export class NavigatorSessionV5 {
     return {
       sessionId: this.sessionId,
       plan: this.plan,
-      state: this.kernel.state,
-      revision: this.kernel.revision,
+      state: this.kernelRef.state,
+      revision: this.kernelRef.revision,
       ...(this.inquiryBeatId !== undefined ? { inquiryBeatId: this.inquiryBeatId } : {}),
       localInquirySteps: deriveLocalInquirySteps(events),
       unresolvedClarifications: deriveUnresolvedClarifications(events),
@@ -174,44 +292,91 @@ export class NavigatorSessionV5 {
   }
 
   private append(revision: number, events: PendingV5Event[]): { revision: number; sequences: number[] } {
-    const result = this.kernel.append(revision, events);
+    const result = this.kernelRef.append(revision, events);
     return { revision: result.revision, sequences: result.appendedSequences };
   }
 
   /**
-   * 接受学生输入（真实提交路径）：intent 事实 → interpreter 假设事实 →
-   * （gate 评估事实）→ Navigator 决策事实（或显式 policy_failed）。
+   * 接受学生输入（真实提交路径，R3 异步化）：intent 事实先行持久化 →（自然
+   * 语言）单次模型裁决 → 服务端校验 → interpretation/gate/decision 同批原子
+   * append → Navigator 决策（或显式 policy_failed）。
+   *
+   * 同 `client_request_id` 重试：读已提交的模型判断（interpretation + decision
+   * 事实），不重复裁决、不双写（幂等重放）。
    */
-  acceptStudentIntent(input: StudentIntentInput): TurnResult {
+  async acceptStudentIntent(input: StudentIntentInput): Promise<TurnResult> {
     if (
       (input.intent_kind === "submit_answer" || input.intent_kind === "ask_question") &&
       (input.text === undefined || input.text.length === 0)
     ) {
       throw new Error(`${input.intent_kind} requires text (canonical mirror rule)`);
     }
-    let revision = this.kernel.revision;
-    const intentSequence = this.nextSequence();
-    const intentPayload: Record<string, unknown> = {
-      intent_kind: input.intent_kind,
-      client_request_id: input.client_request_id,
-      ...(input.text !== undefined ? { text: input.text } : {}),
-      ...(input.workspace_command ? { workspace_command: input.workspace_command } : {}),
-    };
-    ({ revision } = this.append(revision, [
-      { event_type: "student_intent_recorded", payload: intentPayload, occurred_at: nowIso() },
-    ]));
+    // 幂等重试：同 client_request_id 已有 committed 判断（interpretation 已落）
+    // → 读已提交判断返回，不重复裁决、不双写。
+    const committed = findCommittedTurn(this.events, input.client_request_id);
+    if (committed?.interpretationSequence !== undefined) return committed;
 
-    const hypothesis = interpretStudentInput(this.plan, {
-      intent_kind: input.intent_kind,
-      ...(input.text !== undefined ? { text: input.text } : {}),
-      beat: this.currentBeat,
-    });
-    return this.interpretAndDecide(revision, intentSequence, input.intent_kind, input.text, hypothesis);
+    const priorEvents = this.events;
+    let revision = this.kernelRef.revision;
+    // 学生输入事实先行持久化（R3：输入事实先于模型调用落库）；输入已落库但
+    // 判断未提交（调用中断恢复）→ 复用已提交 intent sequence，不重复持久化输入。
+    let intentSequence: number;
+    if (committed) {
+      intentSequence = committed.intentSequence;
+    } else {
+      intentSequence = this.nextSequence();
+      const intentPayload: Record<string, unknown> = {
+        intent_kind: input.intent_kind,
+        client_request_id: input.client_request_id,
+        ...(input.text !== undefined ? { text: input.text } : {}),
+        ...(input.workspace_command ? { workspace_command: input.workspace_command } : {}),
+      };
+      ({ revision } = this.append(revision, [
+        { event_type: "student_intent_recorded", payload: intentPayload, occurred_at: nowIso() },
+      ]));
+    }
+
+    // 自然语言 → 同一次模型调用返回 intent + reasoning location + grounding +
+    // verdict（R3 工作项 1/3）；结构化输入仍走确定性解释器。
+    let hypothesis: NavigatorInterpretation;
+    let modelFailure: { reason: string; detail: string } | undefined;
+    if (isNaturalLanguageInput(input.intent_kind, input.text)) {
+      const adjudication = await this.adjudicator.adjudicate(
+        buildGateAdjudicationContext({
+          plan: this.plan,
+          beat: this.currentBeat,
+          events: priorEvents,
+          ...(this.state.reasoning_focus ? { reasoningFocus: this.state.reasoning_focus } : {}),
+          studentInput: { intent_kind: input.intent_kind, text: input.text ?? "" },
+          factRelevanceScore: interpretationMatchScore,
+        }),
+      );
+      if (adjudication.degraded_reason) {
+        // 模型失败 = runtime/model failure（ADR-007 不变量 6），非 student
+        // incorrect：记 runtime_failure 事实，假设降级 unclear（不回退字符串规则）。
+        modelFailure = { reason: adjudication.degraded_reason, detail: `provider=${adjudication.provider}` };
+      }
+      hypothesis = hypothesisFromAdjudication({
+        plan: this.plan,
+        beat: this.currentBeat,
+        intent_kind: input.intent_kind,
+        text: input.text ?? "",
+        adjudication,
+        evidence_sequence: intentSequence,
+      });
+    } else {
+      hypothesis = interpretStudentInput(this.plan, {
+        intent_kind: input.intent_kind,
+        ...(input.text !== undefined ? { text: input.text } : {}),
+        beat: this.currentBeat,
+      });
+    }
+    return this.interpretAndDecide(revision, intentSequence, input.intent_kind, input.text, hypothesis, modelFailure);
   }
 
   /** narration 完成（voice issued + outcome completed 事实），再经 Navigator 裁决。 */
   completeNarration(options: { resourceRef?: string; text?: string } = {}): TurnResult & { advanced: boolean } {
-    let revision = this.kernel.revision;
+    let revision = this.kernelRef.revision;
     const beat = this.currentBeat;
     const issuedSequence = this.nextSequence();
     const voiceId = `VA-${this.sessionId}-${String(issuedSequence).padStart(4, "0")}`;
@@ -244,7 +409,7 @@ export class NavigatorSessionV5 {
       const failed = this.append(revision, [
         {
           event_type: "policy_failed",
-          payload: { policy_version: NAVIGATOR_V5_VERSION, failure_class: outcome.failure.failure_class, fallback_used: false },
+          payload: policyFailedPayload(outcome.failure.failure_class),
           occurred_at: nowIso(),
           causation_sequence: outcomeSequence,
         },
@@ -268,7 +433,7 @@ export class NavigatorSessionV5 {
    * - 命令事实 = `student_intent_recorded.workspace_command(command_id)`；
    * - 执行回执 = 其配对的 `action_outcome_recorded(action_id=command_id,
    *   action_kind=student_command)`（F3 Action Runtime 经真实提交路径产出；
-   *   测试/F6 前由调用方经 kernel.append 提交——Navigator 永不代写）。
+   *   测试/F6 前由调用方经 appendExternalFacts 提交——Navigator 永不代写）。
    * 任一缺失即 fail closed（抛错、零事件追加）——没有回执就没有证据。
    * 孤儿/不匹配回执在持久化/重建边界已被 F2 reducer 拒绝（R0 §5 两层落点），
    * 本层只消费合法 committed 回执。
@@ -313,15 +478,14 @@ export class NavigatorSessionV5 {
     const gate = beat.completion_evidence.gate;
     const inInquiry = this.state.inquiry_cursor !== null;
     if (!gate || beat.completion_evidence.evidence_kind !== "workspace_command" || inInquiry || this.state.completed) {
-      return { revision: this.kernel.revision, intentSequence: receipt.sequence };
+      return { revision: this.kernelRef.revision, intentSequence: receipt.sequence };
     }
     const assessment = evaluateGateEvidence(this.plan, beat, {
       confirmation_sequences: [],
-      submitted_answers: [],
       workspace_outcomes: [{ capability: intent.capability, outcome: receipt.outcome, sequence: receipt.sequence }],
       narration_completed: false,
     });
-    return this.evaluateGateAndDecide(this.kernel.revision, receipt.sequence, gate.gate_id, beat.beat_id, assessment.satisfied, assessment.evidence_sequence);
+    return this.evaluateGateAndDecide(this.kernelRef.revision, receipt.sequence, gate.gate_id, beat.beat_id, assessment.satisfied, assessment.evidence_sequence);
   }
 
   /**
@@ -330,7 +494,7 @@ export class NavigatorSessionV5 {
    * → Navigator 裁决（主线=澄清门禁；inquiry 内=bounded 强制返回）。
    */
   reportSilence(): TurnResult {
-    const revision = this.kernel.revision;
+    const revision = this.kernelRef.revision;
     const sequence = this.nextSequence();
     const hypothesis = noProgressHypothesis();
     this.append(revision, [
@@ -342,7 +506,7 @@ export class NavigatorSessionV5 {
       },
     ]);
     const outcome = decideNavigation(this.baseContext(), { kind: "silence", sequence, hypothesis });
-    return this.commitDecisions(this.kernel.revision, [
+    return this.commitDecisions(this.kernelRef.revision, [
       outcome.ok
         ? { kind: "plain", sequence, decision: outcome.decision }
         : { kind: "failed", sequence, failure: outcome.failure },
@@ -351,7 +515,7 @@ export class NavigatorSessionV5 {
 
   /** bounded_wait 超时（计时结束不能替代证据——只走 timeout 出边或安全 fallback）。 */
   reportTimeout(): TurnResult {
-    const revision = this.kernel.revision;
+    const revision = this.kernelRef.revision;
     const anchor = this.events[this.events.length - 1]?.sequence ?? 1;
     const beat = this.currentBeat;
     const outcome = decideNavigation(this.baseContext(), { kind: "timeout", sequence: anchor, beat_id: beat.beat_id });
@@ -359,7 +523,7 @@ export class NavigatorSessionV5 {
       const failed = this.append(revision, [
         {
           event_type: "policy_failed",
-          payload: { policy_version: NAVIGATOR_V5_VERSION, failure_class: outcome.failure.failure_class, fallback_used: false },
+          payload: policyFailedPayload(outcome.failure.failure_class),
           occurred_at: nowIso(),
           causation_sequence: anchor,
         },
@@ -374,7 +538,7 @@ export class NavigatorSessionV5 {
   }
 
   // ------------------------------------------------------------------ //
-  // 内部：interpret → (gate) → decide → 持久化
+  // 内部：interpret → (gate) → decide → 持久化（同批原子）
   // ------------------------------------------------------------------ //
 
   private interpretAndDecide(
@@ -383,15 +547,30 @@ export class NavigatorSessionV5 {
     intentKind: IntentKind,
     text: string | undefined,
     hypothesis: NavigatorInterpretation,
+    modelFailure?: { reason: string; detail: string },
   ): TurnResult {
-    const interpretationSequence = this.nextSequence();
-    const interpretationEvent: PendingV5Event = {
+    // R3：runtime_failure（若有）+ interpretation +（gate）+ decision 同批原子
+    // append（store 事务内先纯折叠，任一事件被拒 ⇒ 整批回滚）。
+    const batch: PendingV5Event[] = [];
+    if (modelFailure) {
+      batch.push({
+        event_type: "runtime_failure",
+        payload: {
+          failure_class: "internal_error",
+          message: `gate_adjudicator_model_failure: ${modelFailure.reason} (${modelFailure.detail})`,
+          related_event_sequence: intentSequence,
+        },
+        occurred_at: nowIso(),
+        causation_sequence: intentSequence,
+      });
+    }
+    const interpretationSequence = this.nextSequence() + batch.length;
+    batch.push({
       event_type: "semantic_interpretation_recorded",
       payload: hypothesisEventPayload(hypothesis),
       occurred_at: nowIso(),
       causation_sequence: intentSequence,
-    };
-    const batch: PendingV5Event[] = [interpretationEvent];
+    });
 
     const beat = this.currentBeat;
     const gate = beat.completion_evidence.gate;
@@ -405,9 +584,9 @@ export class NavigatorSessionV5 {
     if (!inInquiry && gate) {
       const evidenceInput: GateEvidenceInput = {
         confirmation_sequences: isConfirmationIntent(intentKind) ? [intentSequence] : [],
-        submitted_answers: intentKind === "submit_answer" && text !== undefined ? [{ text, sequence: intentSequence }] : [],
         workspace_outcomes: [],
         narration_completed: false,
+        ...(hypothesis.gate_assessment ? { model_assessment: hypothesis.gate_assessment } : {}),
       };
       const gateRelevant =
         (evidenceKind === "student_confirmation" || evidenceKind === "explicit_gate_pass") && isConfirmationIntent(intentKind);
@@ -416,7 +595,7 @@ export class NavigatorSessionV5 {
       const answerRelevant = evidenceKind === "student_answer" && intentKind === "submit_answer" && !hypothesis.matched_variant_id;
       if (gateRelevant || answerRelevant) {
         const assessment = evaluateGateEvidence(this.plan, beat, evidenceInput);
-        gateSequence = this.nextSequence() + batch.length; // interpretation 之后
+        gateSequence = this.nextSequence() + batch.length; // runtime_failure?/interpretation 之后
         batch.push({
           event_type: "gate_evaluated",
           payload: {
@@ -440,14 +619,15 @@ export class NavigatorSessionV5 {
     }
 
     const outcome = decideNavigation(this.baseContext(), trigger);
-    const appended = this.append(revision, batch);
-    void appended;
-
-    const result = this.commitDecisions(this.kernel.revision, [
-      outcome.ok
-        ? { kind: "plain", sequence: trigger.sequence, decision: outcome.decision }
-        : { kind: "failed", sequence: trigger.sequence, failure: outcome.failure },
-    ]);
+    const result = this.commitDecisions(
+      revision,
+      [
+        outcome.ok
+          ? { kind: "plain", sequence: trigger.sequence, decision: outcome.decision }
+          : { kind: "failed", sequence: trigger.sequence, failure: outcome.failure },
+      ],
+      batch,
+    );
     return {
       ...result,
       intentSequence,
@@ -465,7 +645,7 @@ export class NavigatorSessionV5 {
     evidenceRef?: number,
   ): TurnResult {
     const gateSequence = this.nextSequence();
-    this.append(revision, [
+    const batch: PendingV5Event[] = [
       {
         event_type: "gate_evaluated",
         payload: {
@@ -477,7 +657,7 @@ export class NavigatorSessionV5 {
         occurred_at: nowIso(),
         causation_sequence: evidenceSequence,
       },
-    ]);
+    ];
     const outcome = decideNavigation(this.baseContext(), {
       kind: "gate_evaluated",
       sequence: gateSequence,
@@ -486,11 +666,16 @@ export class NavigatorSessionV5 {
       satisfied,
       ...(evidenceRef !== undefined ? { evidence_sequence: evidenceRef } : {}),
     });
-    return this.commitDecisions(this.kernel.revision, [
-      outcome.ok
-        ? { kind: "plain", sequence: gateSequence, decision: outcome.decision }
-        : { kind: "failed", sequence: gateSequence, failure: outcome.failure },
-    ]);
+    const result = this.commitDecisions(
+      this.kernelRef.revision,
+      [
+        outcome.ok
+          ? { kind: "plain", sequence: gateSequence, decision: outcome.decision }
+          : { kind: "failed", sequence: gateSequence, failure: outcome.failure },
+      ],
+      batch,
+    );
+    return { ...result, gateSequence };
   }
 
   private commitDecisions(
@@ -501,8 +686,9 @@ export class NavigatorSessionV5 {
       | { kind: "gate_from_narration"; sequence: number; decision: NavigatorDecision }
       | { kind: "failed"; sequence: number; failure: { failure_class: string; message: string } }
     >,
+    prefixBatch: PendingV5Event[] = [],
   ): TurnResult {
-    const batch: PendingV5Event[] = [];
+    const batch: PendingV5Event[] = [...prefixBatch];
     const results: TurnResult[] = [];
     let currentRevision = revision;
     for (const item of items) {
@@ -516,7 +702,7 @@ export class NavigatorSessionV5 {
       if (item.kind === "failed") {
         batch.push({
           event_type: "policy_failed",
-          payload: { policy_version: NAVIGATOR_V5_VERSION, failure_class: item.failure.failure_class, fallback_used: false },
+          payload: policyFailedPayload(item.failure.failure_class),
           occurred_at: nowIso(),
           causation_sequence: item.sequence,
         });
@@ -653,8 +839,200 @@ export class NavigatorSessionV5 {
 
   /** G5 对账：在线 state vs 全量重建（F2 semantic comparator，白名单空集）。 */
   assertReplayParity(): ReturnType<TutorSessionKernelV5["assertReplayParity"]> {
-    return this.kernel.assertReplayParity();
+    return this.kernelRef.assertReplayParity();
   }
+}
+
+// ------------------------------------------------------------------ //
+// R3 resume：pinned Plan 逐事件 gate 归属核对（纯函数，只读 committed 流）
+// ------------------------------------------------------------------ //
+
+/**
+ * 逐事件核对 `gate_evaluated` 的 Gate/Beat 归属（用户授权的第二轮 reducer
+ * 边界的 Plan-aware 侧——通用 F2 reducer 不加载 Plan，本函数在 Navigator
+ * 重建边界执行）：
+ * - 事件时点的 teaching_cursor Beat 必须与 gate_evaluated.beat_id 一致；
+ * - gate_id 必须等于该 Beat 在 pinned Plan 的 completion gate（GT-99@BT-01 拒绝）；
+ * - satisfied 的 gate 必须携带 evidence_sequence 且指向更早的已提交**学生证据**
+ *   事件（student_intent_recorded 作答/确认、student_command completed 回执）——
+ *   无对应学生证据的 pass 视为伪造，拒绝恢复。
+ * 任一违反 → NavigatorResumeIntegrityError（fail closed，不部分重建）。
+ */
+export function verifyGateAttributionAgainstPlan(
+  plan: NavigatorPlanV5,
+  events: readonly StoredV5Event[],
+): void {
+  if (events.length === 0) return;
+  let state = initialStateFromSessionStarted(events[0]);
+  const evidenceBySequence = new Map<number, StoredV5Event>();
+  for (const event of events) {
+    if (event.event_type === "student_intent_recorded" || event.event_type === "action_outcome_recorded") {
+      evidenceBySequence.set(event.sequence, event);
+    }
+  }
+  for (const event of events.slice(1)) {
+    if (event.event_type === "gate_evaluated") {
+      const gate = event.payload as unknown as { gate_id: string; beat_id: string; satisfied: boolean; evidence_sequence?: number };
+      const cursor = state.teaching_cursor;
+      const protocol = pinnedProtocol(plan, cursor.protocol_id);
+      const beat = protocol?.beats.get(cursor.beat_id);
+      if (!protocol || !beat) {
+        throw new NavigatorResumeIntegrityError(
+          "CURSOR_OUTSIDE_PINNED_PLAN",
+          `sequence ${event.sequence}: teaching cursor ${cursor.protocol_id}/${cursor.beat_id} is outside the pinned plan at gate_evaluated ${gate.gate_id}@${gate.beat_id}`,
+          event.sequence,
+        );
+      }
+      if (gate.beat_id !== cursor.beat_id) {
+        throw new NavigatorResumeIntegrityError(
+          "GATE_BEAT_MISMATCH",
+          `sequence ${event.sequence}: gate_evaluated ${gate.gate_id}@${gate.beat_id} does not match the teaching cursor beat ${cursor.beat_id} (forged or stale gate event; resume refused)`,
+          event.sequence,
+        );
+      }
+      const boundGateId = beat.completion_evidence.gate?.gate_id;
+      if (gate.gate_id !== boundGateId) {
+        throw new NavigatorResumeIntegrityError(
+          "PLAN_GATE_BINDING_MISMATCH",
+          `sequence ${event.sequence}: gate_evaluated ${gate.gate_id}@${gate.beat_id} is not the completion gate bound to the beat in the pinned plan (${String(boundGateId)}); forged gate attribution, resume refused`,
+          event.sequence,
+        );
+      }
+      if (gate.satisfied) {
+        const evidenceKind = beat.completion_evidence.evidence_kind;
+        const requiresStudentEvidence =
+          evidenceKind === "student_answer" || evidenceKind === "student_confirmation" ||
+          evidenceKind === "workspace_command" || evidenceKind === "explicit_gate_pass";
+        if (requiresStudentEvidence) {
+          const evidence = gate.evidence_sequence !== undefined ? evidenceBySequence.get(gate.evidence_sequence) : undefined;
+          if (!evidence || evidence.sequence >= event.sequence) {
+            throw new NavigatorResumeIntegrityError(
+              "GATE_EVIDENCE_FORGED",
+              `sequence ${event.sequence}: satisfied gate ${gate.gate_id}@${gate.beat_id} has no earlier committed student-evidence event at evidence_sequence=${String(gate.evidence_sequence)}; forged pass, resume refused`,
+              event.sequence,
+            );
+          }
+          if (!isStudentEvidenceEvent(evidence, evidenceKind)) {
+            throw new NavigatorResumeIntegrityError(
+              "GATE_EVIDENCE_FORGED",
+              `sequence ${event.sequence}: satisfied gate ${gate.gate_id}@${gate.beat_id} evidence_sequence=${String(gate.evidence_sequence)} points at ${evidence.event_type} which is not admissible student evidence for evidence_kind=${evidenceKind}; forged pass, resume refused`,
+              event.sequence,
+            );
+          }
+        }
+      }
+    }
+    state = applyV5Event(state, event);
+  }
+}
+
+/** evidence_kind 对应的可采信学生证据事件（plan-aware，非字符串裁决）。 */
+function isStudentEvidenceEvent(event: StoredV5Event, evidenceKind: string): boolean {
+  if (event.event_type === "student_intent_recorded") {
+    const intentKind = (event.payload as { intent_kind: string }).intent_kind;
+    if (evidenceKind === "student_answer") return intentKind === "submit_answer";
+    if (evidenceKind === "student_confirmation" || evidenceKind === "explicit_gate_pass") {
+      return intentKind === "confirm" || intentKind === "continue" || intentKind === "return_to_mainline";
+    }
+    return false;
+  }
+  if (event.event_type === "action_outcome_recorded" && evidenceKind === "workspace_command") {
+    const outcome = event.payload as { action_kind: string; outcome: string };
+    return outcome.action_kind === "student_command" && outcome.outcome === "completed";
+  }
+  return false;
+}
+
+/** 从 committed 流重建 inquiryBeatId（与 commitDecisions 的内存推进同口径）。 */
+function reconstructInquiryBeatId(events: readonly StoredV5Event[]): string | undefined {
+  let inquiryBeatId: string | undefined;
+  for (const event of events) {
+    if (event.event_type !== "policy_decision_made") continue;
+    const payload = event.payload as {
+      decision_kind?: string;
+      beat_id?: string;
+      inquiry?: { inquiry_protocol_id?: string };
+    };
+    if (payload.decision_kind === "open_inquiry" || payload.decision_kind === "open_scaffold") {
+      // 打开时内存态=协议 entry beat；事件不含该 id，置 undefined 由 currentBeat
+      // getter 以 pinned protocol entry_beat_id 兜底（同一语义）。
+      inquiryBeatId = undefined;
+    } else if (payload.decision_kind === "continue_inquiry" && payload.inquiry?.inquiry_protocol_id) {
+      inquiryBeatId = payload.beat_id;
+    } else if (payload.decision_kind === "return_to_mainline") {
+      inquiryBeatId = undefined;
+    }
+  }
+  return inquiryBeatId;
+}
+
+/** 同 client_request_id 的已提交轮次（幂等重试读取）。 */
+function findCommittedTurn(events: readonly StoredV5Event[], clientRequestId: string): {
+  revision: number;
+  intentSequence: number;
+  interpretationSequence?: number;
+  gateSequence?: number;
+  decisionSequence?: number;
+  decision?: NavigatorDecision;
+  failure?: { failure_class: string; message: string };
+} | undefined {
+  let intentSequence: number | undefined;
+  let interpretationSequence: number | undefined;
+  let gateSequence: number | undefined;
+  let decisionSequence: number | undefined;
+  let decision: NavigatorDecision | undefined;
+  let failure: { failure_class: string; message: string } | undefined;
+  let revision = 1;
+  for (const event of events) {
+    revision = Math.max(revision, event.state_revision);
+    if (event.event_type === "student_intent_recorded") {
+      const payload = event.payload as { client_request_id?: string };
+      if (payload.client_request_id === clientRequestId) intentSequence = event.sequence;
+      continue;
+    }
+    if (intentSequence === undefined) continue;
+    // 本轮 trigger 序列集：intent 本身 / 由其引发的 interpretation 与 gate 事件
+    //（decision.source_event_sequence 指向触发它的 trigger 序列）。
+    const turnSequences = new Set<number>([intentSequence]);
+    if (interpretationSequence !== undefined) turnSequences.add(interpretationSequence);
+    if (gateSequence !== undefined) turnSequences.add(gateSequence);
+    if (event.event_type === "semantic_interpretation_recorded" && event.causation_sequence === intentSequence) {
+      interpretationSequence = event.sequence;
+    } else if (event.event_type === "gate_evaluated" && event.causation_sequence === intentSequence) {
+      gateSequence = event.sequence;
+    } else if (event.event_type === "policy_decision_made") {
+      const payload = event.payload as { source_event_sequence?: number };
+      if (payload.source_event_sequence !== undefined && turnSequences.has(payload.source_event_sequence)) {
+        decisionSequence = event.sequence;
+        decision = event.payload as unknown as NavigatorDecision;
+      }
+    } else if (event.event_type === "policy_failed" && turnSequences.has(event.causation_sequence ?? -1) && decisionSequence === undefined) {
+      const payload = event.payload as { failure_class?: string };
+      failure = { failure_class: payload.failure_class ?? "policy_engine_error", message: "committed policy failure (idempotent replay)" };
+    }
+  }
+  if (intentSequence === undefined) return undefined;
+  return {
+    revision,
+    intentSequence,
+    ...(interpretationSequence !== undefined ? { interpretationSequence } : {}),
+    ...(gateSequence !== undefined ? { gateSequence } : {}),
+    ...(decisionSequence !== undefined ? { decisionSequence } : {}),
+    ...(decision !== undefined ? { decision } : {}),
+    ...(failure !== undefined ? { failure } : {}),
+  };
+}
+
+/** policy_failed payload（canonical v5 封闭枚举；内部类经 canonicalPolicyFailureClass 映射）。 */
+function policyFailedPayload(failureClass: string): Record<string, unknown> {
+  const mapped = canonicalPolicyFailureClass(
+    failureClass as Parameters<typeof canonicalPolicyFailureClass>[0],
+  );
+  return {
+    policy_version: NAVIGATOR_V5_VERSION,
+    failure_class: mapped.failure_class,
+    fallback_used: false,
+  };
 }
 
 function nowIso(): string {

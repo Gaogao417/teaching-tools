@@ -99,3 +99,45 @@ export function ensureNavigatorSqlite(): void {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tutor-nav5-"));
   process.env.SQLITE_PATH = path.join(dir, "test.sqlite");
 }
+
+// --------------------------------------------------------------------------- //
+// R3 固定响应 provider 工件（确定性测试的「判卷人」：固定响应模型）。
+// --------------------------------------------------------------------------- //
+
+export interface AdjudicationFields {
+  response_kind?: "final_answer" | "alternate_path" | "question" | "help_request" | "restatement" | "mixed_or_ambiguous";
+  matched_gate_id?: string;
+  verdict?: "pass" | "fail" | "unclear" | "not_applicable";
+  reasoning_location?: "aligned" | "partially_aligned" | "misaligned" | "unknown";
+  grounding_refs?: string[];
+  brief_reason?: string;
+}
+
+/** 模型裁决 JSON 文本（缺省：final_answer/pass/aligned）。 */
+export function adjudicationJson(fields: AdjudicationFields = {}): string {
+  return JSON.stringify({
+    response_kind: fields.response_kind ?? "final_answer",
+    ...(fields.matched_gate_id !== undefined ? { matched_gate_id: fields.matched_gate_id } : {}),
+    verdict: fields.verdict ?? "pass",
+    reasoning_location: fields.reasoning_location ?? "aligned",
+    grounding_refs: fields.grounding_refs ?? [],
+    ...(fields.brief_reason !== undefined ? { brief_reason: fields.brief_reason } : {}),
+  });
+}
+
+/** 常用固定响应：pass 当前 gate 并引用给定 fact。 */
+export const passFor = (gateId: string, factId: string): string =>
+  adjudicationJson({ response_kind: "final_answer", matched_gate_id: gateId, verdict: "pass", grounding_refs: [factId] });
+
+/** 常用固定响应：fail（学生最终主张不满足）并锚定给定 fact。 */
+export const failFor = (factId: string): string =>
+  adjudicationJson({ response_kind: "final_answer", verdict: "fail", reasoning_location: "misaligned", grounding_refs: [factId] });
+
+/** 常用固定响应：提问（in-bound 引用给定 fact / out-of-bound 无引用）。 */
+export const questionOn = (factId: string | null): string =>
+  adjudicationJson({
+    response_kind: "question",
+    verdict: "not_applicable",
+    reasoning_location: factId ? "aligned" : "unknown",
+    grounding_refs: factId ? [factId] : [],
+  });

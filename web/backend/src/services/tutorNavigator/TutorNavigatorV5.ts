@@ -38,9 +38,25 @@ export const MAX_LOCAL_INQUIRY_STEPS = 3;
 export type PolicyFailureClass =
   | "no_legal_transition"
   | "gate_unresolvable"
+  | "gate_binding_mismatch"
   | "interpreter_unavailable"
   | "policy_engine_error"
   | "timeout";
+
+/**
+ * 内部 failure_class → canonical v5 policy_failed 封闭枚举的映射（R3 零 schema
+ * 变更约束；偏差登记见 r3-scope-ledger「授权边界」5）：gate_binding_mismatch 持久
+ * 化为 policy_engine_error + message 前缀，事实不丢失、合同不动。
+ */
+export function canonicalPolicyFailureClass(failureClass: PolicyFailureClass): {
+  failure_class: "no_legal_transition" | "gate_unresolvable" | "interpreter_unavailable" | "policy_engine_error" | "timeout";
+  message_prefix?: string;
+} {
+  if (failureClass === "gate_binding_mismatch") {
+    return { failure_class: "policy_engine_error", message_prefix: "gate_binding_mismatch:" };
+  }
+  return { failure_class: failureClass };
+}
 
 export type TransitionOn = "gate_satisfied" | "evidence_collected" | "student_request" | "timeout" | "tutor_discretion";
 
@@ -373,7 +389,6 @@ export function decideNavigation(ctx: NavigatorContext, trigger: NavigatorTrigge
       // narration 播完不能替代需学生证据的 gate（评估器显式拒绝 → 显式 failure）。
       const assessment = evaluateGateEvidence(ctx.plan, beat, {
         confirmation_sequences: [],
-        submitted_answers: [],
         workspace_outcomes: [],
         narration_completed: true,
         narration_attempted_as_evidence: true,
@@ -450,6 +465,21 @@ export function decideNavigation(ctx: NavigatorContext, trigger: NavigatorTrigge
     }
     case "gate_evaluated": {
       const beat = mainlineBeat(ctx);
+      // R3 工作项 5：Gate/Beat 身份校验——trigger 必须绑定当前 Beat 的 completion
+      // gate（服务端从 pinned Plan 计算的绑定）。任一不符 → 显式
+      // gate_binding_mismatch：零转移、零游标变化（fail closed，不静默降级）。
+      const boundGateId = beat.completion_evidence.gate?.gate_id;
+      if (trigger.beat_id !== beat.beat_id || trigger.gate_id !== boundGateId) {
+        return {
+          ok: false,
+          failure: {
+            failure_class: "gate_binding_mismatch",
+            message: `gate_evaluated ${trigger.gate_id}@${trigger.beat_id} does not match the current beat binding ${String(
+              boundGateId,
+            )}@${beat.beat_id} (zero transitions, zero cursor changes)`,
+          },
+        };
+      }
       if (!trigger.satisfied) {
         // gate unsatisfied：不转移；首次→澄清推理位置，连续未解决→批准 unclear
         // 分支（若有）或计划内安全 fallback。
@@ -588,7 +618,9 @@ function decideStudentInput(
     }
     // inquiry 内完成证据：评估当前 inquiry Beat 的 gate（不发 gate_evaluated
     // 事件——f5-scope-ledger「Reducer 相位细化约定」纪律 1：分支协议与主线
-    // 共享 BT-xx id 空间，入流会误置主线相位）。
+    // 共享 BT-xx id 空间，入流会误置主线相位）。R3：student_answer 的裁决来自
+    // 编排层同一次模型调用（hypothesis.gate_assessment，服务端已复核候选集）；
+    // confirmation 等结构化证据仍确定性判定——无模型裁决不得 pass。
     const inquiryProtocolId = ctx.state.inquiry_cursor.inquiry_protocol_id;
     if (!inquiryProtocolId) {
       // LocalInquiryProtocol：bounded 推进，不带协议 gate。
@@ -609,12 +641,9 @@ function decideStudentInput(
     const assessment = evaluateGateEvidence(ctx.plan, beat, {
       confirmation_sequences:
         trigger.intent_kind === "confirm" || trigger.intent_kind === "continue" ? [trigger.sequence] : [],
-      submitted_answers:
-        trigger.intent_kind === "submit_answer" && trigger.text !== undefined
-          ? [{ text: trigger.text, sequence: trigger.sequence }]
-          : [],
       workspace_outcomes: [],
       narration_completed: false,
+      ...(hypothesis.gate_assessment ? { model_assessment: hypothesis.gate_assessment } : {}),
     });
     if (assessment.satisfied) {
       const isLast = protocol.beat_order[protocol.beat_order.length - 1] === beat.beat_id;

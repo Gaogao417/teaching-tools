@@ -18,7 +18,10 @@
  *      清 gate、phase=presenting；open_inquiry/open_scaffold → inquiry 游标
  *      （clarifying/supporting），主线游标冻结；complete_beat → phase=completed；
  *   3. gate_evaluated 仅对当前 beat 生效：satisfied→gate_satisfied，否则
- *      awaiting_evidence，并记录 gate_id；
+ *      awaiting_evidence，并记录 gate_id；beat 归属不符（wrong/future/stale
+ *      beat）→ GATE_BEAT_MISMATCH fail closed（2026-08-31 R3 用户授权第二轮
+ *      reducer 编辑：不再静默 break——零转移、零相位副作用，append/rebuild 两
+ *      边界同拒）；
  *   4. inquiry_returned 必须与 opened 同 return_beat_id（schema description 的
  *      reducer 校验义务），返回后游标回返回点；
  *   5. voice completed 仅在 presenting 相位把 phase 推进到 awaiting_evidence
@@ -340,7 +343,18 @@ export function applyV5Event(state: TutorRuntimeStateV5, event: StoredV5Event): 
     }
     case "gate_evaluated": {
       const gate = payload as unknown as V5GateEvaluatedPayload;
-      if (gate.beat_id !== next.teaching_cursor.beat_id) break;
+      // R3（用户授权，2026-08-31）：wrong-beat gate_evaluated 由静默 break 改
+      // fail closed——Gate 事实必须绑定当时的主线 Beat；未来/stale Beat 的 gate
+      // 事件属伪造或损坏（append 边界整批回滚；rebuild 边界拒绝恢复）。零转移、
+      // 零相位副作用。gate_id 与 pinned Plan 的绑定校验属 Navigator 重建边界
+      // （通用 F2 reducer 不加载 Plan，见 NavigatorSessionV5.resume）。
+      if (gate.beat_id !== next.teaching_cursor.beat_id) {
+        throw new RuntimeStateReducerV5Error(
+          "GATE_BEAT_MISMATCH",
+          `sequence ${event.sequence}: gate_evaluated ${gate.gate_id}@${gate.beat_id} does not match the current teaching cursor beat ${next.teaching_cursor.beat_id} (fail closed; no silent phase effect)`,
+          event.sequence,
+        );
+      }
       next.teaching_cursor.gate_id = gate.gate_id;
       next.teaching_cursor.phase = gate.satisfied ? "gate_satisfied" : "awaiting_evidence";
       return withLineage(next, lineage);

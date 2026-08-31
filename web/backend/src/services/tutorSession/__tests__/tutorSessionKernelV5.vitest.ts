@@ -196,11 +196,23 @@ describe("F2 kernel: reducer determinism and fail-closed branches", () => {
     expect(opened.state.inquiry_cursor?.inquiry_id).toBe("IQ-TS-96120-0001");
   });
 
-  it("gate_evaluated only applies to the current beat (facts for other beats do not mutate cursor)", () => {
+  it("R3 (2026-08-31): wrong-beat gate_evaluated fails closed (GATE_BEAT_MISMATCH; was silent no-op)", () => {
+    // 用户授权第二轮 reducer 编辑：wrong/future/stale beat 的 gate 事实不再静默
+    // break——append 边界整批回滚、零转移、零游标变化（原断言=静默不动，改写为
+    // fail closed 断言；语义变更登记 r3-scope-ledger 偏差清单）。
     const kernel = TutorSessionKernelV5.start(startInput("TS-9613", { initialBeat: "BT-01" }));
-    kernel.append(1, [ev("gate_evaluated", { gate_id: "GT-02", beat_id: "BT-05", satisfied: true }, { causation_sequence: 1 })]);
+    expectCode(
+      () => kernel.append(1, [ev("gate_evaluated", { gate_id: "GT-02", beat_id: "BT-05", satisfied: true }, { causation_sequence: 1 })]),
+      "GATE_BEAT_MISMATCH",
+    );
     expect(kernel.state.teaching_cursor.gate_id).toBeUndefined();
     expect(kernel.state.teaching_cursor.phase).toBe("presenting");
+    expect(kernel.state.teaching_cursor.beat_id).toBe("BT-01");
+    // 正确绑定当前 Beat 的 gate 事实照常折叠（satisfied → gate_satisfied）。
+    kernel.append(kernel.revision, [ev("gate_evaluated", { gate_id: "GT-01", beat_id: "BT-01", satisfied: true }, { causation_sequence: 1 })]);
+    expect(kernel.state.teaching_cursor.gate_id).toBe("GT-01");
+    expect(kernel.state.teaching_cursor.phase).toBe("gate_satisfied");
+    expect(kernel.assertReplayParity().equal).toBe(true);
   });
 });
 
