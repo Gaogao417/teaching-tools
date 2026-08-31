@@ -79,7 +79,15 @@ export type NavigatorTrigger =
     }
   | { kind: "narration_completed"; sequence: number }
   | { kind: "timeout"; sequence: number; beat_id: string }
-  | { kind: "silence"; sequence: number; hypothesis: NavigatorInterpretation };
+  | { kind: "silence"; sequence: number; hypothesis: NavigatorInterpretation }
+  /**
+   * F6 增补（f6-scope-ledger 授权边界 3）：编排层请求对当前（inquiry-aware）
+   * Beat 产出 execute_beat 呈现决策——Beat 推进（transition/return）后新 Beat
+   * 的呈现锚定决策唯一来源（transition 决策 beat_id=from-Beat，不能作 F3
+   * tutor workspace 动作的因果锚——assertTutorActionCausation 要求
+   * decision.beatId==cursor.beatId）。教学判断仍在 decideNavigation（确定性）。
+   */
+  | { kind: "beat_execution"; sequence: number };
 
 export interface NavigatorContext {
   readonly sessionId: string;
@@ -577,6 +585,51 @@ export function decideNavigation(ctx: NavigatorContext, trigger: NavigatorTrigge
     }
     case "student_input":
       return decideStudentInput(ctx, trigger);
+    case "beat_execution": {
+      // F6：当前 Beat（协议 inquiry 打开时=inquiry Beat；LocalInquiry/主线=主线
+      // 游标 Beat——与 NavigatorSession.currentBeat 同口径）的 execute_beat 呈现
+      // 决策。completed 守卫已在入口生效；无转移、无游标变化——只锚定呈现。
+      const inquiryProtocolId = ctx.state.inquiry_cursor?.inquiry_protocol_id;
+      if (inquiryProtocolId) {
+        const protocol = pinnedProtocol(ctx.plan, inquiryProtocolId);
+        const beatId = ctx.inquiryBeatId ?? protocol?.entry_beat_id;
+        if (!protocol || !beatId) {
+          return {
+            ok: false,
+            failure: {
+              failure_class: "no_legal_transition",
+              message: `beat_execution: inquiry cursor references unknown entry beat in ${inquiryProtocolId}`,
+            },
+          };
+        }
+        return {
+          ok: true,
+          decision: {
+            decision_id: decisionId(ctx.sessionId, trigger.sequence),
+            decision_kind: "execute_beat",
+            protocol_id: protocol.protocol_id,
+            beat_id: beatId,
+            policy_version: NAVIGATOR_V5_VERSION,
+            source_event_sequence: trigger.sequence,
+            source_state_revision: ctx.revision,
+            transition_basis: { basis: "legal_transition" },
+          },
+        };
+      }
+      return {
+        ok: true,
+        decision: {
+          decision_id: decisionId(ctx.sessionId, trigger.sequence),
+          decision_kind: "execute_beat",
+          protocol_id: ctx.plan.mainline.protocol_id,
+          beat_id: ctx.state.teaching_cursor.beat_id,
+          policy_version: NAVIGATOR_V5_VERSION,
+          source_event_sequence: trigger.sequence,
+          source_state_revision: ctx.revision,
+          transition_basis: { basis: "legal_transition" },
+        },
+      };
+    }
   }
 }
 

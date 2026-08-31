@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 121,
+  "fixture_count": 122,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -842,6 +842,14 @@
       "expect_schema": "invalid",
       "expect_publication": "n/a",
       "sha256": "sha256:78fd2eb047556e4c9dc253dbdca4d60c3a149bb5d018c5d7597efcd14dc44aa0"
+    },
+    {
+      "file": "tutor-session-event.v5.negative.session-started-bad-model-gate-pin.json",
+      "object_schema": "ai_teaching_tutor_session_event/v5",
+      "schema_ref": "../schemas/runtime/v5/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e18b6e0c56ce4c62e35802c6e9894ee147f14ee65d0fbd99fd35ed1983f51556"
     },
     {
       "file": "tutor-session-event.v5.negative.session-started-empty-protocols.json",

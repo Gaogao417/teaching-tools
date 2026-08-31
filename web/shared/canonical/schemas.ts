@@ -3045,6 +3045,20 @@ const v5SessionStartedPayload = z
       })
       .strict()
       .optional(),
+    // 2026-08-29 F6 增补（PRDS contracts/schemas/runtime/v5/tutor-session-event.schema.json
+    // 同步，f6-scope-ledger「合同变更」）：Gate 裁决 provider/model/prompt/version
+    // 随 session pin（resume 对账依据；replay 不重新调模型）。可选加法：缺省=
+    // 流不含模型 pin（R3 前旧流仍合法）；新 F6 会话由实现写入门禁强制携带
+    // （先例=workspace_catalog_pin）。
+    model_gate_pin: z
+      .object({
+        provider: nonEmptyString,
+        model_id: nonEmptyString,
+        prompt_version: nonEmptyString,
+        adjudicator_version: nonEmptyString,
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

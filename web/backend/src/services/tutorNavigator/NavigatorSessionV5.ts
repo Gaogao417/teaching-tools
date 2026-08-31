@@ -111,6 +111,24 @@ export interface NavigatorSessionStartInput {
   readonly gateProvider?: GateAdjudicationProvider;
   /** 模型调用超时（ms）；超时 → unclear（provider_timeout）。 */
   readonly modelTimeoutMs?: number;
+  /**
+   * F6 增补（f6-scope-ledger 授权边界 3）：session_started 的服务端 pin 增补
+   * （orchestrator 计算后透传；本类不理解其语义，只进 payload——canonical
+   * append 侧校验）。缺省不写（F5 独立用法行为不变）。
+   */
+  readonly sessionStartedPins?: {
+    workspace_catalog_pin?: {
+      catalog_schema_version: number;
+      content_hash: string;
+      entry_count?: number;
+    };
+    model_gate_pin?: {
+      provider: string;
+      model_id: string;
+      prompt_version: string;
+      adjudicator_version: string;
+    };
+  };
 }
 
 export interface StudentIntentInput {
@@ -230,11 +248,19 @@ export class NavigatorSessionV5 {
       throw new Error(`approved plan import failed (fail closed): ${imported.errors.join("; ")}`);
     }
     const plan = buildNavigatorPlan(imported.imported);
-    const payload = buildSessionStartedPayload(plan, {
-      sessionId: input.sessionId,
-      taskId: input.taskId ?? GOLDEN_TASK_ID,
-      scenarioId: input.scenarioId ?? GOLDEN_SCENARIO_ID,
-    });
+    const payload = {
+      ...buildSessionStartedPayload(plan, {
+        sessionId: input.sessionId,
+        taskId: input.taskId ?? GOLDEN_TASK_ID,
+        scenarioId: input.scenarioId ?? GOLDEN_SCENARIO_ID,
+      }),
+      ...(input.sessionStartedPins?.workspace_catalog_pin
+        ? { workspace_catalog_pin: input.sessionStartedPins.workspace_catalog_pin }
+        : {}),
+      ...(input.sessionStartedPins?.model_gate_pin
+        ? { model_gate_pin: input.sessionStartedPins.model_gate_pin }
+        : {}),
+    };
     const kernel = TutorSessionKernelV5.start({
       sessionId: input.sessionId,
       studentId: input.studentId,
@@ -445,6 +471,36 @@ export class NavigatorSessionV5 {
       });
     }
     return this.interpretAndDecide(revision, intentSequence, input.intent_kind, input.text, hypothesis, modelFailure);
+  }
+
+  /**
+   * F6 增补（f6-scope-ledger 授权边界 3）：对当前（inquiry-aware）Beat 产出
+   * execute_beat 呈现决策（唯一确定性来源=decideNavigation 的 beat_execution
+   * trigger；completed 后显式失败）。Beat 推进（transition/return_to_mainline）
+   * 后由编排层调用一次，锚定新 Beat 的 Presenter 呈现与 tutor workspace 动作
+   * 因果（F3 assertTutorActionCausation 要求 decision.beatId==cursor.beatId；
+   * transition 决策的 beat_id=from-Beat 不能作锚）。
+   */
+  executeCurrentBeat(): TurnResult {
+    const revision = this.kernelRef.revision;
+    const anchor = this.events[this.events.length - 1]?.sequence ?? 1;
+    const outcome = decideNavigation(this.baseContext(), { kind: "beat_execution", sequence: anchor });
+    if (!outcome.ok) {
+      const failed = this.append(revision, [
+        {
+          event_type: "policy_failed",
+          payload: policyFailedPayload(outcome.failure.failure_class),
+          occurred_at: nowIso(),
+          causation_sequence: anchor,
+        },
+      ]);
+      return {
+        revision: failed.revision,
+        intentSequence: anchor,
+        failure: { failure_class: outcome.failure.failure_class, message: outcome.failure.message },
+      };
+    }
+    return this.commitDecisions(revision, [{ kind: "plain", sequence: anchor, decision: outcome.decision }]);
   }
 
   /** narration 完成（voice issued + outcome completed 事实），再经 Navigator 裁决。 */
