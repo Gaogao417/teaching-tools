@@ -53,7 +53,8 @@ import {
   deriveUnresolvedClarifications,
   type NavigatorContext,
 } from "../TutorNavigatorV5";
-import { NavigatorSessionV5 } from "../NavigatorSessionV5";
+import { NavigatorSessionV5, NavigatorWriteBoundaryError } from "../NavigatorSessionV5";
+import type { TutorRuntimeStateV5 } from "../../tutorSession/TutorRuntimeStateReducerV5";
 import {
   assertLocalInquiryProtocolBoundary,
   buildLocalInquiryProtocol,
@@ -1195,6 +1196,152 @@ describe("F5 R3: session-level model-failure facts and kernel privatization surf
       },
     ]);
     expect(appended.appendedSequences.length).toBe(1);
+    expect(session.assertReplayParity().equal).toBe(true);
+  });
+});
+
+describe("F5 R3.1: external-fact write boundary (appendExternalFacts allowlist, fail closed)", () => {
+  /** 统一断言集：明确错误 + 整批零提交 + revision/游标深比较不变 + phase 不变 + replay parity。 */
+  function expectWriteRefused(
+    session: NavigatorSessionV5,
+    before: { count: number; revision: number; cursor: TutorRuntimeStateV5["teaching_cursor"] },
+    batch: Parameters<NavigatorSessionV5["appendExternalFacts"]>[1],
+  ): void {
+    try {
+      session.appendExternalFacts(session.revision, batch);
+      throw new Error("expected NavigatorWriteBoundaryError (EXTERNAL_FACT_TYPE_FORBIDDEN)");
+    } catch (error) {
+      expect(error).toBeInstanceOf(NavigatorWriteBoundaryError);
+      expect((error as NavigatorWriteBoundaryError).code).toBe("EXTERNAL_FACT_TYPE_FORBIDDEN");
+      expect((error as NavigatorWriteBoundaryError).forbiddenTypes).toEqual(["gate_evaluated"]);
+    }
+    expect(session.events.length).toBe(before.count);
+    expect(session.revision).toBe(before.revision);
+    expect(session.state.teaching_cursor).toEqual(before.cursor);
+    expect(session.state.teaching_cursor.phase).not.toBe("gate_satisfied");
+    expect(session.rebuildState().teaching_cursor.phase).not.toBe("gate_satisfied");
+    expect(session.assertReplayParity().equal).toBe(true);
+  }
+
+  function snapshot(session: NavigatorSessionV5): { count: number; revision: number; cursor: TutorRuntimeStateV5["teaching_cursor"] } {
+    return { count: session.events.length, revision: session.revision, cursor: { ...session.state.teaching_cursor } };
+  }
+
+  it("GT-99@BT-01 satisfied=true via appendExternalFacts is refused (user-reproduced pollution vector, now fail closed)", () => {
+    const session = startSession("TS-9970");
+    expect(session.state.teaching_cursor).toMatchObject({ beat_id: "BT-01", phase: "presenting" });
+    const before = snapshot(session);
+    expectWriteRefused(session, before, [
+      {
+        event_type: "gate_evaluated",
+        payload: { gate_id: "GT-99", beat_id: "BT-01", satisfied: true, evidence_sequence: 2 },
+        occurred_at: new Date().toISOString(),
+        causation_sequence: 2,
+      },
+    ]);
+    expect((session.state.teaching_cursor as { gate_id?: string }).gate_id).toBeUndefined();
+  });
+
+  it("correct GT-01@BT-01 with forged evidence_sequence is refused too (gate facts never enter externally)", () => {
+    const session = startSession("TS-9971");
+    const before = snapshot(session);
+    expectWriteRefused(session, before, [
+      {
+        event_type: "gate_evaluated",
+        payload: { gate_id: "GT-01", beat_id: "BT-01", satisfied: true, evidence_sequence: 999999 },
+        occurred_at: new Date().toISOString(),
+        causation_sequence: 2,
+      },
+    ]);
+  });
+
+  it("future / stale beat gate facts are refused at the boundary (zero commit, zero cursor change)", () => {
+    for (const [sessionId, payload] of [
+      ["TS-9972", { gate_id: "GT-04", beat_id: "BT-04", satisfied: true, evidence_sequence: 2 }],
+      ["TS-9973", { gate_id: "GT-01", beat_id: "BT-05", satisfied: true, evidence_sequence: 2 }],
+    ] as const) {
+      const session = startSession(sessionId);
+      const before = snapshot(session);
+      expectWriteRefused(session, before, [
+        { event_type: "gate_evaluated", payload: { ...payload }, occurred_at: new Date().toISOString(), causation_sequence: 2 },
+      ]);
+    }
+  });
+
+  it("a forged gate mixed with a legal receipt rolls back the WHOLE batch (no partial commit); the legal receipt alone still enters and satisfies the workspace gate", async () => {
+    const session = startSession("TS-9974");
+    await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "vr-r31-1" }); // BT-01 → BT-02
+    await session.acceptStudentIntent({
+      intent_kind: "submit_workspace_command",
+      client_request_id: "vr-r31-2",
+      workspace_command: {
+        command_id: "SC-TS-9974-0001",
+        surface: "geometry",
+        capability: "similarity.mark-known-segments",
+        target_ids: ["seg-AD"],
+        expected_workspace_revision: 0,
+        client_command_id: "cc-r31-1",
+      },
+    });
+    const intentSequence = [...session.events].reverse().find((event) => event.event_type === "student_intent_recorded")?.sequence ?? 1;
+    const legalReceipt = {
+      event_type: "action_outcome_recorded" as const,
+      payload: { action_id: "SC-TS-9974-0001", action_kind: "student_command", outcome: "completed", resulting_revision: 1 },
+      occurred_at: new Date().toISOString(),
+      causation_sequence: intentSequence,
+    };
+    const before = snapshot(session);
+    expectWriteRefused(session, before, [
+      legalReceipt,
+      {
+        event_type: "gate_evaluated",
+        payload: { gate_id: "GT-02", beat_id: "BT-02", satisfied: true, evidence_sequence: 2 },
+        occurred_at: new Date().toISOString(),
+        causation_sequence: 2,
+      },
+    ]);
+    // 正例保留：同一合法回执单独提交 → 进入 → 消费 → 满足 workspace Gate。
+    session.appendExternalFacts(session.revision, [legalReceipt]);
+    const turn = session.consumeWorkspaceCommandOutcome({ command_id: "SC-TS-9974-0001" });
+    expect(turn.decision?.decision_kind).toBe("transition_beat");
+    expect(session.state.teaching_cursor.beat_id).toBe("BT-03");
+    expect(session.assertReplayParity().equal).toBe(true);
+  });
+
+  it("every Navigator-internal event type is refused; only action_outcome_recorded receipts may enter", () => {
+    const forbiddenTypes = [
+      "session_started",
+      "student_intent_recorded",
+      "semantic_interpretation_recorded",
+      "policy_decision_made",
+      "gate_evaluated",
+      "voice_action_issued",
+      "workspace_surface_action_issued",
+      "external_support_recorded",
+      "inquiry_opened",
+      "inquiry_returned",
+      "student_progressed",
+      "policy_failed",
+      "presentation_failed",
+      "runtime_failure",
+      "session_completed",
+    ] as const;
+    const session = startSession("TS-9975");
+    const before = snapshot(session);
+    for (const event_type of forbiddenTypes) {
+      try {
+        session.appendExternalFacts(session.revision, [
+          { event_type, payload: { forged: true }, occurred_at: new Date().toISOString(), causation_sequence: 2 },
+        ]);
+        throw new Error(`expected EXTERNAL_FACT_TYPE_FORBIDDEN for ${event_type}`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(NavigatorWriteBoundaryError);
+        expect((error as NavigatorWriteBoundaryError).code).toBe("EXTERNAL_FACT_TYPE_FORBIDDEN");
+      }
+    }
+    expect(session.events.length).toBe(before.count);
+    expect(session.revision).toBe(before.revision);
+    expect(session.state.teaching_cursor).toEqual(before.cursor);
     expect(session.assertReplayParity().equal).toBe(true);
   });
 });

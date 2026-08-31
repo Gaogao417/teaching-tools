@@ -536,30 +536,45 @@ async function main(): Promise<void> {
     assert.equal(b.assertReplayParity().equal, true);
   });
 
-  await runTest("G5 negative persistence via real append path: stale revision / duplicate idempotency roll back whole batches", () => {
+  await runTest("G5 negative persistence via real append path: stale revision / duplicate idempotency roll back whole batches", async () => {
     const session = startSession("TS-9815");
+    await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" });
+    // R3.1：外部事实入口只收 action_outcome_recorded 回执——store 事务语义
+    //（乐观并发/幂等键）改经合法载具验证（先提交 workspace 命令 intent）。
+    await session.acceptStudentIntent({
+      intent_kind: "submit_workspace_command",
+      client_request_id: "cr-wc-915",
+      workspace_command: {
+        command_id: "SC-TS-9815-0001",
+        surface: "geometry",
+        capability: "similarity.mark-known-segments",
+        target_ids: ["seg-AD"],
+        expected_workspace_revision: 0,
+        client_command_id: "cc-915",
+      },
+    });
     const countBefore = session.events.length;
     const revision = session.revision;
-    // stale expectedRevision：整批拒绝。
+    const receipt = () => ({
+      event_type: "action_outcome_recorded" as const,
+      payload: { action_id: "SC-TS-9815-0001", action_kind: "student_command", outcome: "completed", resulting_revision: 1 },
+      occurred_at: new Date().toISOString(),
+      causation_sequence: latestIntentSeq(session),
+    });
+    // stale expectedRevision：整批拒绝（store 事务先核对乐观并发）。
     expectCode(
-      () => session.appendExternalFacts(revision + 5, [
-        { event_type: "student_intent_recorded", payload: { intent_kind: "continue", client_request_id: "cr-stale" }, occurred_at: new Date().toISOString() },
-      ]),
+      () => session.appendExternalFacts(revision + 5, [receipt()]),
       "REVISION_CONFLICT",
     );
     assert.equal(session.events.length, countBefore);
-    // 幂等键重复（复用已提交 decision 的 key）：DUPLICATE_EVENT，零新事实。
-    const committed = session.events.find((event) => event.event_type === "policy_decision_made");
+    // 幂等键重复（复用已提交命令 intent 的 key）：DUPLICATE_EVENT，零新事实。
+    const committed = session.events.find(
+      (event) => event.event_type === "student_intent_recorded" &&
+        (event.payload as { workspace_command?: { command_id: string } }).workspace_command?.command_id === "SC-TS-9815-0001",
+    );
     assert.ok(committed);
     expectCode(
-      () => session.appendExternalFacts(session.revision, [
-        {
-          event_type: "student_intent_recorded",
-          payload: { intent_kind: "continue", client_request_id: "cr-dup" },
-          occurred_at: new Date().toISOString(),
-          idempotency_key: committed.idempotency_key,
-        },
-      ]),
+      () => session.appendExternalFacts(session.revision, [{ ...receipt(), idempotency_key: committed.idempotency_key }]),
       "DUPLICATE_EVENT",
     );
     assert.equal(session.events.length, countBefore);
@@ -1068,14 +1083,18 @@ async function main(): Promise<void> {
     assert.equal(session.state.teaching_cursor.phase, "presenting");
   });
 
-  await runTest("R3 wrong-beat gate_evaluated fails closed at the append boundary (GATE_BEAT_MISMATCH, whole batch rolls back, zero cursor change)", async () => {
+  await runTest("R3.1 write boundary: gate_evaluated (any form) via appendExternalFacts is refused EXTERNAL_FACT_TYPE_FORBIDDEN (whole batch, zero cursor change)", async () => {
+    // R3 的 wrong-beat fail closed（reducer GATE_BEAT_MISMATCH）仍在 kernel/
+    // 重建边界测试（tutorSessionKernelV5.vitest.ts + resume DB 直写负例）；
+    // R3.1 起 Navigator 公开入口更早拒绝：gate 事实只能由 session 内部证据
+    // 评估路径生成，连「正确绑定」的 gate_evaluated 也不得外部提交。
     const session = startSession("TS-9861");
     await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" });
     const countBefore = session.events.length;
     const revisionBefore = session.revision;
     const cursorBefore = { ...session.state.teaching_cursor };
-    // 未来/stale Beat 的 gate 事件（BT-03 的 GT-03 出现在 BT-01 会话位置）：
-    // reducer fail closed → store 事务整批回滚。
+    // 未来/stale Beat 的 gate 事件（BT-03 的 GT-03 出现在 BT-02 会话位置）：
+    // 边界整批拒绝（批未进入 store）。
     expectCode(
       () =>
         session.appendExternalFacts(session.revision, [
@@ -1086,22 +1105,177 @@ async function main(): Promise<void> {
             causation_sequence: 2,
           },
         ]),
-      "GATE_BEAT_MISMATCH",
+      "EXTERNAL_FACT_TYPE_FORBIDDEN",
     );
     assert.equal(session.events.length, countBefore);
     assert.equal(session.revision, revisionBefore);
     assert.deepEqual(session.state.teaching_cursor, cursorBefore);
-    // 正确绑定的 gate 事件照常可提交（beat=当前游标 BT-02? 不——当前是 BT-01 后
-    // confirm 已推进 BT-02；GT-02@BT-02 合法入流）。
+    assert.equal(session.assertReplayParity().equal, true);
+    // 对照：合法 student_command 回执照常可经该入口提交（R1 链路零回归）。
+    await session.acceptStudentIntent({
+      intent_kind: "submit_workspace_command",
+      client_request_id: "cr-wc-9861",
+      workspace_command: {
+        command_id: "SC-TS-9861-0001",
+        surface: "geometry",
+        capability: "similarity.mark-known-segments",
+        target_ids: ["seg-AD"],
+        expected_workspace_revision: 0,
+        client_command_id: "cc-9861",
+      },
+    });
     const legal = session.appendExternalFacts(session.revision, [
       {
-        event_type: "gate_evaluated",
-        payload: { gate_id: "GT-02", beat_id: "BT-02", satisfied: false },
+        event_type: "action_outcome_recorded",
+        payload: { action_id: "SC-TS-9861-0001", action_kind: "student_command", outcome: "completed", resulting_revision: 1 },
         occurred_at: new Date().toISOString(),
-        causation_sequence: 2,
+        causation_sequence: latestIntentSeq(session),
       },
     ]);
     assert.ok(legal.appendedSequences.length === 1);
+    assert.equal(session.assertReplayParity().equal, true);
+  });
+
+  await runTest("R3.1 write boundary: forged gate facts (GT-99 / right-gate forged evidence / future-stale beat) cannot pollute online state (fail closed, zero commit)", () => {
+    const forge = (
+      session: NavigatorSession,
+      payload: Record<string, unknown>,
+    ) => session.appendExternalFacts(session.revision, [
+      { event_type: "gate_evaluated", payload, occurred_at: new Date().toISOString(), causation_sequence: 2 },
+    ]);
+    // 负例 1（用户 2026-08-31 实测向量）：GT-99@当前 BT-01，satisfied=true。
+    const s1 = startSession("TS-9872");
+    const before1 = { count: s1.events.length, revision: s1.revision, cursor: { ...s1.state.teaching_cursor } };
+    expectCode(() => forge(s1, { gate_id: "GT-99", beat_id: "BT-01", satisfied: true, evidence_sequence: 2 }), "EXTERNAL_FACT_TYPE_FORBIDDEN");
+    assert.equal(s1.events.length, before1.count);
+    assert.equal(s1.revision, before1.revision);
+    assert.deepEqual(s1.state.teaching_cursor, before1.cursor);
+    assert.notEqual(s1.state.teaching_cursor.phase, "gate_satisfied");
+    assert.ok((s1.state.teaching_cursor as { gate_id?: string }).gate_id === undefined);
+    assert.equal(s1.assertReplayParity().equal, true);
+    assert.equal(s1.rebuildState().teaching_cursor.phase, "presenting");
+    // 负例 2：正确 GT-01@BT-01 但伪造 evidence_sequence——正确绑定也不得经
+    // 外部入口（gate 评估只属于 session 内部证据路径）。
+    const s2 = startSession("TS-9873");
+    const before2 = { count: s2.events.length, revision: s2.revision, cursor: { ...s2.state.teaching_cursor } };
+    expectCode(() => forge(s2, { gate_id: "GT-01", beat_id: "BT-01", satisfied: true, evidence_sequence: 999999 }), "EXTERNAL_FACT_TYPE_FORBIDDEN");
+    assert.equal(s2.events.length, before2.count);
+    assert.equal(s2.revision, before2.revision);
+    assert.deepEqual(s2.state.teaching_cursor, before2.cursor);
+    assert.notEqual(s2.state.teaching_cursor.phase, "gate_satisfied");
+    assert.equal(s2.assertReplayParity().equal, true);
+    // 负例 3：future / stale Beat 的 gate（GT-04@BT-04、GT-01@BT-05）。
+    for (const [sessionId, payload] of [
+      ["TS-9874", { gate_id: "GT-04", beat_id: "BT-04", satisfied: true, evidence_sequence: 2 }],
+      ["TS-9875", { gate_id: "GT-01", beat_id: "BT-05", satisfied: true, evidence_sequence: 2 }],
+    ] as const) {
+      const session = startSession(sessionId);
+      const before = { count: session.events.length, revision: session.revision, cursor: { ...session.state.teaching_cursor } };
+      expectCode(() => forge(session, payload), "EXTERNAL_FACT_TYPE_FORBIDDEN");
+      assert.equal(session.events.length, before.count);
+      assert.equal(session.revision, before.revision);
+      assert.deepEqual(session.state.teaching_cursor, before.cursor);
+      assert.notEqual(session.state.teaching_cursor.phase, "gate_satisfied");
+      assert.equal(session.assertReplayParity().equal, true);
+    }
+  });
+
+  await runTest("R3.1 write boundary: forged gate mixed with a legal receipt rolls back the WHOLE batch (no partial commit); the legal path still satisfies the workspace gate", async () => {
+    const session = startSession("TS-9876");
+    await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" }); // BT-01 → BT-02
+    await session.acceptStudentIntent({
+      intent_kind: "submit_workspace_command",
+      client_request_id: "cr-wc-9870",
+      workspace_command: {
+        command_id: "SC-TS-9876-0001",
+        surface: "geometry",
+        capability: "similarity.mark-known-segments",
+        target_ids: ["seg-AD"],
+        expected_workspace_revision: 0,
+        client_command_id: "cc-9870",
+      },
+    });
+    const countBefore = session.events.length;
+    const revisionBefore = session.revision;
+    const cursorBefore = { ...session.state.teaching_cursor };
+    // 负例 4：合法回执 + 伪造 gate 同批 → 整批零提交（合法项不得部分提交）。
+    expectCode(
+      () =>
+        session.appendExternalFacts(session.revision, [
+          {
+            event_type: "action_outcome_recorded",
+            payload: { action_id: "SC-TS-9876-0001", action_kind: "student_command", outcome: "completed", resulting_revision: 1 },
+            occurred_at: new Date().toISOString(),
+            causation_sequence: latestIntentSeq(session),
+          },
+          {
+            event_type: "gate_evaluated",
+            payload: { gate_id: "GT-02", beat_id: "BT-02", satisfied: true, evidence_sequence: 2 },
+            occurred_at: new Date().toISOString(),
+            causation_sequence: 2,
+          },
+        ]),
+      "EXTERNAL_FACT_TYPE_FORBIDDEN",
+    );
+    assert.equal(session.events.length, countBefore, "legal receipt must roll back with the forged gate (whole batch)");
+    assert.equal(session.revision, revisionBefore);
+    assert.deepEqual(session.state.teaching_cursor, cursorBefore);
+    assert.notEqual(session.state.teaching_cursor.phase, "gate_satisfied");
+    assert.equal(session.assertReplayParity().equal, true);
+    // 正例保留：同一合法回执单独提交 → 进入 → 消费 → 满足 workspace Gate。
+    session.appendExternalFacts(session.revision, [
+      {
+        event_type: "action_outcome_recorded",
+        payload: { action_id: "SC-TS-9876-0001", action_kind: "student_command", outcome: "completed", resulting_revision: 1 },
+        occurred_at: new Date().toISOString(),
+        causation_sequence: latestIntentSeq(session),
+      },
+    ]);
+    const turn = session.consumeWorkspaceCommandOutcome({ command_id: "SC-TS-9876-0001" });
+    assert.equal(turn.decision?.decision_kind, "transition_beat");
+    assert.equal(session.state.teaching_cursor.beat_id, "BT-03");
+    assert.equal(session.assertReplayParity().equal, true);
+  });
+
+  await runTest("R3.1 write boundary: every Navigator-internal event type is refused; only action_outcome_recorded receipts may enter", () => {
+    const forbiddenTypes = [
+      "session_started",
+      "student_intent_recorded",
+      "semantic_interpretation_recorded",
+      "policy_decision_made",
+      "gate_evaluated",
+      "voice_action_issued",
+      "workspace_surface_action_issued",
+      "external_support_recorded",
+      "inquiry_opened",
+      "inquiry_returned",
+      "student_progressed",
+      "policy_failed",
+      "presentation_failed",
+      "runtime_failure",
+      "session_completed",
+    ] as const;
+    const session = startSession("TS-9877");
+    const countBefore = session.events.length;
+    const revisionBefore = session.revision;
+    const cursorBefore = { ...session.state.teaching_cursor };
+    // 每类内部控制事实单独提交 → 一律 EXTERNAL_FACT_TYPE_FORBIDDEN（fail
+    // closed；含计划明示的六类：gate_evaluated/policy_decision_made/
+    // semantic_interpretation_recorded/session_completed/inquiry_opened/
+    // inquiry_returned）。
+    for (const event_type of forbiddenTypes) {
+      expectCode(
+        () =>
+          session.appendExternalFacts(session.revision, [
+            { event_type, payload: { forged: true }, occurred_at: new Date().toISOString(), causation_sequence: 2 },
+          ]),
+        "EXTERNAL_FACT_TYPE_FORBIDDEN",
+      );
+    }
+    // 全部拒绝后流零变化；allowlist 类型仍是唯一合法入口。
+    assert.equal(session.events.length, countBefore);
+    assert.equal(session.revision, revisionBefore);
+    assert.deepEqual(session.state.teaching_cursor, cursorBefore);
     assert.equal(session.assertReplayParity().equal, true);
   });
 

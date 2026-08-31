@@ -33,10 +33,23 @@
  *   evidence_sequence 指向已提交学生证据）——伪造/损坏流拒绝恢复（设计明示
  *   通用 F2 reducer 不必加载整个 Plan，Plan-aware 校验落本边界）。
  * - replay/rebuild 不重新调模型（裁决以 committed 事实存在；resume 零模型调用）。
+ *
+ * ## R3.1（2026-08-31）：在线写入边界封口
+ *
+ * `appendExternalFacts` 收紧为**明确 allowlist**：只接受真正来自外部 Runtime
+ * 的事实（当前 = F3 Action Runtime 执行回执 `action_outcome_recorded`）。公开
+ * 入口不得提交 Navigator 内部控制事实（`gate_evaluated` 只能由本类内部的证据
+ * 评估路径生成；决策/inquiry 生命周期/收束/失败事实同理——计划 §5 F6 归属
+ * Orchestrator 的内部控制事实在本切片同样不经此入口）。任一非法类型混入即
+ * **fail closed + 整批拒绝**（批未进入 store，任何行未写入——与 F2 store
+ * 事务「先纯折叠后落库、拒绝即整批回滚」同一可观测语义；不静默忽略、不部
+ * 分提交）。背景：用户 2026-08-31 实测 GT-99@BT-01 satisfied=true 经该入口
+ * 污染在线 state（reducer 只核 beat 归属、不核 gate_id↔Plan 绑定，resume 才
+ * 拒绝——在线已被污染），R3 退出门禁 3 的写入向量由此补齐。
  */
 import { importApprovedPlanV4, type ImportedApprovedPlanV4 } from "../planBuild/v4/ImportApprovedPlanV4";
 import { readTutorSessionEventsV5 } from "../tutorSession/TutorSessionEventStoreV5";
-import type { PendingV5Event, StoredV5Event } from "../tutorSession/TutorSessionEventV5";
+import type { PendingV5Event, StoredV5Event, V5EventType } from "../tutorSession/TutorSessionEventV5";
 import { TutorSessionKernelV5 } from "../tutorSession/TutorSessionKernelV5";
 import { applyV5Event, initialStateFromSessionStarted, type TutorRuntimeStateV5 } from "../tutorSession/TutorRuntimeStateReducerV5";
 import {
@@ -142,6 +155,41 @@ export class NavigatorResumeIntegrityError extends Error {
     if (relatedSequence !== undefined) this.relatedSequence = relatedSequence;
   }
 }
+
+/**
+ * R3.1 在线写入边界错误：公开外部事实入口（`appendExternalFacts`）收到
+ * allowlist 之外的 Navigator 内部控制事实——fail closed，整批拒绝。
+ */
+export type NavigatorWriteBoundaryErrorCode = "EXTERNAL_FACT_TYPE_FORBIDDEN";
+
+export class NavigatorWriteBoundaryError extends Error {
+  readonly code: NavigatorWriteBoundaryErrorCode;
+  /** 本批中混入的非法事件类型（去重）。 */
+  readonly forbiddenTypes: readonly string[];
+
+  constructor(forbiddenTypes: readonly string[], message: string) {
+    super(message);
+    this.name = "NavigatorWriteBoundaryError";
+    this.code = "EXTERNAL_FACT_TYPE_FORBIDDEN";
+    this.forbiddenTypes = forbiddenTypes;
+  }
+}
+
+/**
+ * R3.1 外部事实 allowlist（封闭集）：`appendExternalFacts` 唯一接受的
+ * 「真正来自外部 Runtime 的事实」= F3 Action Runtime 的执行回执
+ * `action_outcome_recorded`（R1 consumeWorkspaceCommandOutcome 消费链路的
+ * 输入；Navigator 永不代写）。其余 15 类事件全部属 Navigator 内部生成路径：
+ * `gate_evaluated` 只经本类证据评估路径（interpretAndDecide /
+ * evaluateGateAndDecide）；`policy_decision_made`/`inquiry_opened`/
+ * `inquiry_returned`/`session_completed`/`voice_action_issued`/
+ * `external_support_recorded` 只经 commitDecisions；学生输入事实只经
+ * `acceptStudentIntent`；`session_started` 只经 kernel.start。扩展本集合
+ * （如 F6 Orchestrator 内部事实提交）须先改本仓 PRDS 计划，不得原地放行。
+ */
+export const NAVIGATOR_EXTERNAL_FACT_EVENT_TYPES: ReadonlySet<V5EventType> = new Set<V5EventType>([
+  "action_outcome_recorded",
+]);
 
 export interface NavigatorResumeInput {
   readonly sessionId: string;
@@ -265,12 +313,37 @@ export class NavigatorSessionV5 {
    * 受控用例 append：F3 侧执行回执 / 编排外部事实（原 `session.kernel.append`
    * 的公开替代——kernel 私有化后，外部事实必须经此显式入口，教学决策仍只经
    * 本类内部路径产生）。
+   *
+   * R3.1 写入边界：批内只允许 `NAVIGATOR_EXTERNAL_FACT_EVENT_TYPES`
+   * （allowlist，当前 = `action_outcome_recorded`）。任一 Navigator 内部控制
+   * 事实（`gate_evaluated` / `policy_decision_made` /
+   * `semantic_interpretation_recorded` / `session_completed` /
+   * `inquiry_opened` / `inquiry_returned` / 学生输入 / issued 动作 / 失败类
+   * / `session_started`……）混入即抛 `NavigatorWriteBoundaryError`——
+   * **fail closed + 整批零提交**（批在进入 store 前被拒，任何行未写入；
+   * 过边界后仍受 F2 store 事务「先纯折叠后落库、拒绝即整批回滚」约束）。
+   * 不静默忽略非法事件、不部分提交合法项（混批 = 整批回滚）。
    */
   appendExternalFacts(expectedRevision: number, events: PendingV5Event[]): {
     revision: number;
     appendedSequences: number[];
     state: TutorRuntimeStateV5;
   } {
+    const forbidden = [
+      ...new Set(
+        events
+          .filter((event) => !NAVIGATOR_EXTERNAL_FACT_EVENT_TYPES.has(event.event_type))
+          .map((event) => event.event_type),
+      ),
+    ];
+    if (forbidden.length > 0) {
+      throw new NavigatorWriteBoundaryError(
+        forbidden,
+        `appendExternalFacts fail closed: batch contains Navigator-internal control fact(s) [${forbidden.join(", ")}]; `
+          + `this boundary only accepts external Runtime receipts [${[...NAVIGATOR_EXTERNAL_FACT_EVENT_TYPES].join(", ")}] `
+          + `(gate_evaluated is produced only by the in-session evidence evaluation path; decisions and inquiry lifecycle only by the Navigator itself; plan §5 R3.1/R3 exit gate 3 write vector)`,
+      );
+    }
     return this.kernelRef.append(expectedRevision, events);
   }
 
