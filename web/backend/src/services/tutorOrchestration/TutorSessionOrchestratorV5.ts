@@ -47,7 +47,7 @@
  *   边界拒绝——零事实、零 scaffold、零 reveal、零暗示性 workspace action；
  *   Assessment failure 不误记 student incorrect）。
  */
-import { importApprovedPlanV4, type ImportedApprovedPlanV4 } from "../planBuild/v4/ImportApprovedPlanV4";
+import { importApprovedPlanV5, type ImportedApprovedPlanV5 } from "../planBuild/v5/ImportApprovedPlanV5";
 import {
   rebuildTutorRuntimeStateV5,
   type RebuildV5Options,
@@ -162,7 +162,7 @@ export class TutorSessionOrchestratorV5 {
   private readonly scenarioId: string;
   private readonly model: OrchestratorModelInput;
   private readonly modelTimeoutMs: number | undefined;
-  private readonly imported: ImportedApprovedPlanV4;
+  private readonly imported: ImportedApprovedPlanV5;
   private readonly golden: GoldenWorkspaceCatalog;
   private navigator: NavigatorSessionV5;
   private workspace: WorkspaceSessionRuntimeV5;
@@ -176,7 +176,7 @@ export class TutorSessionOrchestratorV5 {
     assessment: boolean;
     model: OrchestratorModelInput;
     modelTimeoutMs: number | undefined;
-    imported: ImportedApprovedPlanV4;
+    imported: ImportedApprovedPlanV5;
     golden: GoldenWorkspaceCatalog;
     navigator: NavigatorSessionV5;
     workspace: WorkspaceSessionRuntimeV5;
@@ -205,7 +205,7 @@ export class TutorSessionOrchestratorV5 {
    * F2 kernel.start）→ 起步 execute_beat 决策 → 初始 Beat 呈现。
    */
   static start(input: OrchestratorStartInput): TutorSessionOrchestratorV5 {
-    const imported = importApprovedPlanV4({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? "TP-SMV-009");
+    const imported = importApprovedPlanV5({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? "TP-SMV-009");
     if (!imported.ok) {
       throw new OrchestratorError("PLAN_IMPORT_FAILED", `approved plan import failed (fail closed): ${imported.errors.join("; ")}`);
     }
@@ -263,7 +263,7 @@ export class TutorSessionOrchestratorV5 {
    * 「现有事实已足够表达」路线，避免合同变更）。
    */
   static resume(input: OrchestratorResumeInput): TutorSessionOrchestratorV5 {
-    const imported = importApprovedPlanV4({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? "TP-SMV-009");
+    const imported = importApprovedPlanV5({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? "TP-SMV-009");
     if (!imported.ok) {
       throw new OrchestratorError("PLAN_IMPORT_FAILED", `approved plan import failed (fail closed): ${imported.errors.join("; ")}`);
     }
@@ -599,6 +599,11 @@ export class TutorSessionOrchestratorV5 {
       catalog: this.golden.catalog,
       factEntryIds: this.golden.factEntryIds,
       gateLedger: workspaceRebuild.context.gateLedger,
+      hiddenEntryIds: new Set(
+        workspaceRebuild.state.solution_board.entries
+          .filter((entry) => entry.visibility === "hidden")
+          .map((entry) => entry.entry_id),
+      ),
       ...(this.assessmentMode ? { assessmentMode: true } : {}),
       actionSerial: this.events.length + 1,
     });

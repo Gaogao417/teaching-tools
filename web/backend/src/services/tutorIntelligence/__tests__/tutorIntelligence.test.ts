@@ -219,8 +219,13 @@ function testDeepSeekAdapter(): void {
   assert.deepEqual(parseModelJson('<think>hidden</think>{"x": 1}'), { x: 1 });
   assert.throws(() => parseModelJson("不是 JSON"), /不是合法 JSON/);
 
-  // 未配置 key
-  const unconfigured = new DeepSeekStructuredModel({ apiKey: "", fetchImpl: async () => new Response("{}", { status: 200 }) });
+  // 未配置 key：显式隔离开发机环境，避免 DEEPSEEK_API_KEY 让本测试意外访问
+  // fake provider 后得到 provider-error。
+  const priorDeepSeekKey = process.env.DEEPSEEK_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
+  const unconfigured = new DeepSeekStructuredModel({ fetchImpl: async () => new Response("{}", { status: 200 }) });
+  if (priorDeepSeekKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+  else process.env.DEEPSEEK_API_KEY = priorDeepSeekKey;
   unconfigured.complete({ systemPrompt: "s", promptVersion: "p", userPayload: {}, timeoutMs: 100 }).catch((error) => {
     assert.equal((error as StructuredModelError).code, "not-configured");
   });

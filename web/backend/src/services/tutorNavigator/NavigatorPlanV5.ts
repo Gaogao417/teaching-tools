@@ -2,8 +2,10 @@
  * NavigatorPlanV5（F5 — Session 与 Protocol Navigator 内核）。
  *
  * Pinned Plan 的只读导航索引与 v5 session_started payload 构造器：
- * - 输入是 F4 importer 的真实产物（ImportedApprovedPlanV4：TP-SMV-009@v1 →
- *   QT/AS/RG/PP + PR 两轮固定点 + materializer 门禁），**不用 fixture 发明
+ * - 当前输入是 F4 importer 的多分辨率真实产物（ImportedApprovedPlanV5：
+ *   TP-SMV-009@v3 → PR-SMV-001/002@v3 → RG-SMV-001@v3）；保留 v4 类型仅供
+ *   已发布旧会话读取。两条路径都经 QT/AS/RG/PP + PR 固定点 + materializer
+ *   门禁，**不用 fixture 发明
  *   教学结构**（计划 §5 F4/F5；f4-scope-ledger 输出 5 是 Plan 输入唯一入口）；
  * - 产出 Navigator 侧索引：mainline 协议、inquiry/scaffold 分支协议、beat/gate
  *   map、transition 表、pacing、support boundary、inquiry branch、RG facts 与
@@ -16,21 +18,36 @@
  *   RG 内即拒（materializer 已挡，本层防御性收口）。
  */
 import type { ImportedApprovedPlanV4 } from "../planBuild/v4/ImportApprovedPlanV4";
-import type {
-  GraphFactNode,
-  ProtocolBeatPayload,
-  SolutionVariantNode,
-  TeachingProtocolPayload,
+import type { ImportedApprovedPlanV5 } from "../planBuild/v5/ImportApprovedPlanV5";
+import {
+  beatFactIds,
+  beatInferenceIds,
+  type GraphFactNode,
+  type ProtocolBeatAnyPayload,
+  type ProtocolBeatPayload,
+  type SolutionVariantNode,
+  type TeachingProtocolAnyPayload,
 } from "../planBuild/canonicalInputs";
 import type { V5SessionStartedPayload } from "../tutorSession/TutorSessionEventV5";
 
-/** Beat 的 Navigator 只读视图（字段名对齐 canonical teaching-protocol/v1）。 */
+/**
+ * F4 多分辨率补救（2026-09-01）：v4（protocol/v1 beats）与 v5（protocol/v2
+ * beats，solution_refs 引用 fine graph Fact+Inference）两类 importer 产物都
+ * 可构建导航索引；Beat 视图的 graph_fact_refs/inference_refs 由
+ * beatFactIds/beatInferenceIds 统一读取（只读投影，不是第二真源）。
+ */
+export type NavigatorImportedPlan = ImportedApprovedPlanV4 | ImportedApprovedPlanV5;
+
+/** Beat 的 Navigator 只读视图（字段名对齐 canonical teaching-protocol；v2 的 fine 引用双列）。 */
 export interface NavigatorBeatView {
   readonly beat_id: string;
   readonly protocol_id: string;
   readonly part_id?: string;
+  /** teaching-protocol/v2 的教学角色（v1 beat 无此字段）。 */
+  readonly role?: string;
   readonly purpose: string;
   readonly graph_fact_refs: readonly string[];
+  readonly inference_refs: readonly string[];
   readonly cognitive_activity: ProtocolBeatPayload["cognitive_activity"];
   readonly completion_evidence: ProtocolBeatPayload["completion_evidence"];
   readonly participation: ProtocolBeatPayload["participation"];
@@ -38,14 +55,14 @@ export interface NavigatorBeatView {
   readonly resource_ids: readonly string[];
   readonly support_boundary: ProtocolBeatPayload["support_boundary"];
   readonly transitions: ReadonlyArray<{ to_beat: string; on: ProtocolBeatPayload["transitions"][number]["on"] }>;
-  readonly inquiry_branch?: ProtocolBeatPayload["inquiry_branch"];
+  readonly inquiry_branch?: ProtocolBeatPayload["inquiry_branch"] & { expand_region_id?: string };
 }
 
 export interface NavigatorProtocolView {
   readonly protocol_id: string;
   readonly version: string;
   readonly content_hash: string;
-  readonly protocol_kind: TeachingProtocolPayload["protocol_kind"];
+  readonly protocol_kind: TeachingProtocolAnyKind;
   readonly entry_beat_id: string;
   /** beat_id → view（顺序保留在 beat_order）。 */
   readonly beats: ReadonlyMap<string, NavigatorBeatView>;
@@ -94,16 +111,21 @@ export class NavigatorPlanError extends Error {
   }
 }
 
-function protocolView(protocol: TeachingProtocolPayload): NavigatorProtocolView {
+/** 协议种类字面量（teaching-protocol v1/v2 同枚举）。 */
+type TeachingProtocolAnyKind = "mainline" | "inquiry" | "scaffold" | "verification";
+
+function protocolView(protocol: TeachingProtocolAnyPayload): NavigatorProtocolView {
   const beats = new Map<string, NavigatorBeatView>();
   const order: string[] = [];
-  for (const beat of protocol.beats) {
+  for (const beat of protocol.beats as ProtocolBeatAnyPayload[]) {
     const view: NavigatorBeatView = {
       beat_id: beat.beat_id,
       protocol_id: protocol.protocol_id,
       ...(beat.part_id !== undefined ? { part_id: beat.part_id } : {}),
+      ...("role" in beat ? { role: beat.role } : {}),
       purpose: beat.purpose,
-      graph_fact_refs: beat.graph_fact_refs,
+      graph_fact_refs: beatFactIds(beat),
+      inference_refs: beatInferenceIds(beat),
       cognitive_activity: beat.cognitive_activity,
       completion_evidence: beat.completion_evidence,
       participation: beat.participation,
@@ -132,7 +154,7 @@ function protocolView(protocol: TeachingProtocolPayload): NavigatorProtocolView 
  * f0-golden-lineage-manifest §1（真实 /learn/:taskId 与 scenario 维度），由
  * 调用方在 buildSessionStartedPayload 显式传入，本模块不从 plan 猜测入口身份。
  */
-export function buildNavigatorPlan(imported: ImportedApprovedPlanV4): NavigatorPlanV5 {
+export function buildNavigatorPlan(imported: NavigatorImportedPlan): NavigatorPlanV5 {
   // mainline 协议：chunk 引用的协议中 protocol_kind=mainline 必须恰一个。
   const chunkProtocolIds = new Set<string>();
   for (const ref of imported.plan.chunks.flatMap((chunk) => chunk.protocol_refs)) {
@@ -150,13 +172,13 @@ export function buildNavigatorPlan(imported: ImportedApprovedPlanV4): NavigatorP
       `plan must reference exactly one mainline protocol (got ${mainlineIds.length}: ${mainlineIds.join(",")})`,
     );
   }
-  const mainlinePayload = imported.protocols.get(mainlineIds[0]) as TeachingProtocolPayload;
+  const mainlinePayload = imported.protocols.get(mainlineIds[0]) as TeachingProtocolAnyPayload;
 
   // session pin 协议集：chunk 引用 + beats 的 inquiry 分支（与 importer 同一
   // 固定点）；imported.protocols 内不得有未进 pin 集的协议（悬挂协议）。
   const pinnedIds = new Set<string>(chunkProtocolIds);
   for (const protocol of imported.protocols.values()) {
-    for (const beat of protocol.beats) {
+    for (const beat of protocol.beats as ProtocolBeatAnyPayload[]) {
       const branchId = beat.inquiry_branch?.inquiry_protocol_ref.artifact_id;
       if (branchId) pinnedIds.add(branchId);
     }
@@ -183,13 +205,20 @@ export function buildNavigatorPlan(imported: ImportedApprovedPlanV4): NavigatorP
   const inferences = new Map<string, import("../planBuild/canonicalInputs").GraphInferenceNode>();
   for (const inference of imported.graph.inferences) inferences.set(inference.inference_id, inference);
 
-  // 防御性收口：协议 beat 引用的 fact 必须在 RG 内（materializer 已挡）。
+  // 防御性收口：协议 beat 引用的 fact/inference 必须在 RG 内（materializer 已挡）。
   for (const protocol of imported.protocols.values()) {
-    for (const beat of protocol.beats) {
-      for (const factId of beat.graph_fact_refs) {
+    for (const beat of protocol.beats as ProtocolBeatAnyPayload[]) {
+      for (const factId of beatFactIds(beat)) {
         if (!facts.has(factId)) {
           throw new NavigatorPlanError(
             `beat ${protocol.protocol_id}/${beat.beat_id} references unknown graph fact ${factId}`,
+          );
+        }
+      }
+      for (const inferenceId of beatInferenceIds(beat)) {
+        if (!inferences.has(inferenceId)) {
+          throw new NavigatorPlanError(
+            `beat ${protocol.protocol_id}/${beat.beat_id} references unknown graph inference ${inferenceId}`,
           );
         }
       }

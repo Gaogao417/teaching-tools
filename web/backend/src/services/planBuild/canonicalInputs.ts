@@ -387,6 +387,127 @@ export interface TutorPlanV4Payload {
 }
 
 // --------------------------------------------------------------------------- //
+// planning/v5（F4 多分辨率补救，2026-09-01）：TeachingProtocol v2 + TutorPlanBundle v5
+// --------------------------------------------------------------------------- //
+
+/** solution_refs：对最高分辨率 RG 的 Fact + Inference 显式引用（v2 Beat / v5 Chunk/Region/PG 共用）。 */
+export interface SolutionRefsV5 {
+  fact_ids: string[];
+  inference_ids: string[];
+}
+
+export interface ProtocolBeatV2Payload {
+  beat_id: string;
+  part_id?: string;
+  role: "orientation" | "construction" | "reasoning" | "practice" | "verification" | "summary" | "local_inquiry";
+  purpose: string;
+  solution_refs: SolutionRefsV5;
+  abstraction_level: "A0_object" | "A1_relation" | "A2_strategy" | "A3_structure";
+  cognitive_process: "retrieve" | "match" | "execute" | "monitor";
+  cognitive_activity: "attend" | "recall" | "relate" | "apply" | "verify" | "explain";
+  accepted_alternatives?: string[];
+  common_deviations?: string[];
+  completion_evidence: ProtocolBeatPayload["completion_evidence"];
+  participation: ProtocolBeatPayload["participation"];
+  pacing: ProtocolBeatPayload["pacing"];
+  presentation_intent: ProtocolBeatPayload["presentation_intent"];
+  resource_ids?: string[];
+  support_boundary: ProtocolBeatPayload["support_boundary"];
+  transitions: ProtocolBeatPayload["transitions"];
+  inquiry_branch?: {
+    inquiry_protocol_ref: { artifact_id: string; version: string; content_hash: string };
+    return_beat_id: string;
+    expand_region_id: string;
+    trigger?: "ask_question" | "request_scaffold" | "request_rephrase" | "unclear" | "out_of_bound";
+  };
+}
+
+export interface TeachingProtocolV2Payload {
+  schema: "ai_teaching_teaching_protocol/v2";
+  protocol_id: string;
+  version: string;
+  status: string;
+  approval?: { reviewer_id: string; approved_at: string; review_note?: string };
+  question_ref: { artifact_id: string; version: string; content_hash: string };
+  solution_graph_ref: { artifact_id: string; version: string; content_hash: string };
+  protocol_kind: "mainline" | "inquiry" | "scaffold" | "verification";
+  entry_beat_id: string;
+  beats: ProtocolBeatV2Payload[];
+  content_hash: string;
+  artifact_uri: string;
+}
+
+/** v1/v2 协议 Beat 的统一读法（导航/目录/Presenter 只读消费，不改写 payload）。 */
+export type ProtocolBeatAnyPayload = ProtocolBeatPayload | ProtocolBeatV2Payload;
+export type TeachingProtocolAnyPayload = TeachingProtocolPayload | TeachingProtocolV2Payload;
+
+export function beatFactIds(beat: ProtocolBeatAnyPayload): readonly string[] {
+  return "solution_refs" in beat ? beat.solution_refs.fact_ids : beat.graph_fact_refs;
+}
+
+export function beatInferenceIds(beat: ProtocolBeatAnyPayload): readonly string[] {
+  return "solution_refs" in beat ? beat.solution_refs.inference_ids : [];
+}
+
+export interface PlanResourceV5 {
+  resource_id: string;
+  kind: PlanResourceV4["kind"];
+  beat_ref?: string;
+  source: "authored" | "reused" | "agent_generated";
+  content?: string;
+  solution_refs?: SolutionRefsV5;
+}
+
+export interface TutorPlanV5Payload {
+  schema: "ai_teaching_tutor_plan_bundle/v5";
+  artifact_id: string;
+  version: string;
+  status: string;
+  approval?: { reviewer_id: string; approved_at: string; review_note?: string };
+  question_ref: { artifact_id: string; version: string; content_hash: string };
+  approach_set_ref: { artifact_id: string; version: string; content_hash: string };
+  solution_graph_ref: { artifact_id: string; version: string; content_hash: string };
+  policy_profile_ref: { artifact_id: string; version: string; content_hash: string };
+  default_resolution_profile_id: string;
+  resolution_profiles: Array<{
+    profile_id: string;
+    learner_description: string;
+    default_view: "chunk" | "beat" | "fine";
+    available_views: Array<"chunk" | "beat" | "fine">;
+    chunk_ids: string[];
+  }>;
+  chunk_graph: {
+    entry_chunk_id: string;
+    completion_chunk_ids: string[];
+    edges: Array<{ from_chunk_id: string; to_chunk_id: string; on: "complete" | "alternate" | "needs_support" }>;
+  };
+  solution_regions: Array<{
+    region_id: string;
+    label: string;
+    fine_refs: SolutionRefsV5;
+    local_protocol_refs?: Array<{ artifact_id: string; version: string; content_hash: string }>;
+  }>;
+  chunks: Array<{
+    chunk_id: string;
+    part_id?: string;
+    title: string;
+    instructional_intent: string;
+    entry_state: string;
+    exit_understanding: string;
+    source_subgraph_refs: SolutionRefsV5;
+    protocol_refs: Array<{ artifact_id: string; version: string; content_hash: string }>;
+    teacher_narration_refs: string[];
+    presentation_groups: Array<{ group_id: string; label: string; fine_refs: SolutionRefsV5 }>;
+    expandable_region_ids: string[];
+    resource_ids?: string[];
+  }>;
+  resources: PlanResourceV5[];
+  build_provenance: TutorPlanV4Payload["build_provenance"];
+  content_hash: string;
+  artifact_uri: string;
+}
+
+// --------------------------------------------------------------------------- //
 // 注册表读取
 // --------------------------------------------------------------------------- //
 export interface CanonicalRegistries {
@@ -671,6 +792,52 @@ export function loadCurrentPlanV4(
     return {
       ok: false,
       errors: [`${tpId}: 期望 tutor_plan_bundle/v4（F4 供应链只开放 v4），实际 ${result.payload.schema}`],
+    };
+  }
+  return result;
+}
+
+/**
+ * F4 多分辨率补救（2026-09-01）：装载 current Approved TutorPlan v5
+ * （planning/v5 resolution profiles → chunk graph → regions → fine refs）。
+ * 与 v4 按 schema 常量分道（同 v3/v4 先例），互不误读对方的 current_version。
+ */
+export function loadCurrentPlanV5(
+  inputs: CanonicalRegistries,
+  tpId: string,
+): LoadResult<TutorPlanV5Payload> {
+  const result = loadCurrentApproved<TutorPlanV5Payload>(
+    registryDir(inputs.canonicalRoot, "tutor-plan"),
+    tpId,
+    "plan",
+    { anchored: inputs.anchored },
+  );
+  if (!result.ok) return result;
+  if (result.payload.schema !== "ai_teaching_tutor_plan_bundle/v5") {
+    return {
+      ok: false,
+      errors: [`${tpId}: 期望 tutor_plan_bundle/v5（F4 多分辨率供应链只开放 v5），实际 ${result.payload.schema}`],
+    };
+  }
+  return result;
+}
+
+/** F4 多分辨率补救：装载 current Approved TeachingProtocol v2（Beat 引用 fine graph Fact+Inference）。 */
+export function loadApprovedTeachingProtocolV2(
+  inputs: CanonicalRegistries,
+  prId: string,
+): LoadResult<TeachingProtocolV2Payload> {
+  const result = loadCurrentApproved<TeachingProtocolV2Payload>(
+    registryDir(inputs.canonicalRoot, "teaching-protocol"),
+    prId,
+    "authoring",
+    { anchored: inputs.anchored },
+  );
+  if (!result.ok) return result;
+  if (result.payload.schema !== "ai_teaching_teaching_protocol/v2") {
+    return {
+      ok: false,
+      errors: [`${prId}: 期望 teaching_protocol/v2（v5 plan 的协议必须是 v2），实际 ${result.payload.schema}`],
     };
   }
   return result;

@@ -4,11 +4,11 @@
  * 覆盖 f6-scope-ledger「退出门禁」+ 计划 §5 F6 G6（全部经真实公开入口——
  * TutorSessionOrchestratorV5（start/resume/submitStudentIntent/submitWorkspaceCommand/
  * executePresentationPlan）与 F3/F5 既有公开 API；负例不绕道内部纯函数冒充
- * fail-closed 证明）。Plan 输入 = F4 importer 真实 Approved 链（TP-SMV-009@v1，
+ * fail-closed 证明）。Plan 输入 = F4 importer 真实 Approved 链（TP-SMV-009@v3，
  * 同 G5 口径）；自然语言 Gate 判卷人 = 固定响应 provider（R3 4B 口径）。
  *
- * 1. 完整 headless 旅程（start → confirm → workspace command+committed outcome →
- *    模型裁决 gate → final completion → rebuild/resume → live/replay 语义一致）
+ * 1. 完整 headless 旅程（start → confirm → 四个细图模型 gate → final
+ *    completion → rebuild/resume → live/replay 语义一致）
  *    + 每个 visible delta 因果链（decision→Beat→action/command→outcome→revision→
  *    view delta）逐跳断言；
  * 2. approved inquiry/scaffold 打开与显式返回（主线冻结+返回点可见）；
@@ -69,11 +69,13 @@ const FixedResponseGateProviderCtor = adjudicatorModule.FixedResponseGateProvide
 const { buildGoldenWorkspaceCatalogV5 } = catalogModule;
 
 const ROOT = realCanonicalRoot();
-const PASS_GT03 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-05"], brief_reason: "ok" });
-const PASS_GT04 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-04", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-08"], brief_reason: "ok" });
+const PASS_GT02 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-02", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-08"], brief_reason: "ok" });
+const PASS_GT03 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-12"], brief_reason: "ok" });
+const PASS_GT04 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-04", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-23"], brief_reason: "ok" });
+const PASS_GT05 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-05", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-29"], brief_reason: "ok" });
 
 function journeyProvider(): FixedResponseGateProvider {
-  return new FixedResponseGateProviderCtor([PASS_GT03, PASS_GT04], "fixed-f6-journey");
+  return new FixedResponseGateProviderCtor([PASS_GT02, PASS_GT03, PASS_GT04, PASS_GT05], "fixed-f6-journey");
 }
 
 function startOrchestrator(sessionId: string, provider: FixedResponseGateProvider, options: { assessment?: boolean } = {}): Orchestrator {
@@ -190,7 +192,7 @@ async function main(): Promise<void> {
     auditCausalityChain("TS-7001");
   });
 
-  await runTest("G6 journey full: confirm -> committed workspace outcome -> model gates -> completion, every visible delta traceable", async () => {
+  await runTest("G6 journey full: confirm -> four model-gated similarity steps -> completion, every visible delta traceable", async () => {
     const provider = journeyProvider();
     const orch = startOrchestrator("TS-7002", provider);
     // BT-01 confirm → transition BT-02 + presentation (voice RES2 + reveal BE-04)。
@@ -199,45 +201,37 @@ async function main(): Promise<void> {
     assert.equal(confirmTurn.turn.decision?.to_beat_id, "BT-02");
     assert.equal(confirmTurn.presentations.length, 1, "transition realizes the new beat via executeCurrentBeat + presenter");
     const afterConfirm = orch.projectUnifiedViews();
-    assert.deepEqual(afterConfirm.coachPanelView.mainline, { kind: "awaiting_workspace", beat_id: "BT-02", gate_id: "GT-02", action_id: "similarity.mark-known-segments" });
-    assert.deepEqual(afterConfirm.participation, { kind: "workspace_input", gate_id: "GT-02" });
-    assert.equal(afterConfirm.studentWorkspaceView.revision, 1, "reveal BE-04 (FN-04 intermediate) advanced workspace revision");
+    assert.deepEqual(afterConfirm.coachPanelView.mainline, { kind: "awaiting_answer", beat_id: "BT-02", gate_id: "GT-02" });
+    assert.deepEqual(afterConfirm.participation, { kind: "answer_input", gate_id: "GT-02" });
+    assert.equal(afterConfirm.studentWorkspaceView.revision, 1, "BT-02 fine-region reveal advanced workspace revision");
     const revealed = afterConfirm.studentWorkspaceView.solution_board.groups.flatMap((group) => group.entries.map((entry) => entry.entry_id));
-    assert.deepEqual(revealed, ["BE-04"], "only the beat's intermediate entry is revealed");
-    // BT-02 学生命令（真实 F3 提交路径）→ committed outcome → GT-02 satisfied → BT-03。
-    const commandTurn = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
-      sessionId: "TS-7002", commandId: "SC-TS-7002-0001", clientCommandId: "cc-7002-1", expectedWorkspaceRevision: 1,
-    }));
-    assert.equal(commandTurn.turn.decision?.decision_kind, "transition_beat");
-    assert.equal(commandTurn.turn.decision?.to_beat_id, "BT-03");
-    const outcome = eventsOf("TS-7002").find(
-      (event) => event.event_type === "action_outcome_recorded" && (event.payload as { action_id: string }).action_id === "SC-TS-7002-0001",
-    );
-    assert.ok(outcome, "student command committed outcome");
-    assert.equal((outcome!.payload as { resulting_revision?: number }).resulting_revision, 2);
-    const gate = eventsOf("TS-7002").find((event) => event.event_type === "gate_evaluated" && (event.payload as { gate_id: string }).gate_id === "GT-02");
-    assert.deepEqual(
-      { ...(gate!.payload as object) },
-      { gate_id: "GT-02", beat_id: "BT-02", satisfied: true, evidence_sequence: outcome!.sequence },
-      "gate satisfaction references the committed outcome sequence (causality)",
-    );
-    // BT-03/BT-04 自然语言 gate：固定响应模型裁决（每次一次调用）。
+    assert.deepEqual(revealed, ["BE-06", "BE-07", "BE-08"], "BT-02 starts at the two reviewed angle facts and reveals only the AA child-mother similarity step");
+    // BT-02..BT-05 自然语言 gate：固定响应模型逐 Beat 裁决。
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7002-2" });
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-03");
+    assert.equal(provider.callCount, 1);
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7002-3" });
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-04");
-    assert.equal(provider.callCount, 1);
-    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7002-4" });
-    assert.equal(orch.state.teaching_cursor.beat_id, "BT-05");
     assert.equal(provider.callCount, 2);
+    const butterflyTurn = await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7002-4" });
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-05");
+    assert.equal(provider.callCount, 3);
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7002-5" });
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-06");
+    assert.equal(provider.callCount, 4);
     const afterAnswers = orch.projectUnifiedViews();
     const revealedEntries = afterAnswers.studentWorkspaceView.solution_board.groups.flatMap((group) => group.entries.map((entry) => entry.entry_id));
-    assert.ok(revealedEntries.includes("BE-06") && revealedEntries.includes("BE-07"), "BT-04 intermediates revealed");
-    assert.ok(!revealedEntries.includes("BE-08"), "final answer entry (FN-08) must NOT be revealed (no legal window; truth boundary)");
-    // BT-05 final confirm → complete_beat + session_completed + locked review。
-    const finalTurn = await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7002-5" });
+    assert.ok(
+      revealedEntries.includes("BE-08") && revealedEntries.includes("BE-18") && revealedEntries.includes("BE-27"),
+      `the two child-mother similarities and the butterfly similarity expose their structural conclusions: entries=${JSON.stringify(revealedEntries)} turn=${JSON.stringify(butterflyTurn)}`,
+    );
+    assert.ok(!revealedEntries.includes("BE-29"), "final answer entry (FN-29) must NOT be revealed after leaving its bound Beat");
+    // BT-06 final confirm → complete_beat + session_completed + locked review。
+    const finalTurn = await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7002-6" });
     assert.equal(finalTurn.turn.decision?.decision_kind, "complete_beat");
     assert.equal(orch.state.completed, true);
     const completed = eventsOf("TS-7002").find((event) => event.event_type === "session_completed");
-    assert.deepEqual(completed!.payload, { final_beat_id: "BT-05", completed_parts: ["1"] });
+    assert.deepEqual(completed!.payload, { final_beat_id: "BT-06", completed_parts: ["1"] });
     const finalProjection = orch.projectUnifiedViews();
     assert.deepEqual(finalProjection.coachPanelView.mainline, { kind: "completed" });
     assert.deepEqual(finalProjection.participation, { kind: "read_only_completed" });
@@ -248,13 +242,13 @@ async function main(): Promise<void> {
     const resumed = TutorSessionOrchestratorV5.resume({ sessionId: "TS-7002", canonicalRoot: ROOT, model: f6Model(provider, "fixed-response/fixed-f6-journey") });
     assert.deepEqual(resumed.state, orch.state, "rebuilt teaching state equals live state");
     assert.deepEqual(resumed.projectUnifiedViews(), finalProjection, "unified projection equals live projection (same reducer/projector)");
-    assert.equal(provider.callCount, 2, "resume/replay never calls the model again");
+    assert.equal(provider.callCount, 4, "resume/replay never calls the model again");
   });
 
   await runTest("G6 inquiry: approved branch opens with frozen mainline + visible return checkpoint, returns explicitly", async () => {
     const provider = new FixedResponseGateProviderCtor([
       JSON.stringify({ response_kind: "question", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["FN-03"] }),
-      JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-01", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-01"] }),
+      JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-01", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-05"] }),
     ], "fixed-f6-inquiry");
     const orch = startOrchestrator("TS-7003", provider);
     const opened = await orch.submitStudentIntent({ intent_kind: "ask_question", text: QUESTION_IN_BOUND, client_request_id: "cr-7003-1" });
@@ -266,10 +260,11 @@ async function main(): Promise<void> {
     assert.equal(inInquiry.coachPanelView.inquiry.kind, "clarifying");
     assert.equal((inInquiry.coachPanelView.inquiry as { return_checkpoint_id: string }).return_checkpoint_id, "BT-01");
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-01", "mainline cursor frozen");
-    // 分支推进 + 返回（F5 轨迹：answer → confirm → confirm → return）。
+    // 分支推进 + 返回（v3 轨迹：answer → confirm → confirm → confirm → return）。
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: SCAFFOLD_STEP1_OK, client_request_id: "cr-7003-2" });
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7003-3" });
-    const returned = await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7003-4" });
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7003-4" });
+    const returned = await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7003-5" });
     assert.equal(returned.turn.decision?.decision_kind, "return_to_mainline");
     assert.equal(returned.turn.decision?.to_beat_id, "BT-01");
     const after = orch.projectUnifiedViews();
@@ -416,7 +411,7 @@ async function main(): Promise<void> {
     assert.notEqual(resumed.state.teaching_cursor.phase, "gate_satisfied", "interrupted voice produces no completion side effect");
     assert.equal(resumed.state.teaching_cursor.beat_id, "BT-02", "barge-in does not advance the beat");
     assert.equal(
-      resumed.projectUnifiedViews().coachPanelView.mainline.kind === "awaiting_workspace"
+      resumed.projectUnifiedViews().coachPanelView.mainline.kind === "awaiting_answer"
         || resumed.projectUnifiedViews().coachPanelView.mainline.kind === "presenting", true,
       "after barge-in the session still waits at BT-02 (no fabricated completion)",
     );
@@ -534,12 +529,12 @@ async function main(): Promise<void> {
     const provider = journeyProvider();
     const orch = startOrchestrator("TS-7024", provider);
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7024-1" });
-    // Presenter 预检：全程已 issued 的 reveal 不含 final 条目（GT-04 未满足）。
+    // Presenter 预检：全程已 issued 的 reveal 不含 v3 final 条目（GT-05 未满足）。
     const revealActions = eventsOf("TS-7024")
       .filter((event) => event.event_type === "workspace_surface_action_issued")
       .flatMap((event) => (event.payload as { target_ids?: string[] }).target_ids ?? []);
-    assert.ok(!revealActions.includes("BE-08"), "presenter never schedules the final entry before its gate is satisfied");
-    // 运行时再检（真实公开入口 executePresentationPlan）：对 BE-08 的 final reveal
+    assert.ok(!revealActions.includes("BE-29"), "presenter never schedules the final entry before its gate is satisfied");
+    // 运行时再检（真实公开入口 executePresentationPlan）：对 BE-29 的 final reveal
     // → F3 truth boundary 拒绝 + presentation_failed 事实。
     const decision = [...eventsOf("TS-7024")].reverse().find((event) => event.event_type === "policy_decision_made")!;
     const decisionPayload = decision.payload as { decision_id: string; protocol_id: string; beat_id: string };
@@ -548,7 +543,7 @@ async function main(): Promise<void> {
       session_id: "TS-7024", plan_id: "PPT-TS-7024-9001", decision_id: decisionPayload.decision_id,
       protocol_id: decisionPayload.protocol_id, beat_id: decisionPayload.beat_id,
       voice_actions: [{ action_id: "VA-TS-7024-9001", decision_id: decisionPayload.decision_id, text: "核验前的越界 reveal 尝试", source: "deterministic-scaffold" }],
-      workspace_actions: [{ action_id: "WSA-TS-7024-9001", decision_id: decisionPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-08"], reveal_scope: "final_result" as const }],
+      workspace_actions: [{ action_id: "WSA-TS-7024-9001", decision_id: decisionPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-29"], reveal_scope: "final_result" as const }],
     } as Parameters<typeof orch.executePresentationPlan>[0];
     const forced = orch.executePresentationPlan(forcedPlan, decision.sequence);
     assert.equal(forced.failure?.failure_class, "action_validation_rejected");
@@ -563,8 +558,8 @@ async function main(): Promise<void> {
     const orch = startOrchestrator("TS-7025", provider);
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7025-1" });
     // 篡改 catalog（多一条 intermediate 条目 → digest 变化）经 F3 公开 resume 对账。
-    const importerModule = require("../../planBuild/v4/ImportApprovedPlanV4") as typeof import("../../planBuild/v4/ImportApprovedPlanV4");
-    const imported = importerModule.importApprovedPlanV4({ canonicalRoot: ROOT, anchored: true }, GOLDEN.tpId);
+    const importerModule = require("../../planBuild/v5/ImportApprovedPlanV5") as typeof import("../../planBuild/v5/ImportApprovedPlanV5");
+    const imported = importerModule.importApprovedPlanV5({ canonicalRoot: ROOT, anchored: true }, GOLDEN.tpId);
     assert.equal(imported.ok, true);
     const golden = buildGoldenWorkspaceCatalogV5(imported.imported);
     const tampered = { ...golden.catalog, boardEntries: [...golden.catalog.boardEntries, { entryId: "BE-99", kind: "derivation" as const, content: "篡改条目", presentationGroup: "PG-99", revealRequirement: "intermediate" as const }] };
@@ -669,8 +664,8 @@ async function main(): Promise<void> {
   await runTest("G6 presenter discipline: refuses uncommitted decision causation and beat mismatch (never invents)", () => {
     const provider = journeyProvider();
     const orch = startOrchestrator("TS-7030", provider);
-    const importerModule = require("../../planBuild/v4/ImportApprovedPlanV4") as typeof import("../../planBuild/v4/ImportApprovedPlanV4");
-    const imported = importerModule.importApprovedPlanV4({ canonicalRoot: ROOT, anchored: true }, GOLDEN.tpId);
+    const importerModule = require("../../planBuild/v5/ImportApprovedPlanV5") as typeof import("../../planBuild/v5/ImportApprovedPlanV5");
+    const imported = importerModule.importApprovedPlanV5({ canonicalRoot: ROOT, anchored: true }, GOLDEN.tpId);
     assert.equal(imported.ok, true);
     const golden = buildGoldenWorkspaceCatalogV5(imported.imported);
     const decision = eventsOf("TS-7030").find((event) => event.event_type === "policy_decision_made")!;
@@ -684,7 +679,9 @@ async function main(): Promise<void> {
         decision: { ...(decision.payload as object), decision_id: "TD-TS-7030-9999" } as never,
         beat, presentationIntent: undefined, resources,
         catalog: golden.catalog, factEntryIds: golden.factEntryIds,
-        gateLedger: workspaceRebuild.context.gateLedger, actionSerial: 99,
+        gateLedger: workspaceRebuild.context.gateLedger,
+        hiddenEntryIds: new Set((workspaceRebuild.state.solution_board.entries as Array<{ entry_id: string; visibility: string }>).filter((entry) => entry.visibility === "hidden").map((entry) => entry.entry_id)),
+        actionSerial: 99,
       }),
       (error: unknown) => error instanceof presenterModule.TutorPresenterError,
     );
@@ -695,7 +692,9 @@ async function main(): Promise<void> {
         decision: decision.payload as never,
         beat: orch.plan.mainline.beats.get("BT-02")!, presentationIntent: undefined, resources,
         catalog: golden.catalog, factEntryIds: golden.factEntryIds,
-        gateLedger: workspaceRebuild.context.gateLedger, actionSerial: 99,
+        gateLedger: workspaceRebuild.context.gateLedger,
+        hiddenEntryIds: new Set((workspaceRebuild.state.solution_board.entries as Array<{ entry_id: string; visibility: string }>).filter((entry) => entry.visibility === "hidden").map((entry) => entry.entry_id)),
+        actionSerial: 99,
       }),
       (error: unknown) => error instanceof presenterModule.TutorPresenterError,
     );
@@ -771,16 +770,17 @@ async function main(): Promise<void> {
     const provider = journeyProvider();
     const orch = startOrchestrator("TS-7033", provider);
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7033-1" });
-    // (1) 首次 completed：intent+outcome+gate_evaluated+policy_decision_made+新 Beat 呈现。
+    // (1) 首次 completed：intent+outcome；当前 v3 是 student_answer gate，
+    // workspace receipt 不得产生 gate/decision 或推进 Beat。
     const first = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
       sessionId: "TS-7033", commandId: "SC-TS-7033-0001", clientCommandId: "cc-7033-1", expectedWorkspaceRevision: 1,
     }));
-    assert.equal(first.turn.decision?.decision_kind, "transition_beat");
-    assert.equal(first.turn.decision?.to_beat_id, "BT-03");
+    assert.equal(first.turn.decision, undefined);
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-02");
     const afterFirst = countEvents("TS-7033");
     const revisionAfterFirst = orch.revision;
     const cursorAfterFirst = orch.state.teaching_cursor.beat_id;
-    // (2) 同键同载荷重试（同 command_id）：零新增事件、零呈现、返回 committed 决策。
+    // (2) 同键同载荷重试（同 command_id）：零新增事件、零呈现。
     const replaySame = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
       sessionId: "TS-7033", commandId: "SC-TS-7033-0001", clientCommandId: "cc-7033-1", expectedWorkspaceRevision: 2,
     }));
@@ -788,9 +788,7 @@ async function main(): Promise<void> {
     assert.equal(orch.revision, revisionAfterFirst, "revision does not advance on replay");
     assert.equal(orch.state.teaching_cursor.beat_id, cursorAfterFirst);
     assert.equal(replaySame.presentations.length, 0, "no re-presentation on replay");
-    assert.equal(replaySame.turn.decision?.decision_kind, "transition_beat", "replay returns the committed decision");
-    assert.equal(replaySame.turn.decision?.to_beat_id, "BT-03");
-    assert.ok(replaySame.turn.decisionSequence !== undefined && replaySame.turn.decisionSequence <= afterFirst, "decisionSequence points into the committed stream");
+    assert.equal(replaySame.turn.decision, undefined, "there was no teaching decision to replay");
     // (3) 同键重试携带新 command_id：按 client_command_id 解析到已提交事实（不抛
     // nothing-to-consume、不按新 ID 查旧事实），零新增。
     const replayNewId = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
@@ -798,8 +796,7 @@ async function main(): Promise<void> {
     }));
     assert.equal(countEvents("TS-7033"), afterFirst, "new command_id on the same client key appends nothing");
     assert.equal(replayNewId.presentations.length, 0);
-    assert.equal(replayNewId.turn.decision?.decision_kind, "transition_beat", "resolved to the committed receipt, not the retry id");
-    assert.equal(replayNewId.turn.decisionSequence, replaySame.turn.decisionSequence, "both retries resolve the same committed decision");
+    assert.equal(replayNewId.turn.decision, undefined, "resolved to the committed receipt without inventing a gate decision");
     // (4) 同键异载荷（target 漂移）：显式拒绝（零事件）——F6.1 ledger 登记语义。
     assert.throws(
       () => orch.submitWorkspaceCommand(markKnownSegmentsCommand({
@@ -816,7 +813,7 @@ async function main(): Promise<void> {
     const orch = startOrchestrator("TS-7034", provider);
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7034-1" });
     const before = countEvents("TS-7034");
-    // BT-02（GT-02=workspace_command）：canonical 合法但 target 非法 → 首次 rejected
+    // BT-02（GT-02=student_answer）：canonical 合法但 target 非法 → 首次 rejected
     // 提交 intent+outcome(rejected)（恰 +2），零 gate/decision。
     const rejected = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
       sessionId: "TS-7034", commandId: "SC-TS-7034-0001", clientCommandId: "cc-7034-1", expectedWorkspaceRevision: 1, targetIds: ["seg-XX"],
@@ -845,11 +842,11 @@ async function main(): Promise<void> {
     const legal = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
       sessionId: "TS-7034", commandId: "SC-TS-7034-0002", clientCommandId: "cc-7034-2", expectedWorkspaceRevision: 1,
     }));
-    assert.equal(legal.turn.decision?.decision_kind, "transition_beat", "a fresh legal command after retries still advances normally");
+    assert.equal(legal.turn.decision, undefined, "a fresh legal command still cannot satisfy a different evidence kind");
     auditCausalityChain("TS-7034");
   });
 
-  await runTest("G6.1 workspace command crash recovery: committed outcome without consumption is consumed exactly once on retry", async () => {
+  await runTest("G6.1 workspace command crash recovery: committed outcome replays idempotently without crossing into the v3 answer gate", async () => {
     const provider = journeyProvider();
     const orch = startOrchestrator("TS-7035", provider);
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7035-1" });
@@ -862,16 +859,15 @@ async function main(): Promise<void> {
     assert.equal(committed.status, "completed", "F3 committed intent+outcome while the orchestrator was down");
     const outcomeSequence = committed.appendedSequences.at(-1)!;
     assert.equal(eventsOf("TS-7035").some((event) => event.causation_sequence === outcomeSequence), false, "no downstream fact of the outcome at the recovery point (not yet consumed)");
-    // 恢复：同键重试 → duplicate → 恰好消费一次（gate+decision+新 Beat 呈现）。
+    // 恢复：同键重试 → duplicate → 读取既有回执；wrong evidence_kind 不产生
+    // gate/decision，也不推进 Beat。
     const recovered = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
       sessionId: "TS-7035", commandId: "SC-TS-7035-0001", clientCommandId: "cc-7035-1", expectedWorkspaceRevision: 2,
     }));
-    assert.equal(recovered.turn.decision?.decision_kind, "transition_beat", "recovery consumes the committed receipt (exactly once)");
-    assert.equal(recovered.turn.decision?.to_beat_id, "BT-03");
-    assert.equal(orch.state.teaching_cursor.beat_id, "BT-03");
+    assert.equal(recovered.turn.decision, undefined);
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-02");
     const gateEvents = eventsOf("TS-7035").filter((event) => event.event_type === "gate_evaluated" && (event.payload as { gate_id: string }).gate_id === "GT-02");
-    assert.equal(gateEvents.length, 1, "GT-02 evaluated exactly once for the committed receipt");
-    assert.equal((gateEvents[0].payload as { evidence_sequence?: number }).evidence_sequence, outcomeSequence, "gate evidence references the committed outcome sequence");
+    assert.equal(gateEvents.length, 0, "workspace receipt never evaluates the GT-02 answer gate");
     // 已消费后的再次重试（换新 command_id）：幂等回放零新增。
     const afterRecovery = countEvents("TS-7035");
     const replay = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
@@ -879,7 +875,7 @@ async function main(): Promise<void> {
     }));
     assert.equal(countEvents("TS-7035"), afterRecovery, "post-consumption retry appends nothing");
     assert.equal(replay.presentations.length, 0);
-    assert.equal(replay.turn.decision?.decision_kind, "transition_beat", "replay returns the committed decision");
+    assert.equal(replay.turn.decision, undefined, "replay does not invent a teaching decision");
     auditCausalityChain("TS-7035");
   });
 
@@ -887,26 +883,25 @@ async function main(): Promise<void> {
     const provider = journeyProvider();
     const orch = startOrchestrator("TS-7036", provider);
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7036-1" });
-    orch.submitWorkspaceCommand(markKnownSegmentsCommand({
-      sessionId: "TS-7036", commandId: "SC-TS-7036-0001", clientCommandId: "cc-7036-1", expectedWorkspaceRevision: 1,
-    }));
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7036-2" });
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7036-3" });
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7036-4" });
-    assert.equal(orch.state.teaching_cursor.beat_id, "BT-05", "GT-04 satisfied at BT-04 and the cursor has left the binding beat");
-    // 偏差精确场景（复核 P2-2 ①）：锚定当前 BT-05 execute_beat 决策强制 reveal
-    // final 条目 BE-08 —— gate 虽刚满足，Beat 腿已关闭（stale-gate）。
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7036-5" });
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-06", "GT-05 satisfied at BT-05 and the cursor has left the binding beat");
+    // 偏差精确场景（复核 P2-2 ①）：锚定当前 BT-06 execute_beat 决策强制 reveal
+    // final 条目 BE-29 —— gate 虽刚满足，Beat 腿已关闭（stale-gate）。
     const anchor = [...eventsOf("TS-7036")].reverse().find(
       (event) => event.event_type === "policy_decision_made"
         && (event.payload as { decision_kind: string }).decision_kind === "execute_beat"
-        && (event.payload as { beat_id: string }).beat_id === "BT-05",
+        && (event.payload as { beat_id: string }).beat_id === "BT-06",
     )!;
     const anchorPayload = anchor.payload as { decision_id: string; protocol_id: string; beat_id: string };
     const forced = orch.executePresentationPlan({
       schema: "ai_teaching_presentation_plan/v1",
       session_id: "TS-7036", plan_id: "PPT-TS-7036-9001", decision_id: anchorPayload.decision_id,
-      protocol_id: anchorPayload.protocol_id, beat_id: "BT-05",
+      protocol_id: anchorPayload.protocol_id, beat_id: "BT-06",
       voice_actions: [],
-      workspace_actions: [{ action_id: "WSA-TS-7036-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-08"], reveal_scope: "final_result" as const }],
+      workspace_actions: [{ action_id: "WSA-TS-7036-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-29"], reveal_scope: "final_result" as const }],
     } as Parameters<typeof orch.executePresentationPlan>[0], anchor.sequence);
     assert.equal(forced.failure?.failure_class, "action_validation_rejected");
     assert.ok(
@@ -925,26 +920,25 @@ async function main(): Promise<void> {
     const provider = journeyProvider();
     const orch = startOrchestrator("TS-7037", provider);
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7037-1" });
-    orch.submitWorkspaceCommand(markKnownSegmentsCommand({
-      sessionId: "TS-7037", commandId: "SC-TS-7037-0001", clientCommandId: "cc-7037-1", expectedWorkspaceRevision: 1,
-    }));
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7037-2" });
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7037-3" });
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7037-4" });
-    assert.equal(orch.state.teaching_cursor.beat_id, "BT-05");
-    // 复核 P2-2 ②：伪造回看窗口——重新锚定 BT-04 旧 execute_beat 决策强制 reveal
-    // BE-08 —— F3 决策-游标因果强制（wrong-beat）拒绝。
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7037-5" });
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-06");
+    // 复核 P2-2 ②：伪造回看窗口——重新锚定 BT-05 旧 execute_beat 决策强制 reveal
+    // BE-29 —— F3 决策-游标因果强制（wrong-beat）拒绝。
     const anchor = eventsOf("TS-7037").find(
       (event) => event.event_type === "policy_decision_made"
         && (event.payload as { decision_kind: string }).decision_kind === "execute_beat"
-        && (event.payload as { beat_id: string }).beat_id === "BT-04",
+        && (event.payload as { beat_id: string }).beat_id === "BT-05",
     )!;
     const anchorPayload = anchor.payload as { decision_id: string; protocol_id: string; beat_id: string };
     const forced = orch.executePresentationPlan({
       schema: "ai_teaching_presentation_plan/v1",
       session_id: "TS-7037", plan_id: "PPT-TS-7037-9001", decision_id: anchorPayload.decision_id,
-      protocol_id: anchorPayload.protocol_id, beat_id: "BT-04",
+      protocol_id: anchorPayload.protocol_id, beat_id: "BT-05",
       voice_actions: [],
-      workspace_actions: [{ action_id: "WSA-TS-7037-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-08"], reveal_scope: "final_result" as const }],
+      workspace_actions: [{ action_id: "WSA-TS-7037-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-29"], reveal_scope: "final_result" as const }],
     } as Parameters<typeof orch.executePresentationPlan>[0], anchor.sequence);
     assert.equal(forced.failure?.failure_class, "action_validation_rejected");
     assert.ok(

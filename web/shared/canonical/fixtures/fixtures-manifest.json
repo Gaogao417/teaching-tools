@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 122,
+  "fixture_count": 127,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -484,6 +484,22 @@
       "sha256": "sha256:a184d09d83197a60e289d579b37f3b6e01a51574baac6625d1e1ec94dc25fa5a"
     },
     {
+      "file": "teaching-protocol.v2.negative.missing-inference-refs.json",
+      "object_schema": "ai_teaching_teaching_protocol/v2",
+      "schema_ref": "../schemas/planning/v5/teaching-protocol.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:d7f2cb3eecbacb2a9036c1e13752161914f8899f734af0ae483349dd1cd1eabd"
+    },
+    {
+      "file": "teaching-protocol.v2.positive.json",
+      "object_schema": "ai_teaching_teaching_protocol/v2",
+      "schema_ref": "../schemas/planning/v5/teaching-protocol.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:49b4ef413eac45dc5a849d8c40fad24291a032273cfb547dd9d08a8b69f72094"
+    },
+    {
       "file": "topic-question-binding.negative.duplicate-default.json",
       "object_schema": "ai_teaching_topic_question_binding/v1",
       "schema_ref": "../schemas/authoring/v1/topic-question-binding.schema.json",
@@ -578,6 +594,30 @@
       "expect_schema": "valid",
       "expect_publication": "valid",
       "sha256": "sha256:6ab43373483c81bea2c5b1285a21fc3c4e87d7f8dfaab79a2f7b00ce44c58eac"
+    },
+    {
+      "file": "tutor-plan-bundle.v5.negative.dangling-region.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v5",
+      "schema_ref": "../schemas/planning/v5/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:799dbbebf6717cfea53601479a0c683d7fe50532f4e39739447a20a28f544a1f"
+    },
+    {
+      "file": "tutor-plan-bundle.v5.negative.group-outside-source.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v5",
+      "schema_ref": "../schemas/planning/v5/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:724f86c8259f378ef67eabf44c7fc4e03a4325271d722667231e4e8ee737490e"
+    },
+    {
+      "file": "tutor-plan-bundle.v5.positive.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v5",
+      "schema_ref": "../schemas/planning/v5/tutor-plan-bundle.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:8d2995f5e94fe5fb19014b566431026812d9aec16504e3fd66cb8ec03b76daad"
     },
     {
       "file": "tutor-policy-decision.negative.inquiry-without-return.json",

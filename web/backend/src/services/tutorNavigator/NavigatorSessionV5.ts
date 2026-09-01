@@ -2,8 +2,8 @@
  * NavigatorSessionV5（F5 — Session 与 Protocol Navigator 内核；R3 加固，2026-08-31）。
  *
  * headless 教学闭环编排（09-target-architecture §10.2 的 F5 切片）：
- * - session start 的 Plan pin 来自 F4 importer 真实产物（`importApprovedPlanV4`
- *   公开入口，anchored 语义内建；固定题 TP-SMV-009@v1 真实 Approved 链），
+ * - session start 的 Plan pin 来自 F4 importer 真实产物（`importApprovedPlanV5`
+ *   公开入口，anchored 语义内建；固定题 TP-SMV-009@v3 真实 Approved 链），
  *   不用 fixture 发明教学结构；
  * - 全部成功持久 transition 经 F2 内核（TutorSessionKernelV5.start / append——
  *   只读消费，不修改内核；store 事务内先纯折叠后落库对 navigator 批同样
@@ -47,7 +47,7 @@
  * 污染在线 state（reducer 只核 beat 归属、不核 gate_id↔Plan 绑定，resume 才
  * 拒绝——在线已被污染），R3 退出门禁 3 的写入向量由此补齐。
  */
-import { importApprovedPlanV4, type ImportedApprovedPlanV4 } from "../planBuild/v4/ImportApprovedPlanV4";
+import { importApprovedPlanV5, type ImportedApprovedPlanV5 } from "../planBuild/v5/ImportApprovedPlanV5";
 import { readTutorSessionEventsV5 } from "../tutorSession/TutorSessionEventStoreV5";
 import type { PendingV5Event, StoredV5Event, V5EventType } from "../tutorSession/TutorSessionEventV5";
 import { TutorSessionKernelV5 } from "../tutorSession/TutorSessionKernelV5";
@@ -225,12 +225,12 @@ export class NavigatorSessionV5 {
   private readonly adjudicator: ModelGateAdjudicatorV5;
   /** inquiry 打开时的当前 inquiry Beat id（mainline 游标冻结在 state）。 */
   private inquiryBeatId: string | undefined;
-  private imported: ImportedApprovedPlanV4;
+  private imported: ImportedApprovedPlanV5;
 
   private constructor(
     sessionId: string,
     plan: NavigatorPlanV5,
-    imported: ImportedApprovedPlanV4,
+    imported: ImportedApprovedPlanV5,
     kernel: TutorSessionKernelV5,
     adjudicator: ModelGateAdjudicatorV5,
   ) {
@@ -243,7 +243,7 @@ export class NavigatorSessionV5 {
 
   /** 启动 navigator 会话：真实 Approved 链导入 → F2 kernel.start（原子 pin）。 */
   static start(input: NavigatorSessionStartInput): NavigatorSessionV5 {
-    const imported = importApprovedPlanV4({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? GOLDEN_TP_ID);
+    const imported = importApprovedPlanV5({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? GOLDEN_TP_ID);
     if (!imported.ok) {
       throw new Error(`approved plan import failed (fail closed): ${imported.errors.join("; ")}`);
     }
@@ -284,7 +284,7 @@ export class NavigatorSessionV5 {
    * 证据 sequence）→ NavigatorResumeIntegrityError，拒绝恢复。零模型调用。
    */
   static resume(input: NavigatorResumeInput): NavigatorSessionV5 {
-    const imported = importApprovedPlanV4({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? GOLDEN_TP_ID);
+    const imported = importApprovedPlanV5({ canonicalRoot: input.canonicalRoot, anchored: true }, input.tpId ?? GOLDEN_TP_ID);
     if (!imported.ok) {
       throw new Error(`approved plan import failed (fail closed): ${imported.errors.join("; ")}`);
     }

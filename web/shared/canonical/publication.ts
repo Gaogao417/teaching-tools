@@ -21,6 +21,8 @@ export const PUBLISHABLE_SCHEMAS: ReadonlySet<string> = new Set([
   "ai_teaching_reviewed_solution_graph/v1",
   "ai_teaching_teaching_protocol/v1",
   "ai_teaching_tutor_plan_bundle/v4",
+  "ai_teaching_teaching_protocol/v2",
+  "ai_teaching_tutor_plan_bundle/v5",
 ]);
 
 const NOT_PUBLISHED_STATUSES: ReadonlySet<string> = new Set([

@@ -2490,6 +2490,235 @@ export const tutorPlanBundleV4Schema = z
     }
   });
 
+// planning/v5：ReviewedSolutionGraph 最高分辨率之上的保真教学压缩。
+const solutionRefsV5Schema = z
+  .object({
+    fact_ids: z.array(graphFactIdPattern).min(1),
+    inference_ids: z.array(graphInferenceIdPattern),
+  })
+  .strict();
+const solutionRegionIdPattern = z.string().regex(/^SR-[0-9]{1,3}$/);
+const resolutionProfileIdPattern = z.string().regex(/^RP-[0-9]{1,3}$/);
+const presentationGroupIdV5Pattern = z.string().regex(/^PG-[0-9]{1,3}$/);
+const chunkIdV5Pattern = z.string().regex(/^CH-[0-9]{1,3}$/);
+
+const teachingBeatV2Schema = z
+  .object({
+    beat_id: beatIdPattern,
+    part_id: partIdPattern.optional(),
+    purpose: nonEmptyString,
+    role: z.enum([
+      "orientation",
+      "construction",
+      "reasoning",
+      "practice",
+      "verification",
+      "summary",
+      "local_inquiry",
+    ]),
+    solution_refs: solutionRefsV5Schema,
+    abstraction_level: z.enum(["A0_object", "A1_relation", "A2_strategy", "A3_structure"]),
+    cognitive_process: z.enum(["retrieve", "match", "execute", "monitor"]),
+    accepted_alternatives: z.array(nonEmptyString).optional(),
+    common_deviations: z.array(nonEmptyString).optional(),
+    cognitive_activity: z.enum(["attend", "recall", "relate", "apply", "verify", "explain"]),
+    completion_evidence: z.object({
+      evidence_kind: z.enum(["student_answer", "workspace_command", "student_confirmation", "narration_completed", "explicit_gate_pass", "tutor_observed"]),
+      gate: z.object({ gate_id: gateIdPattern, requirement: nonEmptyString, graph_fact_id: graphFactIdPattern.optional(), capability: nonEmptyString.optional() }).strict().optional(),
+    }).strict(),
+    participation: z.enum(["listen", "answer", "operate", "confirm", "continue"]),
+    pacing: z.object({ wait_policy: z.enum(["student_driven", "bounded_wait"]), max_wait_seconds: z.number().int().min(5).max(3600).optional() }).strict(),
+    presentation_intent: z.object({ voice: z.array(z.enum(["narrate", "question", "feedback"])), workspace_surfaces: z.array(z.enum(["geometry", "solution_board"])) }).strict(),
+    resource_ids: z.array(resourceIdPattern).optional(),
+    support_boundary: z.object({
+      may_reveal_answer: z.literal(false),
+      may_reveal_intermediate: z.boolean(),
+      max_support: z.enum(["orient", "foreground", "name_strategy", "specify_operation", "provide_intermediate_conclusion"]),
+    }).strict(),
+    transitions: z.array(beatTransitionSchema).min(1),
+    inquiry_branch: z
+      .object({
+        inquiry_protocol_ref: protocolArtifactRef,
+        return_beat_id: beatIdPattern,
+        expand_region_id: solutionRegionIdPattern,
+        trigger: z
+          .enum(["ask_question", "request_scaffold", "request_rephrase", "unclear", "out_of_bound"])
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (["student_answer", "workspace_command", "student_confirmation", "explicit_gate_pass"].includes(value.completion_evidence.evidence_kind) && !value.completion_evidence.gate) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `evidence_kind=${value.completion_evidence.evidence_kind} requires gate` });
+    }
+    if (value.pacing.wait_policy === "bounded_wait" && value.pacing.max_wait_seconds === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "bounded_wait requires max_wait_seconds" });
+    }
+  });
+
+export const teachingProtocolV2Schema = z
+  .object({
+    schema: z.literal("ai_teaching_teaching_protocol/v2"),
+    protocol_id: teachingProtocolId,
+    version: versionTag,
+    status: statusEnum,
+    approval: approvalBlock.optional(),
+    question_ref: questionArtifactRef,
+    solution_graph_ref: solutionGraphArtifactRef,
+    protocol_kind: z.enum(["mainline", "inquiry", "scaffold", "verification"]),
+    entry_beat_id: beatIdPattern,
+    beats: z.array(teachingBeatV2Schema).min(1),
+    content_hash: sha256,
+    artifact_uri: z
+      .string()
+      .regex(/^artifact:\/\/teaching-protocol\/PR-[A-Z0-9]+-[0-9]{3,}@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const beatIds = new Set(value.beats.map((beat) => beat.beat_id));
+    if (beatIds.size !== value.beats.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "beat_id must be unique" });
+    }
+    if (!beatIds.has(value.entry_beat_id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `entry_beat_id ${value.entry_beat_id} not in beats` });
+    }
+    for (const beat of value.beats) {
+      for (const transition of beat.transitions) {
+        if (!beatIds.has(transition.to_beat)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: `beat ${beat.beat_id} transitions to unknown beat ${transition.to_beat}` });
+        }
+      }
+      if (beat.inquiry_branch && !beatIds.has(beat.inquiry_branch.return_beat_id)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `inquiry_branch return_beat_id ${beat.inquiry_branch.return_beat_id} not in beats` });
+      }
+    }
+    if (value.status === "Approved" && !value.approval) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Approved requires approval block" });
+    }
+  });
+
+const tutorPlanV5ResourceSchema = z
+  .object({
+    resource_id: resourceIdPattern,
+    kind: z.enum(["explanation", "diagnostic_probe", "repair", "action_template", "workspace", "voice_seed", "support"]),
+    beat_ref: beatIdPattern.optional(),
+    source: z.enum(["authored", "reused", "agent_generated"]),
+    content: nonEmptyString.optional(),
+    solution_refs: solutionRefsV5Schema.optional(),
+  })
+  .strict();
+
+export const tutorPlanBundleV5Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_plan_bundle/v5"),
+    artifact_id: planId,
+    version: versionTag,
+    status: statusEnum,
+    approval: approvalBlock.optional(),
+    question_ref: questionArtifactRef,
+    approach_set_ref: z.object({ artifact_id: z.string().regex(/^AS-[A-Z0-9]+-[0-9]{3,}$/), version: versionTag, content_hash: sha256 }).strict(),
+    solution_graph_ref: solutionGraphArtifactRef,
+    policy_profile_ref: z.object({ artifact_id: policyProfileId, version: versionTag, content_hash: sha256 }).strict(),
+    default_resolution_profile_id: resolutionProfileIdPattern,
+    resolution_profiles: z.array(z.object({
+      profile_id: resolutionProfileIdPattern,
+      learner_description: nonEmptyString,
+      default_view: z.enum(["chunk", "beat", "fine"]),
+      available_views: z.array(z.enum(["chunk", "beat", "fine"])).min(1),
+      chunk_ids: z.array(chunkIdV5Pattern).min(1),
+    }).strict()).min(1),
+    chunk_graph: z.object({
+      entry_chunk_id: chunkIdV5Pattern,
+      completion_chunk_ids: z.array(chunkIdV5Pattern).min(1),
+      edges: z.array(z.object({ from_chunk_id: chunkIdV5Pattern, to_chunk_id: chunkIdV5Pattern, on: z.enum(["complete", "alternate", "needs_support"]) }).strict()),
+    }).strict(),
+    solution_regions: z.array(z.object({
+      region_id: solutionRegionIdPattern,
+      label: nonEmptyString,
+      fine_refs: solutionRefsV5Schema,
+      local_protocol_refs: z.array(protocolArtifactRef).optional(),
+    }).strict()).min(1),
+    chunks: z.array(z.object({
+      chunk_id: chunkIdV5Pattern,
+      part_id: partIdPattern.optional(),
+      title: nonEmptyString,
+      instructional_intent: nonEmptyString,
+      entry_state: nonEmptyString,
+      exit_understanding: nonEmptyString,
+      source_subgraph_refs: solutionRefsV5Schema,
+      protocol_refs: z.array(protocolArtifactRef).min(1),
+      teacher_narration_refs: z.array(resourceIdPattern).min(1),
+      presentation_groups: z.array(z.object({ group_id: presentationGroupIdV5Pattern, label: nonEmptyString, fine_refs: solutionRefsV5Schema }).strict()).min(1),
+      expandable_region_ids: z.array(solutionRegionIdPattern),
+      resource_ids: z.array(resourceIdPattern).optional(),
+    }).strict()).min(1),
+    resources: z.array(tutorPlanV5ResourceSchema).min(1),
+    build_provenance: z.object({
+      provider: nonEmptyString,
+      model_id: nonEmptyString,
+      workflow_version: nonEmptyString,
+      run_id: nonEmptyString,
+      built_at: isoDateTime,
+      runtime_registry_version: nonEmptyString,
+      compiler_version: nonEmptyString,
+      materializer_version: nonEmptyString,
+    }).strict(),
+    content_hash: sha256,
+    artifact_uri: z.string().regex(/^artifact:\/\/tutor-plan\/TP-[A-Z0-9]+-[0-9]{3,}@v[0-9]+$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    const chunkIds = value.chunks.map((chunk) => chunk.chunk_id);
+    const chunkIdSet = new Set(chunkIds);
+    const regionIds = value.solution_regions.map((region) => region.region_id);
+    const regionIdSet = new Set(regionIds);
+    const profileIds = value.resolution_profiles.map((profile) => profile.profile_id);
+    const resourceIds = new Set(value.resources.map((resource) => resource.resource_id));
+    if (chunkIdSet.size !== chunkIds.length) add("chunk_id must be unique");
+    if (regionIdSet.size !== regionIds.length) add("region_id must be unique");
+    if (new Set(profileIds).size !== profileIds.length) add("profile_id must be unique");
+    if (!profileIds.includes(value.default_resolution_profile_id)) add("default_resolution_profile_id not in resolution_profiles");
+    if (!chunkIdSet.has(value.chunk_graph.entry_chunk_id)) add("entry_chunk_id not in chunks");
+    for (const id of value.chunk_graph.completion_chunk_ids) if (!chunkIdSet.has(id)) add(`completion chunk ${id} not in chunks`);
+    const adjacency = new Map<string, string[]>(chunkIds.map((id) => [id, []]));
+    for (const edge of value.chunk_graph.edges) {
+      if (!chunkIdSet.has(edge.from_chunk_id) || !chunkIdSet.has(edge.to_chunk_id)) add("chunk graph edge references unknown chunk");
+      else adjacency.get(edge.from_chunk_id)!.push(edge.to_chunk_id);
+    }
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (id: string): boolean => {
+      if (visiting.has(id)) return true;
+      if (visited.has(id)) return false;
+      visiting.add(id);
+      if ((adjacency.get(id) ?? []).some(visit)) return true;
+      visiting.delete(id); visited.add(id); return false;
+    };
+    if (chunkIds.some(visit)) add("chunk graph must be acyclic");
+    const reachable = new Set<string>();
+    const walk = (id: string) => { if (reachable.has(id)) return; reachable.add(id); for (const next of adjacency.get(id) ?? []) walk(next); };
+    if (chunkIdSet.has(value.chunk_graph.entry_chunk_id)) walk(value.chunk_graph.entry_chunk_id);
+    for (const id of chunkIds) if (!reachable.has(id)) add(`chunk ${id} is unreachable from entry`);
+    for (const profile of value.resolution_profiles) {
+      if (!profile.available_views.includes(profile.default_view)) add(`profile ${profile.profile_id} default_view not available`);
+      for (const id of profile.chunk_ids) if (!chunkIdSet.has(id)) add(`profile ${profile.profile_id} references unknown chunk ${id}`);
+    }
+    for (const chunk of value.chunks) {
+      const sourceFacts = new Set(chunk.source_subgraph_refs.fact_ids);
+      const sourceInferences = new Set(chunk.source_subgraph_refs.inference_ids);
+      for (const group of chunk.presentation_groups) {
+        if (group.fine_refs.fact_ids.some((id) => !sourceFacts.has(id)) || group.fine_refs.inference_ids.some((id) => !sourceInferences.has(id))) add(`presentation group ${group.group_id} escapes chunk ${chunk.chunk_id} source subgraph`);
+      }
+      for (const id of chunk.expandable_region_ids) if (!regionIdSet.has(id)) add(`chunk ${chunk.chunk_id} references unknown region ${id}`);
+      for (const id of chunk.teacher_narration_refs) if (!resourceIds.has(id)) add(`chunk ${chunk.chunk_id} references unknown narration resource ${id}`);
+      for (const id of chunk.resource_ids ?? []) if (!resourceIds.has(id)) add(`chunk ${chunk.chunk_id} references unknown resource ${id}`);
+    }
+    if (value.status === "Approved" && !value.approval) add("Approved requires approval block");
+  });
+
 // runtime/v5/student-intent
 const studentWorkspaceCommandBody = z
   .object({

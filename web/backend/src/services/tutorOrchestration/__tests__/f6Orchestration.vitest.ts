@@ -11,11 +11,12 @@
 import { describe, expect, it } from "vitest";
 
 import { validatePayload } from "../../../../../shared/canonical";
-import * as importerModule from "../../planBuild/v4/ImportApprovedPlanV4";
+import * as importerModule from "../../planBuild/v5/ImportApprovedPlanV5";
 import type { PlanResourceV4, ProtocolBeatPayload } from "../../planBuild/canonicalInputs";
 import type { StructuredModelPort, StructuredCompletionRequest } from "../../tutorIntelligence/structuredModelPort";
 import { StructuredModelError } from "../../tutorIntelligence/structuredModelPort";
 import { ModelGateAdjudicatorV5 } from "../../tutorNavigator/ModelGateAdjudicatorV5";
+import { buildNavigatorPlan } from "../../tutorNavigator/NavigatorPlanV5";
 import type { NavigatorDecision } from "../../tutorNavigator/TutorNavigatorV5";
 import { buildGoldenWorkspaceCatalogV5, GOLDEN_CATALOG_TASK_ID } from "../GoldenWorkspaceCatalog";
 import { StructuredModelGateProvider } from "../StructuredModelGateProvider";
@@ -55,8 +56,8 @@ class FakeStructuredModelPort implements StructuredModelPort {
 
 const ROOT = realCanonicalRoot();
 
-function importedGoldenPlan(): importerModule.ImportedApprovedPlanV4 {
-  const result = importerModule.importApprovedPlanV4({ canonicalRoot: ROOT, anchored: true }, GOLDEN.tpId);
+function importedGoldenPlan(): importerModule.ImportedApprovedPlanV5 {
+  const result = importerModule.importApprovedPlanV5({ canonicalRoot: ROOT, anchored: true }, GOLDEN.tpId);
   if (!result.ok) throw new Error(result.errors.join("; "));
   return result.imported;
 }
@@ -76,11 +77,11 @@ describe("F6 StructuredModelGateProvider（生产模型接线：复用 Structure
     const context = {
       question: { artifact_id: "QT-SMV-001", question_type: "fill_blank", stem: "stem" },
       current_beat: { beat_id: "BT-03", protocol_id: "PR-SMV-001", purpose: "p", graph_fact_refs: ["FN-05"] },
-      eligible_gates: [{ gate_id: "GT-03", criterion: "list invariants" }],
-      relevant_solution_context: [{ fact_id: "FN-05", statement: "AE=AC=4", in_current_beat: true }],
+      eligible_gates: [{ gate_id: "GT-03", criterion: "prove the first similarity and derive lengths" }],
+      relevant_solution_context: [{ fact_id: "FN-05", statement: "△CAD∽△CBA，所以 AD=CD=8/3、BD=10/3", in_current_beat: true }],
       alternate_routes: [{ variant_id: "SV-01", goal_fact_id: "FN-08", goal_statement: "BE=1" }],
       recent_dialogue: [],
-      student_input: { intent_kind: "submit_answer", text: "翻折不变量：AE=AC=4、DE=DC=t" },
+      student_input: { intent_kind: "submit_answer", text: "由 △CAD∽△CBA 得 AD=CD=8/3、BD=10/3" },
     };
     const result = await adjudicator.adjudicate(context);
     expect(port.requests).toHaveLength(1);
@@ -126,16 +127,16 @@ describe("F6 StructuredModelGateProvider（生产模型接线：复用 Structure
 });
 
 describe("F6 GoldenWorkspaceCatalog（F3 BE- 分配接口绑定 F4 materializer 真实产物）", () => {
-  it("装配确定性 + final 条目五级绑定（FN-08 → GT-04@BT-04@PR-SMV-001）", () => {
+  it("装配确定性 + final 条目五级绑定（FN-29 → GT-05@BT-05@PR-SMV-001）", () => {
     const first = buildGoldenWorkspaceCatalogV5(importedGoldenPlan());
     const second = buildGoldenWorkspaceCatalogV5(importedGoldenPlan());
     expect(first.catalog).toEqual(second.catalog);
     expect(first.catalog.taskId).toBe(GOLDEN_CATALOG_TASK_ID);
     expect(first.catalog.initialInteractionMode).toBe("construction");
     const finalEntries = first.catalog.boardEntries.filter((entry) => entry.revealRequirement === "final");
-    expect(finalEntries.map((entry) => entry.entryId)).toEqual(["BE-08"]);
-    expect(finalEntries[0].revealGate).toEqual({ gateId: "GT-04", beatId: "BT-04", protocolId: "PR-SMV-001" });
-    expect(first.factEntryIds.get("FN-08")).toBe("BE-08");
+    expect(finalEntries.map((entry) => entry.entryId)).toEqual(["BE-29"]);
+    expect(finalEntries[0].revealGate).toEqual({ gateId: "GT-05", beatId: "BT-05", protocolId: "PR-SMV-001" });
+    expect(first.factEntryIds.get("FN-29")).toBe("BE-29");
     // intermediate 条目禁带 revealGate；final 必带（F3 纪律）。
     for (const entry of first.catalog.boardEntries) {
       if (entry.revealRequirement === "intermediate") expect(entry.revealGate).toBeUndefined();
@@ -170,22 +171,43 @@ describe("F6 TutorPresenterV5（deterministic realize；Assessment 隔离；fina
     const input = {
       sessionId: "TS-8001",
       decision,
-      beat: { ...(imported.protocols.get("PR-SMV-001")!.beats.find((beat) => beat.beat_id === "BT-02")!), protocol_id: "PR-SMV-001" } as never,
+      // Navigator beat view（v2 protocol 的 solution_refs 已归一为 graph_fact_refs）。
+      beat: buildNavigatorPlan(imported).mainline.beats.get("BT-02")!,
       presentationIntent: intent,
       resources,
       catalog: golden.catalog,
       factEntryIds: golden.factEntryIds,
       gateLedger: ledger,
+      hiddenEntryIds: new Set(golden.catalog.boardEntries.map((entry) => entry.entryId)),
       actionSerial: 7,
     };
     const first = realizePresentationPlanV5(input);
     const second = realizePresentationPlanV5(input);
     expect(first).toEqual(second);
     expect(first.plan_id).toBe("PPT-TS-8001-0007");
-    expect(first.voice_actions[0].source).toBe("approved-resource");
-    expect(first.voice_actions[0].resource_ref).toBe("RES2");
-    expect(first.workspace_actions.map((action) => action.target_ids)).toEqual([["BE-04"]]);
+    // v4：BT-02 只绑 diagnostic_probe（RES2）——主线 narrate 不消费提问资源，
+    // voice 回退 purpose（approved-resource 优先路径由下方 BT-01 断言覆盖）。
+    expect(first.voice_actions[0].source).toBe("deterministic-scaffold");
+    expect(first.voice_actions[0].resource_ref).toBeUndefined();
+    expect(first.workspace_actions.map((action) => action.target_ids)).toEqual([["BE-06", "BE-07", "BE-08"]]);
     expect(first.workspace_actions[0].reveal_scope).toBe("step_narration");
+    // BT-01（voice_seed RES1、仅 geometry 面）：approved 资源优先为 voice 文本。
+    const opening = realizePresentationPlanV5({
+      ...input,
+      decision: { ...decision, decision_id: "TD-TS-8001-0002", beat_id: "BT-01" },
+      beat: buildNavigatorPlan(imported).mainline.beats.get("BT-01")!,
+      presentationIntent: imported.protocols.get("PR-SMV-001")!.beats.find((candidate) => candidate.beat_id === "BT-01")!.presentation_intent,
+      gateLedger: {
+        ...ledger,
+        decisions: new Map([["TD-TS-8001-0002", { decisionId: "TD-TS-8001-0002", protocolId: "PR-SMV-001", beatId: "BT-01", sequence: 2 }]]),
+        cursor: { protocolId: "PR-SMV-001", beatId: "BT-01" },
+      },
+      actionSerial: 8,
+    });
+    expect(opening.voice_actions[0].source).toBe("approved-resource");
+    expect(opening.voice_actions[0].resource_ref).toBe("RES1");
+    expect(opening.voice_actions[0].text).toContain("翻折");
+    expect(opening.workspace_actions).toEqual([]);
   });
 
   it("未提交决策 → 拒绝（presenter never invents causation）", () => {
@@ -202,6 +224,7 @@ describe("F6 TutorPresenterV5（deterministic realize；Assessment 隔离；fina
         catalog: golden.catalog,
         factEntryIds: golden.factEntryIds,
         gateLedger: { evaluations: new Map(), decisions: new Map(), cursor: { protocolId: "PR-SMV-001", beatId: "BT-01" }, pinnedProtocols: ["PR-SMV-001"], completed: false },
+        hiddenEntryIds: new Set(golden.catalog.boardEntries.map((entry) => entry.entryId)),
         actionSerial: 1,
       }),
     ).toThrow(TutorPresenterError);
@@ -220,6 +243,7 @@ describe("F6 TutorPresenterV5（deterministic realize；Assessment 隔离；fina
       catalog: golden.catalog,
       factEntryIds: golden.factEntryIds,
       gateLedger: { evaluations: new Map(), decisions: new Map([["TD-TS-8003-0001", { decisionId: "TD-TS-8003-0001", protocolId: "PR-SMV-001", beatId: "BT-02", sequence: 2 }]]), cursor: { protocolId: "PR-SMV-001", beatId: "BT-02" }, pinnedProtocols: ["PR-SMV-001"], completed: false },
+      hiddenEntryIds: new Set(golden.catalog.boardEntries.map((entry) => entry.entryId)),
       assessmentMode: true,
       actionSerial: 3,
     });
@@ -251,8 +275,9 @@ describe("F6 失败分类与参与推导（统一 Projection 语义单元）", (
 describe("F6 vitest 进程下的 orchestrator 旅程闭环（kernel 真实提交路径）", () => {
   it("start → confirm → workspace command → 模型裁决 gate：统一投影逐步演进", async () => {
     const { FixedResponseGateProvider } = await import("../../tutorNavigator/ModelGateAdjudicatorV5");
+    // v4 主线：BT-02..BT-05 均为 student_answer gate（模型裁决）；本旅程走到 BT-03。
     const provider = new FixedResponseGateProvider([
-      JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-05"] }),
+      JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-02", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-08"], brief_reason: "ok" }),
     ], "fixed-vitest-f6");
     const orch = TutorSessionOrchestratorV5.start({
       sessionId: "TS-8101", studentId: "student-f6", canonicalRoot: ROOT,
@@ -263,15 +288,16 @@ describe("F6 vitest 进程下的 orchestrator 旅程闭环（kernel 真实提交
     expect(initial.status.last_failure).toBeUndefined();
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-8101-1" });
     expect(orch.state.teaching_cursor.beat_id).toBe("BT-02");
+    // v4：BT-02 gate 是 student_answer——workspace receipt 只记账，不产 gate/decision、不推进 Beat。
     const command = orch.submitWorkspaceCommand(markKnownSegmentsCommand({
       sessionId: "TS-8101", commandId: "SC-TS-8101-0001", clientCommandId: "cc-8101-1", expectedWorkspaceRevision: 1,
     }));
-    expect(command.turn.decision?.decision_kind).toBe("transition_beat");
-    expect(orch.state.teaching_cursor.beat_id).toBe("BT-03");
+    expect(command.turn.decision).toBeUndefined();
+    expect(orch.state.teaching_cursor.beat_id).toBe("BT-02");
     const afterCommand = orch.projectUnifiedViews();
     expect(afterCommand.studentWorkspaceView.revision).toBe(2);
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-8101-3" });
-    expect(orch.state.teaching_cursor.beat_id).toBe("BT-04");
+    expect(orch.state.teaching_cursor.beat_id).toBe("BT-03");
     expect(provider.callCount).toBe(1);
     // live == rebuilt（统一投影入口内部即 fresh rebuild）。
     const live = orch.projectUnifiedViews();

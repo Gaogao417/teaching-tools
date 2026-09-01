@@ -101,7 +101,7 @@ async function main(): Promise<void> {
     // +tutor_policy_profile/v1；F1（2026-08-27）起 39：+core/v1 artifact_ref、
     // +planning/v4 reviewed_solution_graph/teaching_protocol/tutor_plan_bundle/v4、
     // +runtime/v5 九合同、+state/v1 两状态、+view/v1 三视图）。
-    assert.equal(bySchema.size, 39);
+    assert.equal(bySchema.size, 41);
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -237,6 +237,8 @@ async function main(): Promise<void> {
       "reviewedSolutionGraphV1Schema",
       "teachingProtocolV1Schema",
       "tutorPlanBundleV4Schema",
+      "teachingProtocolV2Schema",
+      "tutorPlanBundleV5Schema",
       "studentIntentV1Schema",
       "tutorPolicyDecisionV1Schema",
       "voiceActionV1Schema",

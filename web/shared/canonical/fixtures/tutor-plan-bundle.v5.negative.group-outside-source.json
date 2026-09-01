@@ -1,0 +1,17 @@
+{
+  "schema": "ai_teaching_tutor_plan_bundle/v5",
+  "artifact_id": "TP-SMV-009", "version": "v3", "status": "Draft",
+  "question_ref": {"artifact_id": "QT-SMV-001", "version": "v2", "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "approach_set_ref": {"artifact_id": "AS-SMV-001", "version": "v2", "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "solution_graph_ref": {"artifact_id": "RG-SMV-001", "version": "v3", "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "policy_profile_ref": {"artifact_id": "PP-SMV-001", "version": "v1", "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+  "default_resolution_profile_id": "RP-01",
+  "resolution_profiles": [{"profile_id": "RP-01", "learner_description": "测试", "default_view": "chunk", "available_views": ["chunk"], "chunk_ids": ["CH-01"]}],
+  "chunk_graph": {"entry_chunk_id": "CH-01", "completion_chunk_ids": ["CH-01"], "edges": []},
+  "solution_regions": [{"region_id": "SR-01", "label": "区域", "fine_refs": {"fact_ids": ["FN-01"], "inference_ids": []}}],
+  "chunks": [{"chunk_id": "CH-01", "title": "非法组", "instructional_intent": "测试", "entry_state": "开始", "exit_understanding": "结束", "source_subgraph_refs": {"fact_ids": ["FN-01"], "inference_ids": []}, "protocol_refs": [{"artifact_id": "PR-SMV-001", "version": "v3", "content_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}], "teacher_narration_refs": ["RES1"], "presentation_groups": [{"group_id": "PG-01", "label": "越界组", "fine_refs": {"fact_ids": ["FN-99"], "inference_ids": []}}], "expandable_region_ids": ["SR-01"]}],
+  "resources": [{"resource_id": "RES1", "kind": "voice_seed", "source": "authored", "content": "测试"}],
+  "build_provenance": {"provider": "deterministic-rules", "model_id": "none", "workflow_version": "wf", "run_id": "run", "built_at": "2026-09-01T08:00:00Z", "runtime_registry_version": "registry", "compiler_version": "compiler", "materializer_version": "materializer"},
+  "content_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "artifact_uri": "artifact://tutor-plan/TP-SMV-009@v3"
+}

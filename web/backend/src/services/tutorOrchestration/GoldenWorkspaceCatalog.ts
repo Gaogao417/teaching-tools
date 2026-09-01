@@ -23,7 +23,9 @@
  * 全部经 `buildWorkspacePresentationCatalog`（F3 公开构造器，fail closed）组装，
  * 本模块不绕过其校验。
  */
+import { beatFactIds, type TeachingProtocolAnyPayload } from "../planBuild/canonicalInputs";
 import type { ImportedApprovedPlanV4 } from "../planBuild/v4/ImportApprovedPlanV4";
+import type { ImportedApprovedPlanV5 } from "../planBuild/v5/ImportApprovedPlanV5";
 import type { TopicGeometryModel } from "../../../../shared/topicPractice";
 import {
   buildWorkspacePresentationCatalog,
@@ -33,13 +35,13 @@ import {
 export const GOLDEN_CATALOG_TASK_ID = "goldenMinhangFold2020";
 
 /**
- * golden 题图（等腰 △ABC：AB=AC=4、BC=6；D 在 BC 上且 ∠DAC=∠ACD ⇒ AD=DC）。
+ * golden 题图（等腰 △ABC：AB=AC=4、BC=6；D 在 BC 上且 ∠DAC=∠ACD）。
  * 坐标按 AB=AC=4、BC=6、A=(3,√7) 解析布点；E 为翻折产出（不在 authored 基座，
  * 由解题构图产生）。segment-* id 与 F3 测试/View kind 前缀纪律对齐。
  */
 function goldenBaseGeometry(): TopicGeometryModel {
   const h = Math.sqrt(7); // AB=AC=4, BC=6 → 高 = √(16−9)
-  const d = 10 / 3; // AD=DC ⇒ BD=8/3、DC=10/3
+  const d = 10 / 3; // △CAD∽△CBA ⇒ BD=10/3、DC=AD=8/3
   return {
     viewBox: { width: 400, height: 300 },
     points: [
@@ -92,7 +94,7 @@ export class GoldenCatalogError extends Error {
  * catalog → 同 catalog pin）。final 条目必须找到唯一 gate 绑定，否则 fail
  * closed（不得产出可被任意 gate reveal 的 catalog——R2 五级绑定纪律）。
  */
-export function buildGoldenWorkspaceCatalogV5(imported: ImportedApprovedPlanV4): GoldenWorkspaceCatalog {
+export function buildGoldenWorkspaceCatalogV5(imported: ImportedApprovedPlanV4 | ImportedApprovedPlanV5): GoldenWorkspaceCatalog {
   // mainline 协议（importer/buildNavigatorPlan 保证恰一个；此处独立复核）。
   const mainlines = [...imported.protocols.values()].filter(
     (protocol) => protocol.protocol_kind === "mainline",
@@ -100,7 +102,7 @@ export function buildGoldenWorkspaceCatalogV5(imported: ImportedApprovedPlanV4):
   if (mainlines.length !== 1) {
     throw new GoldenCatalogError([`expected exactly one mainline protocol, got ${mainlines.length}`]);
   }
-  const mainline = mainlines[0];
+  const mainline: TeachingProtocolAnyPayload = mainlines[0];
 
   // gate 绑定索引：graph_fact_id → {gate, beat}（主线 completion gates）。
   const gateByFact = new Map<
@@ -127,7 +129,7 @@ export function buildGoldenWorkspaceCatalogV5(imported: ImportedApprovedPlanV4):
   // fact → 首个引用主线 Beat（presentationGroup 分组依据）。
   const beatIndexByFact = new Map<string, number>();
   mainline.beats.forEach((beat, index) => {
-    for (const factId of beat.graph_fact_refs) {
+    for (const factId of beatFactIds(beat)) {
       if (!beatIndexByFact.has(factId)) beatIndexByFact.set(factId, index);
     }
   });

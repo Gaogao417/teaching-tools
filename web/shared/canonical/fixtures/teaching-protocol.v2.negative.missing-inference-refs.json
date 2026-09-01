@@ -1,0 +1,13 @@
+{
+  "schema": "ai_teaching_teaching_protocol/v2",
+  "protocol_id": "PR-SMV-001",
+  "version": "v3",
+  "status": "Draft",
+  "question_ref": {"artifact_id": "QT-SMV-001", "version": "v2", "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "solution_graph_ref": {"artifact_id": "RG-SMV-001", "version": "v3", "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "protocol_kind": "mainline",
+  "entry_beat_id": "BT-01",
+  "beats": [{"beat_id": "BT-01", "role": "reasoning", "purpose": "非法 Beat", "solution_refs": {"fact_ids": ["FN-01"]}, "abstraction_level": "A1_relation", "cognitive_process": "match", "cognitive_activity": "relate", "completion_evidence": {"evidence_kind": "narration_completed"}, "participation": "listen", "pacing": {"wait_policy": "student_driven"}, "presentation_intent": {"voice": ["narrate"], "workspace_surfaces": ["geometry"]}, "support_boundary": {"may_reveal_answer": false, "may_reveal_intermediate": false, "max_support": "orient"}, "transitions": [{"to_beat": "BT-01", "on": "evidence_collected"}]}],
+  "content_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "artifact_uri": "artifact://teaching-protocol/PR-SMV-001@v3"
+}

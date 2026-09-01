@@ -246,7 +246,10 @@ export function interpretStudentInput(
   input: InterpretInput,
 ): NavigatorInterpretation {
   const beat = input.beat;
-  const grounding = [...beat.graph_fact_refs];
+  // runtime/v5 event 合同把 grounding_refs 限为 8。Beat 在 planning/v5 可以
+  // 聚合更大的细图区域，因此结构化意图只能携带一个确定性的摘要窗口；完整
+  // Beat 范围仍由 pinned Plan 的 graph_fact_refs 保留，不能把它整包复制进事件。
+  const grounding = beat.graph_fact_refs.slice(0, 8);
   if (isNaturalLanguageInput(input.intent_kind, input.text)) {
     throw new Error(
       `natural-language input (${input.intent_kind} with text) must be adjudicated by ModelGateAdjudicatorV5 (R3); interpretStudentInput only handles structured/no-text input`,

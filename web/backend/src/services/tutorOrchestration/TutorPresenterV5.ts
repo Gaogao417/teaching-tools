@@ -53,6 +53,8 @@ export interface PresenterInput {
   readonly factEntryIds: ReadonlyMap<string, string>;
   /** committed gate ledger（只读预检：final reveal 授权、决策因果可见性）。 */
   readonly gateLedger: WorkspaceGateLedger;
+  /** 当前仍可 reveal 的条目；Presenter 用它去掉跨 Beat 重复上下文，执行层仍 fail closed。 */
+  readonly hiddenEntryIds: ReadonlySet<string>;
   /** Assessment 显式模式（独立 session 入口；true=禁用教学工具）。 */
   readonly assessmentMode?: boolean;
   /** 动作 id 序号（orchestrator 提供：同 Beat 内单调递增）。 */
@@ -87,7 +89,7 @@ function finalRevealCurrentlyAuthorized(
  * 纯函数（不触 db、不追加事件、不修改游标）。
  */
 export function realizePresentationPlanV5(input: PresenterInput): PresentationPlanV5 {
-  const { sessionId, decision, beat, catalog, factEntryIds, gateLedger, actionSerial } = input;
+  const { sessionId, decision, beat, catalog, factEntryIds, gateLedger, hiddenEntryIds, actionSerial } = input;
   // 决策因果可见性：decision 必须是已提交事实（Presenter 只呈现 Navigator 已裁决的 Beat）。
   const committedDecision = gateLedger.decisions.get(decision.decision_id);
   if (!committedDecision) {
@@ -162,6 +164,9 @@ export function realizePresentationPlanV5(input: PresenterInput): PresentationPl
       if (!entryId) continue;
       const entry = boardEntryById(catalog, entryId);
       if (!entry) continue;
+      // solution_refs 是 Beat 的完整推理上下文，会合法地重复前一 Beat 已显示的
+      // premises。Presenter 只计划状态增量；重复 reveal 仍由执行层严格拒绝。
+      if (!hiddenEntryIds.has(entryId)) continue;
       if (entry.revealRequirement === "final") {
         // final：只有五级绑定当前可授权才进入计划（不产必拒动作——执行侧
         // F3 五重校验仍会再拒一次；Presenter 预检是「不安排注定非法的动作」）。
