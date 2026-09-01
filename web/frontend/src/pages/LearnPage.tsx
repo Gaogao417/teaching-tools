@@ -17,16 +17,12 @@ import { ActionRuntimeFrame } from "../presentation/runtime/ActionRuntimeFrame";
 import { actionMachineRegistry } from "../action-runtime/registry";
 import { AcceptanceDiagnostics, type AcceptanceRouteKind } from "../presentation/acceptance/AcceptanceDiagnostics";
 import { TutorLearnExperience } from "./learn/TutorLearnExperience";
-import { VNextTutorExperience } from "./learn/vnext/VNextTutorExperience";
-import { vnextApi } from "../api/vnextTutorClient";
 import type { TutorExperienceResponse } from "../../../shared/tutorExperience";
 
 const EMPTY_DRAFT: ClientDraftState = { selections: {}, inputs: {} };
 const ACTION_RUNTIME_V2_ENABLED = import.meta.env.VITE_ACTION_RUNTIME_V2 !== "false";
 /** Phase 5 UI 集成：/learn/:taskId 先问 /experience；tutor 分流到 Tutor 工作台。 */
 type ExperienceMode = "pending" | "tutor" | "legacy";
-/** F7：vNext 可用性优先于 /experience——golden task 走真实 Runtime 链，不建旧协调器会话。 */
-type VNextMode = "pending" | "yes" | "no";
 
 function runtimeAtStep(projection: LearningProjectionSpec, stepIndex: number): ExerciseRuntimeSpec {
   const active = projection.steps[stepIndex];
@@ -78,7 +74,6 @@ export function LearnPage() {
   const acceptanceMode = searchParams.get("acceptance") === "1";
   const { focusedTask, setFocusedTaskId, studentName } = useOutletContext<WorkspaceOutletContext>();
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("pending");
-  const [vnextMode, setVNextMode] = useState<VNextMode>("pending");
   const [experienceError, setExperienceError] = useState<string | undefined>();
   const [experienceNonce, setExperienceNonce] = useState(0);
   /** VS0 REQ-06：tutor 尝试后回退 legacy（restore 失败重启返回 legacy）才置
@@ -108,7 +103,6 @@ export function LearnPage() {
     setActiveStepIndex(0);
     setDraft(EMPTY_DRAFT);
     setTopicPhase("answering");
-    setVNextMode("pending");
     setExperienceMode("pending");
     setExperienceError(undefined);
     setLegacyFallback(false);
@@ -117,22 +111,8 @@ export function LearnPage() {
     setActionPlan(null);
   }, [setFocusedTaskId, taskId]);
 
-  // F7：先问 vNext 可用性（supported+approved 的 golden task）。可用则直接进
-  // vNext 体验（不调用有副作用的 /experience——不给旧协调器建会话）；不可用
-  // （含 vNext 未挂载）回落既有 Phase 5 流程。失败不阻塞 legacy（availability
-  // 404 = 后端未挂 vNext）。
-  const vnextAskedRef = useRef("");
   useEffect(() => {
-    if (!taskId) return;
-    if (vnextAskedRef.current === taskId) return;
-    vnextAskedRef.current = taskId;
-    vnextApi.availability(taskId)
-      .then((result) => setVNextMode(result.enabled ? "yes" : "no"))
-      .catch(() => setVNextMode("no"));
-  }, [taskId]);
-
-  useEffect(() => {
-    if (!taskId || !studentName || restoreSessionId || vnextMode !== "no") return;
+    if (!taskId || !studentName || restoreSessionId) return;
     const askKey = `${studentName}:${taskId}:${experienceNonce}`;
     if (experienceAskedRef.current === askKey) return;
     experienceAskedRef.current = askKey;
@@ -196,7 +176,7 @@ export function LearnPage() {
 
   /** VS0 REQ-06：route kind 可断言（pending/tutor-vnext/legacy），供
    *  ?acceptance=1 诊断与 e2e 断言新链/legacy/失败三分。 */
-  const routeKind: AcceptanceRouteKind = vnextMode === "yes" || experienceMode === "tutor" || restoreSessionId
+  const routeKind: AcceptanceRouteKind = experienceMode === "tutor" || restoreSessionId
     ? "tutor-vnext"
     : experienceMode === "legacy" ? "legacy" : "pending";
   const diagnostics = acceptanceMode && taskId ? (
@@ -206,20 +186,6 @@ export function LearnPage() {
       fallbackOccurred={legacyFallback}
     />
   ) : null;
-
-  // F7：vNext 可用（golden task + TUTOR_VNEXT_ROOT 挂载）→ 真实 Runtime 链体验。
-  // vNext 自身 fail closed（解析/一致性失败显示错误面），不静默回 legacy——
-  // 换渲染链等于换题面语义。
-  if (taskId && vnextMode === "yes") {
-    return (
-      <VNextTutorExperience
-        key={`${taskId}:${restoreSessionId ?? "start"}`}
-        taskId={taskId}
-        studentId={studentName}
-        restoreSessionId={restoreSessionId}
-      />
-    );
-  }
 
   if (experienceMode === "tutor" || restoreSessionId) {
     return (

@@ -13,8 +13,7 @@
     "benchmark:voice": "playwright test --config=playwright.config.ts",
     "benchmark:voice:summary": "node benchmarks/voice/scripts/summarize.mjs",
     "benchmark:voice:install": "playwright install chromium",
-    "test:e2e:tutor": "playwright test --config=playwright.tutor.config.ts",
-    "test:e2e:vnext": "playwright test --config=playwright.vnext.config.ts"
+    "test:e2e:tutor": "playwright test --config=playwright.tutor.config.ts"
   },
   "dependencies": {
     "@xstate/react": "^6.1.0",
