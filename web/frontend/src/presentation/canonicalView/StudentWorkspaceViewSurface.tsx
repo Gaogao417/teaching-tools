@@ -5,13 +5,15 @@
  * - 组合外壳复用 canonical `StudentWorkspaceFrame`（vs01-rem2 裁定的唯一
  *   Workspace composition owner：region-geometry 槽 + board 槽同一 grid、
  *   同一 data-view-revision）；不建第二套 Workspace renderer/CSS。
- * - Geometry：fe-prep 渲染 student-safe 的画布元素语义摘要（真实
- *   GeometryCanvas/typed command 接线属 F7 生产化范围）；interaction_enabled
- *   =false（完成/只读 review）时明确只读、不可操作。
+ * - Geometry：缺省渲染 student-safe 的画布元素语义摘要；F7 生产化起支持
+ *   `geometry` 槽注入 production 渲染器（GeometryCanvasSurface/typed command
+ *   路径——fe-prep 对接面 3），View 仍是唯一输入，不新增第二事实源。
  * - Board：同一 View 的 building/review 两种阅读模式（review 不加载第二份
  *   Board 真相，ADR-009 不变量 7）；View 层无 hidden——未揭示条目整个不
  *   存在，不存在"置空占位"；空 groups 渲染明确 empty surface（不变量 6）。
  */
+import type { ReactNode } from "react";
+
 import { MathText } from "../../components/math/MathText";
 import { StudentWorkspaceFrame } from "../workspace/StudentWorkspaceFrame";
 import type { StudentWorkspaceViewV1 } from "./canonicalViewTypes";
@@ -33,13 +35,19 @@ const BOARD_ENTRY_KIND_TEXT = {
   question: "问题",
 } as const;
 
-export function StudentWorkspaceViewSurface({ view }: { view: StudentWorkspaceViewV1 }) {
+export interface StudentWorkspaceViewSurfaceProps {
+  view: StudentWorkspaceViewV1;
+  /** F7：production geometry 渲染器注入槽（缺省=语义摘要，不变）。 */
+  geometry?: ReactNode;
+}
+
+export function StudentWorkspaceViewSurface({ view, geometry }: StudentWorkspaceViewSurfaceProps) {
   return (
     <StudentWorkspaceFrame
       frameTestId="canonical-student-workspace"
       viewRevision={view.revision}
       dataAttributes={{ "session-id": view.session_id, "workspace-mode": view.solution_board.mode }}
-      geometry={<CanvasElementsSurface view={view} />}
+      geometry={geometry ?? <CanvasElementsSurface view={view} />}
       board={<SolutionBoardSurface view={view} />}
     />
   );

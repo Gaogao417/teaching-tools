@@ -706,7 +706,11 @@ function decideStudentInput(
           decision: {
             decision_id: decisionId(ctx.sessionId, trigger.sequence),
             decision_kind: "return_to_mainline",
-            protocol_id: protocol.protocol_id,
+            // F7 D-2：decision.protocol_id 是 reducer 的游标目的地协议——分支
+            // 自然收尾返回主线时必须携带主线协议（与 forcedReturn 同口径）；
+            // 误带分支协议会让 return 后游标解析到分支 Beat（participation
+            // 投影错形态：scaffold BT-01 student_answer 冒充主线确认拍）。
+            protocol_id: ctx.plan.mainline.protocol_id,
             beat_id: beat.beat_id,
             to_beat_id: ctx.state.inquiry_cursor.return_beat_id,
             policy_version: NAVIGATOR_V5_VERSION,

@@ -565,7 +565,9 @@ export class TutorSessionOrchestratorV5 {
   // 内部：呈现执行与编排
   // ------------------------------------------------------------------ //
 
-  /** 决策后呈现策略：transition → executeCurrentBeat + 呈现；其余不自动呈现。 */
+  /** 决策后呈现策略：transition → executeCurrentBeat + 呈现；return 后重入的
+   *  裸 execute_beat 决策 → presentCurrentBeat（否则主线相位停在 presenting，
+   *  学生输入无法推进——F7 偏差登记 D-1 修复）；其余不自动呈现。 */
   private presentAfterDecision(turn: TurnResult): PresentationExecutionReport[] {
     const reports: PresentationExecutionReport[] = [];
     const decision = turn.decision;
@@ -576,6 +578,19 @@ export class TutorSessionOrchestratorV5 {
       if (executionDecision.decision && executionDecision.decisionSequence !== undefined) {
         reports.push(this.realizeAndExecute(executionDecision.decision, executionDecision.decisionSequence, {}));
       }
+      return reports;
+    }
+    if (decision.decision_kind === "execute_beat") {
+      // F7 D-1：inquiry 返回后主线相位为 presenting，Navigator 对后续输入先给
+      // execute_beat（重执行当前 Beat）——不呈现即卡死。呈现走同一
+      // presentCurrentBeat 入口（voice 完成 → awaiting_evidence → 可推进）。
+      reports.push(this.presentCurrentBeat());
+      return reports;
+    }
+    if (decision.decision_kind === "return_to_mainline") {
+      // F7 D-1（同根）：返回主线即重呈现返回点 Beat——学生回到冻结点立刻
+      // 重新获得教学锚定（voice 完成 → awaiting_evidence），无需先再交一次输入。
+      reports.push(this.presentCurrentBeat());
     }
     return reports;
   }

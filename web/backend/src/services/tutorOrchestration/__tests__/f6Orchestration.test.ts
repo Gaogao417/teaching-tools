@@ -270,10 +270,11 @@ async function main(): Promise<void> {
     const after = orch.projectUnifiedViews();
     assert.deepEqual(after.coachPanelView.inquiry, { kind: "no_inquiry" });
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-01");
-    // 返回后相位=presenting（return_to_mainline 清 gate 重呈现——复述由下一轮 narration
-    // 驱动 awaiting_evidence）；主线等待学生继续。
-    assert.deepEqual(after.participation, { kind: "listen_only" });
-    assert.deepEqual(after.coachPanelView.mainline, { kind: "presenting", beat_id: "BT-01" });
+    // F7 D-1/D-2 修复后语义：return 决策立即重呈现返回点 Beat（voice 完成 →
+    // awaiting_evidence），学生回到冻结点即获得 GT-01 确认输入（旧行为停在
+    // presenting/listen_only——学生输入无法推进，属缺陷，见 f7 偏差登记）。
+    assert.deepEqual(after.participation, { kind: "confirm_input", gate_id: "GT-01" });
+    assert.deepEqual(after.coachPanelView.mainline, { kind: "awaiting_confirmation", beat_id: "BT-01", gate_id: "GT-01" });
     auditCausalityChain("TS-7003");
   });
 
