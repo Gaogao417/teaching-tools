@@ -591,6 +591,15 @@ export class TutorSessionOrchestratorV5 {
       // F7 D-1（同根）：返回主线即重呈现返回点 Beat——学生回到冻结点立刻
       // 重新获得教学锚定（voice 完成 → awaiting_evidence），无需先再交一次输入。
       reports.push(this.presentCurrentBeat());
+      return reports;
+    }
+    if (decision.decision_kind === "request_clarification") {
+      // F7 D-3：明确答错（模型 fail→misaligned）落 request_clarification——
+      // 不呈现则 transcript 只剩学生自己的话，老师零回应（headless 旧断言只
+      // 覆盖"不推进"，未覆盖"有回应"；浏览器旅程实证暴露）。重呈现当前 Beat
+      // 重新锚定（voice=approved 资源或拍目的，不发明反馈文案——逐错反馈属
+      // 教研内容工作，登记 F8/R 波）；beat 不推进、gate 不满足语义不变。
+      reports.push(this.presentCurrentBeat());
     }
     return reports;
   }

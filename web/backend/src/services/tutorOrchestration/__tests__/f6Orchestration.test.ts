@@ -278,6 +278,25 @@ async function main(): Promise<void> {
     auditCausalityChain("TS-7003");
   });
 
+  await runTest("G6 wrong answer: model fail -> no beat advance + tutor re-anchor presentation (F7 D-3)", async () => {
+    const provider = new FixedResponseGateProviderCtor(
+      [JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-02", verdict: "fail", reasoning_location: "misaligned", grounding_refs: ["FN-08"], brief_reason: "wrong" })],
+      "fixed-f6-wrong",
+    );
+    const orch = startOrchestrator("TS-7050", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7050-1" });
+    const beatBefore = orch.state.teaching_cursor.beat_id;
+    const turn = await orch.submitStudentIntent({ intent_kind: "submit_answer", text: "△CAD 与 △CBA 并不相似", client_request_id: "cr-7050-2" });
+    assert.equal(turn.turn.decision?.decision_kind, "request_clarification");
+    assert.equal(orch.state.teaching_cursor.beat_id, beatBefore, "wrong answer must not advance the beat");
+    // D-3：错误作答后老师必须重锚定（重呈现当前拍）——不允许"学生独白+沉默"。
+    assert.ok(turn.presentations.length >= 1, "request_clarification must re-present the beat (no dead air)");
+    const projection = orch.projectUnifiedViews();
+    assert.equal(projection.coachPanelView.transcript.at(-1)?.role, "tutor", "transcript ends with tutor re-anchor, not the student's wrong answer");
+    assert.equal(projection.participation.kind, "answer_input", "gate stays unsatisfied; student can retry");
+    auditCausalityChain("TS-7050");
+  });
+
   await runTest("G6 negative: stale expected revision -> revision_conflict failure fact, zero teaching effect, category revision_conflict_failure", async () => {
     const provider = journeyProvider();
     const orch = startOrchestrator("TS-7004", provider);
