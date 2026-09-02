@@ -17,9 +17,13 @@ import { ActionRuntimeFrame } from "../presentation/runtime/ActionRuntimeFrame";
 import { actionMachineRegistry } from "../action-runtime/registry";
 import { AcceptanceDiagnostics, type AcceptanceRouteKind } from "../presentation/acceptance/AcceptanceDiagnostics";
 import { TutorLearnExperience } from "./learn/TutorLearnExperience";
+import { vnextApi } from "../api/vnextTutorClient";
 import type { TutorExperienceResponse } from "../../../shared/tutorExperience";
 
 const EMPTY_DRAFT: ClientDraftState = { selections: {}, inputs: {} };
+/** F7：vNext availability（golden task + TUTOR_VNEXT_ROOT 挂载）→ canonical
+ *  TutorLearnExperience(vnext)——不建新页面；不可用/失败回落既有 Phase 5 流程。 */
+type VNextMode = "pending" | "yes" | "no";
 const ACTION_RUNTIME_V2_ENABLED = import.meta.env.VITE_ACTION_RUNTIME_V2 !== "false";
 /** Phase 5 UI 集成：/learn/:taskId 先问 /experience；tutor 分流到 Tutor 工作台。 */
 type ExperienceMode = "pending" | "tutor" | "legacy";
@@ -74,6 +78,8 @@ export function LearnPage() {
   const acceptanceMode = searchParams.get("acceptance") === "1";
   const { focusedTask, setFocusedTaskId, studentName } = useOutletContext<WorkspaceOutletContext>();
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("pending");
+  const [vnextMode, setVNextMode] = useState<VNextMode>("pending");
+  const vnextAskedRef = useRef("");
   const [experienceError, setExperienceError] = useState<string | undefined>();
   const [experienceNonce, setExperienceNonce] = useState(0);
   /** VS0 REQ-06：tutor 尝试后回退 legacy（restore 失败重启返回 legacy）才置
@@ -111,8 +117,18 @@ export function LearnPage() {
     setActionPlan(null);
   }, [setFocusedTaskId, taskId]);
 
+  // F7：vNext availability 优先裁定（golden task → canonical TutorLearnExperience
+  // vnext 模式；不建新页面）。未裁定前不启动旧 /experience（避免建旧会话）。
   useEffect(() => {
-    if (!taskId || !studentName || restoreSessionId) return;
+    if (!taskId || vnextAskedRef.current === taskId) return;
+    vnextAskedRef.current = taskId;
+    vnextApi.availability(taskId)
+      .then((result) => setVNextMode(result.enabled ? "yes" : "no"))
+      .catch(() => setVNextMode("no"));
+  }, [taskId]);
+
+  useEffect(() => {
+    if (!taskId || !studentName || restoreSessionId || vnextMode === "yes") return;
     const askKey = `${studentName}:${taskId}:${experienceNonce}`;
     if (experienceAskedRef.current === askKey) return;
     experienceAskedRef.current = askKey;
@@ -186,6 +202,21 @@ export function LearnPage() {
       fallbackOccurred={legacyFallback}
     />
   ) : null;
+
+  // F7：vNext 可用 → canonical TutorLearnExperience（vnext 数据源；原地收敛，
+  // 不建新页面；vNext fail-closed 由 hook 错误面呈现，不静默回 legacy）。
+  if (taskId && studentName && (vnextMode === "yes" || (vnextMode === "pending" && restoreSessionId))) {
+    return (
+      <TutorLearnExperience
+        key={`vnext:${taskId}:${restoreSessionId ?? "start"}`}
+        taskId={taskId}
+        studentId={studentName}
+        restoreSessionId={restoreSessionId}
+        vnext
+        onLegacy={() => undefined}
+      />
+    );
+  }
 
   if (experienceMode === "tutor" || restoreSessionId) {
     return (

@@ -42,6 +42,9 @@ import type {
   TutorVoiceAction,
 } from "../../../../shared/tutorExperience";
 import type { StudentWorkspaceView } from "../../../../shared/studentWorkspace";
+import { vnextApi, VNextApiError, type VNextActiveAction, type VNextSessionResponse } from "../../api/vnextTutorClient";
+import { parseCoachPanelView, parseStudentWorkspaceView } from "../../presentation/canonicalView/parseCanonicalView";
+import type { CoachPanelViewV1, StudentWorkspaceViewV1 } from "../../presentation/canonicalView/canonicalViewTypes";
 import type { TaskId } from "../../../../shared/contracts";
 
 /** 计划 §3 ActionRuntimeTransport：evidence → {evaluation, tutorTurn}。 */
@@ -143,10 +146,50 @@ export interface UseTutorLearningOptions {
   studentId: string;
   /** 刷新恢复：URL ?session= 里的会话 id。 */
   restoreSessionId?: string;
+  /** F7 vNext 数据源（canonical Runtime 链）：true 时旧协调器 API 全停用，
+   *  内部状态归一 canonical view/v1 + active_action（ledger 增补 6 清单）。 */
+  vnext?: boolean;
 }
 
-export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTutorLearningOptions) {
+export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }: UseTutorLearningOptions) {
   const [sessionId, setSessionId] = useState<string | undefined>(restoreSessionId);
+  // ---- F7 vNext 数据源（canonical view/v1 内部归一；旧路径零改动）----
+  const [vnextWorkspace, setVnextWorkspace] = useState<StudentWorkspaceViewV1 | undefined>();
+  const [vnextCoach, setVnextCoach] = useState<CoachPanelViewV1 | undefined>();
+  const [vnextParticipationKind, setVnextParticipationKind] = useState<string>("listen_only");
+  const [vnextActiveAction, setVnextActiveAction] = useState<VNextActiveAction | undefined>();
+  const [vnextCompleted, setVnextCompleted] = useState(false);
+  const [vnextTurnFailure, setVnextTurnFailure] = useState<string | undefined>();
+  const vnextRevisionRef = useRef(0);
+  const vnextSessionRef = useRef<string | undefined>(undefined);
+
+  const adoptVNext = useCallback((response: VNextSessionResponse) => {
+    const workspace = parseStudentWorkspaceView(response.views.student_workspace_view);
+    const coach = parseCoachPanelView(response.views.coach_panel_view);
+    if (!workspace.ok || !coach.ok) {
+      setError(`vNext 视图解析失败（fail closed）：${[...workspace.ok ? [] : workspace.issues, ...coach.ok ? [] : coach.issues].join("; ")}`);
+      return;
+    }
+    vnextSessionRef.current = response.session_id;
+    vnextRevisionRef.current = response.revision;
+    setSessionId(response.session_id);
+    setVnextWorkspace(workspace.view);
+    setVnextCoach(coach.view);
+    setVnextParticipationKind(String((response.views.participation as { kind?: string } | undefined)?.kind ?? "listen_only"));
+    setVnextActiveAction(response.active_action);
+    setVnextCompleted(Boolean(response.completed));
+    setVnextTurnFailure(response.turn?.failure?.failure_class);
+    if (response.question) setQuestion({ artifact_id: "", question_type: "fill_blank", stem: response.question.stem, subquestions: [] } as TutorQuestionView);
+    // transcript 由 canonical coach 视图派生（呈现映射，非域反适配）。
+    setTranscript(coach.view.transcript.map((turn, index) => ({
+      id: turn.turn_id || `vt-${index}`,
+      role: turn.role === "tutor" ? "tutor" : "student",
+      text: turn.content,
+      at: 0,
+    })));
+    setBootstrapPending(false);
+    setTurnPending(false);
+  }, []);
   const [revision, setRevision] = useState(0);
   const [experience, setExperience] = useState<TutorExperienceResponse | undefined>();
   const [question, setQuestion] = useState<TutorQuestionView | undefined>();
@@ -238,14 +281,27 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     if (bootstrapPending || !sessionId) return "starting";
     if (turnPending) return "thinking";
     if (speechActive) return "speaking";
+    if (vnext) {
+      if (vnextParticipationKind === "workspace_input") return "workspaceActive";
+      return "awaitingInput";
+    }
     if (workspaceView?.participation.mode === "operate") return "workspaceActive";
     return "awaitingInput";
-  }, [completed, questionCompleted, interrupted, error, bootstrapPending, sessionId, turnPending, speechActive, workspaceView]);
+  }, [completed, questionCompleted, interrupted, error, bootstrapPending, sessionId, turnPending, speechActive, workspaceView, vnext, vnextParticipationKind]);
 
   /** VS1：进行中的操作步（统一 View 的 participation 槽；operate 态才有）。 */
   const activeOperation = useMemo(
-    () => (workspaceView?.participation.mode === "operate" ? workspaceView.participation.activeAction : undefined),
-    [workspaceView],
+    () => {
+      if (vnext) {
+        // F7：active_action 与纯 Workspace View 分开（ledger 增补 6）；构造未
+        // committed 时服务端不下发 → 不挂载（ActionRuntimeFrame 分支不进）。
+        return vnextActiveAction
+          ? { actionId: vnextActiveAction.action_id, plan: vnextActiveAction.action_plan as never }
+          : undefined;
+      }
+      return workspaceView?.participation.mode === "operate" ? workspaceView.participation.activeAction : undefined;
+    },
+    [workspaceView, vnext, vnextActiveAction],
   );
 
   const appendTranscript = useCallback((role: "tutor" | "student", text: string) => {
@@ -434,10 +490,54 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
   );
 
   /** 学生回合统一入口（回答/提问/静默等六类输入共用）。 */
+  /** F7 vNext：类型化 intent 直通道（组件参与区/对话区用；同 submitStudentInput 的 vNext 分支实现）。 */
+  const vnextSubmitIntent = useCallback(
+    async (intentKind: "submit_answer" | "confirm" | "continue" | "ask_question" | "request_scaffold" | "request_rephrase" | "return_to_mainline", text?: string): Promise<void> => {
+      const activeSession = vnextSessionRef.current;
+      if (!activeSession) return;
+      setTurnPending(true);
+      if (text !== undefined) appendTranscript("student", intentKind === "ask_question" ? `（问）${text}` : text);
+      try {
+        adoptVNext(await vnextApi.submitIntent(activeSession, {
+          intentKind,
+          ...(text !== undefined ? { text } : {}),
+          expectedRevision: vnextRevisionRef.current,
+        }));
+      } catch (turnError) {
+        setTurnPending(false);
+        setError(turnError instanceof Error ? turnError.message : String(turnError));
+      }
+    },
+    [adoptVNext],
+  );
+
   const submitStudentInput = useCallback(
     async (input: TutorStudentInput): Promise<void> => {
       const activeSession = sessionIdRef.current;
       if (!activeSession) return;
+      if (vnext) {
+        // F7：类型化 intent 通道（无通用聊天；assessment 由服务端边界拒）。
+        const intentKind =
+          input.input_kind === "reasoning_utterance" ? "submit_answer"
+          : input.input_kind === "question_asked" ? "ask_question"
+          : input.input_kind === "silence_observed" ? undefined
+          : input.input_kind as "confirm" | "continue" | "request_scaffold" | "request_rephrase" | "barge_in" | "return_to_mainline";
+        if (intentKind === undefined) return;
+        setTurnPending(true);
+        if (input.text !== undefined) appendTranscript("student", input.input_kind === "question_asked" ? `（问）${input.text}` : input.text);
+        try {
+          const response = await vnextApi.submitIntent(activeSession, {
+            intentKind,
+            ...(input.text !== undefined ? { text: input.text } : {}),
+            expectedRevision: vnextRevisionRef.current,
+          });
+          adoptVNext(response);
+        } catch (turnError) {
+          setTurnPending(false);
+          setError(turnError instanceof Error ? turnError.message : String(turnError));
+        }
+        return;
+      }
       setTurnPending(true);
       if (input.text !== undefined) {
         appendTranscript("student", input.input_kind === "question_asked" ? `（问）${input.text}` : input.text);
@@ -465,6 +565,24 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
       submitEvidence: async (request) => {
         const activeSession = sessionIdRef.current;
         if (!activeSession) throw new Error("tutor session 未启动");
+        if (vnext) {
+          // F7 方案 A：服务端真实 typed evaluator 结果透传；系统失败上抛绝不
+          // 映射 wrong。rejected 返回 genuine wrong+diagnosis（applyEvaluation
+          // 呈现错误反馈；暂态模式=零事件已由服务端保证）。
+          const evidence = request.evidence[request.evidence.length - 1] as { actionId: string; sourceStepId: string; kind: string; version: number; values?: Record<string, string> };
+          const response = await vnextApi.submitActionEvidence(activeSession, {
+            evidence: {
+              actionId: evidence.actionId,
+              sourceStepId: evidence.sourceStepId,
+              kind: evidence.kind,
+              version: evidence.version,
+              values: evidence.values ?? {},
+            },
+            expectedRevision: vnextRevisionRef.current,
+          });
+          adoptVNext(response);
+          return { ...response.action_submission.evaluation, revision: response.revision };
+        }
         const evidence = request.evidence[request.evidence.length - 1];
         const turn = await api.submitTutorTurn(activeSession, newTurnId(), revisionRef.current, {
           input_kind: "structured_action_evidence",
@@ -544,6 +662,16 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     async (options?: { switchFromSessionId?: string }): Promise<LearnExperienceResponse | undefined> => {
       setError(undefined);
       setBootstrapPending(true);
+      if (vnext) {
+        // F7 vNext 数据源：canonical Runtime 链会话（不走旧 /experience）。
+        try {
+          adoptVNext(await vnextApi.start({ studentId }));
+        } catch (startError) {
+          setBootstrapPending(false);
+          setError(startError instanceof Error ? startError.message : String(startError));
+        }
+        return undefined;
+      }
       const generation = generationRef.current + 1;
       try {
         const result = await api.startLearnExperience(taskId, {
@@ -573,6 +701,17 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     setError(undefined);
     setBootstrapPending(true);
     setInterrupted(false);
+    if (vnext) {
+      try {
+        adoptVNext(await vnextApi.restore(targetSessionId));
+        return "restored";
+      } catch (restoreError) {
+        setBootstrapPending(false);
+        if (restoreError instanceof VNextApiError && restoreError.status === 404) return "missing";
+        setError(restoreError instanceof Error ? restoreError.message : String(restoreError));
+        return "invalid";
+      }
+    }
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     try {
@@ -655,6 +794,13 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     transcript,
     workspaceView,
     activeOperation,
+    /** F7 vNext 数据源（canonical view/v1 + active_action；vnext=false 时全 undefined）。 */
+    vnextWorkspace,
+    vnextCoach,
+    vnextParticipationKind,
+    vnextActiveAction,
+    vnextCompleted,
+    vnextTurnFailure,
     /** VS1 remediation-2：拍点只读展示（turn/restore 同源 state）。 */
     currentCheckpoint,
     /** VS1 remediation-2：话术呈现指针（瞬时；门/回看状态见 TutorPresentation）。 */
@@ -668,6 +814,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId }: UseTut
     start,
     restore,
     submitStudentInput,
+    vnextSubmitIntent,
     bargeIn,
     resumeFromInterrupt,
     finishQuestion,

@@ -64,6 +64,7 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   // the current one.
   const onClickEntityRef = useRef(onClickEntity);
   onClickEntityRef.current = onClickEntity;
+  void 0;
 
   // Mount for the current immutable model; Action Runtime replaces the model
   // after a DomainCommand, so remounting here guarantees production Canvas
@@ -121,9 +122,38 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   // with no size to hand down, so the board's `width: 100%` had no reference.
   const [minX, maxY, maxX, minY] = model.boundingBox();
   const aspectRatio = `${maxX - minX} / ${maxY - minY}`;
+  // 键盘可达（F7：向同一 actor 发 OBJECT.SELECTED 语义事件——不另建交互通道）：
+  // Tab 聚焦画布 → 方向键在 enabled 实体间移动 → Enter/Space 选中。
+  const enabledIds = Object.values(view.entities).filter((e) => e.enabled).map((e) => e.id);
+  const [keyboardIndex, setKeyboardIndex] = useState(-1);
+  const handleKeyDown = (event: import("react").KeyboardEvent<HTMLDivElement>): void => {
+    if (!enabledIds.length) return;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      setKeyboardIndex((prev) => (prev + 1) % enabledIds.length);
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setKeyboardIndex((prev) => (prev <= 0 ? enabledIds.length - 1 : prev - 1));
+    } else if (event.key === "Enter" || event.key === " ") {
+      const id = enabledIds[keyboardIndex >= 0 ? keyboardIndex : 0];
+      if (!id) return;
+      event.preventDefault();
+      const kind = view.entities[id]?.kind ?? "line";
+      onClickEntityRef.current({ kind, id });
+    }
+  };
+  const keyboardFocusId = keyboardIndex >= 0 ? enabledIds[keyboardIndex] : undefined;
 
   return (
-    <div className="geometry-canvas" style={{ aspectRatio }}>
+    <div
+      className="geometry-canvas"
+      style={{ aspectRatio }}
+      tabIndex={enabledIds.length ? 0 : undefined}
+      role="application"
+      aria-label="几何画布（方向键选择对象，回车选中）"
+      data-keyboard-focus-id={keyboardFocusId}
+      onKeyDown={handleKeyDown}
+    >
       <div className="geometry-canvas__board" ref={containerRef} />
       <PreviewLine
         view={view}
