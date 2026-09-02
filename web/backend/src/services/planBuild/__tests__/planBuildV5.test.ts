@@ -99,3 +99,60 @@ async function main(): Promise<void> {
 }
 
 void main();
+
+// F7 Step 3：action_template 投影与 materializer registry 负例（TP@v11）。
+async function runActionTemplateCasesSafe(): Promise<void> {
+  const root = canonicalRoot();
+  if (!root) return;
+  await runActionTemplateCases(root);
+}
+void runActionTemplateCasesSafe();
+
+
+function buildInputsFromImported(imp: Extract<ReturnType<typeof importApprovedPlanV5>, { ok: true }>["imported"]) {
+  const snapshot = buildRuntimeRegistrySnapshot();
+  return {
+    truth: imp.truth,
+    approachSet: imp.approachSet,
+    graph: imp.graph,
+    protocols: imp.protocols,
+    profile: imp.profile,
+    snapshot,
+  } as Parameters<typeof validateApprovedPlanV5>[1];
+}
+
+async function runActionTemplateCases(root: string): Promise<void> {
+  const imported = importApprovedPlanV5({ canonicalRoot: root }, "TP-SMV-009");
+  assert.equal(imported.ok, true);
+  if (!imported.ok) return;
+
+  await runTest("v5 action_template projects into action_contracts (truth only in teachingInput; assessment strips it)", () => {
+    const contracts = (imported.imported.projection as { action_contracts?: Array<{ resource_id: string; action_ref: string; learn: { kind: string; input: Record<string, unknown> }; assessment: { kind: string; input: Record<string, unknown> } }> }).action_contracts ?? [];
+    const bt04 = contracts.find((contract) => contract.resource_id === "RES8");
+    assert.ok(bt04, "TP@v11 RES8 action_template must project into action_contracts");
+    assert.equal(bt04.action_ref, "tp:TP-SMV-009:1:mark-segment-values-bt04");
+    assert.equal(bt04.assessment.kind, "mark-segment-values");
+    assert.deepEqual(bt04.assessment.input.labels ?? [], [], "assessment student view carries NO truth labels (input.labels=[])");
+    assert.deepEqual(bt04.assessment.input.availableSegmentIds, ["seg-AO", "seg-DO", "seg-BO", "seg-OE"]);
+    // learn 投影保留 teachingInput 合并（教研/评估侧）；assessment 剥离（truth 隔离）。
+    const learnLabels = (bt04.learn.input.labels as Array<{ segmentId: string }> | undefined) ?? [];
+    assert.equal(learnLabels.length, 4, "learn projection merges teachingInput.labels");
+  });
+
+  await runTest("v5 materializer rejects an action_template whose kind is outside the runtime registry (fail closed)", () => {
+    const inputs2 = buildInputsFromImported(imported.imported);
+    const plan = structuredClone(imported.imported.plan) as TutorPlanV5Payload;
+    for (const resource of plan.resources) {
+      if (resource.kind !== "action_template" || !resource.content) continue;
+      const template = JSON.parse(resource.content) as { kind: string };
+      template.kind = "not-a-registered-kind";
+      resource.content = JSON.stringify(template);
+      break;
+    }
+    const result = validateApprovedPlanV5(plan, inputs2);
+    assert.ok(
+      !result.ok && result.errors.some((error: string) => error.includes("不在 registry")),
+      `materializer must reject unknown action kind, got: ${result.ok ? "ok" : result.errors.join("; ")}`,
+    );
+  });
+}

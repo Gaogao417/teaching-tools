@@ -104,6 +104,8 @@ function submitWorkspaceCommandWithReceipt(
     outcome?: "completed" | "rejected" | "failed";
     resultingRevision?: number;
     expectedRevision?: number;
+    /** F7：completed 回执配套的已验证裁决（缺省=未验证，gate 不满足）。 */
+    assessment?: { verdict: "verified-correct" | "verified-wrong"; evidence_sequence?: number };
   },
 ): TurnResult {
   const capability = input.capability ?? "similarity.mark-known-segments";
@@ -178,7 +180,16 @@ async function submitWorkspaceCommandWithReceiptAsync(
       causation_sequence: latestIntentSeq(session),
     },
   ]);
-  return session.consumeWorkspaceCommandOutcome({ command_id: input.command_id });
+  const receiptSequence = [...session.events].reverse().find(
+    (event) => event.event_type === "action_outcome_recorded" && (event.payload as { action_id: string }).action_id === input.command_id,
+  )?.sequence;
+  const assessment = input.assessment && receiptSequence !== undefined
+    ? ({ ...input.assessment, evidence_sequence: receiptSequence } as import("../../tutorNavigator/GateEvidenceEvaluatorV5").WorkspaceGateAssessmentInput)
+    : undefined;
+  return session.consumeWorkspaceCommandOutcome({
+    command_id: input.command_id,
+    ...(assessment ? { assessment } : {}),
+  });
 }
 
 function decisionsOf(session: NavigatorSession): { kind: string; beat: string; to?: string }[] {
@@ -259,7 +270,6 @@ async function main(): Promise<void> {
       responses: [
         passFor("GT-02", "FN-06"),
         passFor("GT-03", "FN-10"),
-        passFor("GT-04", "FN-19"),
         passFor("GT-05", "FN-23"),
       ],
     });
@@ -272,8 +282,10 @@ async function main(): Promise<void> {
     // BT-03（GT-03：求出 AD、CD、BD）
     await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-0003" });
     assert.equal(session.state.teaching_cursor.beat_id, "BT-04");
-    // BT-04（GT-04：第二组子母型相似与四条分段长度）
-    await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-0004" });
+    // BT-04（GT-04：PR@v10 workspace 拍——completed 回执须配套 verified-correct
+    // assessment 才满足（F7 因果链 2；navigator 合同只消费已验证裁决））。
+    const bt04 = await submitWorkspaceCommandWithReceiptAsync(session, { command_id: "SC-9802-bt04", expectedRevision: 3, outcome: "completed", assessment: { verdict: "verified-correct" } });
+    void bt04;
     assert.equal(session.state.teaching_cursor.beat_id, "BT-05");
     // BT-05（GT-05：蝶形相似收束到 BE）
     await session.acceptStudentIntent({ intent_kind: "submit_answer", text: "△BOE∽△AOD，所以 BE:AD=3:8，BE=1。", client_request_id: "cr-0005" });
@@ -296,6 +308,8 @@ async function main(): Promise<void> {
       "transition_beat",
       "transition_beat",
       "transition_beat",
+      // BT-04 workspace 回执消费：gate 满足 → 先 execute_beat（工作区动作锚定）再转移。
+      "execute_beat",
       "transition_beat",
       "transition_beat",
       "complete_beat",
@@ -666,7 +680,6 @@ async function main(): Promise<void> {
       responses: [
         passFor("GT-02", "FN-06"),
         passFor("GT-03", "FN-10"),
-        passFor("GT-04", "FN-19"),
         passFor("GT-05", "FN-23"),
         questionOn("FN-03"),
       ],
@@ -674,7 +687,7 @@ async function main(): Promise<void> {
     await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" });
     await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-0002" });
     await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-0003" });
-    await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-0004" });
+    await submitWorkspaceCommandWithReceiptAsync(session, { command_id: "SC-9819-bt04", expectedRevision: 3, outcome: "completed", assessment: { verdict: "verified-correct" } });
     await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-0005" });
     await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0006" });
     assert.equal(session.state.completed, true);
@@ -683,7 +696,7 @@ async function main(): Promise<void> {
     const after = await session.acceptStudentIntent({ intent_kind: "ask_question", text: QUESTION_IN_BOUND, client_request_id: "cr-0007" });
     assert.equal(after.failure?.failure_class, "no_legal_transition");
     assert.equal(session.events.filter((event) => event.event_type === "session_completed").length, completedCount);
-    assert.equal(session.events.filter((event) => event.event_type === "policy_decision_made").length, 7);
+    assert.equal(session.events.filter((event) => event.event_type === "policy_decision_made").length, 8);
     assert.equal(session.assertReplayParity().equal, true);
   });
 

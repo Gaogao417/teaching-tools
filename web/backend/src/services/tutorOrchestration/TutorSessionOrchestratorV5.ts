@@ -65,6 +65,16 @@ import type { GateAdjudicationProvider } from "../tutorNavigator/ModelGateAdjudi
 import type { NavigatorDecision } from "../tutorNavigator/TutorNavigatorV5";
 import type { V5ModelGatePin } from "./StructuredModelGateProvider";
 import { buildGoldenWorkspaceCatalogV5, GOLDEN_CATALOG_TASK_ID, type GoldenWorkspaceCatalog } from "./GoldenWorkspaceCatalog";
+import {
+  adjudicateActionEvidence,
+  adjudicateCommandPayload,
+  evidenceToWorkspaceCommand,
+  resolveBeatActionTemplate,
+} from "./WorkspaceActionAdjudication";
+import type { WorkspaceGateAssessmentInput } from "../tutorNavigator/GateEvidenceEvaluatorV5";
+import type { ActionEvaluationResponse, AuthoredActionTemplate } from "../../../../shared/actionRuntime";
+import type { TypedActionDiagnosis } from "../actionRuntime/topicTypedEvaluator";
+import { projectActiveAction, type ActiveAction, type ProjectedActionContract } from "./ActiveActionProjector";
 import { realizePresentationPlanV5, TutorPresenterError, type PresentationPlanV5 } from "./TutorPresenterV5";
 import {
   projectUnifiedViews,
@@ -142,7 +152,8 @@ export type OrchestratorErrorCode =
   | "WORKSPACE_COMMAND_REQUIRED"
   | "NO_EXECUTABLE_DECISION"
   | "WORKSPACE_COMMAND_PAYLOAD_DRIFT"
-  | "WORKSPACE_COMMAND_UNRESOLVABLE";
+  | "WORKSPACE_COMMAND_UNRESOLVABLE"
+  | "NO_ACTIVE_ACTION";
 
 export class OrchestratorError extends Error {
   constructor(readonly code: OrchestratorErrorCode, message: string) {
@@ -409,6 +420,89 @@ export class TutorSessionOrchestratorV5 {
    * - 其余（已消费 / 先前 outcome=rejected——首次提交本就不消费回执）→
    *   幂等回放：零新事件、零呈现、返回 committed 决策（若有）。
    */
+  /**
+   * F7 因果链 2（统一 adjudication）：当前 Beat 的 gate 为 workspace_command 且
+   * pinned plan 解析出 ActionTemplate 时，对 command payload 跑同一 typed
+   * evaluator，产出 Gate 消费的 assessment。直接命令（绕过 action-evidence
+   * 端点）由此与结构化 evidence 走同一判定——completed 但数学错误是合法组合
+   * （痕迹保留、gate 不满足）。非 action-bound Beat 返回 undefined（原有行为）。
+   */
+  private adjudicateIfActionBound(
+    command: unknown,
+    commandId: string,
+  ): { assessment: WorkspaceGateAssessmentInput } | undefined {
+    const beat = this.navigator.currentBeat;
+    if (beat.completion_evidence.evidence_kind !== "workspace_command") return undefined;
+    const resolved = resolveBeatActionTemplate(this.imported.plan.resources, beat);
+    if (!resolved) return undefined;
+    const body = command as { target_ids?: string[]; params?: { values?: Record<string, unknown> } };
+    const receiptSequence = findReceiptSequence(this.events, commandId);
+    if (receiptSequence === undefined) return undefined;
+    const diagnosis = adjudicateCommandPayload(resolved.template, {
+      target_ids: body.target_ids ?? [],
+      params: body.params,
+    });
+    return { assessment: {
+      verdict: diagnosis.accepted ? "verified-correct" : "verified-wrong",
+      evidence_sequence: receiptSequence,
+      ...(diagnosis.accepted ? {} : { diagnosis: undefined }),
+    } };
+  }
+
+  /**
+   * F7 Step 5（方案 A）：structured action evidence 提交——服务端先以 pinned
+   * template 走既有 typed evaluator：
+   * - rejected：暂态模式（因果链 3）——零事件、零命令、零 gate、零呈现，真实
+   *   diagnosis 随 ActionEvaluationResponse 返回（错误高亮留在 ActionRuntime）；
+   * - accepted：evidence 确定性转 StudentWorkspaceCommand（值键短名化）→ F3 →
+   *   committed receipt → verified assessment → Gate/Navigator → 最新 views。
+   */
+  submitActionEvidence(
+    evidence: { actionId: string; sourceStepId: string; kind: string; version: number; values?: Record<string, string> },
+    options: TurnExecutionOptions & { clientCommandId: string } = { clientCommandId: "" },
+  ): ActionEvidenceSubmission {
+    this.refreshWrappers();
+    const beat = this.navigator.currentBeat;
+    const resolved = resolveBeatActionTemplate(this.imported.plan.resources, beat);
+    if (!resolved) {
+      throw new OrchestratorError("NO_ACTIVE_ACTION", `beat ${beat.beat_id} has no pinned action_template (nothing to evaluate evidence against)`);
+    }
+    const conflict = this.checkExpectedRevision(options.expectedRevision);
+    if (conflict) {
+      return { status: "revision-conflict", turn: conflict.turn, presentations: [], projection: this.projectUnifiedViews(), revision: conflict.revision, evaluation: conflictEvaluation() };
+    }
+    const diagnosis = adjudicateActionEvidence(resolved.template, evidence as never);
+    if (!diagnosis.accepted) {
+      // 暂态模式：零事件（无 committed causation → 不呈现、不入流）。
+      return {
+        status: "evidence-rejected",
+        turn: { revision: this.navigator.revision, intentSequence: this.navigator.revision },
+        presentations: [],
+        projection: this.projectUnifiedViews(),
+        revision: this.navigator.revision,
+        evaluation: rejectedEvaluation(resolved.template, diagnosis),
+      };
+    }
+    const workspaceRevision = rebuildWorkspaceRuntimeStateV5(this.sessionId, this.golden.catalog).state.revision;
+    const command = evidenceToWorkspaceCommand({
+      sessionId: this.sessionId,
+      commandId: `SC-${this.sessionId}-EV-${Date.now().toString(36)}`,
+      clientCommandId: options.clientCommandId,
+      expectedWorkspaceRevision: workspaceRevision,
+      template: resolved.template,
+      evidence: evidence as never,
+    });
+    const result = this.submitWorkspaceCommand(command, { expectedRevision: options.expectedRevision });
+    return {
+      status: result.turn.failure ? "command-rejected" : "workspace-committed",
+      turn: result.turn,
+      presentations: result.presentations,
+      projection: result.projection,
+      revision: result.revision,
+      evaluation: acceptedEvaluation(resolved.template, result),
+    };
+  }
+
   submitWorkspaceCommand(command: unknown, options: TurnExecutionOptions = {}): OrchestratorTurn {
     this.refreshWrappers();
     const conflict = this.checkExpectedRevision(options.expectedRevision);
@@ -422,7 +516,10 @@ export class TutorSessionOrchestratorV5 {
     if (receipt.status === "completed") {
       const commandId = (command as { command_id?: string }).command_id;
       if (typeof commandId === "string") {
-        const turn = this.navigator.consumeWorkspaceCommandOutcome({ command_id: commandId });
+        const turn = this.navigator.consumeWorkspaceCommandOutcome({
+          command_id: commandId,
+          ...(this.adjudicateIfActionBound(command, commandId) ?? {}),
+        });
         const presentations = this.presentAfterDecision(turn);
         this.refreshWrappers();
         return { revision: this.navigator.revision, turn, presentations, projection: this.projectUnifiedViews() };
@@ -473,7 +570,11 @@ export class TutorSessionOrchestratorV5 {
     const consumed = this.events.some((event) => event.causation_sequence === committed.outcomeSequence);
     if (!consumed && committed.outcome === "completed") {
       // 崩溃窗口恢复：outcome 已提交、消费未及执行 → 现在恰好消费一次。
-      const turn = this.navigator.consumeWorkspaceCommandOutcome({ command_id: committed.commandId });
+      const committedCommand = findCommittedCommandPayload(this.events, committed.commandId);
+      const turn = this.navigator.consumeWorkspaceCommandOutcome({
+        command_id: committed.commandId,
+        ...(committedCommand ? (this.adjudicateIfActionBound(committedCommand, committed.commandId) ?? {}) : {}),
+      });
       const presentations = this.presentAfterDecision(turn);
       this.refreshWrappers();
       return { revision: this.navigator.revision, turn, presentations, projection: this.projectUnifiedViews() };
@@ -545,6 +646,22 @@ export class TutorSessionOrchestratorV5 {
   // ------------------------------------------------------------------ //
   // 统一投影（fresh rebuild；online 与 rebuilt 同一 reducer/projector）
   // ------------------------------------------------------------------ //
+
+  /** F7 Step 4/6：当前 Beat 的学生安全 active action（ActiveActionProjector
+   *  门面——route 只序列化；非 workspace 拍/构造未 committed 返回 undefined）。 */
+  activeAction(promptLatex: string): ActiveAction | undefined {
+    const workspaceRebuild = rebuildWorkspaceRuntimeStateV5(this.sessionId, this.golden.catalog);
+    return projectActiveAction({
+      resources: this.imported.plan.resources,
+      actionContracts: (this.imported.projection as { action_contracts?: ProjectedActionContract[] }).action_contracts ?? [],
+      beat: this.navigator.currentBeat,
+      catalog: this.golden.catalog,
+      committedTutorCommands: workspaceRebuild.context.tutorCommands,
+      workspaceRevision: workspaceRebuild.state.revision,
+      taskId: this.taskId,
+      promptLatex,
+    });
+  }
 
   projectUnifiedViews(): UnifiedProjection {
     const tutorState = rebuildTutorRuntimeStateV5(this.sessionId);
@@ -628,6 +745,7 @@ export class TutorSessionOrchestratorV5 {
           .filter((entry) => entry.visibility === "hidden")
           .map((entry) => entry.entry_id),
       ),
+      committedElementIds: new Set(workspaceRebuild.state.geometry.committed_element_ids),
       ...(this.assessmentMode ? { assessmentMode: true } : {}),
       actionSerial: this.events.length + 1,
     });
@@ -978,3 +1096,77 @@ function findCommittedStudentCommand(events: readonly StoredV5Event[], clientCom
 }
 
 export type { UnifiedProjection, F6FailureCategory, StartTutorSessionV5Input, RebuildV5Options, TutorPresenterError };
+
+
+// ------------------------------------------------------------------ //
+// F7 Step 5（方案 A）：action evidence 提交的应用层响应 envelope。
+// 字段权威来源（ledger 增补 4/68551a6）：evaluation/outcome/diagnosis 出自
+// typed evaluator 真实结果；phase/nextIndex 出自评价后的状态读取；revision/
+// views 出自 canonical projector 同 revision 快照；系统失败绝不映射 wrong。
+// ------------------------------------------------------------------ //
+
+export interface ActionEvidenceSubmission extends OrchestratorTurn {
+  readonly status: "evidence-rejected" | "workspace-committed" | "command-rejected" | "revision-conflict";
+  readonly evaluation: ActionEvaluationResponse;
+}
+
+function beatOrdinalOf(plan: { beat_order: readonly string[] }, beatId: string): number {
+  const index = plan.beat_order.indexOf(beatId);
+  return index < 0 ? 0 : index;
+}
+
+function rejectedEvaluation(template: AuthoredActionTemplate, diagnosis: TypedActionDiagnosis): ActionEvaluationResponse {
+  return {
+    outcome: "rejected",
+    evaluation: "wrong",
+    revision: 0, // 调用方以投影 revision 覆盖（零事件路径 revision 不变）
+    diagnosis: {
+      messageLatex: "标注未全部正确，请检查高亮的线段与数值后重试。",
+      wrongObjectIds: [...diagnosis.wrongObjectIds],
+      wrongActionIds: [...diagnosis.wrongActionIds],
+      wrongSlotIds: [...diagnosis.wrongSlotIds],
+    },
+    phase: "wrong_feedback",
+    nextIndex: 0,
+  };
+}
+
+function acceptedEvaluation(template: AuthoredActionTemplate, result: OrchestratorTurn): ActionEvaluationResponse {
+  const advanced = result.turn.decision?.decision_kind === "transition_beat";
+  return {
+    outcome: "accepted",
+    evaluation: "correct",
+    revision: result.revision,
+    phase: advanced ? "correct_pause" : "answering",
+    nextIndex: 0,
+  };
+}
+
+function conflictEvaluation(): ActionEvaluationResponse {
+  return { outcome: "conflict", evaluation: "progress", revision: 0, phase: "answering", nextIndex: 0 };
+}
+
+/** 定位 command 的 committed 回执事件 sequence（assessment.evidence_sequence）。 */
+function findReceiptSequence(events: readonly { event_type: string; sequence: number; payload: unknown }[], commandId: string): number | undefined {
+  for (const event of events) {
+    if (event.event_type !== "action_outcome_recorded") continue;
+    const payload = event.payload as { action_id?: string; action_kind?: string };
+    if (payload.action_id === commandId && payload.action_kind === "student_command") return event.sequence;
+  }
+  return undefined;
+}
+
+/** 从 committed intent 事件重建命令体（崩溃窗口恢复路径的 adjudication 输入）。 */
+function findCommittedCommandPayload(
+  events: readonly { event_type: string; sequence: number; payload: unknown }[],
+  commandId: string,
+): { target_ids?: string[]; params?: { values?: Record<string, unknown> } } | undefined {
+  for (const event of events) {
+    if (event.event_type !== "student_intent_recorded") continue;
+    const command = (event.payload as { workspace_command?: { command_id?: string } }).workspace_command;
+    if (command && command.command_id === commandId) {
+      return command as { target_ids?: string[]; params?: { values?: Record<string, unknown> } };
+    }
+  }
+  return undefined;
+}

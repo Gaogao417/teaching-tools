@@ -70,7 +70,9 @@ import {
   type IntentKind,
   type NavigatorInterpretation,
 } from "./SemanticInterpreterV5";
-import { evaluateGateEvidence, type GateEvidenceInput } from "./GateEvidenceEvaluatorV5";
+import { evaluateGateEvidence, type GateEvidenceInput, type WorkspaceGateAssessmentInput } from "./GateEvidenceEvaluatorV5";
+import { adjudicateCommandPayload, resolveBeatActionTemplate } from "../tutorOrchestration/WorkspaceActionAdjudication";
+import type { PlanResourceV4 } from "../planBuild/canonicalInputs";
 import {
   ModelGateAdjudicatorV5,
   UnavailableGateProvider,
@@ -291,7 +293,7 @@ export class NavigatorSessionV5 {
     const plan = buildNavigatorPlan(imported.imported);
     const kernel = TutorSessionKernelV5.resume(input.sessionId, { expectedTutorPlanRef: plan.tutor_plan_ref });
     const events = readTutorSessionEventsV5(input.sessionId);
-    verifyGateAttributionAgainstPlan(plan, events);
+    verifyGateAttributionAgainstPlan(plan, imported.imported.plan.resources, events);
     const adjudicator = new ModelGateAdjudicatorV5(input.gateProvider ?? new UnavailableGateProvider(), {
       ...(input.modelTimeoutMs !== undefined ? { timeoutMs: input.modelTimeoutMs } : {}),
     });
@@ -567,7 +569,7 @@ export class NavigatorSessionV5 {
    * 孤儿/不匹配回执在持久化/重建边界已被 F2 reducer 拒绝（R0 §5 两层落点），
    * 本层只消费合法 committed 回执。
    */
-  consumeWorkspaceCommandOutcome(input: { command_id: string }): TurnResult {
+  consumeWorkspaceCommandOutcome(input: { command_id: string; assessment?: WorkspaceGateAssessmentInput }): TurnResult {
     const events = this.events;
     let intent: { sequence: number; capability: string; surface: string } | undefined;
     let receipt: { sequence: number; outcome: "completed" | "rejected" | "interrupted" | "failed"; resulting_revision?: number } | undefined;
@@ -613,6 +615,9 @@ export class NavigatorSessionV5 {
       confirmation_sequences: [],
       workspace_outcomes: [{ capability: intent.capability, outcome: receipt.outcome, sequence: receipt.sequence }],
       narration_completed: false,
+      // F7 因果链 2：workspace gate 只消费已验证裁决（调用方经单一 typed
+      // evaluator 产出；缺省不得 pass——completed 回执本身不构成满足）。
+      ...(input.assessment ? { workspace_assessments: [input.assessment] } : {}),
     });
     return this.evaluateGateAndDecide(this.kernelRef.revision, receipt.sequence, gate.gate_id, beat.beat_id, assessment.satisfied, assessment.evidence_sequence);
   }
@@ -989,6 +994,7 @@ export class NavigatorSessionV5 {
  */
 export function verifyGateAttributionAgainstPlan(
   plan: NavigatorPlanV5,
+  resources: readonly PlanResourceV4[],
   events: readonly StoredV5Event[],
 ): void {
   if (events.length === 0) return;
@@ -1048,11 +1054,54 @@ export function verifyGateAttributionAgainstPlan(
               event.sequence,
             );
           }
+          if (evidenceKind === "workspace_command") {
+            // F7 replay 对账（因果链 2）：satisfied 的 workspace gate 必须能由
+            // pinned ActionTemplate + committed command payload + 同一 typed
+            // evaluator 重新复算为 verified-correct——在线安全且恢复安全（伪造
+            // satisfied/值不符 → fail closed）。
+            const recheck = reAdjudicateWorkspaceGate(events, resources, beat, evidence.sequence);
+            if (recheck !== undefined) {
+              throw new NavigatorResumeIntegrityError(
+                "GATE_EVIDENCE_FORGED",
+                `sequence ${event.sequence}: satisfied workspace gate ${gate.gate_id}@${gate.beat_id} fails replay re-adjudication (${recheck}); committed values do not verify against the pinned action template, resume refused`,
+                event.sequence,
+              );
+            }
+          }
         }
       }
     }
     state = applyV5Event(state, event);
   }
+}
+
+/**
+ * F7 replay 对账：定位回执对应的 committed command 载荷，用 pinned template +
+ * 同一 typed evaluator 复算。返回 undefined=verified-correct；否则返回错误描述。
+ */
+function reAdjudicateWorkspaceGate(
+  events: readonly StoredV5Event[],
+  resources: readonly PlanResourceV4[],
+  beat: NavigatorBeatView,
+  receiptSequence: number,
+): string | undefined {
+  const receipt = events.find((event) => event.sequence === receiptSequence);
+  const commandId = receipt ? (receipt.payload as { action_id?: string }).action_id : undefined;
+  if (typeof commandId !== "string") return "receipt carries no command id";
+  let command: { target_ids?: string[]; params?: { values?: Record<string, unknown> } } | undefined;
+  for (const event of events) {
+    if (event.event_type !== "student_intent_recorded") continue;
+    const candidate = (event.payload as { workspace_command?: { command_id?: string } }).workspace_command;
+    if (candidate && candidate.command_id === commandId) {
+      command = candidate as { target_ids?: string[]; params?: { values?: Record<string, unknown> } };
+      break;
+    }
+  }
+  if (!command) return "no committed command payload for the receipt";
+  const resolved = resolveBeatActionTemplate(resources, beat);
+  if (!resolved) return "no pinned action template bound to the beat";
+  const diagnosis = adjudicateCommandPayload(resolved.template, { target_ids: command.target_ids ?? [], params: command.params });
+  return diagnosis.accepted ? undefined : "committed values do not verify against teachingInput";
 }
 
 /** evidence_kind 对应的可采信学生证据事件（plan-aware，非字符串裁决）。 */

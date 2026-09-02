@@ -36,19 +36,26 @@ export const GOLDEN_CATALOG_TASK_ID = "goldenMinhangFold2020";
 
 /**
  * golden 题图（等腰 △ABC：AB=AC=4、BC=6；D 在 BC 上且 ∠DAC=∠ACD）。
- * 坐标按 AB=AC=4、BC=6、A=(3,√7) 解析布点；E 为翻折产出（不在 authored 基座，
- * 由解题构图产生）。segment-* id 与 F3 测试/View kind 前缀纪律对齐。
+ * 坐标按 AB=AC=4、BC=6、A=(3,√7) 解析布点。E/AE/DE/BE 属题面 authored 图
+ * （F7 Step 2 定稿：golden-similarity-mvp-001 题库 promptGeometry 逐点核对
+ * derived:false——翻折落点 E 在考题图中即画出，位于 BC 下方）；O 及
+ * AO/DO/BO/OE 是 RG 辅助构造（FN-12），不入 authored 基座——由 BT-04 呈现
+ * 时 Presenter 经 approved 构造资源 committed（因果链 1，防提前泄露解法）。
+ * segment-* id 与 F3 测试/View kind 前缀纪律对齐。
  */
 function goldenBaseGeometry(): TopicGeometryModel {
   const h = Math.sqrt(7); // AB=AC=4, BC=6 → 高 = √(16−9)
   const d = 10 / 3; // △CAD∽△CBA ⇒ BD=10/3、DC=AD=8/3
   return {
-    viewBox: { width: 400, height: 300 },
+    // 高度 420：容纳题面 authored 的翻折落点 E（BC 下方，考题图原样）。
+    viewBox: { width: 400, height: 420 },
     points: [
       { id: "A", x: 200, y: 300 - h * 30, derived: false },
       { id: "B", x: 20, y: 280, derived: false },
       { id: "C", x: 380, y: 280, derived: false },
       { id: "D", x: 20 + (360 * d) / 6, y: 280, derived: false },
+      // E = C 关于直线 AD 的对称点（翻折落点；|AE|=|AC|、|DE|=|DC| 解析验证）。
+      { id: "E", x: 92.61, y: 376.81, derived: false },
     ],
     segments: [
       { id: "segment-AB", from: "A", to: "B", derived: false },
@@ -57,6 +64,9 @@ function goldenBaseGeometry(): TopicGeometryModel {
       { id: "segment-AD", from: "A", to: "D", derived: false },
       { id: "segment-DC", from: "D", to: "C", derived: false },
       { id: "segment-BD", from: "B", to: "D", derived: false },
+      { id: "segment-AE", from: "A", to: "E", derived: false },
+      { id: "segment-DE", from: "D", to: "E", derived: false },
+      { id: "segment-BE", from: "B", to: "E", derived: false },
     ],
   };
 }
@@ -67,12 +77,16 @@ function goldenAuthoredKinds(): Record<string, "point" | "segment"> {
     B: "point",
     C: "point",
     D: "point",
+    E: "point",
     "segment-AB": "segment",
     "segment-AC": "segment",
     "segment-BC": "segment",
     "segment-AD": "segment",
     "segment-DC": "segment",
     "segment-BD": "segment",
+    "segment-AE": "segment",
+    "segment-DE": "segment",
+    "segment-BE": "segment",
   };
 }
 

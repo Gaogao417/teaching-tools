@@ -78,42 +78,56 @@ describe("F7 vNext 学生端 HTTP 合同", () => {
     process.env.__VNEXT_SESSION__ = started.body.session_id;
   });
 
-  it("旅程：confirm → 四次作答（脚本 Gate pass）→ completed；workspace 命令入账不推进 Beat", async () => {
+  it("旅程：confirm → 两拍模型作答 → BT-04 workspace action（active_action 下发+错值拒+对值过门）→ completed", async () => {
     const sessionId = process.env.__VNEXT_SESSION__!;
     let current = await call("GET", `/api/vnext/tutor-sessions/${sessionId}`);
     let revision: number = current.body.revision;
-    // BT-01 confirm → BT-02（answer_input/GT-02）。
     const confirmed = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/student-intents`, {
       intent_kind: "confirm", client_request_id: "rv-cr-1", expected_revision: revision,
     });
-    expect(confirmed.status).toBe(200);
     expect(confirmed.body.views.participation.kind).toBe("answer_input");
-    expect(confirmed.body.views.coach_panel_view.mainline.kind).toBe("awaiting_answer");
     revision = confirmed.body.revision;
-    // workspace 命令（标记已知线段）：receipt 入账、revision +1，但 BT-02 是
-    // student_answer gate——不得旁路推进（v4 语义）。
-    const workspaceRevisionBefore = confirmed.body.views.student_workspace_view.revision;
-    const marked = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/workspace-commands`, {
-      command_id: "SC-rv-0001", client_command_id: "cc-rv-0001", surface: "geometry",
-      capability: "similarity.mark-known-segments", target_ids: ["segment-AD"], expected_workspace_revision: workspaceRevisionBefore,
-      params: { values: { AD: "t" } },
-    });
-    expect(marked.status).toBe(200);
-    expect(marked.body.views.status.completed).toBe(false);
-    expect(marked.body.views.participation.kind).toBe("answer_input");
-    expect(marked.body.views.student_workspace_view.revision).toBe(workspaceRevisionBefore + 1);
-    revision = marked.body.revision;
-    // 四次作答推进 BT-03..BT-06 → 最终 confirm → completed + read-only review。
-    for (let step = 2; step <= 5; step += 1) {
+    for (const step of [2, 3]) {
       const answered = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/student-intents`, {
         intent_kind: "submit_answer", text: "子母型相似，对应边成比例", client_request_id: `rv-cr-${step}`, expected_revision: revision,
       });
-      expect(answered.status).toBe(200);
       expect(answered.body.views.status.last_failure).toBeUndefined();
       revision = answered.body.revision;
     }
+    // BT-04：构造已 committed（进入呈现）→ active_action 下发（构造先于挂载）。
+    expect(confirmed.body.active_action).toBeUndefined();
+    const atBt04 = await call("GET", `/api/vnext/tutor-sessions/${sessionId}`);
+    expect(atBt04.body.views.participation.kind).toBe("workspace_input");
+    expect(atBt04.body.active_action?.action_ref).toContain("mark-segment-values");
+    expect(atBt04.body.active_action?.target_ids).toEqual(["seg-AO", "seg-DO", "seg-BO", "seg-OE"]);
+    expect(atBt04.body.active_action?.student_view?.input?.labels ?? []).toEqual([]);
+    // 安全①：错误数值 → evaluator rejected（genuine wrong + diagnosis）零事件。
+    const eventsBefore = revision; // revision 单调反映事件增长
+    const wrongEvidence = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/action-evidence`, {
+      evidence: { actionId: atBt04.body.active_action.action_id, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "1", "seg-DO": "1", "seg-BO": "1", "seg-OE": "1" } },
+      expected_revision: revision, client_command_id: "cc-rv-wrong",
+    });
+    expect(wrongEvidence.status).toBe(200);
+    expect(wrongEvidence.body.action_submission.status).toBe("evidence-rejected");
+    expect(wrongEvidence.body.action_submission.evaluation.evaluation).toBe("wrong");
+    expect(wrongEvidence.body.action_submission.evaluation.diagnosis.wrongObjectIds).toHaveLength(4);
+    expect(wrongEvidence.body.revision).toBe(eventsBefore);
+    // 正确四值 → workspace-committed + GT-04 满足 → BT-05。
+    const rightEvidence = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/action-evidence`, {
+      evidence: { actionId: atBt04.body.active_action.action_id, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "\\frac{16}{5}", "seg-DO": "\\frac{32}{15}", "seg-BO": "\\frac{6}{5}", "seg-OE": "\\frac{4}{5}" } },
+      expected_revision: revision, client_command_id: "cc-rv-right",
+    });
+    expect(rightEvidence.body.action_submission.status).toBe("workspace-committed");
+    expect(rightEvidence.body.action_submission.evaluation.evaluation).toBe("correct");
+    expect(rightEvidence.body.views.participation.kind).toBe("answer_input");
+    revision = rightEvidence.body.revision;
+    // BT-05 模型答 → BT-06 confirm → completed。
+    const answered = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/student-intents`, {
+      intent_kind: "submit_answer", text: "蝶形相似 BE=1", client_request_id: "rv-cr-5", expected_revision: revision,
+    });
+    expect(answered.body.views.status.last_failure).toBeUndefined();
     const finalConfirm = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/student-intents`, {
-      intent_kind: "confirm", client_request_id: "rv-cr-6", expected_revision: revision,
+      intent_kind: "confirm", client_request_id: "rv-cr-6", expected_revision: answered.body.revision,
     });
     expect(finalConfirm.body.completed).toBe(true);
     expect(finalConfirm.body.views.participation.kind).toBe("read_only_completed");

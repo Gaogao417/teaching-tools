@@ -112,6 +112,16 @@ const insertRawEvent = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
 /** 测试侧直写（模拟存储篡改/崩溃窗口——生产代码对事件表只 INSERT/SELECT）。 */
+/** 当前 workspace revision（rebuilder 直读——bypass 用例构造命令用）。 */
+function rebuildWorkspaceRevision(sessionId: string): number {
+  const { rebuildWorkspaceRuntimeStateV5 } = require("../../tutorSession/WorkspaceStateRebuilderV5") as typeof import("../../tutorSession/WorkspaceStateRebuilderV5");
+  const { buildGoldenWorkspaceCatalogV5 } = require("../GoldenWorkspaceCatalog") as typeof import("../GoldenWorkspaceCatalog");
+  const importerModule = require("../../planBuild/v5/ImportApprovedPlanV5") as typeof import("../../planBuild/v5/ImportApprovedPlanV5");
+  const imported = importerModule.importApprovedPlanV5({ canonicalRoot: ROOT }, "TP-SMV-009");
+  if (!imported.ok) throw new Error(imported.errors.join("; "));
+  return rebuildWorkspaceRuntimeStateV5(sessionId, buildGoldenWorkspaceCatalogV5(imported.imported).catalog).state.revision;
+}
+
 function insertRaw(sessionId: string, eventType: string, payload: Record<string, unknown>, causation: number): void {
   const rowRevision = Number((db.prepare("SELECT revision AS r FROM tutor_sessions WHERE session_id = ?").get(sessionId) as { r: number }).r);
   const nextSeq = countEvents(sessionId) + 1;
@@ -192,8 +202,9 @@ async function main(): Promise<void> {
     auditCausalityChain("TS-7001");
   });
 
-  await runTest("G6 journey full: confirm -> four model-gated similarity steps -> completion, every visible delta traceable", async () => {
-    const provider = journeyProvider();
+  await runTest("G6 journey full: confirm -> two model-gated steps + BT-04 workspace action (evidence-rejected -> committed) -> completion, every visible delta traceable", async () => {
+    // BT-04 是 workspace 拍（不调模型）→ 模型序列只剩 GT-02/03/05 三次。
+    const provider = new FixedResponseGateProviderCtor([PASS_GT02, PASS_GT03, PASS_GT05], "fixed-f6-journey-v10");
     const orch = startOrchestrator("TS-7002", provider);
     // BT-01 confirm → transition BT-02 + presentation (voice RES2 + reveal BE-04)。
     const confirmTurn = await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7002-1" });
@@ -213,12 +224,34 @@ async function main(): Promise<void> {
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7002-3" });
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-04");
     assert.equal(provider.callCount, 2);
-    const butterflyTurn = await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7002-4" });
+    // BT-04（PR@v10 workspace 拍）：构造已随进入呈现 committed（pt-O + 四段），
+    // active action 挂载；安全测试①——错误数值 → typed evaluator rejected、
+    // 零命令、零 gate、Beat 不推进；随后正确四值 → committed → GT-04 满足。
+    const active = orch.activeAction("stem");
+    assert.ok(active, "BT-04 mounts the student action after the approved construction is committed");
+    assert.deepEqual([...active!.target_ids], ["seg-AO", "seg-DO", "seg-BO", "seg-OE"]);
+    assert.equal(orch.projectUnifiedViews().participation.kind, "workspace_input");
+    const eventsBeforeEvidence = countEvents("TS-7002");
+    const wrongEvidence = orch.submitActionEvidence(
+      { actionId: active!.action_id, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "1", "seg-DO": "1", "seg-BO": "1", "seg-OE": "1" } },
+      { expectedRevision: orch.revision, clientCommandId: "cc-7002-wrong" },
+    );
+    assert.equal(wrongEvidence.status, "evidence-rejected");
+    assert.equal(wrongEvidence.evaluation.evaluation, "wrong");
+    assert.ok(Array.isArray(wrongEvidence.evaluation.diagnosis?.wrongObjectIds) && wrongEvidence.evaluation.diagnosis!.wrongObjectIds.length === 4, "genuine evaluator diagnosis names the wrong segments");
+    assert.equal(countEvents("TS-7002"), eventsBeforeEvidence, "rejected evidence commits zero events (transient mode)");
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-04", "wrong values must not advance the beat");
+    const evidenceTurn = orch.submitActionEvidence(
+      { actionId: active!.action_id, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "\\frac{16}{5}", "seg-DO": "\\frac{32}{15}", "seg-BO": "\\frac{6}{5}", "seg-OE": "\\frac{4}{5}" } },
+      { expectedRevision: orch.revision, clientCommandId: "cc-7002-right" },
+    );
+    assert.equal(evidenceTurn.status, "workspace-committed");
+    assert.equal(evidenceTurn.evaluation.evaluation, "correct");
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-05");
-    assert.equal(provider.callCount, 3);
+    const butterflyTurn = evidenceTurn;
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7002-5" });
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-06");
-    assert.equal(provider.callCount, 4);
+    assert.equal(provider.callCount, 3);
     const afterAnswers = orch.projectUnifiedViews();
     const revealedEntries = afterAnswers.studentWorkspaceView.solution_board.groups.flatMap((group) => group.entries.map((entry) => entry.entry_id));
     assert.ok(
@@ -239,10 +272,10 @@ async function main(): Promise<void> {
     assert.equal(finalProjection.status.completed, true);
     auditCausalityChain("TS-7002");
     // ---- rebuild/resume：live 与 replay 持久语义一致；零模型调用 ----
-    const resumed = TutorSessionOrchestratorV5.resume({ sessionId: "TS-7002", canonicalRoot: ROOT, model: f6Model(provider, "fixed-response/fixed-f6-journey") });
+    const resumed = TutorSessionOrchestratorV5.resume({ sessionId: "TS-7002", canonicalRoot: ROOT, model: f6Model(provider, "fixed-response/fixed-f6-journey-v10") });
     assert.deepEqual(resumed.state, orch.state, "rebuilt teaching state equals live state");
     assert.deepEqual(resumed.projectUnifiedViews(), finalProjection, "unified projection equals live projection (same reducer/projector)");
-    assert.equal(provider.callCount, 4, "resume/replay never calls the model again");
+    assert.equal(provider.callCount, 3, "resume/replay never calls the model again");
   });
 
   await runTest("G6 inquiry: approved branch opens with frozen mainline + visible return checkpoint, returns explicitly", async () => {
@@ -899,13 +932,97 @@ async function main(): Promise<void> {
     auditCausalityChain("TS-7035");
   });
 
+  await runTest("F7 safety: bypass UI with same-capability wrong-value command -> receipt completed but GT-04 NOT satisfied, beat stays", async () => {
+    const provider = new FixedResponseGateProviderCtor([PASS_GT02, PASS_GT03], "fixed-f7-bypass");
+    const orch = startOrchestrator("TS-7038", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7038-1" });
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7038-2" });
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7038-3" });
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-04");
+    const before = countEvents("TS-7038");
+    const bypass = orch.submitWorkspaceCommand({
+      schema: "ai_teaching_student_workspace_command/v1",
+      session_id: "TS-7038",
+      origin: "student",
+      command_id: "SC-TS-7038-bypass",
+      client_command_id: "cc-7038-bypass",
+      surface: "geometry",
+      capability: "similarity.mark-known-segments",
+      target_ids: ["seg-AO", "seg-DO", "seg-BO", "seg-OE"],
+      expected_workspace_revision: rebuildWorkspaceRevision("TS-7038"),
+      params: { values: { AO: "999", DO: "999", BO: "999", OE: "999" } },
+    });
+    // 直接命令被 F3 接受并 completed（构造痕迹保留）——但 adjudication=verified-wrong，
+    // gate 不满足、Beat 不推进（"command completed 但数学错误"是合法组合）。
+    assert.ok(countEvents("TS-7038") > before, "the bypass command commits its intent+receipt facts (workspace trace kept)");
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-04", "wrong values must not satisfy GT-04 even on a completed receipt");
+    const gate = eventsOf("TS-7038").filter((event) => event.event_type === "gate_evaluated").at(-1);
+    assert.notEqual((gate?.payload as { satisfied?: boolean }).satisfied, true, "no satisfied gate_evaluated may exist for the wrong values");
+    assert.equal(orch.projectUnifiedViews().participation.kind, "workspace_input", "student may retry the action");
+    auditCausalityChain("TS-7038");
+  });
+
+  await runTest("F7 safety: BT-04 wrong evidence -> evaluator rejected with zero command/gate/decision events (transient mode)", async () => {
+    const provider = new FixedResponseGateProviderCtor([PASS_GT02, PASS_GT03], "fixed-f7-wrong-ev");
+    const orch = startOrchestrator("TS-7039", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7039-1" });
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7039-2" });
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7039-3" });
+    const before = countEvents("TS-7039");
+    const submission = orch.submitActionEvidence(
+      { actionId: "tp:TP-SMV-009:1:mark-segment-values-bt04", sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "2", "seg-DO": "2", "seg-BO": "2", "seg-OE": "2" } },
+      { expectedRevision: orch.revision, clientCommandId: "cc-7039-wrong" },
+    );
+    assert.equal(submission.status, "evidence-rejected");
+    assert.equal(submission.evaluation.outcome, "rejected");
+    assert.equal(submission.evaluation.evaluation, "wrong");
+    assert.deepEqual(submission.evaluation.diagnosis?.wrongObjectIds, ["seg-AO", "seg-DO", "seg-BO", "seg-OE"], "genuine typed-evaluator diagnosis");
+    assert.equal(countEvents("TS-7039"), before, "zero events: no command, no gate, no decision (transient mode)");
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-04");
+    auditCausalityChain("TS-7039");
+  });
+
+  await runTest("F7 safety: replay forgery -> tampered committed values behind a satisfied GT-04 refuse resume (fail closed)", async () => {
+    const provider = new FixedResponseGateProviderCtor([PASS_GT02, PASS_GT03, PASS_GT05], "fixed-f7-forgery");
+    const orch = startOrchestrator("TS-7041", provider);
+    await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7041-1" });
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7041-2" });
+    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7041-3" });
+    orch.submitActionEvidence(
+      { actionId: "tp:TP-SMV-009:1:mark-segment-values-bt04", sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "\\frac{16}{5}", "seg-DO": "\\frac{32}{15}", "seg-BO": "\\frac{6}{5}", "seg-OE": "\\frac{4}{5}" } },
+      { expectedRevision: orch.revision, clientCommandId: "cc-7041-right" },
+    );
+    assert.equal(orch.state.teaching_cursor.beat_id, "BT-05", "correct values satisfied GT-04");
+    // 篡改：把 committed 命令载荷里的正确值改成错误值（存储级 UPDATE——伪造
+    // "gate satisfied 但 committed 值不符"的流）。replay 对账必须拒绝恢复。
+    db.prepare(
+      "UPDATE tutor_session_events SET payload_json = REPLACE(REPLACE(payload_json, '16}{5}', '19}{9}'), '32}{15}', '37}{17}') WHERE session_id = ? AND event_type = 'student_intent_recorded'",
+    ).run("TS-7041");
+    let resumeError: unknown;
+    try {
+      TutorSessionOrchestratorV5.resume({ sessionId: "TS-7041", canonicalRoot: ROOT, model: f6Model(provider, "fixed-response/fixed-f7-forgery") });
+    } catch (error) {
+      resumeError = error;
+    }
+    assert.ok(resumeError instanceof Error, `tampered stream must refuse resume (got ${String(resumeError)})`);
+    assert.match(
+      resumeError.message,
+      /fails replay re-adjudication|GATE_EVIDENCE_FORGED|hash|causation|corrupt/i,
+      `refusal reason must identify the forged workspace evidence: ${resumeError.message}`,
+    );
+  });
+
   await runTest("G6.1 D1 fixation: gate just satisfied but cursor left the binding beat -> final reveal refused (stale-gate leg)", async () => {
-    const provider = journeyProvider();
+    const provider = new FixedResponseGateProviderCtor([PASS_GT02, PASS_GT03, PASS_GT05], "fixed-f6-journey-v10");
     const orch = startOrchestrator("TS-7036", provider);
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7036-1" });
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7036-2" });
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7036-3" });
-    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7036-4" });
+    // BT-04 workspace 拍：正确四值 evidence 过门。
+    orch.submitActionEvidence(
+      { actionId: "tp:TP-SMV-009:1:mark-segment-values-bt04", sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "\\frac{16}{5}", "seg-DO": "\\frac{32}{15}", "seg-BO": "\\frac{6}{5}", "seg-OE": "\\frac{4}{5}" } },
+      { expectedRevision: orch.revision, clientCommandId: "cc-7036-right" },
+    );
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7036-5" });
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-06", "GT-05 satisfied at BT-05 and the cursor has left the binding beat");
     // 偏差精确场景（复核 P2-2 ①）：锚定当前 BT-06 execute_beat 决策强制 reveal
@@ -937,12 +1054,15 @@ async function main(): Promise<void> {
   });
 
   await runTest("G6.1 D1 fixation: old-beat decision look-back anchor -> final reveal refused (wrong-beat causation leg)", async () => {
-    const provider = journeyProvider();
+    const provider = new FixedResponseGateProviderCtor([PASS_GT02, PASS_GT03, PASS_GT05], "fixed-f6-journey-v10");
     const orch = startOrchestrator("TS-7037", provider);
     await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7037-1" });
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7037-2" });
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7037-3" });
-    await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7037-4" });
+    orch.submitActionEvidence(
+      { actionId: "tp:TP-SMV-009:1:mark-segment-values-bt04", sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "\\frac{16}{5}", "seg-DO": "\\frac{32}{15}", "seg-BO": "\\frac{6}{5}", "seg-OE": "\\frac{4}{5}" } },
+      { expectedRevision: orch.revision, clientCommandId: "cc-7037-right" },
+    );
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7037-5" });
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-06");
     // 复核 P2-2 ②：伪造回看窗口——重新锚定 BT-05 旧 execute_beat 决策强制 reveal

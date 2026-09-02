@@ -45,6 +45,20 @@ export interface ModelGateAssessmentInput {
   readonly evidence_sequence?: number;
 }
 
+/**
+ * F7（计划 v3 因果链 2）：workspace_command gate 的已验证裁决——由单一
+ * typed evaluator（WorkspaceActionAdjudication）对 pinned ActionTemplate
+ * 评判产出。本评估器只消费 verified 结论、不读教学真值（与 student_answer
+ * gate 消费已验证模型 assessment 同构）：completed 回执 + verified-correct
+ * 才满足；completed 但未验证（直接命令数学错误）→ unsatisfied——这是合法
+ * 组合：workspace 构造痕迹保留，gate 不满足、Beat 不推进（安全测试②语义）。
+ */
+export interface WorkspaceGateAssessmentInput {
+  readonly verdict: "verified-correct" | "verified-wrong";
+  /** 被评判的回执事件 sequence（须与某条 completed workspace outcome 对齐）。 */
+  readonly evidence_sequence: number;
+}
+
 export interface GateEvidenceInput {
   /** 当前 Beat 门内收到的确认意图事件 sequence（按序；确定性判断）。 */
   readonly confirmation_sequences: readonly number[];
@@ -54,6 +68,8 @@ export interface GateEvidenceInput {
   readonly narration_completed: boolean;
   /** student_answer 的模型裁决（R3 唯一裁决来源；缺省不得 pass）。 */
   readonly model_assessment?: ModelGateAssessmentInput;
+  /** workspace_command 的 typed evaluator 裁决（F7 唯一采信来源；缺省不得 pass）。 */
+  readonly workspace_assessments?: readonly WorkspaceGateAssessmentInput[];
   /** narrative/计时输入的显式声明（评估「不可替代」负例的输入）。 */
   readonly narration_attempted_as_evidence?: boolean;
   readonly timeout_attempted_as_evidence?: boolean;
@@ -69,6 +85,7 @@ export interface GateEvidenceAssessment {
     | "answer_not_matching"
     | "answer_not_adjudicated"
     | "workspace_not_completed"
+    | "workspace_not_verified"
     | "no_evidence";
 }
 
@@ -119,10 +136,20 @@ export function evaluateGateEvidence(
         return assessStudentAnswer(beat, input);
       case "workspace_command": {
         const capability = gate?.capability;
+        const assessments = input.workspace_assessments ?? [];
+        let sawCompleted = false;
         for (const outcome of input.workspace_outcomes) {
           if (capability && outcome.capability !== capability) continue;
-          if (outcome.outcome === "completed") return { satisfied: true, evidence_sequence: outcome.sequence };
+          if (outcome.outcome !== "completed") continue;
+          sawCompleted = true;
+          // F7 因果链 2：completed 回执必须配套同一 sequence 的 verified-correct
+          // assessment 才满足（单一 typed evaluator 产物；本评估器不读真值）。
+          const verified = assessments.find(
+            (assessment) => assessment.verdict === "verified-correct" && assessment.evidence_sequence === outcome.sequence,
+          );
+          if (verified) return { satisfied: true, evidence_sequence: outcome.sequence };
         }
+        if (sawCompleted) return { satisfied: false, reason: "workspace_not_verified" };
         return input.workspace_outcomes.length
           ? { satisfied: false, reason: "workspace_not_completed" }
           : { satisfied: false, reason: "no_evidence" };

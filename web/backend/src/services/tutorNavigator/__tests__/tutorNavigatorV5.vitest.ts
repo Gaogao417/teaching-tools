@@ -149,15 +149,44 @@ function contextAt(session: NavigatorSessionV5): NavigatorContext {
 
 /** 已提交 mainline 旅程（vitest 进程内独立会话；R1 回执消费模式 + R3 模型裁决）。 */
 async function runMainline(sessionId: string): Promise<NavigatorSessionV5> {
-  // v3 主线（6 拍）：confirm → 四个 student_answer gate（GT-02..GT-05）→ confirm；
-  // v2 的标图 workspace 拍在教研修订后并入 beat 语义，主线不再含 operate 拍。
+  // v10 主线（6 拍）：confirm → GT-02/03（模型）→ BT-04（GT-04 workspace 拍：
+  // completed 回执 + verified-correct assessment）→ GT-05（模型）→ confirm。
   const session = startSession(sessionId, {
-    responses: [passFor("GT-02", "FN-06"), passFor("GT-03", "FN-10"), passFor("GT-04", "FN-19"), passFor("GT-05", "FN-23")],
+    responses: [passFor("GT-02", "FN-06"), passFor("GT-03", "FN-10"), passFor("GT-05", "FN-23")],
   });
   await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "vr-1" });
   await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "vr-2" });
   await session.acceptStudentIntent({ intent_kind: "submit_answer", text: "AD=CD=8/3、BD=10/3", client_request_id: "vr-3" });
-  await session.acceptStudentIntent({ intent_kind: "submit_answer", text: "△DAO∽△DBA，AO=16/5、DO=32/15、BO=6/5、OE=4/5", client_request_id: "vr-4" });
+  await session.acceptStudentIntent({
+    intent_kind: "submit_workspace_command",
+    client_request_id: "vr-4",
+    workspace_command: {
+      command_id: `SC-${sessionId}-bt04`,
+      surface: "geometry",
+      capability: "similarity.mark-known-segments",
+      target_ids: ["seg-AO", "seg-DO", "seg-BO", "seg-OE"],
+      expected_workspace_revision: 3,
+      client_command_id: `cc-${sessionId}-bt04`,
+    },
+  });
+  const intentSequence = [...session.events].reverse().find(
+    (event) => event.event_type === "student_intent_recorded",
+  )!.sequence;
+  session.appendExternalFacts(session.revision, [
+    {
+      event_type: "action_outcome_recorded",
+      payload: { action_id: `SC-${sessionId}-bt04`, action_kind: "student_command", outcome: "completed", resulting_revision: 4 },
+      occurred_at: new Date().toISOString(),
+      causation_sequence: intentSequence,
+    },
+  ]);
+  const receiptSequence = [...session.events].reverse().find(
+    (event) => event.event_type === "action_outcome_recorded",
+  )!.sequence;
+  session.consumeWorkspaceCommandOutcome({
+    command_id: `SC-${sessionId}-bt04`,
+    assessment: { verdict: "verified-correct", evidence_sequence: receiptSequence },
+  });
   await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "vr-5" });
   await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "vr-6" });
   return session;
@@ -197,7 +226,7 @@ describe("F5 navigator: plan index from real approved chain", () => {
     });
     expect(payload.tutor_plan_ref).toEqual({
       artifact_id: "TP-SMV-009",
-      version: "v10",
+      version: "v11",
       content_hash: imported.plan.content_hash,
     });
     expect(payload.protocol_refs.map((ref) => ref.artifact_id).sort()).toEqual(["PR-SMV-001", "PR-SMV-002"]);
@@ -207,12 +236,14 @@ describe("F5 navigator: plan index from real approved chain", () => {
     expect(plan.question.stem).toContain("翻折");
   });
 
-  it("beat gates reflect the approved protocol (GT-01/GT-06 confirmation; GT-02..05 student answers on fine facts)", () => {
+  it("beat gates reflect the approved protocol (GT-01/GT-06 confirmation; GT-02/03/05 student answers; GT-04 workspace command on the four lengths)", () => {
     expect(beat("BT-01").completion_evidence.evidence_kind).toBe("student_confirmation");
     expect(beat("BT-02").completion_evidence.evidence_kind).toBe("student_answer");
     expect(beat("BT-02").completion_evidence.gate?.graph_fact_id).toBe("FN-06");
     expect(beat("BT-03").completion_evidence.gate?.graph_fact_id).toBe("FN-10");
-    expect(beat("BT-04").completion_evidence.gate?.graph_fact_id).toBe("FN-19");
+    expect(beat("BT-04").completion_evidence.evidence_kind).toBe("workspace_command");
+    expect(beat("BT-04").completion_evidence.gate?.capability).toBe("similarity.mark-known-segments");
+    expect(beat("BT-04").participation).toBe("operate");
     expect(beat("BT-05").completion_evidence.gate?.graph_fact_id).toBe("FN-23");
     expect(beat("BT-06").completion_evidence.evidence_kind).toBe("student_confirmation");
     expect(beat("BT-03").pacing).toEqual({ wait_policy: "bounded_wait", max_wait_seconds: 180 });
@@ -410,10 +441,18 @@ describe("F5 navigator: gate evidence evaluator (model assessment is the only st
         workspace_outcomes: [{ capability: "similarity.mark-known-segments", outcome: "rejected", sequence: 5 }],
       }).satisfied,
     ).toBe(false);
+    // F7：completed 回执必须配套 verified-correct assessment 才满足。
     expect(
       evaluateGateEvidence(plan, workspaceBeat, {
         ...base,
         workspace_outcomes: [{ capability: "similarity.mark-known-segments", outcome: "completed", sequence: 5 }],
+      }),
+    ).toEqual({ satisfied: false, reason: "workspace_not_verified" });
+    expect(
+      evaluateGateEvidence(plan, workspaceBeat, {
+        ...base,
+        workspace_outcomes: [{ capability: "similarity.mark-known-segments", outcome: "completed", sequence: 5 }],
+        workspace_assessments: [{ verdict: "verified-correct", evidence_sequence: 5 }],
       }),
     ).toEqual({ satisfied: true, evidence_sequence: 5 });
   });
@@ -1121,7 +1160,7 @@ describe("F5 R3: ModelGateAdjudicatorV5 thin-boundary validation (unclear, never
       studentInput: { intent_kind: "submit_answer", text: "BE=1" },
     });
     expect(context.eligible_gates).toEqual([
-      { gate_id: "GT-04", criterion: beat("BT-04").completion_evidence.gate?.requirement, expected_fact: { fact_id: "FN-19", statement: plan.facts.get("FN-19")?.statement } },
+      { gate_id: "GT-04", criterion: beat("BT-04").completion_evidence.gate?.requirement },
     ]);
     expect(context.current_beat.beat_id).toBe("BT-04");
     expect(context.question.artifact_id).toBe("QT-SMV-001");

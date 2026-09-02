@@ -116,14 +116,21 @@ function taskContent(taskId: string): { question: { artifact_id: string; questio
 /** 学生安全响应体：统一三视图 + status（+ 首拍呈现事实的轮摘要）。 */
 function sessionPayload(
   orch: TutorSessionOrchestratorV5,
-  options: { turn?: { decision_kind?: string; to_beat_id?: string; failure?: { failure_class: string; message: string } } } = {},
+  options: {
+    turn?: { decision_kind?: string; to_beat_id?: string; failure?: { failure_class: string; message: string } };
+    promptLatex?: string;
+  } = {},
 ): Record<string, unknown> {
   const projection = orch.projectUnifiedViews();
+  // F7 Step 4/6：workspace 拍携带 active_action（ActiveActionProjector 产物；
+  // 构造未 committed/非 workspace 拍 → 不带——route 只序列化）。
+  const activeAction = options.promptLatex !== undefined ? orch.activeAction(options.promptLatex) : undefined;
   return {
     session_id: orch.sessionId,
     revision: orch.revision,
     completed: projection.status.completed,
     assessment: orch.assessmentMode,
+    ...(activeAction ? { active_action: activeAction } : {}),
     ...(options.turn ? { turn: options.turn } : {}),
     views: {
       student_workspace_view: projection.studentWorkspaceView,
@@ -187,7 +194,7 @@ export function createVNextTutorRoutes(): Router {
         ...(body.assessment ? { assessment: true } : {}),
       });
       const content = taskContent(vNextTaskIds()[0]);
-      res.status(201).json({ ...sessionPayload(orch), ...content });
+      res.status(201).json({ ...sessionPayload(orch, { promptLatex: content.question.stem }), ...content });
     } catch (error) {
       toHttpError(error, res);
     }
@@ -198,7 +205,7 @@ export function createVNextTutorRoutes(): Router {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const orch = TutorSessionOrchestratorV5.resume({ sessionId, canonicalRoot: canonicalRoot(), model: vNextGateModel() });
       const content = taskContent(vNextTaskIds()[0]);
-      res.json({ ...sessionPayload(orch), ...content });
+      res.json({ ...sessionPayload(orch, { promptLatex: content.question.stem }), ...content });
     } catch (error) {
       toHttpError(error, res);
     }
@@ -209,12 +216,14 @@ export function createVNextTutorRoutes(): Router {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = intentSchema.parse(req.body);
       const orch = TutorSessionOrchestratorV5.resume({ sessionId, canonicalRoot: canonicalRoot(), model: vNextGateModel() });
+      const stem = taskContent(vNextTaskIds()[0]).question.stem;
       const result = await orch.submitStudentIntent(
         { intent_kind: body.intent_kind, client_request_id: body.client_request_id, ...(body.text !== undefined ? { text: body.text } : {}) },
         { expectedRevision: body.expected_revision },
       );
       res.json(
         sessionPayload(orch, {
+          promptLatex: stem,
           turn: {
             ...(result.turn.decision ? { decision_kind: result.turn.decision.decision_kind, to_beat_id: result.turn.decision.to_beat_id } : {}),
             ...(result.turn.failure ? { failure: result.turn.failure } : {}),
@@ -226,11 +235,49 @@ export function createVNextTutorRoutes(): Router {
     }
   });
 
+  router.post("/tutor-sessions/:sessionId/action-evidence", (req, res) => {
+    try {
+      const sessionId = sessionIdParam.parse(req.params.sessionId);
+      const body = z
+        .object({
+          evidence: z.object({
+            actionId: z.string().min(1),
+            sourceStepId: z.string().min(1),
+            kind: z.string().min(1),
+            version: z.literal(1),
+            values: z.record(z.string(), z.string()),
+          }),
+          expected_revision: z.number().int().min(0),
+          client_command_id: z.string().regex(/^cc-[A-Za-z0-9._:-]{3,64}$/),
+        })
+        .parse(req.body);
+      const orch = TutorSessionOrchestratorV5.resume({ sessionId, canonicalRoot: canonicalRoot(), model: vNextGateModel() });
+      const stem = taskContent(vNextTaskIds()[0]).question.stem;
+      const submission = orch.submitActionEvidence(body.evidence, {
+        expectedRevision: body.expected_revision,
+        clientCommandId: body.client_command_id,
+      });
+      res.json({
+        ...sessionPayload(orch, {
+          promptLatex: stem,
+          turn: {
+            ...(submission.turn.decision ? { decision_kind: submission.turn.decision.decision_kind, to_beat_id: submission.turn.decision.to_beat_id } : {}),
+            ...(submission.turn.failure ? { failure: submission.turn.failure } : {}),
+          },
+        }),
+        action_submission: { status: submission.status, evaluation: submission.evaluation },
+      });
+    } catch (error) {
+      toHttpError(error, res);
+    }
+  });
+
   router.post("/tutor-sessions/:sessionId/workspace-commands", (req, res) => {
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = workspaceCommandSchema.parse(req.body);
       const orch = TutorSessionOrchestratorV5.resume({ sessionId, canonicalRoot: canonicalRoot(), model: vNextGateModel() });
+      const stemForAction = taskContent(vNextTaskIds()[0]).question.stem;
       const result = orch.submitWorkspaceCommand(
         {
           schema: "ai_teaching_student_workspace_command/v1",
@@ -247,6 +294,7 @@ export function createVNextTutorRoutes(): Router {
       );
       res.json(
         sessionPayload(orch, {
+          promptLatex: stemForAction,
           turn: {
             ...(result.turn.decision ? { decision_kind: result.turn.decision.decision_kind, to_beat_id: result.turn.decision.to_beat_id } : {}),
             ...(result.turn.failure ? { failure: result.turn.failure } : {}),

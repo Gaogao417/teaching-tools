@@ -35,6 +35,7 @@ import {
   boardEntryById,
   type WorkspacePresentationCatalogV5,
 } from "../tutorSession/WorkspacePresentationCatalogV5";
+import { constructionOutputId, resolveBeatConstructions } from "./WorkspaceActionAdjudication";
 
 export type PresentationPlanV5 = z.infer<typeof presentationPlanV1Schema>;
 
@@ -57,6 +58,9 @@ export interface PresenterInput {
   readonly hiddenEntryIds: ReadonlySet<string>;
   /** Assessment 显式模式（独立 session 入口；true=禁用教学工具）。 */
   readonly assessmentMode?: boolean;
+  /** 已 committed 的画布元素 id（构造呈现幂等过滤——重复呈现同一 Beat 时跳过
+   *  已构造输出，防 duplicate-output 整批拒绝；F7 因果链 1）。 */
+  readonly committedElementIds?: ReadonlySet<string>;
   /** 动作 id 序号（orchestrator 提供：同 Beat 内单调递增）。 */
   readonly actionSerial: number;
 }
@@ -187,6 +191,39 @@ export function realizePresentationPlanV5(input: PresenterInput): PresentationPl
         target_ids: revealTargets,
         reveal_scope: "step_narration",
       });
+    }
+  }
+
+  // ---- F7 因果链 1：Beat 绑定的 approved 构造资源（kind=workspace）→
+  // geometry.construct 纯构图动作（reveal_scope=none）。构造先于学生 Action
+  // 挂载（seg-AO/DO/BO/OE committed 前不挂载的锚定侧）；已 committed 的输出
+  // 幂等跳过（重复呈现同一 Beat 不产生 duplicate-output）。
+  const constructions = resolveBeatConstructions(
+    [...approvedResources],
+    beat,
+  );
+  if (constructions) {
+    let constructionIndex = 0;
+    for (const command of constructions) {
+      const outputId = constructionOutputId(command);
+      if (outputId && input.committedElementIds?.has(outputId)) continue;
+      // DomainCommand 基字段（commandId/actionId）由呈现层确定性补戳——artifact
+      // 只承载几何本质（type/引用/输出 id）；重复呈现经输出幂等过滤不会重发。
+      const stamped = {
+        ...command,
+        commandId: `cmd-${sessionId}-${serial}-K${constructionIndex}`,
+        actionId: `WSA-${sessionId}-${serial}-K${constructionIndex}`,
+      } as typeof command;
+      workspaceActions.push({
+        action_id: `WSA-${sessionId}-${serial}-K${constructionIndex}`,
+        decision_id: decision.decision_id,
+        surface: "geometry",
+        capability: "geometry.construct",
+        origin: "tutor",
+        command_payload: JSON.stringify(stamped),
+        reveal_scope: "none",
+      });
+      constructionIndex += 1;
     }
   }
   return finalizePlan(input, voiceActions, workspaceActions);
