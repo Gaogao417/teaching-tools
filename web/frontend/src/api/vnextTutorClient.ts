@@ -118,6 +118,6 @@ export const vnextApi = {
     request("POST", `/api/vnext/tutor-sessions/${encodeURIComponent(sessionId)}/action-evidence`, {
       evidence: input.evidence,
       expected_revision: input.expectedRevision,
-      client_command_id: nextId("fe-cc"),
+      client_command_id: nextId("cc-fe"),
     }),
 };

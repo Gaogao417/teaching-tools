@@ -563,14 +563,14 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
   const transport: ActionRuntimeTransport = useMemo(
     () => ({
       submitEvidence: async (request) => {
-        const activeSession = sessionIdRef.current;
-        if (!activeSession) throw new Error("tutor session 未启动");
         if (vnext) {
           // F7 方案 A：服务端真实 typed evaluator 结果透传；系统失败上抛绝不
           // 映射 wrong。rejected 返回 genuine wrong+diagnosis（applyEvaluation
           // 呈现错误反馈；暂态模式=零事件已由服务端保证）。
+          const vnextSession = vnextSessionRef.current;
+          if (!vnextSession) throw new Error("vNext 会话未启动");
           const evidence = request.evidence[request.evidence.length - 1] as { actionId: string; sourceStepId: string; kind: string; version: number; values?: Record<string, string> };
-          const response = await vnextApi.submitActionEvidence(activeSession, {
+          const response = await vnextApi.submitActionEvidence(vnextSession, {
             evidence: {
               actionId: evidence.actionId,
               sourceStepId: evidence.sourceStepId,
@@ -583,6 +583,8 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
           adoptVNext(response);
           return { ...response.action_submission.evaluation, revision: response.revision };
         }
+        const activeSession = sessionIdRef.current;
+        if (!activeSession) throw new Error("tutor session 未启动");
         const evidence = request.evidence[request.evidence.length - 1];
         const turn = await api.submitTutorTurn(activeSession, newTurnId(), revisionRef.current, {
           input_kind: "structured_action_evidence",
