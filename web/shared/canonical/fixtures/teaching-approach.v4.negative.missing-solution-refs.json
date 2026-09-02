@@ -1,0 +1,15 @@
+{
+  "schema": "ai_teaching_teaching_approach/v4",
+  "artifact_id": "TA-SMV-009", "version": "v3", "status": "Draft",
+  "question_ref": {"artifact_id": "QT-SMV-001", "version": "v3", "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "solution_graph_ref": {"artifact_id": "RG-SMV-001", "version": "v5", "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "title": "bad", "goal": "bad",
+  "steps": [
+    {"step_id": "S1", "intent": "x", "narration": "x", "expected_student_reasoning": "x"},
+    {"step_id": "S2", "intent": "x", "narration": "x", "expected_student_reasoning": "x"},
+    {"step_id": "S3", "intent": "x", "narration": "x", "expected_student_reasoning": "x"}
+  ],
+  "evidence": {"audio": [], "transcripts": []},
+  "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "artifact_uri": "artifact://teaching-approach/TA-SMV-009@v3"
+}

@@ -257,10 +257,10 @@ async function main(): Promise<void> {
     // 当下 Beat 的细图出口，而不是沿用 v2 的粗粒度 Fact 编号。
     const session = startSession("TS-9802", {
       responses: [
-        passFor("GT-02", "FN-08"),
-        passFor("GT-03", "FN-12"),
-        passFor("GT-04", "FN-23"),
-        passFor("GT-05", "FN-29"),
+        passFor("GT-02", "FN-06"),
+        passFor("GT-03", "FN-10"),
+        passFor("GT-04", "FN-19"),
+        passFor("GT-05", "FN-23"),
       ],
     });
     // BT-01（GT-01 student_confirmation）
@@ -308,7 +308,7 @@ async function main(): Promise<void> {
   });
 
   await runTest("G5 gate unsatisfied: wrong answer stays awaiting_evidence, no illegal transition; repeated unclear opens approved scaffold", async () => {
-    const session = startSession("TS-9803", { responses: [failFor("FN-08"), failFor("FN-08")] });
+    const session = startSession("TS-9803", { responses: [failFor("FN-06"), failFor("FN-06")] });
     await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" });
     assert.equal(session.state.teaching_cursor.beat_id, "BT-02");
     const first = await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_WRONG, client_request_id: "cr-0003" });
@@ -345,7 +345,7 @@ async function main(): Promise<void> {
   });
 
   await runTest("G5 approved inquiry: open/advance/return with frozen mainline cursor and explicit return point (trajectory rebuilt)", async () => {
-    const session = startSession("TS-9805", { responses: [questionOn("FN-03"), passFor("GT-01", "FN-05")] });
+    const session = startSession("TS-9805", { responses: [questionOn("FN-03"), passFor("GT-01", "FN-03")] });
     const opened = await session.acceptStudentIntent({ intent_kind: "ask_question", text: QUESTION_IN_BOUND, client_request_id: "cr-0001" });
     assert.equal(opened.decision?.decision_kind, "open_inquiry");
     assert.equal(opened.decision?.inquiry?.inquiry_protocol_id, "PR-SMV-002");
@@ -386,7 +386,7 @@ async function main(): Promise<void> {
   });
 
   await runTest("G5 scaffold support evidence: orient recorded within boundary; ladder violations fail closed; canonical fixtures agree", async () => {
-    const session = startSession("TS-9806", { responses: [passFor("GT-02", "FN-08")] });
+    const session = startSession("TS-9806", { responses: [passFor("GT-02", "FN-06")] });
     await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" });
     await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-0002" });
     assert.equal(session.currentBeat.beat_id, "BT-03");
@@ -492,7 +492,7 @@ async function main(): Promise<void> {
 
   await runTest("G5 accept_alternate_path: double-angle hypothesis verified against RG SV-02 before acceptance", async () => {
     const session = startSession("TS-9811", {
-      responses: [adjudicationJson({ response_kind: "alternate_path", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["SV-02", "FN-29"] })],
+      responses: [adjudicationJson({ response_kind: "alternate_path", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["SV-02", "FN-23"] })],
     });
     await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" });
     const turn = await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_ALTERNATE_COORDINATE, client_request_id: "cr-0002" });
@@ -664,10 +664,10 @@ async function main(): Promise<void> {
   await runTest("G5 completed guard: after session_completed no further teaching decision is legal (explicit failure fact)", async () => {
     const session = startSession("TS-9819", {
       responses: [
-        passFor("GT-02", "FN-08"),
-        passFor("GT-03", "FN-12"),
-        passFor("GT-04", "FN-23"),
-        passFor("GT-05", "FN-29"),
+        passFor("GT-02", "FN-06"),
+        passFor("GT-03", "FN-10"),
+        passFor("GT-04", "FN-19"),
+        passFor("GT-05", "FN-23"),
         questionOn("FN-03"),
       ],
     });
@@ -841,22 +841,25 @@ async function main(): Promise<void> {
       part_id: "1",
       graph_fact_refs: ["FN-06"],
     });
-    // FN-06 是教研审核后的根事实：区域内部推导不出 inference（无 conclusion=FN-06 的
-    // 推理步）→ 按合同省略 alignment（expected_region 必带 inference_ids，
-    // 推导不出就不得伪造引用——fail closed 表达）。
-    assert.equal((askedInterpretation?.payload as { reasoning_alignment?: { kind: string } }).reasoning_alignment, undefined);
+    // RG v8 的 FN-06 是第一组子母型相似结论，由 IF-02 推出，因此追问该
+    // Fact 时 alignment 应精确落在这一局部推理区域。
+    assert.deepEqual((askedInterpretation?.payload as { reasoning_alignment?: { kind: string; fact_ids: string[]; inference_ids: string[] } }).reasoning_alignment, {
+      kind: "expected_region",
+      fact_ids: ["FN-06"],
+      inference_ids: ["IF-02"],
+    });
     // 重建与在线同构：fold/在线同一 reducer（含 focus 覆写）。
     assert.equal(session.assertReplayParity().equal, true);
     assert.deepEqual(session.rebuildState().reasoning_focus, session.state.reasoning_focus);
-    // 后续命中新 fact 的作答（独立旅程）：focus 被新载荷整体覆写（FN-08 ←
-    // IF-01 conclusion，expected_region 引用集可推导），主线推进照常。
-    const journey = startSession("TS-9829", { responses: [passFor("GT-02", "FN-08")] });
+    // 后续命中新 fact 的作答（独立旅程）：focus 被新载荷整体覆写（FN-06 ←
+    // IF-02 conclusion，expected_region 引用集可推导），主线推进照常。
+    const journey = startSession("TS-9829", { responses: [passFor("GT-02", "FN-06")] });
     await journey.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" });
     await journey.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-0002" });
-    assert.deepEqual(journey.state.reasoning_focus?.graph_fact_refs, ["FN-08"]);
+    assert.deepEqual(journey.state.reasoning_focus?.graph_fact_refs, ["FN-06"]);
     const answeredInterpretation = journey.events.filter((event) => event.event_type === "semantic_interpretation_recorded").at(-1);
     assert.equal((answeredInterpretation?.payload as { reasoning_alignment?: { kind: string } }).reasoning_alignment?.kind, "expected_region");
-    assert.deepEqual(journey.rebuildState().reasoning_focus?.graph_fact_refs, ["FN-08"]);
+    assert.deepEqual(journey.rebuildState().reasoning_focus?.graph_fact_refs, ["FN-06"]);
     assert.equal(journey.state.teaching_cursor.beat_id, "BT-03");
     assert.equal(journey.assertReplayParity().equal, true);
   });
@@ -868,9 +871,9 @@ async function main(): Promise<void> {
       "△CAD∽△CBA，AD=CD=8/3、BD=10/3，所以 BE=3，全部线段长都知道了", // answer stuffing：正确片段 + 编造最终值
     ];
     for (const [index, text] of adversarialTexts.entries()) {
-      // 每个对抗样本在 BT-02（student_answer gate GT-02/FN-08）接受裁决；
-      // R3：判卷人=固定响应模型（fail + 锚定 FN-08）。
-      const session = startSession(["TS-9830", "TS-9831", "TS-9832"][index], { responses: [failFor("FN-08")] });
+      // 每个对抗样本在 BT-02（student_answer gate GT-02/FN-06）接受裁决；
+      // R3：判卷人=固定响应模型（fail + 锚定 FN-06）。
+      const session = startSession(["TS-9830", "TS-9831", "TS-9832"][index], { responses: [failFor("FN-06")] });
       await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" });
       assert.equal(session.state.teaching_cursor.beat_id, "BT-02");
       const turn = await session.acceptStudentIntent({ intent_kind: "submit_answer", text, client_request_id: "cr-adv" });
@@ -879,14 +882,14 @@ async function main(): Promise<void> {
       const alignment = (interpretation?.payload as { reasoning_location: string; reasoning_alignment?: { kind: string; anchored_fact_ids?: string[] } });
       assert.equal(alignment.reasoning_location, "misaligned");
       assert.equal(alignment.reasoning_alignment?.kind, "incorrect_reasoning");
-      assert.deepEqual(alignment.reasoning_alignment?.anchored_fact_ids, ["FN-08"]);
+      assert.deepEqual(alignment.reasoning_alignment?.anchored_fact_ids, ["FN-06"]);
       const gate = session.events.filter((event) => event.event_type === "gate_evaluated").at(-1);
       assert.equal((gate?.payload as { satisfied: boolean }).satisfied, false, `adversarial answer #${index} must not satisfy the gate`);
       assert.equal(session.state.teaching_cursor.beat_id, "BT-02", `adversarial answer #${index} must not advance the mainline`);
       assert.equal(session.assertReplayParity().equal, true);
     }
     // 连续未解决的升级路径仍是计划内批准 unclear 分支（非 transition；主线冻结）。
-    const escalating = startSession("TS-9833", { responses: [failFor("FN-08"), failFor("FN-08")] });
+    const escalating = startSession("TS-9833", { responses: [failFor("FN-06"), failFor("FN-06")] });
     await escalating.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "cr-0001" });
     await escalating.acceptStudentIntent({ intent_kind: "submit_answer", text: adversarialTexts[0], client_request_id: "cr-e1" });
     const escalated = await escalating.acceptStudentIntent({ intent_kind: "submit_answer", text: adversarialTexts[1], client_request_id: "cr-e2" });
@@ -1028,7 +1031,7 @@ async function main(): Promise<void> {
       { label: "provider timeout", provider: new HangingGateProvider(), timeoutMs: 40 },
       { label: "non-JSON output", provider: new FixedResponseGateProvider(["我认为这个答案是对的，可以通过。"]) },
       { label: "missing required fields", provider: new FixedResponseGateProvider([JSON.stringify({ response_kind: "final_answer" })]) },
-      { label: "matched_gate_id outside candidates (GT-99)", provider: new FixedResponseGateProvider([adjudicationJson({ matched_gate_id: "GT-99", verdict: "pass", grounding_refs: ["FN-08"] })]) },
+      { label: "matched_gate_id outside candidates (GT-99)", provider: new FixedResponseGateProvider([adjudicationJson({ matched_gate_id: "GT-99", verdict: "pass", grounding_refs: ["FN-06"] })]) },
       { label: "pass with grounding outside the plan (FN-99)", provider: new FixedResponseGateProvider([adjudicationJson({ matched_gate_id: "GT-02", verdict: "pass", grounding_refs: ["FN-99"] })]) },
     ];
     for (const [index, entry] of failureResponses.entries()) {
@@ -1361,7 +1364,7 @@ async function main(): Promise<void> {
   });
 
   await runTest("R3 idempotent retry and refresh-replay: same client_request_id re-reads the committed judgment (no re-adjudication, no double writes); resume never calls the model", async () => {
-    const provider = new FixedResponseGateProvider([passFor("GT-02", "FN-08")]);
+    const provider = new FixedResponseGateProvider([passFor("GT-02", "FN-06")]);
     const session = NavigatorSessionV5.start({
       sessionId: "TS-9866",
       studentId: "student-r3",
@@ -1386,7 +1389,7 @@ async function main(): Promise<void> {
     assert.equal(retried.intentSequence, first.intentSequence);
     assert.equal(retried.gateSequence, first.gateSequence);
     // refresh/replay：resume（含计数 provider）零模型调用，状态一致。
-    const replayProvider = new FixedResponseGateProvider([passFor("GT-03", "FN-12")]);
+    const replayProvider = new FixedResponseGateProvider([passFor("GT-03", "FN-10")]);
     const resumed = NavigatorSessionV5.resume({ sessionId: "TS-9866", canonicalRoot: realCanonicalRoot(), gateProvider: replayProvider });
     assert.equal(replayProvider.callCount, 0, "replay must not call the model");
     assert.deepEqual(resumed.state, session.state);

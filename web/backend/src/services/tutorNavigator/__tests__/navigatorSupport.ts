@@ -67,11 +67,11 @@ export const FIXTURES_DIR = path.resolve(process.cwd(), "../shared/canonical/fix
 // 确定性匹配文本；归一化 LCS ≥ 4 口径 = SemanticInterpreterV5）
 // --------------------------------------------------------------------------- //
 
-/** BT-02/BT-03 gate（GT-02→FN-08 相似判定；GT-03→FN-12 前置长度）的满足性作答。 */
+/** BT-02/BT-03 gate（GT-02→FN-06 相似判定；GT-03→FN-10 前置长度）的满足性作答。 */
 export const ANSWER_INVARIANTS_OK = "由两组角相等可得 △CAD∽△CBA，相似比为 2:3，所以 AD=CD=8/3、BD=10/3";
-/** BT-02/BT-03 gate 的不满足作答（与 FN-08/FN-12 无 ≥4 公共子串）。 */
+/** BT-02/BT-03 gate 的不满足作答（与 FN-06/FN-10 无 ≥4 公共子串）。 */
 export const ANSWER_INVARIANTS_WRONG = "BE 的长就是 99";
-/** BT-05 gate（GT-05→FN-29 goal fact "$BE=1$"）的满足性作答。 */
+/** BT-05 gate（GT-05→FN-23 goal fact "$BE=1$"）的满足性作答。 */
 export const ANSWER_GOAL_OK = "BE=1";
 /** BT-05 gate 的不满足作答。 */
 export const ANSWER_GOAL_WRONG = "BE=2";

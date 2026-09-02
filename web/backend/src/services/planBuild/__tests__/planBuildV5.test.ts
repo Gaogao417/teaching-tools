@@ -33,18 +33,18 @@ async function main(): Promise<void> {
 
   await runTest("v5 real artifact imports with fine graph and two resolutions", () => {
     assert.equal(imported.imported.plan.schema, "ai_teaching_tutor_plan_bundle/v5");
-    assert.equal(imported.imported.graph.facts.length, 36);
+    assert.equal(imported.imported.graph.facts.length, 29);
     assert.equal(imported.imported.graph.inferences.length, 26);
     assert.deepEqual(imported.imported.plan.resolution_profiles.map((profile) => profile.default_view), ["beat", "chunk"]);
     assert.ok(imported.imported.projection_hash.startsWith("sha256:"));
 
     const inferenceById = new Map(imported.imported.graph.inferences.map((inference) => [inference.inference_id, inference]));
-    assert.deepEqual(inferenceById.get("IF-01")?.premises, ["FN-06", "FN-07"]);
-    assert.equal(inferenceById.get("IF-01")?.conclusion, "FN-08");
-    assert.deepEqual(inferenceById.get("IF-08")?.premises, ["FN-16", "FN-17"]);
-    assert.equal(inferenceById.get("IF-08")?.conclusion, "FN-18");
-    assert.deepEqual(inferenceById.get("IF-16")?.premises, ["FN-24", "FN-25", "FN-26"]);
-    assert.equal(inferenceById.get("IF-16")?.conclusion, "FN-27");
+    assert.deepEqual(inferenceById.get("IF-01")?.premises, ["FN-01", "FN-02", "FN-03"]);
+    assert.equal(inferenceById.get("IF-01")?.conclusion, "FN-05");
+    assert.deepEqual(inferenceById.get("IF-08")?.premises, ["FN-02", "FN-04"]);
+    assert.equal(inferenceById.get("IF-08")?.conclusion, "FN-12");
+    assert.deepEqual(inferenceById.get("IF-16")?.premises, ["FN-18", "FN-17", "FN-19", "FN-16", "FN-12"]);
+    assert.equal(inferenceById.get("IF-16")?.conclusion, "FN-20");
     const inferenceText = JSON.stringify(imported.imported.graph.inferences);
     for (const forbidden of ["共线", "同向射线", "射线重合"]) assert.ok(!inferenceText.includes(forbidden));
 
@@ -69,11 +69,11 @@ async function main(): Promise<void> {
     const plan = structuredClone(imported.imported.plan) as TutorPlanV5Payload;
     const group = plan.chunks[1].presentation_groups.find((entry) => entry.group_id === "PG-04");
     assert.ok(group);
-    group.fine_refs.fact_ids = group.fine_refs.fact_ids.filter((factId) => factId !== "FN-13");
+    group.fine_refs.fact_ids = group.fine_refs.fact_ids.filter((factId) => factId !== "FN-16");
     plan.content_hash = canonicalHash(plan as unknown as Record<string, unknown>, "plan");
     const result = validateApprovedPlanV5(plan, inputs);
     assert.equal(result.ok, false);
-    assert.ok(!result.ok && result.errors.some((error) => error.includes("IF-13") && error.includes("premise FN-13")));
+    assert.ok(!result.ok && result.errors.some((error) => error.includes("IF-14") && error.includes("premise FN-16")));
   });
 
   await runTest("v5 rejects a learner resolution that keeps the goal but drops mainline reasoning", () => {
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     const plan = structuredClone(imported.imported.plan) as TutorPlanV5Payload;
     const protocol = structuredClone(imported.imported.protocols.get("PR-SMV-001")!);
     const target = protocol.beats.find((beat) => beat.beat_id === "BT-05")!;
-    target.solution_refs.fact_ids = target.solution_refs.fact_ids.filter((factId) => factId !== "FN-29");
+    target.solution_refs.fact_ids = target.solution_refs.fact_ids.filter((factId) => factId !== "FN-23");
     const protocols = new Map(imported.imported.protocols);
     protocols.set(protocol.protocol_id, protocol);
     const result = validateApprovedPlanV5(plan, { ...inputs, protocols });

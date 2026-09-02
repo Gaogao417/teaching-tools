@@ -79,7 +79,7 @@ describe("F6 StructuredModelGateProvider（生产模型接线：复用 Structure
       current_beat: { beat_id: "BT-03", protocol_id: "PR-SMV-001", purpose: "p", graph_fact_refs: ["FN-05"] },
       eligible_gates: [{ gate_id: "GT-03", criterion: "prove the first similarity and derive lengths" }],
       relevant_solution_context: [{ fact_id: "FN-05", statement: "△CAD∽△CBA，所以 AD=CD=8/3、BD=10/3", in_current_beat: true }],
-      alternate_routes: [{ variant_id: "SV-01", goal_fact_id: "FN-08", goal_statement: "BE=1" }],
+      alternate_routes: [{ variant_id: "SV-01", goal_fact_id: "FN-06", goal_statement: "BE=1" }],
       recent_dialogue: [],
       student_input: { intent_kind: "submit_answer", text: "由 △CAD∽△CBA 得 AD=CD=8/3、BD=10/3" },
     };
@@ -127,16 +127,16 @@ describe("F6 StructuredModelGateProvider（生产模型接线：复用 Structure
 });
 
 describe("F6 GoldenWorkspaceCatalog（F3 BE- 分配接口绑定 F4 materializer 真实产物）", () => {
-  it("装配确定性 + final 条目五级绑定（FN-29 → GT-05@BT-05@PR-SMV-001）", () => {
+  it("装配确定性 + final 条目五级绑定（FN-23 → GT-05@BT-05@PR-SMV-001）", () => {
     const first = buildGoldenWorkspaceCatalogV5(importedGoldenPlan());
     const second = buildGoldenWorkspaceCatalogV5(importedGoldenPlan());
     expect(first.catalog).toEqual(second.catalog);
     expect(first.catalog.taskId).toBe(GOLDEN_CATALOG_TASK_ID);
     expect(first.catalog.initialInteractionMode).toBe("construction");
     const finalEntries = first.catalog.boardEntries.filter((entry) => entry.revealRequirement === "final");
-    expect(finalEntries.map((entry) => entry.entryId)).toEqual(["BE-29"]);
+    expect(finalEntries.map((entry) => entry.entryId)).toEqual(["BE-23"]);
     expect(finalEntries[0].revealGate).toEqual({ gateId: "GT-05", beatId: "BT-05", protocolId: "PR-SMV-001" });
-    expect(first.factEntryIds.get("FN-29")).toBe("BE-29");
+    expect(first.factEntryIds.get("FN-23")).toBe("BE-23");
     // intermediate 条目禁带 revealGate；final 必带（F3 纪律）。
     for (const entry of first.catalog.boardEntries) {
       if (entry.revealRequirement === "intermediate") expect(entry.revealGate).toBeUndefined();
@@ -189,7 +189,7 @@ describe("F6 TutorPresenterV5（deterministic realize；Assessment 隔离；fina
     // voice 回退 purpose（approved-resource 优先路径由下方 BT-01 断言覆盖）。
     expect(first.voice_actions[0].source).toBe("deterministic-scaffold");
     expect(first.voice_actions[0].resource_ref).toBeUndefined();
-    expect(first.workspace_actions.map((action) => action.target_ids)).toEqual([["BE-06", "BE-07", "BE-08"]]);
+    expect(first.workspace_actions.map((action) => action.target_ids)).toEqual([["BE-01", "BE-02", "BE-03", "BE-05", "BE-06"]]);
     expect(first.workspace_actions[0].reveal_scope).toBe("step_narration");
     // BT-01（voice_seed RES1、仅 geometry 面）：approved 资源优先为 voice 文本。
     const opening = realizePresentationPlanV5({
@@ -277,7 +277,7 @@ describe("F6 vitest 进程下的 orchestrator 旅程闭环（kernel 真实提交
     const { FixedResponseGateProvider } = await import("../../tutorNavigator/ModelGateAdjudicatorV5");
     // v4 主线：BT-02..BT-05 均为 student_answer gate（模型裁决）；本旅程走到 BT-03。
     const provider = new FixedResponseGateProvider([
-      JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-02", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-08"], brief_reason: "ok" }),
+      JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-02", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-06"], brief_reason: "ok" }),
     ], "fixed-vitest-f6");
     const orch = TutorSessionOrchestratorV5.start({
       sessionId: "TS-8101", studentId: "student-f6", canonicalRoot: ROOT,

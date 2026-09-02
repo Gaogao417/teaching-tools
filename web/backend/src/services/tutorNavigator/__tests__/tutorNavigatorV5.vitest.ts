@@ -152,7 +152,7 @@ async function runMainline(sessionId: string): Promise<NavigatorSessionV5> {
   // v3 主线（6 拍）：confirm → 四个 student_answer gate（GT-02..GT-05）→ confirm；
   // v2 的标图 workspace 拍在教研修订后并入 beat 语义，主线不再含 operate 拍。
   const session = startSession(sessionId, {
-    responses: [passFor("GT-02", "FN-08"), passFor("GT-03", "FN-12"), passFor("GT-04", "FN-23"), passFor("GT-05", "FN-29")],
+    responses: [passFor("GT-02", "FN-06"), passFor("GT-03", "FN-10"), passFor("GT-04", "FN-19"), passFor("GT-05", "FN-23")],
   });
   await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "vr-1" });
   await session.acceptStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "vr-2" });
@@ -188,7 +188,7 @@ describe("F5 navigator: plan index from real approved chain", () => {
     expect(plan.mainline.protocol_id).toBe("PR-SMV-001");
     expect(plan.mainline.beat_order).toEqual(["BT-01", "BT-02", "BT-03", "BT-04", "BT-05", "BT-06"]);
     expect([...plan.branches.keys()]).toEqual(["PR-SMV-002"]);
-    expect(plan.facts.size).toBe(36);
+    expect(plan.facts.size).toBe(29);
     expect(plan.solution_variants.map((variant) => variant.variant_id)).toEqual(["SV-01", "SV-02"]);
     const payload = buildSessionStartedPayload(plan, {
       sessionId: "TS-9901",
@@ -197,7 +197,7 @@ describe("F5 navigator: plan index from real approved chain", () => {
     });
     expect(payload.tutor_plan_ref).toEqual({
       artifact_id: "TP-SMV-009",
-      version: "v4",
+      version: "v10",
       content_hash: imported.plan.content_hash,
     });
     expect(payload.protocol_refs.map((ref) => ref.artifact_id).sort()).toEqual(["PR-SMV-001", "PR-SMV-002"]);
@@ -210,10 +210,10 @@ describe("F5 navigator: plan index from real approved chain", () => {
   it("beat gates reflect the approved protocol (GT-01/GT-06 confirmation; GT-02..05 student answers on fine facts)", () => {
     expect(beat("BT-01").completion_evidence.evidence_kind).toBe("student_confirmation");
     expect(beat("BT-02").completion_evidence.evidence_kind).toBe("student_answer");
-    expect(beat("BT-02").completion_evidence.gate?.graph_fact_id).toBe("FN-08");
-    expect(beat("BT-03").completion_evidence.gate?.graph_fact_id).toBe("FN-12");
-    expect(beat("BT-04").completion_evidence.gate?.graph_fact_id).toBe("FN-23");
-    expect(beat("BT-05").completion_evidence.gate?.graph_fact_id).toBe("FN-29");
+    expect(beat("BT-02").completion_evidence.gate?.graph_fact_id).toBe("FN-06");
+    expect(beat("BT-03").completion_evidence.gate?.graph_fact_id).toBe("FN-10");
+    expect(beat("BT-04").completion_evidence.gate?.graph_fact_id).toBe("FN-19");
+    expect(beat("BT-05").completion_evidence.gate?.graph_fact_id).toBe("FN-23");
     expect(beat("BT-06").completion_evidence.evidence_kind).toBe("student_confirmation");
     expect(beat("BT-03").pacing).toEqual({ wait_policy: "bounded_wait", max_wait_seconds: 180 });
   });
@@ -226,28 +226,28 @@ describe("F5 navigator: model-adjudicated hypotheses (R3 merge; refutable)", () 
       beat: beat("BT-05"),
       intent_kind: "submit_answer",
       text: ANSWER_GOAL_OK,
-      adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-05", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-29"] }),
+      adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-05", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-23"] }),
       evidence_sequence: 6,
     });
     expect(hypothesis.reasoning_location).toBe("aligned");
-    expect(hypothesis.matched_fact_id).toBe("FN-29");
-    expect(hypothesis.grounding_refs).toEqual(["FN-29"]);
+    expect(hypothesis.matched_fact_id).toBe("FN-23");
+    expect(hypothesis.grounding_refs).toEqual(["FN-23"]);
     expect(hypothesis.gate_assessment).toEqual({ verdict: "pass", matched_gate_id: "GT-05", evidence_sequence: 6 });
     expect(hypothesis.in_bound).toBe(true);
   });
 
   it("unclear / wrong-value answers -> unknown or misaligned without a pass (threshold semantics moved to the model)", () => {
-    // 模型判 fail 且锚定 FN-29 → misaligned + incorrect_reasoning（对抗负例断言口径）。
+    // 模型判 fail 且锚定 FN-23 → misaligned + incorrect_reasoning（对抗负例断言口径）。
     const failed = hypothesisFromAdjudication({
       plan,
       beat: beat("BT-05"),
       intent_kind: "submit_answer",
       text: "BE=2",
-      adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-05", verdict: "fail", reasoning_location: "misaligned", grounding_refs: ["FN-29"] }),
+      adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-05", verdict: "fail", reasoning_location: "misaligned", grounding_refs: ["FN-23"] }),
       evidence_sequence: 6,
     });
     expect(failed.reasoning_location).toBe("misaligned");
-    expect(failed.reasoning_alignment).toEqual({ kind: "incorrect_reasoning", anchored_fact_ids: ["FN-29"] });
+    expect(failed.reasoning_alignment).toEqual({ kind: "incorrect_reasoning", anchored_fact_ids: ["FN-23"] });
     expect(failed.gate_assessment?.verdict).toBe("fail");
     // 模型判 unclear（如 "BE=2" 类不明确输入）→ unknown，不强迫分类。
     const unclear = hypothesisFromAdjudication({
@@ -269,24 +269,24 @@ describe("F5 navigator: model-adjudicated hypotheses (R3 merge; refutable)", () 
       beat: beat("BT-03"),
       intent_kind: "submit_answer",
       text: ANSWER_ALTERNATE_COORDINATE,
-      adjudication: adjudication({ response_kind: "alternate_path", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["SV-02", "FN-29"] }),
+      adjudication: adjudication({ response_kind: "alternate_path", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["SV-02", "FN-23"] }),
       evidence_sequence: 6,
     });
     expect(hypothesis.matched_variant_id).toBe("SV-02");
     expect(hypothesis.intent).toBe("submit_answer:alternate_route");
     expect(hypothesis.reasoning_alignment).toEqual({
       kind: "alternate_valid_path",
-      fact_ids: ["FN-29"],
-      inference_ids: ["IF-06", "IF-19", "IF-20", "IF-21", "IF-22", "IF-23", "IF-24", "IF-25", "IF-26"],
+      fact_ids: ["FN-23"],
+      inference_ids: ["IF-07", "IF-20", "IF-21", "IF-22", "IF-23", "IF-24", "IF-25", "IF-26"],
     });
-    expect(hypothesis.reasoning_focus?.graph_fact_refs).toEqual(["FN-29"]);
+    expect(hypothesis.reasoning_focus?.graph_fact_refs).toEqual(["FN-23"]);
     // RG 内核实不了的替代路线（grounding 不含任何 variant goal fact）：不采信。
     const unverified = hypothesisFromAdjudication({
       plan,
       beat: beat("BT-03"),
       intent_kind: "submit_answer",
       text: "我用了另一种方法",
-      adjudication: adjudication({ response_kind: "alternate_path", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["FN-08"] }),
+      adjudication: adjudication({ response_kind: "alternate_path", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["FN-06"] }),
       evidence_sequence: 6,
     });
     expect(unverified.matched_variant_id).toBeUndefined();
@@ -584,7 +584,7 @@ describe("F5 navigator: kernel journeys (vitest process)", () => {
   });
 
   it("approved inquiry freezes the mainline cursor and returns to the explicit return point", async () => {
-    const session = startSession("TS-9911", { responses: [questionOn("FN-03"), passFor("GT-01", "FN-05")] });
+    const session = startSession("TS-9911", { responses: [questionOn("FN-03"), passFor("GT-01", "FN-03")] });
     await session.acceptStudentIntent({ intent_kind: "ask_question", text: QUESTION_IN_BOUND, client_request_id: "vr-1" });
     expect(session.state.inquiry_cursor).not.toBeNull();
     const frozen = session.state.teaching_cursor.beat_id;
@@ -669,32 +669,32 @@ describe("F5 R1: five-class reasoning alignment (09:1118 naming, model-filled)",
       beat: beat("BT-03"),
       intent_kind: "submit_answer",
       text: ANSWER_INVARIANTS_OK,
-      adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-12"] }),
+      adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-10"] }),
       evidence_sequence: 4,
     });
     expect(hypothesis.reasoning_location).toBe("aligned");
     expect(hypothesis.reasoning_alignment).toEqual({
       kind: "expected_region",
-      fact_ids: ["FN-12"],
-      inference_ids: ["IF-05"],
+      fact_ids: ["FN-10"],
+      inference_ids: ["IF-06"],
     });
-    expect(hypothesis.reasoning_focus).toEqual({ part_id: "1", graph_fact_refs: ["FN-12"] });
+    expect(hypothesis.reasoning_focus).toEqual({ part_id: "1", graph_fact_refs: ["FN-10"] });
   });
 
   it("pass grounded on a fact outside the current beat -> expected_region limited to the aligned sub-region", () => {
-    // BT-04 上作答但模型 grounding 命中 BT-03 的 FN-12：引用集只含命中 fact。
+    // BT-04 上作答但模型 grounding 命中 BT-03 的 FN-10：引用集只含命中 fact。
     const hypothesis = hypothesisFromAdjudication({
       plan,
       beat: beat("BT-04"),
       intent_kind: "submit_answer",
       text: ANSWER_INVARIANTS_OK,
-      adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-04", verdict: "pass", reasoning_location: "partially_aligned", grounding_refs: ["FN-12"] }),
+      adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-04", verdict: "pass", reasoning_location: "partially_aligned", grounding_refs: ["FN-10"] }),
       evidence_sequence: 6,
     });
     expect(hypothesis.reasoning_location).toBe("partially_aligned");
     expect(hypothesis.reasoning_alignment?.kind).toBe("expected_region");
-    expect(hypothesis.reasoning_alignment?.fact_ids).toEqual(["FN-12"]);
-    expect(hypothesis.reasoning_focus?.graph_fact_refs).toEqual(["FN-12"]);
+    expect(hypothesis.reasoning_alignment?.fact_ids).toEqual(["FN-10"]);
+    expect(hypothesis.reasoning_focus?.graph_fact_refs).toEqual(["FN-10"]);
   });
 
   it("unclear -> unclear_reasoning (no ref sets); alternate route -> alternate_valid_path with variant refs", () => {
@@ -713,19 +713,19 @@ describe("F5 R1: five-class reasoning alignment (09:1118 naming, model-filled)",
       beat: beat("BT-03"),
       intent_kind: "submit_answer",
       text: ANSWER_ALTERNATE_COORDINATE,
-      adjudication: adjudication({ response_kind: "alternate_path", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["SV-02", "FN-29"] }),
+      adjudication: adjudication({ response_kind: "alternate_path", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["SV-02", "FN-23"] }),
       evidence_sequence: 4,
     });
     expect(alternate.reasoning_alignment).toEqual({
       kind: "alternate_valid_path",
-      fact_ids: ["FN-29"],
-      inference_ids: ["IF-06", "IF-19", "IF-20", "IF-21", "IF-22", "IF-23", "IF-24", "IF-25", "IF-26"],
+      fact_ids: ["FN-23"],
+      inference_ids: ["IF-07", "IF-20", "IF-21", "IF-22", "IF-23", "IF-24", "IF-25", "IF-26"],
     });
-    expect(alternate.reasoning_focus?.graph_fact_refs).toEqual(["FN-29"]);
+    expect(alternate.reasoning_focus?.graph_fact_refs).toEqual(["FN-23"]);
   });
 
   it("adversarial answers -> incorrect_reasoning anchored at the hijacked fact (negation / wrong value / stuffing)", () => {
-    // R3（4B 改写）：三个对抗样本的判卷人换固定响应模型（fail + 锚定 FN-08），
+    // R3（4B 改写）：三个对抗样本的判卷人换固定响应模型（fail + 锚定 FN-06），
     // 断言口径与 R1 相同——关键词正确但结论错误的作答不得满足 gate。
     for (const text of ["△CAD 与 △CBA 并不相似", "AD=CD=3", "△CAD∽△CBA，AD=CD=8/3、BD=10/3，所以 BE=3"]) {
       const hypothesis = hypothesisFromAdjudication({
@@ -733,11 +733,11 @@ describe("F5 R1: five-class reasoning alignment (09:1118 naming, model-filled)",
         beat: beat("BT-03"),
         intent_kind: "submit_answer",
         text,
-        adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "fail", reasoning_location: "misaligned", grounding_refs: ["FN-08"] }),
+        adjudication: adjudication({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "fail", reasoning_location: "misaligned", grounding_refs: ["FN-06"] }),
         evidence_sequence: 4,
       });
       expect(hypothesis.reasoning_location, text).toBe("misaligned");
-      expect(hypothesis.reasoning_alignment, text).toEqual({ kind: "incorrect_reasoning", anchored_fact_ids: ["FN-08"] });
+      expect(hypothesis.reasoning_alignment, text).toEqual({ kind: "incorrect_reasoning", anchored_fact_ids: ["FN-06"] });
       expect(hypothesis.gate_assessment?.verdict, text).toBe("fail");
     }
     // 无 canonical 锚点的 fail：降为 unclear（不伪造 anchored 引用）。
@@ -963,7 +963,7 @@ describe("F5 R1: consume-mode API (no self-reported outcomes)", () => {
   });
 
   it("rejected receipts do not satisfy the gate nor advance workspace_revision; recovery works", async () => {
-    const session = startSession("TS-9949", { responses: [passFor("GT-02", "FN-08")] });
+    const session = startSession("TS-9949", { responses: [passFor("GT-02", "FN-06")] });
     await session.acceptStudentIntent({ intent_kind: "confirm", client_request_id: "vr-1" });
     // v4：BT-02 是 student_answer gate——rejected 回执零决策、零 revision 旁路。
     const rejected = await submitWorkspaceCommandWithReceipt(session, { command_id: "SC-TS-9949-rej", outcome: "rejected" });
@@ -1082,10 +1082,10 @@ describe("F5 R3: ModelGateAdjudicatorV5 thin-boundary validation (unclear, never
 
   it("truncated trailing string in model JSON is repaired without rewriting content (real CLI observation)", () => {
     // 真模型实测（2026-08-31 第二轮 E03）：brief_reason 字符串未闭合即 `}` 收尾。
-    const truncated = '{"response_kind":"final_answer","matched_gate_id":"GT-04","verdict":"pass","reasoning_location":"aligned","grounding_refs":["FN-07","FN-08"],"brief_reason":"学生给出最终结论 BE=1，与 FN-08 一致且引用了蝶形相似路径（FN-07）。}';
+    const truncated = '{"response_kind":"final_answer","matched_gate_id":"GT-04","verdict":"pass","reasoning_location":"aligned","grounding_refs":["FN-07","FN-06"],"brief_reason":"学生给出最终结论 BE=1，与 FN-06 一致且引用了蝶形相似路径（FN-07）。}';
     const repaired = validateAdjudicationResponse(truncated, new Set(["GT-04"]), universe, "fixed");
     expect(repaired.verdict).toBe("pass");
-    expect(repaired.grounding_refs).toEqual(["FN-07", "FN-08"]);
+    expect(repaired.grounding_refs).toEqual(["FN-07", "FN-06"]);
     expect(repaired.matched_gate_id).toBe("GT-04");
     // 修复只补引号不重写内容：brief_reason 原文保留。
     expect(repaired.brief_reason).toContain("蝶形相似");
@@ -1121,12 +1121,12 @@ describe("F5 R3: ModelGateAdjudicatorV5 thin-boundary validation (unclear, never
       studentInput: { intent_kind: "submit_answer", text: "BE=1" },
     });
     expect(context.eligible_gates).toEqual([
-      { gate_id: "GT-04", criterion: beat("BT-04").completion_evidence.gate?.requirement, expected_fact: { fact_id: "FN-23", statement: plan.facts.get("FN-23")?.statement } },
+      { gate_id: "GT-04", criterion: beat("BT-04").completion_evidence.gate?.requirement, expected_fact: { fact_id: "FN-19", statement: plan.facts.get("FN-19")?.statement } },
     ]);
     expect(context.current_beat.beat_id).toBe("BT-04");
     expect(context.question.artifact_id).toBe("QT-SMV-001");
     expect(context.reasoning_focus).toEqual({ part_id: "1", graph_fact_refs: ["FN-06"] });
-    expect(context.relevant_solution_context.some((fact) => fact.fact_id === "FN-23" && fact.in_current_beat)).toBe(true);
+    expect(context.relevant_solution_context.some((fact) => fact.fact_id === "FN-19" && fact.in_current_beat)).toBe(true);
     expect(context.alternate_routes.map((route) => route.variant_id)).toEqual(["SV-01", "SV-02"]);
     // 无 gate 的 Beat（如纯 LocalInquiry）→ 候选集为空：模型只能在解释维度作答。
     const scaffoldContext = buildGateAdjudicationContext({

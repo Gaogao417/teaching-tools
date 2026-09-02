@@ -69,10 +69,10 @@ const FixedResponseGateProviderCtor = adjudicatorModule.FixedResponseGateProvide
 const { buildGoldenWorkspaceCatalogV5 } = catalogModule;
 
 const ROOT = realCanonicalRoot();
-const PASS_GT02 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-02", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-08"], brief_reason: "ok" });
-const PASS_GT03 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-12"], brief_reason: "ok" });
-const PASS_GT04 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-04", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-23"], brief_reason: "ok" });
-const PASS_GT05 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-05", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-29"], brief_reason: "ok" });
+const PASS_GT02 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-02", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-06"], brief_reason: "ok" });
+const PASS_GT03 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-03", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-10"], brief_reason: "ok" });
+const PASS_GT04 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-04", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-19"], brief_reason: "ok" });
+const PASS_GT05 = JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-05", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-23"], brief_reason: "ok" });
 
 function journeyProvider(): FixedResponseGateProvider {
   return new FixedResponseGateProviderCtor([PASS_GT02, PASS_GT03, PASS_GT04, PASS_GT05], "fixed-f6-journey");
@@ -205,7 +205,7 @@ async function main(): Promise<void> {
     assert.deepEqual(afterConfirm.participation, { kind: "answer_input", gate_id: "GT-02" });
     assert.equal(afterConfirm.studentWorkspaceView.revision, 1, "BT-02 fine-region reveal advanced workspace revision");
     const revealed = afterConfirm.studentWorkspaceView.solution_board.groups.flatMap((group) => group.entries.map((entry) => entry.entry_id));
-    assert.deepEqual(revealed, ["BE-06", "BE-07", "BE-08"], "BT-02 starts at the two reviewed angle facts and reveals only the AA child-mother similarity step");
+    assert.deepEqual(revealed, ["BE-01", "BE-02", "BE-03", "BE-05", "BE-06"], "BT-02 exposes the reviewed givens, compound angle fact, and first child-mother similarity conclusion");
     // BT-02..BT-05 自然语言 gate：固定响应模型逐 Beat 裁决。
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_INVARIANTS_OK, client_request_id: "cr-7002-2" });
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-03");
@@ -222,10 +222,10 @@ async function main(): Promise<void> {
     const afterAnswers = orch.projectUnifiedViews();
     const revealedEntries = afterAnswers.studentWorkspaceView.solution_board.groups.flatMap((group) => group.entries.map((entry) => entry.entry_id));
     assert.ok(
-      revealedEntries.includes("BE-08") && revealedEntries.includes("BE-18") && revealedEntries.includes("BE-27"),
+      revealedEntries.includes("BE-06") && revealedEntries.includes("BE-14") && revealedEntries.includes("BE-21"),
       `the two child-mother similarities and the butterfly similarity expose their structural conclusions: entries=${JSON.stringify(revealedEntries)} turn=${JSON.stringify(butterflyTurn)}`,
     );
-    assert.ok(!revealedEntries.includes("BE-29"), "final answer entry (FN-29) must NOT be revealed after leaving its bound Beat");
+    assert.ok(!revealedEntries.includes("BE-23"), "final answer entry (FN-23) must NOT be revealed after leaving its bound Beat");
     // BT-06 final confirm → complete_beat + session_completed + locked review。
     const finalTurn = await orch.submitStudentIntent({ intent_kind: "confirm", client_request_id: "cr-7002-6" });
     assert.equal(finalTurn.turn.decision?.decision_kind, "complete_beat");
@@ -248,7 +248,7 @@ async function main(): Promise<void> {
   await runTest("G6 inquiry: approved branch opens with frozen mainline + visible return checkpoint, returns explicitly", async () => {
     const provider = new FixedResponseGateProviderCtor([
       JSON.stringify({ response_kind: "question", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["FN-03"] }),
-      JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-01", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-05"] }),
+      JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-01", verdict: "pass", reasoning_location: "aligned", grounding_refs: ["FN-03"] }),
     ], "fixed-f6-inquiry");
     const orch = startOrchestrator("TS-7003", provider);
     const opened = await orch.submitStudentIntent({ intent_kind: "ask_question", text: QUESTION_IN_BOUND, client_request_id: "cr-7003-1" });
@@ -280,7 +280,7 @@ async function main(): Promise<void> {
 
   await runTest("G6 wrong answer: model fail -> no beat advance + tutor re-anchor presentation (F7 D-3)", async () => {
     const provider = new FixedResponseGateProviderCtor(
-      [JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-02", verdict: "fail", reasoning_location: "misaligned", grounding_refs: ["FN-08"], brief_reason: "wrong" })],
+      [JSON.stringify({ response_kind: "final_answer", matched_gate_id: "GT-02", verdict: "fail", reasoning_location: "misaligned", grounding_refs: ["FN-06"], brief_reason: "wrong" })],
       "fixed-f6-wrong",
     );
     const orch = startOrchestrator("TS-7050", provider);
@@ -553,8 +553,8 @@ async function main(): Promise<void> {
     const revealActions = eventsOf("TS-7024")
       .filter((event) => event.event_type === "workspace_surface_action_issued")
       .flatMap((event) => (event.payload as { target_ids?: string[] }).target_ids ?? []);
-    assert.ok(!revealActions.includes("BE-29"), "presenter never schedules the final entry before its gate is satisfied");
-    // 运行时再检（真实公开入口 executePresentationPlan）：对 BE-29 的 final reveal
+    assert.ok(!revealActions.includes("BE-23"), "presenter never schedules the final entry before its gate is satisfied");
+    // 运行时再检（真实公开入口 executePresentationPlan）：对 BE-23 的 final reveal
     // → F3 truth boundary 拒绝 + presentation_failed 事实。
     const decision = [...eventsOf("TS-7024")].reverse().find((event) => event.event_type === "policy_decision_made")!;
     const decisionPayload = decision.payload as { decision_id: string; protocol_id: string; beat_id: string };
@@ -563,7 +563,7 @@ async function main(): Promise<void> {
       session_id: "TS-7024", plan_id: "PPT-TS-7024-9001", decision_id: decisionPayload.decision_id,
       protocol_id: decisionPayload.protocol_id, beat_id: decisionPayload.beat_id,
       voice_actions: [{ action_id: "VA-TS-7024-9001", decision_id: decisionPayload.decision_id, text: "核验前的越界 reveal 尝试", source: "deterministic-scaffold" }],
-      workspace_actions: [{ action_id: "WSA-TS-7024-9001", decision_id: decisionPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-29"], reveal_scope: "final_result" as const }],
+      workspace_actions: [{ action_id: "WSA-TS-7024-9001", decision_id: decisionPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-23"], reveal_scope: "final_result" as const }],
     } as Parameters<typeof orch.executePresentationPlan>[0];
     const forced = orch.executePresentationPlan(forcedPlan, decision.sequence);
     assert.equal(forced.failure?.failure_class, "action_validation_rejected");
@@ -909,7 +909,7 @@ async function main(): Promise<void> {
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7036-5" });
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-06", "GT-05 satisfied at BT-05 and the cursor has left the binding beat");
     // 偏差精确场景（复核 P2-2 ①）：锚定当前 BT-06 execute_beat 决策强制 reveal
-    // final 条目 BE-29 —— gate 虽刚满足，Beat 腿已关闭（stale-gate）。
+    // final 条目 BE-23 —— gate 虽刚满足，Beat 腿已关闭（stale-gate）。
     const anchor = [...eventsOf("TS-7036")].reverse().find(
       (event) => event.event_type === "policy_decision_made"
         && (event.payload as { decision_kind: string }).decision_kind === "execute_beat"
@@ -921,7 +921,7 @@ async function main(): Promise<void> {
       session_id: "TS-7036", plan_id: "PPT-TS-7036-9001", decision_id: anchorPayload.decision_id,
       protocol_id: anchorPayload.protocol_id, beat_id: "BT-06",
       voice_actions: [],
-      workspace_actions: [{ action_id: "WSA-TS-7036-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-29"], reveal_scope: "final_result" as const }],
+      workspace_actions: [{ action_id: "WSA-TS-7036-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-23"], reveal_scope: "final_result" as const }],
     } as Parameters<typeof orch.executePresentationPlan>[0], anchor.sequence);
     assert.equal(forced.failure?.failure_class, "action_validation_rejected");
     assert.ok(
@@ -946,7 +946,7 @@ async function main(): Promise<void> {
     await orch.submitStudentIntent({ intent_kind: "submit_answer", text: ANSWER_GOAL_OK, client_request_id: "cr-7037-5" });
     assert.equal(orch.state.teaching_cursor.beat_id, "BT-06");
     // 复核 P2-2 ②：伪造回看窗口——重新锚定 BT-05 旧 execute_beat 决策强制 reveal
-    // BE-29 —— F3 决策-游标因果强制（wrong-beat）拒绝。
+    // BE-23 —— F3 决策-游标因果强制（wrong-beat）拒绝。
     const anchor = eventsOf("TS-7037").find(
       (event) => event.event_type === "policy_decision_made"
         && (event.payload as { decision_kind: string }).decision_kind === "execute_beat"
@@ -958,7 +958,7 @@ async function main(): Promise<void> {
       session_id: "TS-7037", plan_id: "PPT-TS-7037-9001", decision_id: anchorPayload.decision_id,
       protocol_id: anchorPayload.protocol_id, beat_id: "BT-05",
       voice_actions: [],
-      workspace_actions: [{ action_id: "WSA-TS-7037-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-29"], reveal_scope: "final_result" as const }],
+      workspace_actions: [{ action_id: "WSA-TS-7037-9001", decision_id: anchorPayload.decision_id, surface: "solution_board", capability: "board.reveal-entry", origin: "tutor" as const, target_ids: ["BE-23"], reveal_scope: "final_result" as const }],
     } as Parameters<typeof orch.executePresentationPlan>[0], anchor.sequence);
     assert.equal(forced.failure?.failure_class, "action_validation_rejected");
     assert.ok(

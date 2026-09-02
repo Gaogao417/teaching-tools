@@ -100,8 +100,9 @@ async function main(): Promise<void> {
     // +topic_question_binding/v1、+tutor_session_event/v4、
     // +tutor_policy_profile/v1；F1（2026-08-27）起 39：+core/v1 artifact_ref、
     // +planning/v4 reviewed_solution_graph/teaching_protocol/tutor_plan_bundle/v4、
-    // +runtime/v5 九合同、+state/v1 两状态、+view/v1 三视图）。
-    assert.equal(bySchema.size, 41);
+    // +runtime/v5 九合同、+state/v1 两状态、+view/v1 三视图；F4 remediation
+    // 起 42：+authoring/v4 teaching_approach）。
+    assert.equal(bySchema.size, 42);
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -222,6 +223,7 @@ async function main(): Promise<void> {
       "teachingApproachSchema",
       "teachingApproachV2Schema",
       "teachingApproachV3Schema",
+      "teachingApproachV4Schema",
       "approachSetSchema",
       "topicQuestionTeachingBindingSchema",
       "tutorPolicyProfileSchema",

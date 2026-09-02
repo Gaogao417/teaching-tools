@@ -90,7 +90,7 @@ class ScriptedGateModelPort implements StructuredModelPort {
     if (gate) {
       // 作答裁决：首个候选 gate pass + 锚定其 expected_fact（薄边界校验仍生效）。
       // scaffold 分支 gate 可能无 graph_fact_id（如 GT-01「指出卡住的细图事实」）
-      // ——回退锚定当前 Beat 首个细图事实（等价 node 链 passFor("GT-01","FN-05")）。
+      // ——回退锚定当前 Beat 首个细图事实（例如当前支架定位 Beat 的 FN-03）。
       const value = {
         response_kind: "final_answer",
         matched_gate_id: gate.gate_id,

@@ -1,0 +1,16 @@
+{
+  "schema": "ai_teaching_teaching_approach/v4",
+  "artifact_id": "TA-SMV-009", "version": "v3", "status": "Approved",
+  "question_ref": {"artifact_id": "QT-SMV-001", "version": "v3", "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "solution_graph_ref": {"artifact_id": "RG-SMV-001", "version": "v5", "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "title": "子母型与蝶形相似", "goal": "识别三组相似结构并求 BE", "entry_signal": "能从角关系识别相似",
+  "steps": [
+    {"step_id": "S1", "intent": "第一组子母型", "narration": "证明第一组相似。", "expected_student_reasoning": "指出两对角相等。", "solution_refs": {"fact_ids": ["FN-05"], "inference_ids": ["IF-02"]}},
+    {"step_id": "S2", "intent": "第二组子母型", "narration": "证明第二组相似。", "expected_student_reasoning": "识别对应三角形。", "solution_refs": {"fact_ids": ["FN-12"], "inference_ids": ["IF-09"]}},
+    {"step_id": "S3", "intent": "蝶形相似", "narration": "用蝶形相似收口。", "expected_student_reasoning": "由 SAS 判定并求 BE。", "solution_refs": {"fact_ids": ["FN-24"], "inference_ids": ["IF-18"]}}
+  ],
+  "evidence": {"audio": [], "transcripts": [], "polished": [], "manual_edit_notes": ["用户审核"]},
+  "approval": {"reviewer_id": "teacher", "approved_at": "2026-09-01T14:00:00Z"},
+  "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "artifact_uri": "artifact://teaching-approach/TA-SMV-009@v3"
+}

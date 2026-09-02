@@ -624,6 +624,35 @@ export const teachingApproachV3Schema = z
     }
   });
 
+export const teachingApproachV4Schema = z
+  .object({
+    schema: z.literal("ai_teaching_teaching_approach/v4"),
+    artifact_id: approachId,
+    version: versionTag,
+    status: statusEnum,
+    question_ref: z.object({ artifact_id: questionId, version: versionTag, content_hash: sha256, part_id: z.string().regex(/^[1-9][0-9]{0,2}$/).optional() }).strict(),
+    solution_graph_ref: z.object({ artifact_id: z.string().regex(/^RG-[A-Z0-9]+-[0-9]{3,}$/), version: versionTag, content_hash: sha256 }).strict(),
+    title: nonEmptyString,
+    goal: nonEmptyString,
+    entry_signal: z.string().optional(),
+    steps: z.array(z.object({
+      step_id: z.string().regex(/^S[0-9]{1,3}$/), intent: nonEmptyString,
+      narration: nonEmptyString, expected_student_reasoning: nonEmptyString,
+      accepted_alternatives: z.array(nonEmptyString).optional(), common_errors: z.array(nonEmptyString).optional(),
+      source_trace_refs: z.array(nonEmptyString).optional(),
+      solution_refs: z.object({
+        fact_ids: z.array(z.string().regex(/^FN-[0-9]{1,3}$/)).min(1),
+        inference_ids: z.array(z.string().regex(/^IF-[0-9]{1,3}$/)).min(1),
+      }).strict(),
+    }).strict()).min(3),
+    evidence: z.object({ audio: z.array(z.unknown()), transcripts: z.array(z.unknown()), polished: z.array(z.unknown()).optional(), manual_edit_notes: z.array(z.string()).optional() }).strict(),
+    approval: approval.optional(), superseded_by: supersededBy.optional(), content_hash: sha256,
+    artifact_uri: z.string().regex(/^artifact:\/\/teaching-approach\/[A-Za-z0-9-]+@v[0-9]+$/),
+  }).strict().superRefine((value, ctx) => {
+    if (value.status === "Approved" && !value.approval) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Approved requires approval" });
+    if (value.status === "Superseded" && !value.superseded_by) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "status=Superseded requires superseded_by" });
+  });
+
 // --------------------------------------------------------------------------- //
 // authoring/v1/approach-set（ADR-005 §5 跨小问组合层）
 // --------------------------------------------------------------------------- //

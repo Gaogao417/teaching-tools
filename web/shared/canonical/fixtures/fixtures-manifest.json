@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 127,
+  "fixture_count": 129,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -442,6 +442,22 @@
       "expect_schema": "valid",
       "expect_publication": "valid",
       "sha256": "sha256:5d33efb2ad06f2b5ee438aa0f2c15b9c12c05c91b45ba9099c4d1e704913055d"
+    },
+    {
+      "file": "teaching-approach.v4.negative.missing-solution-refs.json",
+      "object_schema": "ai_teaching_teaching_approach/v4",
+      "schema_ref": "../schemas/authoring/v4/teaching-approach.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:14c8515f8073d399924e6d9256651711a60d0dc9bbfc0f30c48fd64886ac296c"
+    },
+    {
+      "file": "teaching-approach.v4.positive.graph-aligned.json",
+      "object_schema": "ai_teaching_teaching_approach/v4",
+      "schema_ref": "../schemas/authoring/v4/teaching-approach.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "valid",
+      "sha256": "sha256:f01b61d04c1d5df3fffc608928c23c08a48199b4b7f7cffd4938a9c6bbc904a8"
     },
     {
       "file": "teaching-protocol.negative.bounded-wait-without-max.json",
