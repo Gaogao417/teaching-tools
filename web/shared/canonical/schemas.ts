@@ -3962,6 +3962,13 @@ export const presentationDeliveryV1Schema = z
     if (value.action.kind === "voice" && value.workspace_revision !== undefined) {
       add("kind=voice delivery must not carry workspace_revision");
     }
+    const nestedActionId =
+      value.action.kind === "voice"
+        ? value.action.voice_action?.action_id
+        : value.action.workspace_action?.action_id;
+    if (nestedActionId !== undefined && value.action_id !== nestedActionId) {
+      add("delivery action_id must equal the nested action action_id");
+    }
   });
 
 // runtime/v6/presentation-outcome：浏览器真实执行结果。presented 只表示物理呈现
@@ -4126,6 +4133,7 @@ const v6EventPayloadSchemas = {
 } as const;
 
 const V6_CAUSATION_REQUIRED = new Set([
+  "student_intent_recorded",
   "semantic_interpretation_recorded",
   "policy_decision_made",
   "gate_evaluated",

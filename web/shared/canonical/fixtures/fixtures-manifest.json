@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 151,
+  "fixture_count": 154,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -146,6 +146,14 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:3b0ce77094582c504e61cb823e21e0861438169d84499c0196a0680345ccd652"
+    },
+    {
+      "file": "presentation-delivery.negative.action-id-mismatch.json",
+      "object_schema": "ai_teaching_presentation_delivery/v1",
+      "schema_ref": "../schemas/runtime/v6/presentation-delivery.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:1c1bcc6325eb48d2273aed51b5742543d5d0a2e587184a96574cb984ad6dc8c5"
     },
     {
       "file": "presentation-delivery.negative.unknown-kind.json",
@@ -1132,6 +1140,14 @@
       "sha256": "sha256:6305292c47dfed5358d0076bae0e924658047bd647b14dac4df426c40caa574e"
     },
     {
+      "file": "tutor-session-event.v6.negative.intent-without-input-causation.json",
+      "object_schema": "ai_teaching_tutor_session_event/v6",
+      "schema_ref": "../schemas/runtime/v6/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e2f36587e8e5be323a710a48339ff253246bffc6f1ce8e6e2f9b8735be8ec8b1"
+    },
+    {
       "file": "tutor-session-event.v6.negative.outcome-for-voice-action-kind.json",
       "object_schema": "ai_teaching_tutor_session_event/v6",
       "schema_ref": "../schemas/runtime/v6/tutor-session-event.schema.json",
@@ -1154,6 +1170,14 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:d5fbc3258f520f4f1a1dc2dfec112fe6699302a7ecb4cdf8541446ddf055243b"
+    },
+    {
+      "file": "tutor-session-event.v6.positive.student-intent-with-input-causation.json",
+      "object_schema": "ai_teaching_tutor_session_event/v6",
+      "schema_ref": "../schemas/runtime/v6/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e9a5e4905a8f7b361e20c3ba68084f17725fd9a580defa7f6bdcd27b051313b0"
     },
     {
       "file": "voice-action.negative.approved-without-resource.json",
