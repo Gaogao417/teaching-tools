@@ -219,4 +219,28 @@ describe("F7 vNext 学生端 HTTP 合同", () => {
     });
     expect(badKind.status).toBe(400);
   });
+
+  it("F7 Step 2 task 绑定：start 显式 task_id；restore 题面按 session pin 解析（allowlist 重排不改变 restore 内容）", async () => {
+    // start 显式传 task_id（golden）。
+    const explicit = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-6", task_id: "goldenMinhangFold2020" });
+    expect(explicit.status).toBe(201);
+    expect(explicit.body.question.stem).toContain("翻折");
+    // availability 之外的 task_id → 400（route policy 前置）。
+    const notEnabled = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-7", task_id: "someLegacyTask" });
+    expect(notEnabled.status).toBe(400);
+    // allowlist 第一项换成别的任务（模拟环境重排/多任务）：restore 的题面仍来自
+    // 会话 pin 的 task_id，不受 allowlist 第一项影响（禁止读取 allowlist 第一项）。
+    const previousTasks = process.env.TUTOR_VNEXT_TASKS;
+    process.env.TUTOR_VNEXT_TASKS = "someOtherTask,goldenMinhangFold2020";
+    try {
+      const resumed = await call("GET", `/api/vnext/tutor-sessions/${explicit.body.session_id}`);
+      expect(resumed.status).toBe(200);
+      expect(resumed.body.question.artifact_id).toBe(explicit.body.question.artifact_id);
+      expect(resumed.body.question.stem).toBe(explicit.body.question.stem);
+      expect(resumed.body.geometry).toEqual(explicit.body.geometry);
+    } finally {
+      if (previousTasks === undefined) delete process.env.TUTOR_VNEXT_TASKS;
+      else process.env.TUTOR_VNEXT_TASKS = previousTasks;
+    }
+  });
 });

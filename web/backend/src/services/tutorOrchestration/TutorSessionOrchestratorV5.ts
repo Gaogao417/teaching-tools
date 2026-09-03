@@ -169,7 +169,7 @@ export class TutorSessionOrchestratorV5 {
   readonly assessmentMode: boolean;
   private readonly canonicalRoot: string;
   private readonly tpId: string;
-  private readonly taskId: string;
+  private readonly pinnedTaskId: string;
   private readonly scenarioId: string;
   private readonly model: OrchestratorModelInput;
   private readonly modelTimeoutMs: number | undefined;
@@ -196,7 +196,7 @@ export class TutorSessionOrchestratorV5 {
     this.assessmentMode = fields.assessment;
     this.canonicalRoot = fields.canonicalRoot;
     this.tpId = fields.tpId;
-    this.taskId = fields.taskId;
+    this.pinnedTaskId = fields.taskId;
     this.scenarioId = fields.scenarioId;
     this.model = fields.model;
     this.modelTimeoutMs = fields.modelTimeoutMs;
@@ -337,6 +337,14 @@ export class TutorSessionOrchestratorV5 {
 
   get plan(): NavigatorSessionV5["plan"] {
     return this.navigator.plan;
+  }
+
+  /**
+   * 会话 pin 的 task id（F7 Step 2：start 显式传入；resume 只读
+   * session_started.task_id——路由层据此解析题面，禁止读 allowlist 第一项）。
+   */
+  get taskId(): string {
+    return this.pinnedTaskId;
   }
 
   get events(): StoredV5Event[] {
@@ -658,7 +666,7 @@ export class TutorSessionOrchestratorV5 {
       catalog: this.golden.catalog,
       committedTutorCommands: workspaceRebuild.context.tutorCommands,
       workspaceRevision: workspaceRebuild.state.revision,
-      taskId: this.taskId,
+      taskId: this.pinnedTaskId,
       promptLatex,
     });
   }

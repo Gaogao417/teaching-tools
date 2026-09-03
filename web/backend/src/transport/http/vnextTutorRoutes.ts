@@ -21,16 +21,21 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import { buildNavigatorPlan } from "../../services/tutorNavigator/NavigatorPlanV5";
 import { pickTopicScenario } from "../../services/runtime/engines/topicPractice/scenarioBank";
 import type { TopicPracticeTaskId } from "../../../../shared/topicPractice";
-import { importApprovedPlanV5 } from "../../services/planBuild/v5/ImportApprovedPlanV5";
-import { buildGoldenWorkspaceCatalogV5 } from "../../services/tutorOrchestration/GoldenWorkspaceCatalog";
 import { TutorSessionEventStoreV5Error } from "../../services/tutorSession/TutorSessionEventV5";
 import { vNextGateModel } from "../../services/tutorOrchestration/VNextGateModelFactory";
 import { OrchestratorError, TutorSessionOrchestratorV5 } from "../../services/tutorOrchestration/TutorSessionOrchestratorV5";
+import {
+  TutorTaskBindingError,
+  TutorTaskBindingResolver,
+} from "../../services/tutorOrchestration/TutorTaskBindingResolver";
 
-const GOLDEN_TP_ID = "TP-SMV-009";
+/**
+ * F7 唯一 golden task（start 缺省值——显式 task_id 的向后兼容缺省，不是
+ * allowlist 第一项读取；绑定解析始终经 TutorTaskBindingResolver fail closed）。
+ */
+const GOLDEN_TASK_ID = "goldenMinhangFold2020";
 const sessionIdParam = z.string().regex(/^TS-[0-9]{4,}$/);
 const taskIdParam = z.string().min(1).max(64);
 const studentIdSchema = z.string().trim().min(1).max(64);
@@ -50,6 +55,7 @@ const intentKindEnum = z.enum([
 const startSchema = z.object({
   student_id: studentIdSchema,
   assessment: z.boolean().optional(),
+  task_id: taskIdParam.optional(),
 });
 
 const intentSchema = z.object({
@@ -78,6 +84,9 @@ const ERROR_STATUS: Record<string, number> = {
   MODEL_PIN_MISMATCH: 409,
   PLAN_IMPORT_FAILED: 503,
   NO_EXECUTABLE_DECISION: 409,
+  // F7 Step 2（spec §2.4 restore 409 集）：V6 client 恢复到 v5 会话——
+  // V6 路由接线（Step 3/4）后消费；V5 会话不迁移，UI 明示重新开始。
+  SESSION_VERSION_UNSUPPORTED: 409,
 };
 
 function canonicalRoot(): string {
@@ -94,22 +103,24 @@ function vNextTaskIds(): string[] {
     .filter(Boolean);
 }
 
-/** 静态题面（canonical 链 question + golden catalog 题图）：只读派生，不触会话。
- * 题图用 catalog.baseGeometry（与 workspace 命令 target 真源同源——segment-XX）。 */
-function taskContent(taskId: string): { question: { artifact_id: string; question_type: string; stem: string }; geometry: unknown } {
-  const imported = importApprovedPlanV5({ canonicalRoot: canonicalRoot(), anchored: true }, GOLDEN_TP_ID);
-  if (!imported.ok) {
-    throw new OrchestratorError("PLAN_IMPORT_FAILED", `approved plan import failed (fail closed): ${imported.errors.join("; ")}`);
-  }
-  const plan = buildNavigatorPlan(imported.imported);
-  const golden = buildGoldenWorkspaceCatalogV5(imported.imported);
+/**
+ * 静态题面（canonical 链 question + golden catalog 题图）：只读派生，不触会话。
+ * F7 Step 2：经 TutorTaskBindingResolver 按 task_id 解析（题图用
+ * binding.golden.catalog.baseGeometry——与 workspace 命令 target 真源同源）；
+ * 恢复路径以会话 pin 的 task_id（orch.taskId）解析，禁止读 allowlist 第一项。
+ */
+function taskContentFor(resolver: TutorTaskBindingResolver, taskId: string): { question: { artifact_id: string; question_type: string; stem: string }; geometry: unknown } {
+  const binding = resolver.resolveForRestore(taskId);
   return {
     question: {
-      artifact_id: plan.question.artifact_id,
-      question_type: plan.question.question_type,
-      stem: plan.question.stem,
+      artifact_id: binding.question.artifact_id,
+      question_type: binding.question.question_type,
+      stem: binding.question.stem,
     },
-    geometry: golden.catalog.baseGeometry ?? pickTopicScenario(taskId as TopicPracticeTaskId, 0).promptGeometry ?? null,
+    geometry:
+      binding.golden.catalog.baseGeometry ??
+      pickTopicScenario(taskId as TopicPracticeTaskId, 0).promptGeometry ??
+      null,
   };
 }
 
@@ -157,6 +168,13 @@ function toHttpError(error: unknown, res: { status: (code: number) => { json: (b
     res.status(404).json({ error: { code: "SESSION_NOT_FOUND", message: error.message } });
     return;
   }
+  if (error instanceof TutorTaskBindingError) {
+    // F7 Step 2：绑定解析 fail closed（unknown task 无 allowlist/默认回退；
+    // catalog pin 不符零事件零状态——409）。
+    const status = error.code === "UNKNOWN_TASK" ? 404 : error.code === "CATALOG_PIN_MISMATCH" ? 409 : 503;
+    res.status(status).json({ error: { code: error.code, message: error.message } });
+    return;
+  }
   if (error instanceof OrchestratorError) {
     // resume 对「空流（会话不存在）」与「链导入失败」共用 PLAN_IMPORT_FAILED——
     // HTTP 层按消息区分 404/503（不区分会把刷新死循环误报为服务故障）。
@@ -185,15 +203,25 @@ export function createVNextTutorRoutes(): Router {
   router.post("/tutor-sessions", async (req, res) => {
     try {
       const body = startSchema.parse(req.body);
+      // F7 Step 2：start 显式 task_id（缺省 golden 是唯一受支持任务的向后兼容
+      // 缺省，不是 allowlist 第一项）；必须先通过 route policy/availability。
+      const taskId = body.task_id ?? GOLDEN_TASK_ID;
+      if (!vNextTaskIds().includes(taskId)) {
+        res.status(400).json({ error: { code: "BAD_REQUEST", message: `task ${taskId} is not enabled for vNext (availability gate)` } });
+        return;
+      }
+      const resolver = new TutorTaskBindingResolver(canonicalRoot());
+      resolver.resolveForStart(taskId);
       const sessionId = nextSessionId();
       const orch = TutorSessionOrchestratorV5.start({
         sessionId,
         studentId: body.student_id,
         canonicalRoot: canonicalRoot(),
         model: vNextGateModel(),
+        taskId,
         ...(body.assessment ? { assessment: true } : {}),
       });
-      const content = taskContent(vNextTaskIds()[0]);
+      const content = taskContentFor(resolver, taskId);
       res.status(201).json({ ...sessionPayload(orch, { promptLatex: content.question.stem }), ...content });
     } catch (error) {
       toHttpError(error, res);
@@ -204,7 +232,8 @@ export function createVNextTutorRoutes(): Router {
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const orch = TutorSessionOrchestratorV5.resume({ sessionId, canonicalRoot: canonicalRoot(), model: vNextGateModel() });
-      const content = taskContent(vNextTaskIds()[0]);
+      // 题面按会话 pin 的 task_id 解析（session_started.task_id）——禁止 allowlist 第一项。
+      const content = taskContentFor(new TutorTaskBindingResolver(canonicalRoot()), orch.taskId);
       res.json({ ...sessionPayload(orch, { promptLatex: content.question.stem }), ...content });
     } catch (error) {
       toHttpError(error, res);
@@ -216,7 +245,7 @@ export function createVNextTutorRoutes(): Router {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = intentSchema.parse(req.body);
       const orch = TutorSessionOrchestratorV5.resume({ sessionId, canonicalRoot: canonicalRoot(), model: vNextGateModel() });
-      const stem = taskContent(vNextTaskIds()[0]).question.stem;
+      const stem = taskContentFor(new TutorTaskBindingResolver(canonicalRoot()), orch.taskId).question.stem;
       const result = await orch.submitStudentIntent(
         { intent_kind: body.intent_kind, client_request_id: body.client_request_id, ...(body.text !== undefined ? { text: body.text } : {}) },
         { expectedRevision: body.expected_revision },
@@ -252,7 +281,7 @@ export function createVNextTutorRoutes(): Router {
         })
         .parse(req.body);
       const orch = TutorSessionOrchestratorV5.resume({ sessionId, canonicalRoot: canonicalRoot(), model: vNextGateModel() });
-      const stem = taskContent(vNextTaskIds()[0]).question.stem;
+      const stem = taskContentFor(new TutorTaskBindingResolver(canonicalRoot()), orch.taskId).question.stem;
       const submission = orch.submitActionEvidence(body.evidence, {
         expectedRevision: body.expected_revision,
         clientCommandId: body.client_command_id,
@@ -277,7 +306,7 @@ export function createVNextTutorRoutes(): Router {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = workspaceCommandSchema.parse(req.body);
       const orch = TutorSessionOrchestratorV5.resume({ sessionId, canonicalRoot: canonicalRoot(), model: vNextGateModel() });
-      const stemForAction = taskContent(vNextTaskIds()[0]).question.stem;
+      const stemForAction = taskContentFor(new TutorTaskBindingResolver(canonicalRoot()), orch.taskId).question.stem;
       const result = orch.submitWorkspaceCommand(
         {
           schema: "ai_teaching_student_workspace_command/v1",
