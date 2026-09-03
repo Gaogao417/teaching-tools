@@ -1121,8 +1121,11 @@ function isStudentEvidenceEvent(event: StoredV5Event, evidenceKind: string): boo
   return false;
 }
 
-/** 从 committed 流重建 inquiryBeatId（与 commitDecisions 的内存推进同口径）。 */
-function reconstructInquiryBeatId(events: readonly StoredV5Event[]): string | undefined {
+/**
+ * 从 committed 流重建 inquiryBeatId（与 commitDecisions 的内存推进同口径）。
+ * F7 Step 3 起导出：NavigatorSessionV6 resume 复用同一重建（事件形状同 v5）。
+ */
+export function reconstructInquiryBeatId(events: readonly StoredV5Event[]): string | undefined {
   let inquiryBeatId: string | undefined;
   for (const event of events) {
     if (event.event_type !== "policy_decision_made") continue;

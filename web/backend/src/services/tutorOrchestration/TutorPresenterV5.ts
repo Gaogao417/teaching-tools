@@ -72,8 +72,11 @@ export class TutorPresenterError extends Error {
   }
 }
 
-/** final 条目五级绑定当前是否可授权（committed gate satisfied + cursor 仍绑定 Beat + 未终态）。 */
-function finalRevealCurrentlyAuthorized(
+/**
+ * final 条目五级绑定当前是否可授权（committed gate satisfied + cursor 仍绑定 Beat + 未终态）。
+ * F7 Step 3 起导出：TutorPresenterV6 复用同一预检（零第二授权真相）。
+ */
+export function finalRevealCurrentlyAuthorized(
   catalog: WorkspacePresentationCatalogV5,
   ledger: WorkspaceGateLedger,
   entryId: string,

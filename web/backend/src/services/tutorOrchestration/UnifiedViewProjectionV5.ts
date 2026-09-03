@@ -228,7 +228,12 @@ export function projectUnifiedViews(input: UnifiedProjectionInput): UnifiedProje
   // ---- mainline 受控状态 ----
   const pendingVoice = input.events.some(
     (event) => event.event_type === "voice_action_issued" && !hasOutcome(input.events, (event.payload as { action_id: string }).action_id),
-  );
+  )
+    // F7 Step 3（additive：v6 流适配——v5 流不含 presentation 事件，行为不变）：
+    // v6 词表无 voice_action_issued；pending voice = 已 delivered 未收 outcome。
+    || input.events.some(
+      (event) => isDeliveredVoice(event) && !hasPresentationOutcome(input.events, deliveredRefOf(event)),
+    );
   let mainline: CoachPanelViewV5["mainline"];
   if (state.completed) {
     mainline = { kind: "completed" };
@@ -300,6 +305,23 @@ export function projectUnifiedViews(input: UnifiedProjectionInput): UnifiedProje
         content: payload.text,
         ...(payload.beat_id !== undefined ? { beat_id: payload.beat_id } : {}),
       });
+      continue;
+    }
+    // F7 Step 3（additive）：v6 tutor 转录 = presentation_action_delivered(voice)
+    //（v5 流不含该事件类型，行为不变；文本回查 planned 序列）。
+    if (isDeliveredVoice(event)) {
+      const planned = indexPlannedVoiceActions(input.events).get(
+        `${(event.payload as { sequence_id: string }).sequence_id}`,
+      );
+      const voice = planned?.voices.get((event.payload as { ordinal: number }).ordinal);
+      if (voice) {
+        transcript.push({
+          turn_id: dialogueTurnId(input.sessionId, event.sequence),
+          role: "tutor",
+          content: voice.text,
+          ...(planned?.beatId !== undefined ? { beat_id: planned.beatId } : {}),
+        });
+      }
     }
   }
 
@@ -309,7 +331,9 @@ export function projectUnifiedViews(input: UnifiedProjectionInput): UnifiedProje
         : beat.completion_evidence.evidence_kind === "student_confirmation" ? "确认"
           : beat.completion_evidence.evidence_kind === "student_answer" ? "回答" : "继续";
 
-  const lastVoice = [...input.events].reverse().find((event) => event.event_type === "voice_action_issued");
+  const lastVoice = [...input.events]
+    .reverse()
+    .find((event) => event.event_type === "voice_action_issued" || isDeliveredVoice(event));
   const failure = classifyFailures(input.events);
 
   const coachPanelView: CoachPanelViewV5 = {
@@ -325,9 +349,11 @@ export function projectUnifiedViews(input: UnifiedProjectionInput): UnifiedProje
       focus_cue: beat.purpose,
       ...(waitingFor !== undefined ? { waiting_for: waitingFor } : {}),
     },
-    current_tutor_turn: lastVoice !== undefined ? (lastVoice.payload as { text: string }).text : undefined,
+    current_tutor_turn: lastVoice !== undefined ? (lastTutorVoiceText(input.events, lastVoice) ?? undefined) : undefined,
     assistance_available: state.completed !== true,
-    replay_available: input.events.some((event) => event.event_type === "voice_action_issued"),
+    replay_available: input.events.some(
+      (event) => event.event_type === "voice_action_issued" || isDeliveredVoice(event),
+    ),
     transcript,
   };
   if (coachPanelView.current_tutor_turn === undefined) {
@@ -371,6 +397,65 @@ function hasOutcome(events: readonly StoredV5Event[], actionId: string): boolean
       event.event_type === "action_outcome_recorded"
       && (event.payload as { action_id: string }).action_id === actionId,
   );
+}
+
+// --------------------------------------------------------------------------- //
+// F7 Step 3（additive v6 适配——v5 流不含 presentation 事件，以下分支对 v5 行为零影响；
+// 参数取结构宽型（event_type: string），v5/v6 StoredEvent 均可传入）
+// --------------------------------------------------------------------------- //
+
+interface AnyStoredEventShape {
+  event_type: string;
+  sequence: number;
+  payload: Record<string, unknown>;
+}
+
+function isDeliveredVoice(event: AnyStoredEventShape): boolean {
+  return event.event_type === "presentation_action_delivered"
+    && (event.payload as { kind?: string }).kind === "voice";
+}
+
+function deliveredRefOf(event: AnyStoredEventShape): { sequence_id: string; ordinal: number; action_id: string } {
+  return event.payload as { sequence_id: string; ordinal: number; action_id: string };
+}
+
+function hasPresentationOutcome(
+  events: readonly AnyStoredEventShape[],
+  ref: { sequence_id: string; ordinal: number; action_id: string },
+): boolean {
+  return events.some(
+    (event) =>
+      event.event_type === "presentation_action_outcome_recorded"
+      && (event.payload as typeof ref).sequence_id === ref.sequence_id
+      && (event.payload as typeof ref).ordinal === ref.ordinal
+      && (event.payload as typeof ref).action_id === ref.action_id,
+  );
+}
+
+/** planned 序列的 voice 文本索引（v6 tutor 转录回查；sequence_id → {beatId, voices}）。 */
+function indexPlannedVoiceActions(events: readonly AnyStoredEventShape[]): Map<string, { beatId?: string; voices: Map<number, { text: string }> }> {
+  const index = new Map<string, { beatId?: string; voices: Map<number, { text: string }> }>();
+  for (const event of events) {
+    if (event.event_type !== "presentation_sequence_planned") continue;
+    const payload = event.payload as {
+      sequence_id: string;
+      beat_id?: string;
+      actions: Array<{ ordinal: number; kind: string; voice_action?: { text: string } }>;
+    };
+    const voices = new Map<number, { text: string }>();
+    for (const action of payload.actions) {
+      if (action.kind === "voice" && action.voice_action) voices.set(action.ordinal, { text: action.voice_action.text });
+    }
+    index.set(payload.sequence_id, { beatId: payload.beat_id, voices });
+  }
+  return index;
+}
+
+/** 最近 tutor 轮文本（v5=voice_action_issued.text；v6=delivered(voice) 回查 planned）。 */
+function lastTutorVoiceText(events: readonly StoredV5Event[], event: AnyStoredEventShape): string | undefined {
+  if (event.event_type === "voice_action_issued") return (event.payload as { text: string }).text;
+  const ref = deliveredRefOf(event);
+  return indexPlannedVoiceActions(events).get(ref.sequence_id)?.voices.get(ref.ordinal)?.text;
 }
 
 /** 对话轮 id（view/v1 transcript turn_id 的 DT- 命名空间；确定性派生）。 */

@@ -47,8 +47,9 @@ export interface WorkspaceRebuildResult extends WorkspaceFold {
 /**
  * catalog pin 对账（R0 §4 resume 规则）：session_started 的 pin 与恢复方
  * catalog 重算值任一不符 → HASH_MISMATCH fail closed。
+ * F7 Step 3 起导出：rebuildWorkspaceRuntimeStateV6 复用同一对账（v5/v6 同口径）。
  */
-function reconcileWorkspaceCatalogPin(
+export function reconcileWorkspaceCatalogPin(
   sessionId: string,
   catalog: WorkspacePresentationCatalogV5,
   startedPayload: Record<string, unknown>,
