@@ -1,0 +1,16 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v6",
+  "session_id": "TS-4242",
+  "sequence": 17,
+  "state_revision": 8,
+  "occurred_at": "2026-09-03T10:00:00Z",
+  "event_type": "voice_action_issued",
+  "idempotency_key": "idem-20260903-0017",
+  "payload": {
+    "action_id": "VA-20260903-0001",
+    "decision_id": "TD-20260903-0001",
+    "text": "观察这两条边。",
+    "source": "approved-resource"
+  },
+  "causation_sequence": 13
+}

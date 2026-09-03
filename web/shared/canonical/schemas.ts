@@ -3808,6 +3808,402 @@ export const tutorSessionEventV5Schema = z
     }
   });
 
+// runtime/v6（F7 合同波，ADR-011，2026-09-03）：student-input、presentation-plan
+// v2（单一有序判别联合 actions[]，sequence_id 取代 plan_id）、presentation-delivery、
+// presentation-outcome、tutor-session-event v6。runtime/v5、state/v1 reader 保留；
+// V5 会话不迁移（SESSION_VERSION_UNSUPPORTED）。
+const presentationSequenceIdPattern = z.string().regex(/^PS-[0-9]{4,}$/);
+const presentationActionRefPattern = z.string().regex(/^(VA|WSA)-[A-Za-z0-9._:-]{4,}$/);
+const presentationFailureClassEnum = z.enum([
+  "validation_failure",
+  "capability_unsupported",
+  "illegal_target",
+  "stale_revision",
+  "truth_boundary_violation",
+  "provider_failure",
+  "timeout",
+  "internal_error",
+]);
+
+// runtime/v6/student-input：判别联合 utterance{channel,text} | control{command}。
+// 前端不提交 intent 标签（submit_answer/ask_question 等由后端解释器产生，
+// 落在 tutor-session-event/v6 student_intent_recorded）。
+const studentInputBody = z
+  .object({
+    kind: z.enum(["utterance", "control"]),
+    channel: z.enum(["mainline", "assistance"]).optional(),
+    text: nonEmptyString.optional(),
+    command: z
+      .enum([
+        "confirm",
+        "continue",
+        "request_scaffold",
+        "request_rephrase",
+        "barge_in",
+        "return_to_mainline",
+        "retry_recovery",
+      ])
+      .optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.kind === "utterance") {
+      if (value.channel === undefined) add("kind=utterance requires channel");
+      if (value.text === undefined) add("kind=utterance requires text");
+      if (value.command !== undefined) add("kind=utterance must not carry command");
+    } else {
+      if (value.command === undefined) add("kind=control requires command");
+      if (value.channel !== undefined) add("kind=control must not carry channel");
+      if (value.text !== undefined) add("kind=control must not carry text");
+    }
+  });
+
+export const studentInputV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_student_input/v1"),
+    session_id: sessionId,
+    expected_revision: z.number().int().min(0),
+    client_request_id: clientRequestIdPattern,
+    input: studentInputBody,
+  })
+  .strict();
+
+// ordinal==数组下标（0 起连续、唯一）——镜像强制（JSON Schema draft 2020-12
+// 无法表达数组索引依赖约束，PRDS schema description 写为规范文本）。
+const checkPresentationOrdinals = (
+  actions: readonly { ordinal: number }[],
+  ctx: z.RefinementCtx,
+): void => {
+  actions.forEach((action, index) => {
+    if (action.ordinal !== index) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `actions[${index}].ordinal must equal array index ${index} (contiguous from 0), got ${action.ordinal}`,
+      });
+    }
+  });
+};
+
+const presentationOrderedAction = z
+  .object({
+    ordinal: z.number().int().min(0),
+    kind: z.enum(["voice", "workspace"]),
+    voice_action: presentationVoiceItem.optional(),
+    workspace_action: presentationSurfaceItem.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.kind === "voice") {
+      if (value.voice_action === undefined) add("kind=voice requires voice_action");
+      if (value.workspace_action !== undefined) add("kind=voice must not carry workspace_action");
+    } else {
+      if (value.workspace_action === undefined) add("kind=workspace requires workspace_action");
+      if (value.voice_action !== undefined) add("kind=workspace must not carry voice_action");
+    }
+  });
+
+// runtime/v6/presentation-plan（marker v2）
+export const presentationPlanV2Schema = z
+  .object({
+    schema: z.literal("ai_teaching_presentation_plan/v2"),
+    session_id: sessionId,
+    sequence_id: presentationSequenceIdPattern,
+    decision_id: decisionIdPattern,
+    protocol_id: teachingProtocolId,
+    beat_id: beatIdPattern,
+    actions: z.array(presentationOrderedAction).min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => checkPresentationOrdinals(value.actions, ctx));
+
+// runtime/v6/presentation-delivery：队首交付载体。workspace action 必须先经
+// 服务端 validator/reducer 应用（workspace_revision 为应用回执），未应用不得交付。
+const presentationDeliveredAction = z
+  .object({
+    kind: z.enum(["voice", "workspace"]),
+    voice_action: presentationVoiceItem.optional(),
+    workspace_action: presentationSurfaceItem.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.kind === "voice") {
+      if (value.voice_action === undefined) add("kind=voice requires voice_action");
+      if (value.workspace_action !== undefined) add("kind=voice must not carry workspace_action");
+    } else {
+      if (value.workspace_action === undefined) add("kind=workspace requires workspace_action");
+      if (value.voice_action !== undefined) add("kind=workspace must not carry voice_action");
+    }
+  });
+
+export const presentationDeliveryV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_presentation_delivery/v1"),
+    session_id: sessionId,
+    sequence_id: presentationSequenceIdPattern,
+    ordinal: z.number().int().min(0),
+    action_id: presentationActionRefPattern,
+    action: presentationDeliveredAction,
+    session_revision: z.number().int().min(0),
+    workspace_revision: z.number().int().min(0).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.action.kind === "workspace" && value.workspace_revision === undefined) {
+      add("kind=workspace delivery requires workspace_revision (server-applied receipt)");
+    }
+    if (value.action.kind === "voice" && value.workspace_revision !== undefined) {
+      add("kind=voice delivery must not carry workspace_revision");
+    }
+  });
+
+// runtime/v6/presentation-outcome：浏览器真实执行结果。presented 只表示物理呈现
+// 完成，不创造权威语义状态；failed 停留当前 action（恢复经 control.retry_recovery）。
+export const presentationOutcomeV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_presentation_outcome/v1"),
+    session_id: sessionId,
+    sequence_id: presentationSequenceIdPattern,
+    ordinal: z.number().int().min(0),
+    action_id: presentationActionRefPattern,
+    outcome: z.enum(["presented", "interrupted", "failed"]),
+    failure_class: presentationFailureClassEnum.optional(),
+    message: z.string().optional(),
+    expected_revision: z.number().int().min(0),
+    client_request_id: clientRequestIdPattern,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.outcome === "failed" && value.failure_class === undefined) {
+      add("outcome=failed requires failure_class");
+    }
+    if (value.outcome !== "failed" && value.failure_class !== undefined) {
+      add(`outcome=${value.outcome} must not carry failure_class`);
+    }
+    if (value.outcome !== "failed" && value.message !== undefined) {
+      add(`outcome=${value.outcome} must not carry message`);
+    }
+  });
+
+// runtime/v6/tutor-session-event（marker v6）：presentation 家族 + student_input_recorded；
+// action_outcome_recorded 收窄为仅 student_command；移除 voice_action_issued/
+// workspace_surface_action_issued/presentation_failed。保留分支复用 v5 payload
+// 镜像（PRDS schema 中逐字节同 v5）。
+const v6StudentInputRecordedPayload = z
+  .object({
+    input: studentInputBody,
+    client_request_id: clientRequestIdPattern,
+  })
+  .strict();
+
+const v6PresentationSequencePlannedPayload = z
+  .object({
+    sequence_id: presentationSequenceIdPattern,
+    decision_id: decisionIdPattern,
+    protocol_id: teachingProtocolId,
+    beat_id: beatIdPattern,
+    actions: z.array(presentationOrderedAction).min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => checkPresentationOrdinals(value.actions, ctx));
+
+const v6PresentationActionRefPayload = z
+  .object({
+    sequence_id: presentationSequenceIdPattern,
+    ordinal: z.number().int().min(0),
+    action_id: presentationActionRefPattern,
+    kind: z.enum(["voice", "workspace"]),
+  })
+  .strict();
+
+const v6PresentationActionAppliedPayload = z
+  .object({
+    sequence_id: presentationSequenceIdPattern,
+    ordinal: z.number().int().min(0),
+    action_id: presentationActionRefPattern,
+    kind: z.enum(["voice", "workspace"]),
+    resulting_workspace_revision: z.number().int().min(0).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.kind === "workspace" && value.resulting_workspace_revision === undefined) {
+      add("kind=workspace requires resulting_workspace_revision");
+    }
+    if (value.kind === "voice" && value.resulting_workspace_revision !== undefined) {
+      add("kind=voice must not carry resulting_workspace_revision");
+    }
+  });
+
+const v6PresentationOutcomeRecordedPayload = z
+  .object({
+    sequence_id: presentationSequenceIdPattern,
+    ordinal: z.number().int().min(0),
+    action_id: presentationActionRefPattern,
+    kind: z.enum(["voice", "workspace"]),
+    outcome: z.enum(["presented", "interrupted", "failed"]),
+    failure_class: presentationFailureClassEnum.optional(),
+    message: z.string().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.outcome === "failed" && value.failure_class === undefined) {
+      add("outcome=failed requires failure_class");
+    }
+    if (value.outcome !== "failed" && value.failure_class !== undefined) {
+      add(`outcome=${value.outcome} must not carry failure_class`);
+    }
+    if (value.outcome !== "failed" && value.message !== undefined) {
+      add(`outcome=${value.outcome} must not carry message`);
+    }
+  });
+
+const v6PresentationSequenceSupersededPayload = z
+  .object({
+    sequence_id: presentationSequenceIdPattern,
+    reason: z.enum(["interrupted", "retry_recovery", "superseded_by_decision"]),
+    pending_ordinal: z.number().int().min(0).optional(),
+    pending_action_id: presentationActionRefPattern.optional(),
+  })
+  .strict();
+
+// v6 收窄：action_kind 仅 student_command（学生命令回执链，R0 §5 语义保留）。
+const v6ActionOutcomePayload = z
+  .object({
+    action_id: nonEmptyString,
+    action_kind: z.literal("student_command"),
+    outcome: z.enum(["completed", "rejected", "interrupted", "failed"]),
+    failure_class: presentationFailureClassEnum.optional(),
+    message: z.string().optional(),
+    resulting_revision: z.number().int().min(0).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.outcome === "failed" && value.failure_class === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "outcome=failed requires failure_class" });
+    }
+    if (value.outcome !== "failed" && value.failure_class !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `outcome=${value.outcome} must not carry failure_class`,
+      });
+    }
+  });
+
+const v6EventPayloadSchemas = {
+  session_started: v5SessionStartedPayload,
+  student_input_recorded: v6StudentInputRecordedPayload,
+  student_intent_recorded: v5StudentIntentRecordedPayload,
+  semantic_interpretation_recorded: v5SemanticInterpretationPayload,
+  policy_decision_made: v5PolicyDecisionPayload,
+  gate_evaluated: v5GateEvaluatedPayload,
+  presentation_sequence_planned: v6PresentationSequencePlannedPayload,
+  presentation_action_validated: v6PresentationActionRefPayload,
+  presentation_action_applied: v6PresentationActionAppliedPayload,
+  presentation_action_delivered: v6PresentationActionRefPayload,
+  presentation_action_outcome_recorded: v6PresentationOutcomeRecordedPayload,
+  presentation_sequence_superseded: v6PresentationSequenceSupersededPayload,
+  action_outcome_recorded: v6ActionOutcomePayload,
+  external_support_recorded: v5ExternalSupportPayload,
+  inquiry_opened: v5InquiryPayload,
+  inquiry_returned: v5InquiryPayload,
+  student_progressed: v5StudentProgressedPayload,
+  policy_failed: v5PolicyFailedPayload,
+  runtime_failure: v5RuntimeFailurePayload,
+  session_completed: v5SessionCompletedPayload,
+} as const;
+
+const V6_CAUSATION_REQUIRED = new Set([
+  "semantic_interpretation_recorded",
+  "policy_decision_made",
+  "gate_evaluated",
+  "presentation_sequence_planned",
+  "presentation_action_validated",
+  "presentation_action_applied",
+  "presentation_action_delivered",
+  "presentation_action_outcome_recorded",
+  "presentation_sequence_superseded",
+  "action_outcome_recorded",
+  "external_support_recorded",
+  "inquiry_opened",
+  "inquiry_returned",
+  "student_progressed",
+  "policy_failed",
+]);
+
+export const tutorSessionEventV6Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_session_event/v6"),
+    session_id: sessionId,
+    sequence: z.number().int().min(1),
+    state_revision: z.number().int().min(0),
+    occurred_at: isoDateTime,
+    event_type: z.enum([
+      "session_started",
+      "student_input_recorded",
+      "student_intent_recorded",
+      "semantic_interpretation_recorded",
+      "policy_decision_made",
+      "gate_evaluated",
+      "presentation_sequence_planned",
+      "presentation_action_validated",
+      "presentation_action_applied",
+      "presentation_action_delivered",
+      "presentation_action_outcome_recorded",
+      "presentation_sequence_superseded",
+      "action_outcome_recorded",
+      "external_support_recorded",
+      "inquiry_opened",
+      "inquiry_returned",
+      "student_progressed",
+      "policy_failed",
+      "runtime_failure",
+      "session_completed",
+    ]),
+    payload: z.record(z.unknown()),
+    causation_sequence: z.number().int().min(1).optional(),
+    idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const payloadSchema = v6EventPayloadSchemas[value.event_type as keyof typeof v6EventPayloadSchemas];
+    if (payloadSchema) {
+      const result = payloadSchema.safeParse(value.payload);
+      if (!result.success) {
+        for (const issue of result.error.issues) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+    } else {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `unknown event_type: ${value.event_type}`,
+      });
+    }
+    if (V6_CAUSATION_REQUIRED.has(value.event_type) && value.causation_sequence === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `event_type=${value.event_type} requires causation_sequence`,
+      });
+    }
+  });
+
 // state/v1/workspace-runtime-state
 export const workspaceRuntimeStateV1Schema = z
   .object({
@@ -3893,6 +4289,37 @@ export const tutorRuntimeStateV1Schema = z
       .optional(),
     workspace_revision: z.number().int().min(0),
     completed: z.boolean().optional(),
+  })
+  .strict();
+
+// state/v2/tutor-runtime-state（F7 ADR-011：v1 全字段逐字段保留 + presentation
+// cursor 三态。cursor 只以浏览器 outcome 推进；failed 停留当前 action，恢复经
+// control.retry_recovery 创建新 sequence。workspace-runtime-state 无 cursor，留在 state/v1。）
+const presentationCursorV2 = z.union([
+  z.object({ status: z.literal("idle") }).strict(),
+  z
+    .object({
+      status: z.literal("awaiting_browser"),
+      sequence_id: presentationSequenceIdPattern,
+      ordinal: z.number().int().min(0),
+      action_id: presentationActionRefPattern,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failed"),
+      sequence_id: presentationSequenceIdPattern,
+      ordinal: z.number().int().min(0),
+      action_id: presentationActionRefPattern,
+    })
+    .strict(),
+]);
+
+export const tutorRuntimeStateV2Schema = tutorRuntimeStateV1Schema
+  .omit({ schema: true })
+  .extend({
+    schema: z.literal("ai_teaching_tutor_runtime_state/v2"),
+    presentation_cursor: presentationCursorV2,
   })
   .strict();
 

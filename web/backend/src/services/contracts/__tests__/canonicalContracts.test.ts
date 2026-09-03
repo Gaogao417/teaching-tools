@@ -101,8 +101,11 @@ async function main(): Promise<void> {
     // +tutor_policy_profile/v1；F1（2026-08-27）起 39：+core/v1 artifact_ref、
     // +planning/v4 reviewed_solution_graph/teaching_protocol/tutor_plan_bundle/v4、
     // +runtime/v5 九合同、+state/v1 两状态、+view/v1 三视图；F4 remediation
-    // 起 42：+authoring/v4 teaching_approach）。
-    assert.equal(bySchema.size, 42);
+    // 起 42：+authoring/v4 teaching_approach；F7 runtime/v6 合同波（ADR-011，
+    // 2026-09-03）起 48：+runtime/v6 五合同（student_input、presentation_plan/v2、
+    // presentation_delivery、presentation_outcome、tutor_session_event/v6）、
+    // +state/v2 tutor_runtime_state）。
+    assert.equal(bySchema.size, 48);
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -249,8 +252,14 @@ async function main(): Promise<void> {
       "actionOutcomeV1Schema",
       "externalSupportEvidenceV1Schema",
       "presentationPlanV1Schema",
+      "studentInputV1Schema",
+      "presentationPlanV2Schema",
+      "presentationDeliveryV1Schema",
+      "presentationOutcomeV1Schema",
+      "tutorSessionEventV6Schema",
       "workspaceRuntimeStateV1Schema",
       "tutorRuntimeStateV1Schema",
+      "tutorRuntimeStateV2Schema",
       "studentWorkspaceViewV1Schema",
       "coachPanelViewV1Schema",
       "mainlineParticipationV1Schema",

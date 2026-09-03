@@ -1,0 +1,50 @@
+{
+  "schema": "ai_teaching_presentation_plan/v2",
+  "session_id": "TS-4242",
+  "sequence_id": "PS-0001",
+  "decision_id": "TD-20260903-0001",
+  "protocol_id": "PR-SMV-002",
+  "beat_id": "BT-03",
+  "actions": [
+    {
+      "ordinal": 0,
+      "kind": "workspace",
+      "workspace_action": {
+        "action_id": "WSA-20260903-0001",
+        "decision_id": "TD-20260903-0001",
+        "surface": "geometry",
+        "capability": "similarity.foreground-segment",
+        "origin": "tutor",
+        "target_ids": [
+          "segment-AD"
+        ],
+        "reveal_scope": "target_highlight"
+      }
+    },
+    {
+      "ordinal": 1,
+      "kind": "voice",
+      "voice_action": {
+        "action_id": "VA-20260903-0001",
+        "decision_id": "TD-20260903-0001",
+        "text": "我们先看这两个三角形公共的角。",
+        "source": "approved-resource",
+        "resource_ref": "RES2",
+        "interruptible": true,
+        "intent": "narrate"
+      }
+    },
+    {
+      "ordinal": 2,
+      "kind": "workspace",
+      "workspace_action": {
+        "action_id": "WSA-20260903-0002",
+        "decision_id": "TD-20260903-0001",
+        "surface": "solution_board",
+        "capability": "board.reveal-step",
+        "origin": "tutor",
+        "reveal_scope": "step_narration"
+      }
+    }
+  ]
+}

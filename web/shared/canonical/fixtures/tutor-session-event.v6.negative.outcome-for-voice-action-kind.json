@@ -1,0 +1,15 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v6",
+  "session_id": "TS-4242",
+  "sequence": 16,
+  "state_revision": 8,
+  "occurred_at": "2026-09-03T10:00:00Z",
+  "event_type": "action_outcome_recorded",
+  "idempotency_key": "idem-20260903-0016",
+  "payload": {
+    "action_id": "VA-20260903-0001",
+    "action_kind": "voice",
+    "outcome": "completed"
+  },
+  "causation_sequence": 15
+}

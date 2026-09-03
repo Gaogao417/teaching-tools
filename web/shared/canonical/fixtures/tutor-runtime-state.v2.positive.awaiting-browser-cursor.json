@@ -1,0 +1,57 @@
+{
+  "schema": "ai_teaching_tutor_runtime_state/v2",
+  "session_id": "TS-4242",
+  "state_revision": 8,
+  "pinned_plan": {
+    "tutor_plan_ref": {
+      "artifact_id": "TP-SMV-002",
+      "version": "v6",
+      "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "solution_graph_ref": {
+      "artifact_id": "RG-SMV-002",
+      "version": "v1",
+      "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "protocol_refs": [
+      {
+        "artifact_id": "PR-SMV-002",
+        "version": "v1",
+        "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ],
+    "policy_profile_snapshot": {
+      "profile_id": "PP-SMV-001",
+      "version": "v1",
+      "primary_provider": "deterministic-rules",
+      "fallback_provider": "safe-fallback",
+      "model_id": "none",
+      "prompt_version": "pv-1"
+    }
+  },
+  "teaching_cursor": {
+    "protocol_id": "PR-SMV-002",
+    "beat_id": "BT-03",
+    "gate_id": "GT-01",
+    "phase": "awaiting_evidence"
+  },
+  "inquiry_cursor": {
+    "inquiry_id": "IQ-20260827-0001",
+    "state": "supporting",
+    "return_beat_id": "BT-03"
+  },
+  "reasoning_focus": {
+    "part_id": "1",
+    "graph_fact_refs": [
+      "FN-03"
+    ]
+  },
+  "workspace_revision": 6,
+  "completed": false,
+  "presentation_cursor": {
+    "status": "awaiting_browser",
+    "sequence_id": "PS-0001",
+    "ordinal": 0,
+    "action_id": "WSA-20260903-0001"
+  }
+}

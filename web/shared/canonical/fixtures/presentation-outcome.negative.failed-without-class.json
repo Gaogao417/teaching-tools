@@ -1,0 +1,10 @@
+{
+  "schema": "ai_teaching_presentation_outcome/v1",
+  "session_id": "TS-4242",
+  "sequence_id": "PS-0001",
+  "ordinal": 1,
+  "action_id": "VA-20260903-0001",
+  "outcome": "failed",
+  "expected_revision": 7,
+  "client_request_id": "cri-20260903-0012"
+}

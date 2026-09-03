@@ -1,0 +1,17 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v6",
+  "session_id": "TS-4242",
+  "sequence": 11,
+  "state_revision": 7,
+  "occurred_at": "2026-09-03T10:00:00Z",
+  "event_type": "student_input_recorded",
+  "idempotency_key": "idem-20260903-0011",
+  "payload": {
+    "input": {
+      "kind": "utterance",
+      "channel": "mainline",
+      "text": "我觉得是 16 比 5"
+    },
+    "client_request_id": "cri-20260903-0001"
+  }
+}

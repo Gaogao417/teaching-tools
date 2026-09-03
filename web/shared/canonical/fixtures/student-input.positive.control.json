@@ -1,0 +1,10 @@
+{
+  "schema": "ai_teaching_student_input/v1",
+  "session_id": "TS-4242",
+  "expected_revision": 9,
+  "client_request_id": "cri-20260903-0002",
+  "input": {
+    "kind": "control",
+    "command": "retry_recovery"
+  }
+}
