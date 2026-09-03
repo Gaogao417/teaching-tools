@@ -46,8 +46,17 @@ export class TutorSessionKernelCore<S, C> {
     this.foldContext = foldContext;
   }
 
-  /** 启动会话（原子 pin + session_started），起步 state 经 verified rebuild。 */
+  /**
+   * 启动会话（原子 pin + session_started），起步 state 经 verified rebuild。
+   *
+   * fold context（V6 = session-pinned binding/registry/catalog pin 对账）在
+   * **持久化之前**解析（F7 Step 2 返工 P0-1）：解析抛错 ⇒ 零事件、零会话行——
+   * 「pin/绑定失败必须零事件、零状态」门禁不得依赖 start 后的 resume 兜底
+   * （那会留下已提交的 session_started 而接口返回失败）。pin 不可变，start
+   * 前置解析与 resume/append 侧重解析结果一致。
+   */
   static start<S, C>(codec: SessionKernelCodec<S, C>, input: StartSessionInput): TutorSessionKernelCore<S, C> {
+    codec.resolveFoldContext(input.sessionStarted as unknown as Record<string, unknown>);
     startSession(codec, input);
     return TutorSessionKernelCore.resume(codec, input.sessionId);
   }

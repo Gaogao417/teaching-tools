@@ -1,14 +1,15 @@
 /**
- * F7 Step 2：TutorTaskBindingResolver 门禁测试（真实 golden canonical root）。
+ * F7 Step 2 返工门禁测试：TutorTaskBindingResolver 的**完整 binding/pin 对账**
+ * （真实 golden canonical root）。
  *
- * 覆盖 PLAN.md Step 2 / spec §2.3 / P1.9：
- * - start 显式 task_id：golden 唯一解析（question/scenario/approved TutorPlan）；
- * - unknown task → fail closed（无 allowlist 第一项/默认题回退——task A 会话
- *   不得加载 task B/default）；
- * - restore 只读已 pin 的 session_started.task_id；
- * - session-pinned capability registry：由 pinned binding 确定性导出（authored
- *   基座 ∪ Board 条目 ∪ 主线 Beat 绑定构造资源输出）；workspace_catalog_pin
- *   对账不符 → CATALOG_PIN_MISMATCH（零事件、零状态变更）。
+ * 审核修复（Rework P0-2）：此前测试直接用假 TutorPlan ref 调 provider 并期待
+ * 成功——只证明了「task_id 能查到当前 binding」，没有证明 pin 对账。本套件
+ * 以 resolveForStart 得到的**真实 refs** 为基准构造 session_started payload：
+ * - 完整正例（TP/question/scenario/catalog 全对账）通过；
+ * - TP 版本/哈希漂移、question ref 漂移、scenario 漂移、catalog pin 缺失、
+ *   catalog hash 漂移全部 fail closed（artifact 升版后旧会话不得恢复到
+ *   「当前」Plan/registry）；
+ * - unknown task / 缺 task_id fail closed（无 allowlist/默认回退）。
  */
 import { describe, expect, it } from "vitest";
 
@@ -19,11 +20,42 @@ import {
   resolvableTaskIds,
 } from "../TutorTaskBindingResolver";
 import { workspaceCatalogPin } from "../../tutorSession/WorkspacePresentationCatalogV5";
+import type { V5SessionStartedPayload } from "../../tutorSession/TutorSessionEventV5";
 
 const resolver = new TutorTaskBindingResolver(realCanonicalRoot());
 const GOLDEN_TASK_ID = "goldenMinhangFold2020";
 
-describe("F7 Step 2 TutorTaskBindingResolver", () => {
+/** 以 resolveForStart 的真实 binding refs 为基准的完整 session_started payload。 */
+function goldenSessionStarted(overrides: {
+  tutorPlanRef?: { artifact_id: string; version: string; content_hash: string };
+  questionRef?: { artifact_id: string; version: string; content_hash: string };
+  scenarioId?: string;
+  omitCatalogPin?: boolean;
+  catalogHash?: string;
+}): Record<string, unknown> {
+  const binding = resolver.resolveForStart(GOLDEN_TASK_ID);
+  const payload: V5SessionStartedPayload = {
+    task_id: GOLDEN_TASK_ID,
+    scenario_id: overrides.scenarioId ?? binding.scenarioId,
+    question_ref: overrides.questionRef ?? { ...binding.plan.question_ref },
+    approach_set_ref: { ...binding.plan.approach_set_ref },
+    solution_graph_ref: { ...binding.plan.solution_graph_ref },
+    protocol_refs: [],
+    tutor_plan_ref: overrides.tutorPlanRef ?? { ...binding.plan.tutor_plan_ref },
+    initial_cursor: { protocol_id: binding.plan.mainline.protocol_id, beat_id: binding.plan.mainline.entry_beat_id },
+  };
+  const record: Record<string, unknown> = { ...payload };
+  if (!overrides.omitCatalogPin) {
+    const pin = workspaceCatalogPin(binding.golden.catalog);
+    record.workspace_catalog_pin = {
+      catalog_schema_version: pin.catalog_schema_version,
+      content_hash: overrides.catalogHash ?? pin.content_hash,
+    };
+  }
+  return record;
+}
+
+describe("F7 Step 2 TutorTaskBindingResolver（完整 pin 对账）", () => {
   it("resolvableTaskIds：F7 绑定表只含 golden task", () => {
     expect(resolvableTaskIds()).toEqual([GOLDEN_TASK_ID]);
   });
@@ -39,10 +71,10 @@ describe("F7 Step 2 TutorTaskBindingResolver", () => {
     expect(binding.plan.tutor_plan_ref.artifact_id).toBe("TP-SMV-009");
   });
 
-  it("unknown task fail closed：无 allowlist/默认回退（start 与 restore 同一纪律）", () => {
+  it("unknown task / 缺 task_id fail closed：无 allowlist/默认回退（start 与 restore 同一纪律）", () => {
     expect(() => resolver.resolveForStart("someLegacyTask")).toThrowError(TutorTaskBindingError);
-    expect(() => resolver.resolveForStart("someLegacyTask")).toThrowError(/no pinned task binding/);
-    expect(() => resolver.resolveForRestore("anotherTaskId")).toThrowError(TutorTaskBindingError);
+    expect(() => resolver.resolveForRestore("anotherTaskId")).toThrowError(/no pinned task binding/);
+    expect(() => resolver.v6RegistryProvider({})).toThrowError(/no pinned task_id/);
     try {
       resolver.resolveForStart("someLegacyTask");
       expect.unreachable("must throw");
@@ -55,56 +87,60 @@ describe("F7 Step 2 TutorTaskBindingResolver", () => {
     const fromStart = resolver.resolveForStart(GOLDEN_TASK_ID);
     const fromRestore = resolver.resolveForRestore(GOLDEN_TASK_ID);
     expect(fromRestore.tpId).toBe(fromStart.tpId);
-    expect(fromRestore.question.artifact_id).toBe(fromStart.question.artifact_id);
+    expect(fromRestore.plan.tutor_plan_ref.content_hash).toBe(fromStart.plan.tutor_plan_ref.content_hash);
     expect(fromRestore.golden.catalog.canonicalPathEntryIds).toEqual(fromStart.golden.catalog.canonicalPathEntryIds);
   });
 
-  it("session-pinned registry：tutor 能力面 + authored 基座/Board/构造输出 target 宇宙", () => {
-    const registry = resolver.v6RegistryProvider({
-      task_id: GOLDEN_TASK_ID,
-      tutor_plan_ref: { artifact_id: "TP-SMV-009", version: "v2", content_hash: "sha256:x" },
-    });
-    // tutor 能力面（F3 静态表的 tutor-origin 子集）。
+  it("完整正例：真实 TP/question/scenario refs + 正确 catalog pin 全对账通过", () => {
+    const registry = resolver.v6RegistryProvider(goldenSessionStarted({}));
     expect(registry.capabilities.get("geometry.construct")).toMatchObject({ surface: "geometry", origin: "tutor" });
     expect(registry.capabilities.get("board.reveal-entry")).toMatchObject({ surface: "solution_board", origin: "tutor" });
     expect(registry.capabilities.get("geometry.draft")).toBeUndefined();
-    // authored 基座元素 + Board BE- 条目。
     expect(registry.targetUniverse.has("segment-AB")).toBe(true);
     expect([...registry.targetUniverse].some((id) => /^BE-\d+$/.test(id))).toBe(true);
-    // 主线 Beat 绑定构造资源输出（RG 辅助构造 line-*/pt-*）。
     const declaredOutputs = [...registry.targetUniverse].filter((id) => id.startsWith("line-") || id.startsWith("pt-"));
     expect(declaredOutputs.length).toBeGreaterThan(0);
   });
 
-  it("registry provider：catalog pin 不符 → fail closed（零事件、零状态变更）", () => {
-    expect(() =>
-      resolver.v6RegistryProvider({
-        task_id: GOLDEN_TASK_ID,
-        workspace_catalog_pin: { catalog_schema_version: 5, content_hash: "sha256:tampered" },
-      }),
-    ).toThrowError(TutorTaskBindingError);
+  it("TP pin 漂移 fail closed：版本漂移与哈希漂移均拒绝（artifact 升版不得漂移旧会话）", () => {
+    const binding = resolver.resolveForStart(GOLDEN_TASK_ID);
+    const versionDrift = goldenSessionStarted({
+      tutorPlanRef: { artifact_id: "TP-SMV-009", version: "v3", content_hash: binding.plan.tutor_plan_ref.content_hash },
+    });
+    expect(() => resolver.v6RegistryProvider(versionDrift)).toThrowError(/PIN_MISMATCH|tutor_plan_ref/);
     try {
-      resolver.v6RegistryProvider({
-        task_id: GOLDEN_TASK_ID,
-        workspace_catalog_pin: { catalog_schema_version: 5, content_hash: "sha256:tampered" },
-      });
+      resolver.v6RegistryProvider(versionDrift);
+      expect.unreachable("must throw");
+    } catch (error) {
+      expect((error as TutorTaskBindingError).code).toBe("PIN_MISMATCH");
+    }
+    const hashDrift = goldenSessionStarted({
+      tutorPlanRef: { artifact_id: "TP-SMV-009", version: binding.plan.tutor_plan_ref.version, content_hash: "sha256:tampered-plan" },
+    });
+    expect(() => resolver.v6RegistryProvider(hashDrift)).toThrowError(/PIN_MISMATCH|tutor_plan_ref/);
+  });
+
+  it("question/scenario pin 漂移 fail closed", () => {
+    const binding = resolver.resolveForStart(GOLDEN_TASK_ID);
+    const questionDrift = goldenSessionStarted({
+      questionRef: { ...binding.plan.question_ref, content_hash: "sha256:tampered-question" },
+    });
+    expect(() => resolver.v6RegistryProvider(questionDrift)).toThrowError(/PIN_MISMATCH|question_ref/);
+    const scenarioDrift = goldenSessionStarted({ scenarioId: "golden-similarity-mvp-001:QT-SMV-999" });
+    expect(() => resolver.v6RegistryProvider(scenarioDrift)).toThrowError(/PIN_MISMATCH|scenario_id/);
+  });
+
+  it("catalog pin 缺失/漂移 fail closed：v6 会话必须 pin catalog", () => {
+    const missing = goldenSessionStarted({ omitCatalogPin: true });
+    expect(() => resolver.v6RegistryProvider(missing)).toThrowError(/CATALOG_PIN_MISMATCH|no workspace_catalog_pin/);
+    try {
+      resolver.v6RegistryProvider(missing);
       expect.unreachable("must throw");
     } catch (error) {
       expect((error as TutorTaskBindingError).code).toBe("CATALOG_PIN_MISMATCH");
     }
-  });
-
-  it("registry provider：缺 pinned task_id → fail closed", () => {
-    expect(() => resolver.v6RegistryProvider({})).toThrowError(TutorTaskBindingError);
-  });
-
-  it("registry provider：携带正确 catalog pin 时通过对账", () => {
-    const binding = resolver.resolveForStart(GOLDEN_TASK_ID);
-    const pin = workspaceCatalogPin(binding.golden.catalog);
-    const registry = resolver.v6RegistryProvider({
-      task_id: GOLDEN_TASK_ID,
-      workspace_catalog_pin: { catalog_schema_version: pin.catalog_schema_version, content_hash: pin.content_hash },
-    });
-    expect(registry.capabilities.size).toBeGreaterThan(0);
+    expect(() => resolver.v6RegistryProvider(goldenSessionStarted({ catalogHash: "sha256:tampered" }))).toThrowError(
+      /CATALOG_PIN_MISMATCH|does not match the pinned task binding catalog/,
+    );
   });
 });

@@ -88,6 +88,11 @@ export type V6FoldContext = import("./SessionPinnedCapabilityRegistry").SessionP
 /**
  * fold 血缘索引：已提交学生输入链 + student 命令 + presentation 序列状态。
  * 只服务于跨事件完整性检查，不是 canonical state 的一部分。
+ *
+ * 纯度纪律（F7 Step 2 返工 P1-1）：lineage 一律**不可变复制**（withLineage /
+ * withSequenceUpdated 每次返回新对象，绝不原地 .add()）——`State = f(events)`
+ * 要求对同一旧 state 重放同一事件幂等、分支归约互不污染；可变集合挂在
+ * WeakMap 血缘里原地修改会让第一次归约偷偷改写旧 state 的隐藏记忆。
  */
 interface V6FoldLineage {
   readonly studentInputs: ReadonlyMap<number, { clientRequestId: string }>;
@@ -101,10 +106,48 @@ interface V6FoldLineage {
 
 interface V6PlannedSequenceLineage {
   readonly actions: readonly { ordinal: number; kind: "voice" | "workspace"; actionId: string }[];
+  readonly superseded: boolean;
+  readonly presentedOrdinals: ReadonlySet<number>;
+  readonly validatedOrdinals: ReadonlySet<number>;
+  readonly appliedOrdinals: ReadonlySet<number>;
+}
+
+/** withSequenceUpdated 的可变工作副本（复制后本地修改，落回只读形状）。 */
+interface V6WritablePlannedSequence {
   superseded: boolean;
-  readonly presentedOrdinals: Set<number>;
-  readonly validatedOrdinals: Set<number>;
-  readonly appliedOrdinals: Set<number>;
+  presentedOrdinals: Set<number>;
+  validatedOrdinals: Set<number>;
+  appliedOrdinals: Set<number>;
+}
+
+/** presentation 序列的不可变更新（调用方已校验 sequence 存在）。 */
+function withSequenceUpdated(
+  lineage: V6FoldLineage,
+  sequenceId: string,
+  update: (sequence: V6WritablePlannedSequence) => void,
+): V6FoldLineage {
+  const existing = lineage.sequences.get(sequenceId);
+  if (!existing) {
+    throw new RuntimeStateReducerV6Error(
+      "PRESENTATION_ORDER_INVALID",
+      `internal: withSequenceUpdated called for unregistered sequence ${sequenceId}`,
+    );
+  }
+  const copy: V6WritablePlannedSequence = {
+    superseded: existing.superseded,
+    presentedOrdinals: new Set(existing.presentedOrdinals),
+    validatedOrdinals: new Set(existing.validatedOrdinals),
+    appliedOrdinals: new Set(existing.appliedOrdinals),
+  };
+  update(copy);
+  const sequences = new Map(lineage.sequences);
+  sequences.set(sequenceId, { actions: existing.actions, ...copy });
+  return {
+    studentInputs: lineage.studentInputs,
+    studentCommands: lineage.studentCommands,
+    intentSequences: lineage.intentSequences,
+    sequences,
+  };
 }
 
 const foldLineageByState = new WeakMap<object, V6FoldLineage>();
@@ -523,8 +566,12 @@ export function applyV6Event(
           event.sequence,
         );
       }
-      sequence.validatedOrdinals.add(ref.ordinal);
-      return withLineage(next, lineage);
+      return withLineage(
+        next,
+        withSequenceUpdated(lineage, ref.sequence_id, (copy) => {
+          copy.validatedOrdinals.add(ref.ordinal);
+        }),
+      );
     }
     case "presentation_action_applied": {
       const ref = payload as unknown as V6PresentationActionAppliedPayload;
@@ -543,7 +590,9 @@ export function applyV6Event(
           event.sequence,
         );
       }
-      sequence.appliedOrdinals.add(ref.ordinal);
+      const appliedLineage = withSequenceUpdated(lineage, ref.sequence_id, (copy) => {
+        copy.appliedOrdinals.add(ref.ordinal);
+      });
       if (ref.kind === "workspace" && typeof ref.resulting_workspace_revision === "number") {
         // 服务端应用 ≠ 浏览器呈现完成：workspace_revision 在 applied 推进
         // （delivery 携带的 workspace_revision 即此回执），单调禁回退。
@@ -556,7 +605,7 @@ export function applyV6Event(
         }
         next.workspace_revision = Math.max(next.workspace_revision, ref.resulting_workspace_revision);
       }
-      return withLineage(next, lineage);
+      return withLineage(next, appliedLineage);
     }
     case "presentation_action_delivered": {
       const ref = payload as unknown as V6PresentationActionRefPayload;
@@ -638,9 +687,12 @@ export function applyV6Event(
         );
       }
       const { sequence } = requirePlannedAction(lineage, event, ref);
+      let outcomeLineage: V6FoldLineage = lineage;
       switch (ref.outcome) {
         case "presented": {
-          sequence.presentedOrdinals.add(ref.ordinal);
+          outcomeLineage = withSequenceUpdated(lineage, ref.sequence_id, (copy) => {
+            copy.presentedOrdinals.add(ref.ordinal);
+          });
           next.presentation_cursor = { status: "idle" };
           // 最后一项 presented 后才能进入 awaiting_evidence（且仅在 presenting
           // 相位——v5 voice completed 规则的 v6 落点）。
@@ -668,7 +720,7 @@ export function applyV6Event(
           break;
         }
       }
-      return withLineage(next, lineage);
+      return withLineage(next, outcomeLineage);
     }
     case "presentation_sequence_superseded": {
       const ref = payload as unknown as V6PresentationSequenceSupersededPayload;
@@ -701,11 +753,13 @@ export function applyV6Event(
           event.sequence,
         );
       }
-      sequence.superseded = true;
+      const supersededLineage = withSequenceUpdated(lineage, ref.sequence_id, (copy) => {
+        copy.superseded = true;
+      });
       if (cursor.status !== "idle" && cursor.sequence_id === ref.sequence_id) {
         next.presentation_cursor = { status: "idle" };
       }
-      return withLineage(next, lineage);
+      return withLineage(next, supersededLineage);
     }
     case "action_outcome_recorded": {
       const outcome = payload as unknown as V5ActionOutcomePayload;

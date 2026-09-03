@@ -7,9 +7,11 @@
  * - restore 从 `session_started.task_id` 恢复 task→question→Plan，**禁止再次
  *   读取 allowlist 第一项**或环境默认题（task A 会话不得加载 task B/default）；
  * - session-pinned capability registry 由 pinned binding 确定性导出（approved
- *   plan → golden catalog + 主线 Beat 绑定构造资源输出），并经
- *   `session_started.workspace_catalog_pin.content_hash` 对账——不符 fail
- *   closed（不接受未经对账的任意 registry/catalog）。
+ *   plan → golden catalog + 主线 Beat 绑定构造资源输出）；restore 经
+ *   `v6RegistryProvider` 做**完整 binding/pin 对账**（tutor_plan_ref /
+ *   question_ref 三元组、scenario_id、必带的 workspace_catalog_pin——不符即
+ *   fail closed，不接受未经对账的任意 registry/catalog，也不接受「重读当前
+ *   版本 Plan 冒充创建时 binding」）。
  *
  * 绑定表当前仅 golden（F8 扩展为 supported+approved+enabled 路由）；unknown
  * task → TutorTaskBindingError("UNKNOWN_TASK")，无 allowlist/默认回退。
@@ -25,7 +27,11 @@ import {
 } from "../tutorSession/SessionPinnedCapabilityRegistry";
 import type { V6RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV6";
 
-export type TutorTaskBindingErrorCode = "UNKNOWN_TASK" | "PLAN_IMPORT_FAILED" | "CATALOG_PIN_MISMATCH";
+export type TutorTaskBindingErrorCode =
+  | "UNKNOWN_TASK"
+  | "PLAN_IMPORT_FAILED"
+  | "PIN_MISMATCH"
+  | "CATALOG_PIN_MISMATCH";
 
 export class TutorTaskBindingError extends Error {
   readonly code: TutorTaskBindingErrorCode;
@@ -132,9 +138,14 @@ export class TutorTaskBindingResolver {
 
   /**
    * V6 registry provider：从已提交 session_started payload 重导出
-   * session-pinned capability registry，并重算 catalog pin 对账（payload 带
-   * workspace_catalog_pin 时必须与 pinned binding 重算值一致——不符 fail
-   * closed，零事件、零状态变更）。
+   * session-pinned capability registry，并做**完整 binding/pin 对账**（F7 Step 2
+   * 返工 P0-2：不只对 task_id——artifact 升版后旧会话不得恢复到「当前」
+   * Plan/registry，必须回到创建时的 binding）：
+   * - task_id → 绑定表唯一解析（unknown fail closed）；
+   * - `tutor_plan_ref` / `question_ref` 三元组、`scenario_id` 与 pinned binding
+   *   逐项一致（不符 → PIN_MISMATCH，零事件、零状态变更）；
+   * - `workspace_catalog_pin` 对 v6 会话**必带**（缺 pin 即 fail closed——不
+   *   接受无对账的任意 catalog），content_hash 与 binding 重算值一致。
    */
   readonly v6RegistryProvider: V6RegistryProvider = (sessionStartedPayload): SessionPinnedCapabilityRegistry => {
     const taskId = sessionStartedPayload.task_id;
@@ -145,16 +156,49 @@ export class TutorTaskBindingResolver {
       );
     }
     const binding = resolveBinding(this.canonicalRoot, taskId);
-    const pinnedHash = (sessionStartedPayload.workspace_catalog_pin as { content_hash?: string } | undefined)
-      ?.content_hash;
-    if (typeof pinnedHash === "string" && pinnedHash !== workspaceCatalogPin(binding.golden.catalog).content_hash) {
+    assertPinnedRefMatches("tutor_plan_ref", sessionStartedPayload.tutor_plan_ref, binding.plan.tutor_plan_ref);
+    assertPinnedRefMatches("question_ref", sessionStartedPayload.question_ref, binding.plan.question_ref);
+    if (sessionStartedPayload.scenario_id !== binding.scenarioId) {
+      throw new TutorTaskBindingError(
+        "PIN_MISMATCH",
+        `session_started scenario_id=${String(sessionStartedPayload.scenario_id)} does not match the pinned task binding (${binding.scenarioId}) (fail closed; zero events, zero state change)`,
+      );
+    }
+    const pinnedCatalog = sessionStartedPayload.workspace_catalog_pin as { content_hash?: unknown } | undefined;
+    if (!pinnedCatalog || typeof pinnedCatalog.content_hash !== "string") {
       throw new TutorTaskBindingError(
         "CATALOG_PIN_MISMATCH",
-        `session_started workspace_catalog_pin ${pinnedHash} does not match the pinned task binding catalog (fail closed; zero events, zero state change)`,
+        "session_started carries no workspace_catalog_pin; v6 sessions must pin the catalog at start (fail closed; zero events, zero state change)",
+      );
+    }
+    if (pinnedCatalog.content_hash !== workspaceCatalogPin(binding.golden.catalog).content_hash) {
+      throw new TutorTaskBindingError(
+        "CATALOG_PIN_MISMATCH",
+        `session_started workspace_catalog_pin ${pinnedCatalog.content_hash} does not match the pinned task binding catalog (fail closed; zero events, zero state change)`,
       );
     }
     return binding.registry;
   };
+}
+
+/** 会话 pin 的 artifact 三元组对账（缺失/任一字段不符 → PIN_MISMATCH fail closed）。 */
+function assertPinnedRefMatches(
+  field: string,
+  pinned: unknown,
+  binding: { artifact_id: string; version: string; content_hash: string },
+): void {
+  const record = pinned as { artifact_id?: unknown; version?: unknown; content_hash?: unknown } | undefined;
+  const same =
+    record !== undefined &&
+    record.artifact_id === binding.artifact_id &&
+    record.version === binding.version &&
+    record.content_hash === binding.content_hash;
+  if (!same) {
+    throw new TutorTaskBindingError(
+      "PIN_MISMATCH",
+      `session_started ${field} ${JSON.stringify(record ?? null)} does not match the pinned task binding (${binding.artifact_id}@${binding.version}) (fail closed; zero events, zero state change)`,
+    );
+  }
 }
 
 /** 支持 start 显式选择的任务清单（availability 面；绑定解析仍走 fail-closed 表）。 */

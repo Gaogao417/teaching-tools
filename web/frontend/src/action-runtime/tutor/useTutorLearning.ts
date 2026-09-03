@@ -667,7 +667,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
       if (vnext) {
         // F7 vNext 数据源：canonical Runtime 链会话（不走旧 /experience）。
         try {
-          adoptVNext(await vnextApi.start({ studentId }));
+          adoptVNext(await vnextApi.start({ studentId, taskId }));
         } catch (startError) {
           setBootstrapPending(false);
           setError(startError instanceof Error ? startError.message : String(startError));

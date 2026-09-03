@@ -9,6 +9,7 @@
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { db } from "../../../db/database";
 import { realCanonicalRoot } from "../../../services/tutorNavigator/__tests__/navigatorSupport";
 import { createVNextTutorRoutes } from "../vnextTutorRoutes";
 
@@ -60,7 +61,7 @@ describe("F7 vNext 学生端 HTTP 合同", () => {
   });
 
   it("start：201 + 学生安全面（三视图/status/题面/题图），开场即 BT-01 awaiting_confirmation", async () => {
-    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student" });
+    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student", task_id: "goldenMinhangFold2020" });
     expect(started.status).toBe(201);
     const views = started.body.views as Views;
     expect(views.coach_panel_view.mainline.kind).toBe("awaiting_confirmation");
@@ -145,7 +146,7 @@ describe("F7 vNext 学生端 HTTP 合同", () => {
   });
 
   it("安全失败：stale expected_revision → 显式失败事实（HTTP 200 + last_failure），可恢复", async () => {
-    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-2" });
+    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-2", task_id: "goldenMinhangFold2020" });
     const sessionId = started.body.session_id;
     const stale = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/student-intents`, {
       intent_kind: "confirm", client_request_id: "rv-stale-1", expected_revision: 0,
@@ -160,7 +161,7 @@ describe("F7 vNext 学生端 HTTP 合同", () => {
   });
 
   it("inquiry：ask_question 打开（暂停 + 返回点可见），分支收尾后回主线", async () => {
-    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-3" });
+    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-3", task_id: "goldenMinhangFold2020" });
     const sessionId = started.body.session_id;
     const asked = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/student-intents`, {
       intent_kind: "ask_question", text: "这道题问的是什么？", client_request_id: "rv-iq-1", expected_revision: started.body.revision,
@@ -193,7 +194,7 @@ describe("F7 vNext 学生端 HTTP 合同", () => {
   });
 
   it("assessment：start 即 locked + 教学工具 intent 403 零副作用", async () => {
-    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-4", assessment: true });
+    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-4", task_id: "goldenMinhangFold2020", assessment: true });
     expect(started.status).toBe(201);
     expect(started.body.assessment).toBe(true);
     expect(started.body.views.student_workspace_view.canvas.interaction_enabled).toBe(false);
@@ -210,17 +211,25 @@ describe("F7 vNext 学生端 HTTP 合同", () => {
     const missing = await call("GET", "/api/vnext/tutor-sessions/TS-99999999");
     expect(missing.status).toBe(404);
     expect(missing.body.error.code).toBe("SESSION_NOT_FOUND");
-    const badBody = await call("POST", "/api/vnext/tutor-sessions", { student_id: "" });
+    const badBody = await call("POST", "/api/vnext/tutor-sessions", { student_id: "", task_id: "goldenMinhangFold2020" });
     expect(badBody.status).toBe(400);
     expect(badBody.body.error.code).toBe("BAD_REQUEST");
-    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-5" });
+    // 缺 task_id（必填）：400 且零 session/零事件（服务端缺省题不存在）。
+    const sessionsBefore = (db.prepare("SELECT COUNT(*) AS n FROM tutor_sessions").get() as { n: number }).n;
+    const eventsBefore = (db.prepare("SELECT COUNT(*) AS n FROM tutor_session_events").get() as { n: number }).n;
+    const missingTaskId = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-x" });
+    expect(missingTaskId.status).toBe(400);
+    expect(missingTaskId.body.error.code).toBe("BAD_REQUEST");
+    expect((db.prepare("SELECT COUNT(*) AS n FROM tutor_sessions").get() as { n: number }).n).toBe(sessionsBefore);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM tutor_session_events").get() as { n: number }).n).toBe(eventsBefore);
+    const started = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-5", task_id: "goldenMinhangFold2020" });
     const badKind = await call("POST", `/api/vnext/tutor-sessions/${started.body.session_id}/student-intents`, {
       intent_kind: "submit_workspace_command", client_request_id: "rv-bad-1", expected_revision: started.body.revision,
     });
     expect(badKind.status).toBe(400);
   });
 
-  it("F7 Step 2 task 绑定：start 显式 task_id；restore 题面按 session pin 解析（allowlist 重排不改变 restore 内容）", async () => {
+  it("F7 Step 2 task 绑定：start 显式 task_id（必填）；restore 题面按 session pin 解析（allowlist 重排不改变 restore 内容）", async () => {
     // start 显式传 task_id（golden）。
     const explicit = await call("POST", "/api/vnext/tutor-sessions", { student_id: "route-student-6", task_id: "goldenMinhangFold2020" });
     expect(explicit.status).toBe(201);

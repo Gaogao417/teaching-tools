@@ -141,7 +141,7 @@ describe("F7 vNext 数据源模式（canonical owner 原地分支）", () => {
     apiMock.submitIntent.mockResolvedValue(viewResponse("answer_input", { revision: 13 }));
     mount();
     await settle();
-    expect(apiMock.start).toHaveBeenCalledWith({ studentId: "vnext-test-student" });
+    expect(apiMock.start).toHaveBeenCalledWith({ studentId: "vnext-test-student", taskId: "goldenMinhangFold2020" });
     const confirm = container!.querySelector<HTMLButtonElement>('[data-testid="vnext-participation-confirm"]');
     expect(confirm).not.toBeNull();
     await act(async () => {

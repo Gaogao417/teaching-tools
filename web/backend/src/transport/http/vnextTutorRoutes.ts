@@ -31,11 +31,6 @@ import {
   TutorTaskBindingResolver,
 } from "../../services/tutorOrchestration/TutorTaskBindingResolver";
 
-/**
- * F7 唯一 golden task（start 缺省值——显式 task_id 的向后兼容缺省，不是
- * allowlist 第一项读取；绑定解析始终经 TutorTaskBindingResolver fail closed）。
- */
-const GOLDEN_TASK_ID = "goldenMinhangFold2020";
 const sessionIdParam = z.string().regex(/^TS-[0-9]{4,}$/);
 const taskIdParam = z.string().min(1).max(64);
 const studentIdSchema = z.string().trim().min(1).max(64);
@@ -52,10 +47,13 @@ const intentKindEnum = z.enum([
   "return_to_mainline",
 ]);
 
+// F7 Step 2 返工 P1-2：start 显式 task_id 必填（spec §2.3「task_id 必须先通过
+// route policy/availability，并唯一解析到同一 question + approved Plan」——
+// 缺失即 400，无服务端缺省题）。
 const startSchema = z.object({
   student_id: studentIdSchema,
+  task_id: taskIdParam,
   assessment: z.boolean().optional(),
-  task_id: taskIdParam.optional(),
 });
 
 const intentSchema = z.object({
@@ -170,8 +168,8 @@ function toHttpError(error: unknown, res: { status: (code: number) => { json: (b
   }
   if (error instanceof TutorTaskBindingError) {
     // F7 Step 2：绑定解析 fail closed（unknown task 无 allowlist/默认回退；
-    // catalog pin 不符零事件零状态——409）。
-    const status = error.code === "UNKNOWN_TASK" ? 404 : error.code === "CATALOG_PIN_MISMATCH" ? 409 : 503;
+    // binding/catalog pin 不符零事件零状态——409）。
+    const status = error.code === "UNKNOWN_TASK" ? 404 : error.code === "PLAN_IMPORT_FAILED" ? 503 : 409;
     res.status(status).json({ error: { code: error.code, message: error.message } });
     return;
   }
@@ -203,9 +201,9 @@ export function createVNextTutorRoutes(): Router {
   router.post("/tutor-sessions", async (req, res) => {
     try {
       const body = startSchema.parse(req.body);
-      // F7 Step 2：start 显式 task_id（缺省 golden 是唯一受支持任务的向后兼容
-      // 缺省，不是 allowlist 第一项）；必须先通过 route policy/availability。
-      const taskId = body.task_id ?? GOLDEN_TASK_ID;
+      // F7 Step 2：start 显式 task_id（必填，无服务端缺省题）；必须先通过
+      // route policy/availability，再经 TutorTaskBindingResolver 唯一解析。
+      const taskId = body.task_id;
       if (!vNextTaskIds().includes(taskId)) {
         res.status(400).json({ error: { code: "BAD_REQUEST", message: `task ${taskId} is not enabled for vNext (availability gate)` } });
         return;

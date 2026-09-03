@@ -44,11 +44,14 @@ export const at = (): string => new Date().toISOString();
 
 export function sessionStartedPayloadV6(options?: {
   tutorPlanRefOverride?: { artifact_id: string; version: string; content_hash: string };
+  scenarioIdOverride?: string;
+  /** v6 会话必须携带 catalog pin（默认携带；false 仅供缺 pin 负例构造）。 */
   withCatalogPin?: boolean;
+  catalogPinHashOverride?: string;
 }): V5SessionStartedPayload {
   return {
     task_id: SYNTHETIC_TASK_ID,
-    scenario_id: "golden-similarity-mvp-001:QT-SMV-002",
+    scenario_id: options?.scenarioIdOverride ?? "golden-similarity-mvp-001:QT-SMV-002",
     question_ref: { ...REF.question },
     approach_set_ref: { ...REF.approachSet },
     solution_graph_ref: { ...REF.solutionGraph },
@@ -56,11 +59,26 @@ export function sessionStartedPayloadV6(options?: {
     tutor_plan_ref: { ...(options?.tutorPlanRefOverride ?? REF.tutorPlan) },
     policy_profile_snapshot: { ...PROFILE_SNAPSHOT },
     initial_cursor: { protocol_id: REF.protocol.artifact_id, beat_id: "BT-01" },
-    ...(options?.withCatalogPin ? { workspace_catalog_pin: { ...SYNTHETIC_CATALOG_PIN } } : {}),
+    ...(options?.withCatalogPin === false
+      ? {}
+      : {
+          workspace_catalog_pin: {
+            ...SYNTHETIC_CATALOG_PIN,
+            content_hash: options?.catalogPinHashOverride ?? SYNTHETIC_CATALOG_PIN.content_hash,
+          },
+        }),
   };
 }
 
-export function startInputV6(sessionId: string, options?: { withCatalogPin?: boolean }) {
+export function startInputV6(
+  sessionId: string,
+  options?: {
+    tutorPlanRefOverride?: { artifact_id: string; version: string; content_hash: string };
+    scenarioIdOverride?: string;
+    withCatalogPin?: boolean;
+    catalogPinHashOverride?: string;
+  },
+) {
   return {
     sessionId,
     studentId: "student-f7",
@@ -83,14 +101,17 @@ export function syntheticRegistry() {
   );
 }
 
-/** 默认 provider：忽略 payload，恒返回合成 registry。 */
-export const syntheticRegistryProvider: V6RegistryProvider = () => syntheticRegistry();
-
-/** pin 对账 provider：payload 带 workspace_catalog_pin 时必须与合成值一致。 */
-export const pinCheckingRegistryProvider: V6RegistryProvider = (payload) => {
-  const pin = (payload.workspace_catalog_pin as { content_hash?: string } | undefined)?.content_hash;
-  if (pin !== undefined && pin !== SYNTHETIC_CATALOG_PIN.content_hash) {
-    throw new Error(`synthetic catalog pin mismatch: ${pin}`);
+/**
+ * 默认 provider（严格）：v6 会话的 session_started **必须**携带 catalog pin 且
+ * 与合成值一致——缺 pin / hash 漂移一律 fail closed（F7 Step 2 返工门禁：
+ * 测试默认形态 = 生产 pin 纪律，缺 pin 只能作为显式负例出现）。
+ */
+export const syntheticRegistryProvider: V6RegistryProvider = (payload) => {
+  const pin = payload.workspace_catalog_pin as { content_hash?: unknown } | undefined;
+  if (!pin || typeof pin.content_hash !== "string" || pin.content_hash !== SYNTHETIC_CATALOG_PIN.content_hash) {
+    throw new Error(
+      `synthetic registry provider: workspace_catalog_pin missing or mismatched (got ${String(pin?.content_hash)}; v6 sessions must pin the catalog at start)`,
+    );
   }
   return syntheticRegistry();
 };

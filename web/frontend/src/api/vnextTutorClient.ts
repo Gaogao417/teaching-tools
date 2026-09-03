@@ -97,8 +97,8 @@ export const vnextApi = {
   availability: (taskId: string): Promise<{ task_id: string; enabled: boolean }> =>
     request("GET", `/api/vnext/availability/${encodeURIComponent(taskId)}`),
 
-  start: (input: { studentId: string }): Promise<VNextSessionResponse> =>
-    request("POST", "/api/vnext/tutor-sessions", { student_id: input.studentId }),
+  start: (input: { studentId: string; taskId: string }): Promise<VNextSessionResponse> =>
+    request("POST", "/api/vnext/tutor-sessions", { student_id: input.studentId, task_id: input.taskId }),
 
   restore: (sessionId: string): Promise<VNextSessionResponse> =>
     request("GET", `/api/vnext/tutor-sessions/${encodeURIComponent(sessionId)}`),

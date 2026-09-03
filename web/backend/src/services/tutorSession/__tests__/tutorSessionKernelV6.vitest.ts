@@ -16,9 +16,12 @@ import {
   outcomeV6,
   plannedPayloadV6,
   startInputV6,
+  syntheticRegistry,
   syntheticRegistryProvider,
 } from "./v6KernelSupport";
 import { ev, startInput } from "./v5KernelSupport";
+import { db } from "../../../db/database";
+import { applyV6Event } from "../TutorRuntimeStateReducerV6";
 import { TutorSessionKernelV6 } from "../TutorSessionKernelV6";
 import { TutorSessionKernelV5 } from "../TutorSessionKernelV5";
 import { appendTutorSessionEventsV5 } from "../TutorSessionEventStoreV5";
@@ -168,6 +171,46 @@ describe("F7 Step 2 V6 Session Kernel（vitest）", () => {
       appendTutorSessionEventsV5("TS-9707", 1, [ev("student_intent_recorded", { intent_kind: "confirm", client_request_id: "cr-0001" })]),
     ).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }) as never);
     expect(v6.revision).toBe(1);
+  });
+
+  it("start pin 校验失败：零会话行、零事件（fail closed before persistence）", () => {
+    expect(() =>
+      TutorSessionKernelV6.start(startInputV6("TS-9709", { catalogPinHashOverride: "sha256:wrong" }), syntheticRegistryProvider),
+    ).toThrowError(/workspace_catalog_pin missing or mismatched/);
+    const sessions = (db.prepare("SELECT COUNT(*) AS n FROM tutor_sessions WHERE session_id = ?").get("TS-9709") as { n: number }).n;
+    const events = (db.prepare("SELECT COUNT(*) AS n FROM tutor_session_events WHERE session_id = ?").get("TS-9709") as { n: number }).n;
+    expect(sessions).toBe(0);
+    expect(events).toBe(0);
+    expect(() =>
+      TutorSessionKernelV6.start(startInputV6("TS-9710", { withCatalogPin: false }), syntheticRegistryProvider),
+    ).toThrowError(/workspace_catalog_pin missing or mismatched/);
+  });
+
+  it("reducer 纯性：同 state+事件两次归约一致；分支互不污染；旧 state 可继续使用", () => {
+    const sid = "TS-9711";
+    const kernel = TutorSessionKernelV6.start(startInputV6(sid), syntheticRegistryProvider);
+    kernel.append(1, [ev6("student_input_recorded", { input: { kind: "utterance", channel: "mainline", text: "嗯" }, client_request_id: "cr-0001" })]);
+    kernel.append(2, [
+      ev6("semantic_interpretation_recorded", { intent: "ack", reasoning_location: "aligned", confidence: 0.9, interpreter_version: "i/v1" }, { causation_sequence: 2 }),
+      ev6("student_intent_recorded", { intent_kind: "confirm", client_request_id: "cr-0001" }, { causation_sequence: 2 }),
+      ev6("policy_decision_made", decisionPayloadV6(sid, 1), { causation_sequence: 4 }),
+    ]);
+    kernel.append(3, [ev6("presentation_sequence_planned", plannedPayloadV6(sid, 1), { causation_sequence: 5 })]);
+    const baseState = kernel.state;
+    const registry = syntheticRegistry();
+    const probe = (ordinal: number, kind: "voice" | "workspace") =>
+      ({ schema: "ai_teaching_tutor_session_event/v6", session_id: sid, sequence: 7, state_revision: 5, occurred_at: new Date().toISOString(), event_type: "presentation_action_validated", payload: actionRefV6(sid, 1, ordinal, kind), causation_sequence: 6, idempotency_key: "probe-x001" }) as never;
+    const first = applyV6Event(baseState, probe(0, "workspace"), registry);
+    const replay = applyV6Event(baseState, probe(0, "workspace"), registry);
+    expect(replay).toEqual(first);
+    // 分支探针：validated 只写 lineage（canonical state 不变是设计事实）；
+    // 污染检测改为「分支重放」——旧可变血缘实现会因 Set 被分支偷偷写入，
+    // 在第二次 baseState+E1 归约时抛 validated twice。
+    const branch = applyV6Event(baseState, probe(1, "voice"), registry);
+    const branchReplay = applyV6Event(baseState, probe(1, "voice"), registry);
+    expect(branchReplay).toEqual(branch);
+    expect(applyV6Event(baseState, probe(2, "workspace"), registry)).toBeTruthy();
+    expect(kernel.assertReplayParity().equal).toBe(true);
   });
 
   it("refresh：纯重建返回同一 pending cursor，零新事件（重投来自已提交 delivered）", () => {

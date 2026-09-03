@@ -34,6 +34,7 @@ import {
   syntheticRegistry,
   syntheticRegistryProvider,
 } from "./v6KernelSupport";
+
 import { ev, startInput } from "./v5KernelSupport";
 
 ensureSqlite("tutor-session-kernel-v6");
@@ -51,6 +52,10 @@ const readEventsV6 = (sessionId: string) => storeCore.readSessionEvents(v6Codec(
 
 function countEvents(sessionId: string): number {
   return (db.prepare("SELECT COUNT(*) AS n FROM tutor_session_events WHERE session_id = ?").get(sessionId) as { n: number }).n;
+}
+
+function sessionRows(sessionId: string): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM tutor_sessions WHERE session_id = ?").get(sessionId) as { n: number }).n;
 }
 
 function eventSchemaOf(sessionId: string): string {
@@ -288,14 +293,20 @@ async function main(): Promise<void> {
       () => kernel.append(6, [ev6("presentation_action_outcome_recorded", outcomeV6("TS-9605", 1, 0, "workspace", "presented"), { causation_sequence: 9 })]),
       "PRESENTATION_CURSOR_MISMATCH",
     );
-    // ordinal 1 交付为 pending；同 ref 重复 delivered = 幂等 no-op。
+    // ordinal 1 交付为 pending；同 ref 再次 delivered：reducer 接受为重投事实，
+    // cursor 不推进——但事件本身计入流（+1 事件、+1 revision）。这不是幂等
+    // no-op；真正的「零事件、零 revision」重投由 refresh 纯重建证明（见下）。
     kernel.append(6, [
       ev6("presentation_action_validated", actionRefV6("TS-9605", 1, 1, "voice"), { causation_sequence: 6 }),
       ev6("presentation_action_delivered", actionRefV6("TS-9605", 1, 1, "voice"), { causation_sequence: 6 }),
     ]);
     const cursorPending = JSON.parse(JSON.stringify(kernel.state.presentation_cursor));
+    const eventsBeforeRedelivery = countEvents("TS-9605");
+    const revisionBeforeRedelivery = kernel.revision;
     kernel.append(7, [ev6("presentation_action_delivered", actionRefV6("TS-9605", 1, 1, "voice"), { causation_sequence: 6 })]);
-    assert.deepEqual(JSON.parse(JSON.stringify(kernel.state.presentation_cursor)), cursorPending, "redelivery of the same pending ref is an idempotent no-op");
+    assert.equal(countEvents("TS-9605"), eventsBeforeRedelivery + 1, "a re-delivered event is a committed fact (+1 event)");
+    assert.equal(kernel.revision, revisionBeforeRedelivery + 1, "a re-delivered event bumps the revision (+1)");
+    assert.deepEqual(JSON.parse(JSON.stringify(kernel.state.presentation_cursor)), cursorPending, "re-delivery does not advance the cursor");
     // 跳序：ordinal 1 未 presented 就交付 ordinal 2。
     expectCode(
       () => kernel.append(8, [
@@ -449,7 +460,7 @@ async function main(): Promise<void> {
     assert.equal(kernel.revision, 2);
   });
 
-  await runTest("refresh: pure rebuild returns the same pending cursor with zero new events (redelivery from committed delivery)", () => {
+  await runTest("refresh: pure rebuild redelivers the same pending snapshot with ZERO new events and unchanged revision", () => {
     const { kernel, revision } = deliveredAtOrdinalZero("TS-9611");
     const eventsAtRefresh = countEvents("TS-9611");
     const resumed = kernel6.TutorSessionKernelV6.resume("TS-9611", syntheticRegistryProvider);
@@ -462,6 +473,72 @@ async function main(): Promise<void> {
     assert.equal(resumed.revision, revision);
     assert.equal(countEvents("TS-9611"), eventsAtRefresh, "refresh/reconnect appends zero events");
     assert.deepEqual(resumed.state, kernel6.TutorSessionKernelV6.resume("TS-9611", syntheticRegistryProvider).state);
+    assert.equal(kernel.assertReplayParity().equal, true);
+  });
+
+  await runTest("start pin/binding validation failure leaves ZERO session rows and ZERO events (fail closed before persistence)", () => {
+    // 前置：session_started payload 本身 schema 合法（结构完整的 catalog pin，
+    // 只是 hash 错误）——失败必须来自 registry provider 的 pin 对账，而不是 Zod。
+    assert.throws(
+      () => kernel6.TutorSessionKernelV6.start(startInputV6("TS-9612", { catalogPinHashOverride: "sha256:wrong-pin" }), syntheticRegistryProvider),
+      /workspace_catalog_pin missing or mismatched/,
+    );
+    assert.equal(sessionRows("TS-9612"), 0, "no tutor_sessions row may survive a failed start");
+    assert.equal(countEvents("TS-9612"), 0, "no tutor_session_events row may survive a failed start");
+    // 缺 pin（显式负例构造）：v6 会话必须 pin catalog——同样零行零事件。
+    assert.throws(
+      () => kernel6.TutorSessionKernelV6.start(startInputV6("TS-9613", { withCatalogPin: false }), syntheticRegistryProvider),
+      /workspace_catalog_pin missing or mismatched/,
+    );
+    assert.equal(sessionRows("TS-9613"), 0);
+    assert.equal(countEvents("TS-9613"), 0);
+  });
+
+  await runTest("reducer referential transparency: same state+event replays cleanly; branches from one old state stay isolated; old state stays usable", () => {
+    // 构造到 planned 已提交的状态 S（revision 4），从 S 直接做归约探针。
+    const sid = "TS-9614";
+    const kernel = kernel6.TutorSessionKernelV6.start(startInputV6(sid), syntheticRegistryProvider);
+    kernel.append(1, [ev6("student_input_recorded", { input: { kind: "utterance", channel: "mainline", text: "嗯" }, client_request_id: "cr-0001" })]);
+    kernel.append(2, [
+      ev6("semantic_interpretation_recorded", { intent: "ack", reasoning_location: "aligned", confidence: 0.9, interpreter_version: "i/v1" }, { causation_sequence: 2 }),
+      ev6("student_intent_recorded", { intent_kind: "confirm", client_request_id: "cr-0001" }, { causation_sequence: 2 }),
+      ev6("policy_decision_made", decisionPayloadV6(sid, 1), { causation_sequence: 4 }),
+    ]);
+    kernel.append(3, [ev6("presentation_sequence_planned", plannedPayloadV6(sid, 1), { causation_sequence: 5 })]);
+    const baseState = kernel.state;
+    const registry = syntheticRegistry() as never;
+    const probeEvent = (ordinal: number, kind: "voice" | "workspace", key: string) =>
+      ({
+        schema: "ai_teaching_tutor_session_event/v6",
+        session_id: sid,
+        sequence: 7,
+        state_revision: 5,
+        occurred_at: new Date().toISOString(),
+        event_type: "presentation_action_validated",
+        payload: actionRefV6(sid, 1, ordinal, kind),
+        causation_sequence: 6,
+        idempotency_key: key,
+      }) as never;
+
+    // 探针①（引用透明）：同一 state + 同一事件归约两次——都必须成功且结果
+    // deepEqual（可变血缘实现会在第二次抛 validated twice）。
+    const first = reducer6.applyV6Event(baseState, probeEvent(0, "workspace", "probe-0001"), registry);
+    const replay = reducer6.applyV6Event(baseState, probeEvent(0, "workspace", "probe-0001"), registry);
+    assert.deepEqual(first, replay, "applyV6Event(S, E) must be reproducible on the same old state");
+
+    // 探针②（分支隔离）：validated 只写 lineage（canonical state 不变是设计
+    // 事实）；污染检测改为「分支重放」——旧可变血缘实现会因 Set 被分支偷偷
+    // 写入，在第二次 baseState+E1 归约时抛 validated twice。
+    const branch = reducer6.applyV6Event(baseState, probeEvent(1, "voice", "probe-0002"), registry);
+    const branchReplay = reducer6.applyV6Event(baseState, probeEvent(1, "voice", "probe-0002"), registry);
+    assert.deepEqual(branchReplay, branch);
+
+    // 探针③（旧 state 仍可用）：探针①② 之后，从原 S 再走第三条合法分支
+    // （validated ordinal 2）仍成功，且 S 的重放结果保持不变。
+    const thirdBranch = reducer6.applyV6Event(baseState, probeEvent(2, "workspace", "probe-0003"), registry);
+    assert.deepEqual(reducer6.applyV6Event(baseState, probeEvent(0, "workspace", "probe-0001"), registry), first, "old state stays usable and deterministic after other branches");
+    void thirdBranch;
+    // kernel 主链不受探针影响（探针不落库）。
     assert.equal(kernel.assertReplayParity().equal, true);
   });
 

@@ -90,7 +90,7 @@ test.describe("F7 vNext canonical 旅程", () => {
 test("安全①：BT-04 错误数值经真实服务链路拒绝（零事件、Beat 不推进）", async ({ request }) => {
   const backendPort = Number(process.env.VNEXT_E2E_BACKEND_PORT || 3113);
   const base = `http://127.0.0.1:${backendPort}`;
-  const started = await (await request.post(`${base}/api/vnext/tutor-sessions`, { data: { student_id: "e2e-wrong-safety" } })).json();
+  const started = await (await request.post(`${base}/api/vnext/tutor-sessions`, { data: { student_id: "e2e-wrong-safety", task_id: "goldenMinhangFold2020" } })).json();
   let revision = started.revision;
   for (const intent of ["confirm", "submit_answer", "submit_answer"] as const) {
     const turn = await (
