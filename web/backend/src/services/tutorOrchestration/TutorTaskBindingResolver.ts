@@ -26,6 +26,8 @@ import {
   type SessionPinnedCapabilityRegistry,
 } from "../tutorSession/SessionPinnedCapabilityRegistry";
 import type { V6RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV6";
+import type { V7RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV7";
+import type { WorkspacePresentationCatalogV5 } from "../tutorSession/WorkspacePresentationCatalogV5";
 
 export type TutorTaskBindingErrorCode =
   | "UNKNOWN_TASK"
@@ -179,6 +181,67 @@ export class TutorTaskBindingResolver {
     }
     return binding.registry;
   };
+
+  /**
+   * V7 registry provider（F7 Step 4）：与 v6 同源对账 + **session_mode ↔ catalog
+   * 双重对账**（assessment 不再由 catalog hash 间接推断）：
+   * - session_mode 必填（teaching|assessment；缺省/非法 → fail closed）；
+   * - session_mode=teaching ⇒ catalog pin 必须是 construction 形态 hash；
+   * - session_mode=assessment ⇒ catalog pin 必须是 locked 变体 hash
+   *   （{...golden.catalog, initialInteractionMode:"locked"}——V5 语义镜像：
+   *   locked 交互、教学工具禁用，但仍收集独立作答）。任一不符 fail closed。
+   */
+  readonly v7RegistryProvider: V7RegistryProvider = (sessionStartedPayload): SessionPinnedCapabilityRegistry => {
+    const taskId = sessionStartedPayload.task_id;
+    if (typeof taskId !== "string" || taskId === "") {
+      throw new TutorTaskBindingError(
+        "UNKNOWN_TASK",
+        "session_started payload carries no pinned task_id; cannot resolve the task binding (fail closed)",
+      );
+    }
+    const mode = sessionStartedPayload.session_mode;
+    if (mode !== "teaching" && mode !== "assessment") {
+      throw new TutorTaskBindingError(
+        "PIN_MISMATCH",
+        `session_started session_mode=${String(mode)} is missing or illegal (v7 requires teaching|assessment; fail closed; zero events, zero state change)`,
+      );
+    }
+    const binding = resolveBinding(this.canonicalRoot, taskId);
+    assertPinnedRefMatches("tutor_plan_ref", sessionStartedPayload.tutor_plan_ref, binding.plan.tutor_plan_ref);
+    assertPinnedRefMatches("question_ref", sessionStartedPayload.question_ref, binding.plan.question_ref);
+    if (sessionStartedPayload.scenario_id !== binding.scenarioId) {
+      throw new TutorTaskBindingError(
+        "PIN_MISMATCH",
+        `session_started scenario_id=${String(sessionStartedPayload.scenario_id)} does not match the pinned task binding (${binding.scenarioId}) (fail closed; zero events, zero state change)`,
+      );
+    }
+    const pinnedCatalog = sessionStartedPayload.workspace_catalog_pin as { content_hash?: unknown } | undefined;
+    if (!pinnedCatalog || typeof pinnedCatalog.content_hash !== "string") {
+      throw new TutorTaskBindingError(
+        "CATALOG_PIN_MISMATCH",
+        "session_started carries no workspace_catalog_pin; v7 sessions must pin the catalog at start (fail closed; zero events, zero state change)",
+      );
+    }
+    const expectedHash = workspaceCatalogPin(
+      mode === "assessment" ? assessmentCatalogVariant(binding) : binding.golden.catalog,
+    ).content_hash;
+    if (pinnedCatalog.content_hash !== expectedHash) {
+      throw new TutorTaskBindingError(
+        "CATALOG_PIN_MISMATCH",
+        `session_started workspace_catalog_pin ${pinnedCatalog.content_hash} does not match the ${mode}-mode catalog of the pinned task binding (expected ${expectedHash}; fail closed; zero events, zero state change)`,
+      );
+    }
+    return binding.registry;
+  };
+}
+
+/**
+ * assessment 变体 catalog（F7 Step 4；V5 语义镜像 TutorSessionOrchestratorV5）：
+ * locked 交互（review-only）——无教学帮助、无答案揭示，但仍收集并评价学生
+ * 独立作答（mainline utterance/confirm/continue 与确定性指示 voice 允许）。
+ */
+export function assessmentCatalogVariant(binding: TutorTaskBinding): WorkspacePresentationCatalogV5 {
+  return { ...binding.golden.catalog, initialInteractionMode: "locked" as const };
 }
 
 /** 会话 pin 的 artifact 三元组对账（缺失/任一字段不符 → PIN_MISMATCH fail closed）。 */

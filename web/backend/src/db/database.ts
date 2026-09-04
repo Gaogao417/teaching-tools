@@ -253,6 +253,19 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_tutor_session_events_session
     ON tutor_session_events(session_id, sequence);
+
+  -- F7 Step 4：start 幂等 registry（应用层，不进 canonical 事件）——
+  -- 与 session 创建同一事务写入；同键同 payload 回放既有 session，
+  -- 同键异 payload = 409 REQUEST_PAYLOAD_DRIFT（spec §2.3）。
+  CREATE TABLE IF NOT EXISTS tutor_session_start_registry (
+    client_request_id TEXT PRIMARY KEY,
+    payload_hash TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_tutor_session_start_registry_session
+    ON tutor_session_start_registry(session_id);
 `);
 
 const sessionColumns = db.prepare("PRAGMA table_info(practice_sessions)").all() as Array<{ name: string }>;
