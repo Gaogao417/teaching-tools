@@ -30,7 +30,9 @@ import type {
   ActionEvaluationRequest,
   ActionEvaluationResponse,
   ActionEvidence,
+  ExercisePlan,
 } from "../../../../shared/actionRuntime";
+import { isActionEvaluationResponse, isExercisePlan } from "../../../../shared/actionRuntime";
 import type {
   LearnExperienceResponse,
   TutorCheckpointView,
@@ -42,9 +44,15 @@ import type {
   TutorVoiceAction,
 } from "../../../../shared/tutorExperience";
 import type { StudentWorkspaceView } from "../../../../shared/studentWorkspace";
-import { vnextApi, VNextApiError, type VNextActiveAction, type VNextSessionResponse } from "../../api/vnextTutorClient";
-import { parseCoachPanelView, parseStudentWorkspaceView } from "../../presentation/canonicalView/parseCanonicalView";
-import type { CoachPanelViewV1, StudentWorkspaceViewV1 } from "../../presentation/canonicalView/canonicalViewTypes";
+import {
+  newRuntimeRequestId,
+  ProtocolParseError,
+  TutorRuntimeHttpError,
+  type StudentControlCommand,
+  type TutorRuntimeClient,
+  type ValidatedSessionSnapshot,
+} from "../../api/tutorRuntimeClient";
+import type { CoachPanelViewV1 } from "../../presentation/canonicalView/canonicalViewTypes";
 import type { TaskId } from "../../../../shared/contracts";
 
 /** 计划 §3 ActionRuntimeTransport：evidence → {evaluation, tutorTurn}。 */
@@ -146,50 +154,118 @@ export interface UseTutorLearningOptions {
   studentId: string;
   /** 刷新恢复：URL ?session= 里的会话 id。 */
   restoreSessionId?: string;
-  /** F7 vNext 数据源（canonical Runtime 链）：true 时旧协调器 API 全停用，
-   *  内部状态归一 canonical view/v1 + active_action（ledger 增补 6 清单）。 */
-  vnext?: boolean;
+  /** canonical Runtime 数据源（spec §4.1：LearnPage 按 availability 选择 client
+   *  后注入）。提供时走 v7 SessionSnapshot 链；缺省走 legacy V5 链（F8 退场）。 */
+  runtimeClient?: TutorRuntimeClient;
 }
 
-export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }: UseTutorLearningOptions) {
-  const [sessionId, setSessionId] = useState<string | undefined>(restoreSessionId);
-  // ---- F7 vNext 数据源（canonical view/v1 内部归一；旧路径零改动）----
-  const [vnextWorkspace, setVnextWorkspace] = useState<StudentWorkspaceViewV1 | undefined>();
-  const [vnextCoach, setVnextCoach] = useState<CoachPanelViewV1 | undefined>();
-  const [vnextParticipationKind, setVnextParticipationKind] = useState<string>("listen_only");
-  const [vnextActiveAction, setVnextActiveAction] = useState<VNextActiveAction | undefined>();
-  const [vnextCompleted, setVnextCompleted] = useState(false);
-  const [vnextTurnFailure, setVnextTurnFailure] = useState<string | undefined>();
-  const vnextRevisionRef = useRef(0);
-  const vnextSessionRef = useRef<string | undefined>(undefined);
+/** spec §1.3 #9 前端侧：render.geometry 的安全段 id 集（record 宽松对象，只探测 id）。 */
+function renderGeometrySegmentIds(geometry: Record<string, unknown> | null): readonly string[] {
+  if (!geometry) return [];
+  const segments = geometry["segments"];
+  if (!Array.isArray(segments)) return [];
+  return segments
+    .filter((segment): segment is Record<string, unknown> => typeof segment === "object" && segment !== null)
+    .map((segment) => segment["id"])
+    .filter((id): id is string => typeof id === "string");
+}
 
-  const adoptVNext = useCallback((response: VNextSessionResponse) => {
-    const workspace = parseStudentWorkspaceView(response.views.student_workspace_view);
-    const coach = parseCoachPanelView(response.views.coach_panel_view);
-    if (!workspace.ok || !coach.ok) {
-      setError(`vNext 视图解析失败（fail closed）：${[...workspace.ok ? [] : workspace.issues, ...coach.ok ? [] : coach.issues].join("; ")}`);
+/**
+ * active_action 派生（adopt 时校验 + 渲染时同源派生，零 cast）：
+ * `action_plan` 必须通过既有 ExercisePlan runtime validator；`target_ids` 必须
+ * 全部存在于 render geometry（spec §1.3 #9）。任一失败 fail closed——快照
+ * 不被采用（原子采用纪律），非「不挂载但采用」。
+ */
+function deriveRuntimeActiveOperation(snapshot: ValidatedSessionSnapshot):
+  { ok: true; operation: { actionId: string; plan: ExercisePlan } | undefined }
+  | { ok: false; reason: string } {
+  const active = snapshot.active_action;
+  if (active === undefined) return { ok: true, operation: undefined };
+  if (!isExercisePlan(active.action_plan)) {
+    return { ok: false, reason: `active_action.action_plan 未通过 ExercisePlan runtime validator（action_id=${active.action_id}）` };
+  }
+  const segmentIds = renderGeometrySegmentIds(snapshot.render.geometry);
+  const missing = active.target_ids.filter((target) => !segmentIds.includes(target));
+  if (missing.length > 0) {
+    return { ok: false, reason: `active_action.target_ids 不在 render geometry 中：${missing.join(", ")}` };
+  }
+  return { ok: true, operation: { actionId: active.action_id, plan: active.action_plan } };
+}
+
+/** canonical transcript 派生（呈现映射，非域反适配；coach view 是唯一来源）。 */
+function runtimeTranscriptEntries(coach: CoachPanelViewV1): TutorTranscriptEntry[] {
+  return coach.transcript.map((turn, index) => ({
+    id: turn.turn_id || `rt-${index}`,
+    role: turn.role === "tutor" ? "tutor" : "student",
+    text: turn.content,
+    at: 0,
+  }));
+}
+
+export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeClient }: UseTutorLearningOptions) {
+  const [sessionId, setSessionId] = useState<string | undefined>(restoreSessionId);
+  // ---- canonical Runtime 数据源（F7 Step 5：单一 ValidatedSessionSnapshot）----
+  // spec §4.2/§4.3：允许的持久业务状态只有已验证 SessionSnapshot；解析失败保留
+  // 最后一份合法快照并显示 recoverable protocol error，不部分更新、不回落 legacy。
+  const [runtimeSnapshot, setRuntimeSnapshot] = useState<ValidatedSessionSnapshot | undefined>();
+  const [protocolError, setProtocolError] = useState<string | undefined>();
+  /** evidence 系统失败的瞬时提示（非 committed turn 失败——那类随快照 turn 派生）。 */
+  const [runtimeFailureNotice, setRuntimeFailureNotice] = useState<string | undefined>();
+  /** actor-first（spec §4.6）：evidence 成功响应的 snapshot 暂存于此，等当前
+   *  actor 消费 evaluation 后由 adoptPendingEvaluationSnapshot() 原子采用。 */
+  const pendingEvaluationSnapshotRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
+  const runtimeSnapshotRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
+  /** start 幂等键：同一挂载生命周期的重试复用同键（payload 相同 → Existing 回放）。 */
+  const runtimeStartKeyRef = useRef<string | undefined>(undefined);
+
+  const adoptRuntimeSnapshot = useCallback((snapshot: ValidatedSessionSnapshot): boolean => {
+    if (snapshot.task_id !== taskId) {
+      setProtocolError(`快照 task_id=${snapshot.task_id} 与会话任务 ${taskId} 不一致（fail closed）`);
+      return false;
+    }
+    const operation = deriveRuntimeActiveOperation(snapshot);
+    if (!operation.ok) {
+      setProtocolError(`active_action 校验失败（fail closed）：${operation.reason}`);
+      return false;
+    }
+    runtimeSnapshotRef.current = snapshot;
+    pendingEvaluationSnapshotRef.current = undefined;
+    setProtocolError(undefined);
+    setRuntimeFailureNotice(undefined);
+    setRuntimeSnapshot(snapshot);
+    setSessionId(snapshot.session_id);
+    setRevision(snapshot.revision);
+    return true;
+  }, [taskId]);
+
+  /** 协议/HTTP 失败：ProtocolParseError 保留最后合法快照（recoverable）；其余走瞬时 error。 */
+  const handleRuntimeError = useCallback((failure: unknown) => {
+    if (failure instanceof ProtocolParseError) {
+      setProtocolError(failure.message);
       return;
     }
-    vnextSessionRef.current = response.session_id;
-    vnextRevisionRef.current = response.revision;
-    setSessionId(response.session_id);
-    setVnextWorkspace(workspace.view);
-    setVnextCoach(coach.view);
-    setVnextParticipationKind(String((response.views.participation as { kind?: string } | undefined)?.kind ?? "listen_only"));
-    setVnextActiveAction(response.active_action);
-    setVnextCompleted(Boolean(response.completed));
-    setVnextTurnFailure(response.turn?.failure?.failure_class);
-    if (response.question) setQuestion({ artifact_id: "", question_type: "fill_blank", stem: response.question.stem, subquestions: [] } as TutorQuestionView);
-    // transcript 由 canonical coach 视图派生（呈现映射，非域反适配）。
-    setTranscript(coach.view.transcript.map((turn, index) => ({
-      id: turn.turn_id || `vt-${index}`,
-      role: turn.role === "tutor" ? "tutor" : "student",
-      text: turn.content,
-      at: 0,
-    })));
-    setBootstrapPending(false);
-    setTurnPending(false);
+    setError(failure instanceof Error ? failure.message : String(failure));
   }, []);
+
+  /** actor 消费 evaluation 后的原子采用（spec §4.6 第 5 步；组件经 onEvaluation 回调触发）。 */
+  const adoptPendingEvaluationSnapshot = useCallback(() => {
+    const pending = pendingEvaluationSnapshotRef.current;
+    if (!pending) return;
+    pendingEvaluationSnapshotRef.current = undefined;
+    adoptRuntimeSnapshot(pending);
+  }, [adoptRuntimeSnapshot]);
+
+  /** protocol error 的显式恢复：GET restore 重新对账（零教学副作用）。 */
+  const retrySync = useCallback(async (): Promise<void> => {
+    const current = runtimeSnapshotRef.current;
+    if (!runtimeClient || !current) return;
+    try {
+      adoptRuntimeSnapshot(await runtimeClient.restore(current.session_id));
+    } catch (failure) {
+      handleRuntimeError(failure);
+    }
+  }, [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError]);
+
   const [revision, setRevision] = useState(0);
   const [experience, setExperience] = useState<TutorExperienceResponse | undefined>();
   const [question, setQuestion] = useState<TutorQuestionView | undefined>();
@@ -271,37 +347,44 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
 
   /** phase 投影（8 态枚举不变）：权威事实 → 状态值（页面据此渲染控件与
    *  data-tutor-phase 诊断属性）。
-   *  优先级：完成 > 打断 > 错误恢复 > 启动/恢复 > 在途回合 > 讲解播放 >
-   *  待操作 > 等输入。workspaceActive 读统一 View 的 participation.mode
-   *  （服务端按会话权威 pending 操作步投影——空回合不丢操作画布）。 */
+   *  优先级：完成 > 错误恢复 > 启动/恢复 > 在途回合 > 待操作 > 等输入。
+   *  canonical Runtime 链：workspaceActive 读 snapshot participation 的
+   *  workspace_input（active_action 挂载门禁已由服务端 + 采用校验保证）；
+   *  legacy 链保持 workspace_view.participation.mode 语义。 */
   const phase: TutorPhase = useMemo(() => {
+    if (runtimeClient) {
+      if (runtimeSnapshot?.completed) return "completed";
+      if (protocolError || error) return "recovering";
+      if (!runtimeSnapshot) return "starting";
+      if (turnPending) return "thinking";
+      if (runtimeSnapshot.views.participation.kind === "workspace_input" && runtimeSnapshot.active_action !== undefined) {
+        return "workspaceActive";
+      }
+      return "awaitingInput";
+    }
     if (completed || questionCompleted) return "completed";
     if (interrupted) return "interrupted";
     if (error) return "recovering";
     if (bootstrapPending || !sessionId) return "starting";
     if (turnPending) return "thinking";
     if (speechActive) return "speaking";
-    if (vnext) {
-      if (vnextParticipationKind === "workspace_input") return "workspaceActive";
-      return "awaitingInput";
-    }
     if (workspaceView?.participation.mode === "operate") return "workspaceActive";
     return "awaitingInput";
-  }, [completed, questionCompleted, interrupted, error, bootstrapPending, sessionId, turnPending, speechActive, workspaceView, vnext, vnextParticipationKind]);
+  }, [runtimeClient, runtimeSnapshot, protocolError, completed, questionCompleted, interrupted, error, bootstrapPending, sessionId, turnPending, speechActive, workspaceView]);
 
-  /** VS1：进行中的操作步（统一 View 的 participation 槽；operate 态才有）。 */
+  /** 进行中的操作步：canonical = snapshot.active_action 经 ExercisePlan/target
+   *  门禁派生（adopt 已校验，此处同源重推导，零 cast）；legacy = 统一 View 的
+   *  participation 槽（operate 态才有）。 */
   const activeOperation = useMemo(
     () => {
-      if (vnext) {
-        // F7：active_action 与纯 Workspace View 分开（ledger 增补 6）；构造未
-        // committed 时服务端不下发 → 不挂载（ActionRuntimeFrame 分支不进）。
-        return vnextActiveAction
-          ? { actionId: vnextActiveAction.action_id, plan: vnextActiveAction.action_plan as never }
-          : undefined;
+      if (runtimeClient) {
+        if (!runtimeSnapshot) return undefined;
+        const derived = deriveRuntimeActiveOperation(runtimeSnapshot);
+        return derived.ok ? derived.operation : undefined;
       }
       return workspaceView?.participation.mode === "operate" ? workspaceView.participation.activeAction : undefined;
     },
-    [workspaceView, vnext, vnextActiveAction],
+    [runtimeClient, runtimeSnapshot, workspaceView],
   );
 
   const appendTranscript = useCallback((role: "tutor" | "student", text: string) => {
@@ -489,55 +572,65 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
     [afterTurnCommon, speakTurn],
   );
 
-  /** 学生回合统一入口（回答/提问/静默等六类输入共用）。 */
-  /** F7 vNext：类型化 intent 直通道（组件参与区/对话区用；同 submitStudentInput 的 vNext 分支实现）。 */
-  const vnextSubmitIntent = useCallback(
-    async (intentKind: "submit_answer" | "confirm" | "continue" | "ask_question" | "request_scaffold" | "request_rephrase" | "return_to_mainline", text?: string): Promise<void> => {
-      const activeSession = vnextSessionRef.current;
-      if (!activeSession) return;
+  /** 学生回合统一入口（回答/提问/静默等六类输入共用，legacy 链）。 */
+
+  /** canonical 输入链（spec §2.5）：前端只提交原始学生输入或显式 UI control，
+   *  不提交任何由前端猜出的语义意图（intent 由后端 SemanticInterpreter 解释）。
+   *  channel 是用户选择的交互入口：Coach assistance composer=assistance、
+   *  mainline answer composer=mainline。 */
+  const submitUtterance = useCallback(
+    async (channel: "mainline" | "assistance", text: string): Promise<void> => {
+      if (!runtimeClient) return;
+      const current = runtimeSnapshotRef.current;
+      if (!current) return;
+      const trimmed = text.trim();
+      if (!trimmed) return;
       setTurnPending(true);
-      if (text !== undefined) appendTranscript("student", intentKind === "ask_question" ? `（问）${text}` : text);
       try {
-        adoptVNext(await vnextApi.submitIntent(activeSession, {
-          intentKind,
-          ...(text !== undefined ? { text } : {}),
-          expectedRevision: vnextRevisionRef.current,
-        }));
+        adoptRuntimeSnapshot(await runtimeClient.submitStudentInput(
+          current.session_id,
+          { kind: "utterance", channel, text: trimmed },
+          current.revision,
+          newRuntimeRequestId(),
+        ));
       } catch (turnError) {
+        handleRuntimeError(turnError);
+      } finally {
         setTurnPending(false);
-        setError(turnError instanceof Error ? turnError.message : String(turnError));
       }
     },
-    [adoptVNext],
+    [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError],
+  );
+
+  /** canonical 显式控制（confirm/continue/barge_in/return_to_mainline/retry_recovery/
+   *  request_scaffold/request_rephrase——七值 typed control）。 */
+  const submitControl = useCallback(
+    async (command: StudentControlCommand): Promise<void> => {
+      if (!runtimeClient) return;
+      const current = runtimeSnapshotRef.current;
+      if (!current) return;
+      setTurnPending(true);
+      try {
+        adoptRuntimeSnapshot(await runtimeClient.submitStudentInput(
+          current.session_id,
+          { kind: "control", command },
+          current.revision,
+          newRuntimeRequestId(),
+        ));
+      } catch (turnError) {
+        handleRuntimeError(turnError);
+      } finally {
+        setTurnPending(false);
+      }
+    },
+    [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError],
   );
 
   const submitStudentInput = useCallback(
     async (input: TutorStudentInput): Promise<void> => {
+      if (runtimeClient) return;
       const activeSession = sessionIdRef.current;
       if (!activeSession) return;
-      if (vnext) {
-        // F7：类型化 intent 通道（无通用聊天；assessment 由服务端边界拒）。
-        const intentKind =
-          input.input_kind === "reasoning_utterance" ? "submit_answer"
-          : input.input_kind === "question_asked" ? "ask_question"
-          : input.input_kind === "silence_observed" ? undefined
-          : input.input_kind as "confirm" | "continue" | "request_scaffold" | "request_rephrase" | "barge_in" | "return_to_mainline";
-        if (intentKind === undefined) return;
-        setTurnPending(true);
-        if (input.text !== undefined) appendTranscript("student", input.input_kind === "question_asked" ? `（问）${input.text}` : input.text);
-        try {
-          const response = await vnextApi.submitIntent(activeSession, {
-            intentKind,
-            ...(input.text !== undefined ? { text: input.text } : {}),
-            expectedRevision: vnextRevisionRef.current,
-          });
-          adoptVNext(response);
-        } catch (turnError) {
-          setTurnPending(false);
-          setError(turnError instanceof Error ? turnError.message : String(turnError));
-        }
-        return;
-      }
       setTurnPending(true);
       if (input.text !== undefined) {
         appendTranscript("student", input.input_kind === "question_asked" ? `（问）${input.text}` : input.text);
@@ -554,34 +647,49 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
         setError(message);
       }
     },
-    [appendTranscript, consumeTurn],
+    [appendTranscript, consumeTurn, runtimeClient],
   );
 
-  /** 计划 §3 ActionRuntimeTransport.SubmitEvidence：evidence 送回 TutorSession
-   *  typed evaluator；返回 evaluation 更新 Action Runtime，tutorTurn 已在内部
-   *  消费（narration/workspaceView/phase）。 */
+  /** 计划 §3 ActionRuntimeTransport.SubmitEvidence：evidence 送回服务端
+   *  pinned template typed evaluator；返回 evaluation 更新 Action Runtime。
+   *  canonical 链（spec §2.6/§4.6）：system failure 结构上无 evaluation——上抛
+   *  （Frame markTransportFailure），绝不映射 wrong；evidence rejected/
+   *  committed 返回真实 evaluation，且 snapshot 暂存待 actor 消费 evaluation
+   *  后经 adoptPendingEvaluationSnapshot() 采用（actor-first 顺序）。 */
   const transport: ActionRuntimeTransport = useMemo(
     () => ({
       submitEvidence: async (request) => {
-        if (vnext) {
-          // F7 方案 A：服务端真实 typed evaluator 结果透传；系统失败上抛绝不
-          // 映射 wrong。rejected 返回 genuine wrong+diagnosis（applyEvaluation
-          // 呈现错误反馈；暂态模式=零事件已由服务端保证）。
-          const vnextSession = vnextSessionRef.current;
-          if (!vnextSession) throw new Error("vNext 会话未启动");
-          const evidence = request.evidence[request.evidence.length - 1] as { actionId: string; sourceStepId: string; kind: string; version: number; values?: Record<string, string> };
-          const response = await vnextApi.submitActionEvidence(vnextSession, {
+        if (runtimeClient) {
+          const current = runtimeSnapshotRef.current;
+          if (!current) throw new Error("runtime 会话未启动");
+          const evidence = request.evidence[request.evidence.length - 1];
+          const values: Record<string, string> = "values" in evidence && evidence.values !== undefined
+            ? evidence.values
+            : {};
+          const result = await runtimeClient.submitActionEvidence(current.session_id, {
             evidence: {
               actionId: evidence.actionId,
               sourceStepId: evidence.sourceStepId,
               kind: evidence.kind,
               version: evidence.version,
-              values: evidence.values ?? {},
+              values,
             },
-            expectedRevision: vnextRevisionRef.current,
+            expectedRevision: current.revision,
+            // 幂等键复用 Frame 已管理的 submission key（同键重试幂等回放）。
+            clientRequestId: request.idempotencyKey,
           });
-          adoptVNext(response);
-          return { ...response.action_submission.evaluation, revision: response.revision };
+          const submission = result.actionSubmission;
+          if (submission.status === "evidence-rejected" || submission.status === "workspace-committed") {
+            if (!isActionEvaluationResponse(submission.evaluation)) {
+              throw new ProtocolParseError(["action_submission.evaluation 未通过 ActionEvaluationResponse runtime 校验"]);
+            }
+            pendingEvaluationSnapshotRef.current = result.snapshot;
+            return { ...submission.evaluation, revision: result.snapshot.revision };
+          }
+          // 三类 system failure（revision-conflict/command-rejected/runtime-failure）：
+          // 结构上禁 evaluation——不采用 snapshot、不评价，仅呈现可恢复失败。
+          setRuntimeFailureNotice(`上一轮未生效（${submission.failure.failure_class}），请重试。`);
+          throw new Error(`action evidence ${submission.status}: ${submission.failure.failure_class}`);
         }
         const activeSession = sessionIdRef.current;
         if (!activeSession) throw new Error("tutor session 未启动");
@@ -597,7 +705,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
         return turn.action_evaluation;
       },
     }),
-    [consumeTurn],
+    [consumeTurn, runtimeClient],
   );
 
   /** barge-in：立即停播并上报 interrupted（目标 <150ms 停止播放）。
@@ -659,18 +767,25 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
     [adoptExperience],
   );
 
-  /** /experience 启动（或换讲法：switchFromSessionId）。 */
+  /** Runtime 链 start（显式 task_id pin；幂等键同挂载周期稳定）；legacy 链
+   *  /experience 启动（或换讲法：switchFromSessionId）。 */
   const start = useCallback(
     async (options?: { switchFromSessionId?: string }): Promise<LearnExperienceResponse | undefined> => {
       setError(undefined);
+      setProtocolError(undefined);
       setBootstrapPending(true);
-      if (vnext) {
-        // F7 vNext 数据源：canonical Runtime 链会话（不走旧 /experience）。
+      if (runtimeClient) {
         try {
-          adoptVNext(await vnextApi.start({ studentId, taskId }));
+          runtimeStartKeyRef.current ??= newRuntimeRequestId();
+          adoptRuntimeSnapshot(await runtimeClient.start({
+            taskId,
+            studentId,
+            clientRequestId: runtimeStartKeyRef.current,
+          }));
         } catch (startError) {
+          handleRuntimeError(startError);
+        } finally {
           setBootstrapPending(false);
-          setError(startError instanceof Error ? startError.message : String(startError));
         }
         return undefined;
       }
@@ -692,26 +807,49 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
         setBootstrapPending(false);
       }
     },
-    [adoptExperience, studentId, taskId],
+    [adoptExperience, studentId, taskId, runtimeClient, adoptRuntimeSnapshot, handleRuntimeError],
   );
 
-  /** 刷新恢复：GET 学生安全视图，pending voice 重播、统一 View 直接采用。
-   *  VS1 REQ-08：schema 非法（含缺 workspace_view）→ "invalid"（recoverable
-   *  error 显示，不静默重开）；会话丢失/网络失败 → "missing"（调用方按默认
-   *  Binding 重开同一 Question——VS0 登记的既有行为，不是静默 fallback）。 */
+  /** 刷新恢复：Runtime 链 GET verified rebuild（零模型调用）；legacy 链 GET
+   *  学生安全视图 + pending voice 重播。
+   *  VS1 REQ-08 语义保留：schema 非法 → "invalid"（recoverable error 显示，
+   *  不静默重开、不回旧渲染链）；会话丢失 → "missing"（调用方按默认 Binding
+   *  重开同一 Question）。Runtime 链另按 spec §2.4：409
+   *  SESSION_VERSION_UNSUPPORTED → "invalid" + 明示重新开始，不回落 legacy。 */
   const restore = useCallback(async (targetSessionId: string): Promise<TutorRestoreOutcome> => {
     setError(undefined);
+    setProtocolError(undefined);
     setBootstrapPending(true);
     setInterrupted(false);
-    if (vnext) {
+    if (runtimeClient) {
       try {
-        adoptVNext(await vnextApi.restore(targetSessionId));
+        adoptRuntimeSnapshot(await runtimeClient.restore(targetSessionId));
         return "restored";
       } catch (restoreError) {
-        setBootstrapPending(false);
-        if (restoreError instanceof VNextApiError && restoreError.status === 404) return "missing";
-        setError(restoreError instanceof Error ? restoreError.message : String(restoreError));
+        if (restoreError instanceof ProtocolParseError) {
+          setProtocolError(restoreError.message);
+          return "invalid";
+        }
+        if (
+          restoreError instanceof TutorRuntimeHttpError
+          && restoreError.status === 404
+          && restoreError.code === "SESSION_NOT_FOUND"
+        ) {
+          setBootstrapPending(false);
+          return "missing";
+        }
+        if (
+          restoreError instanceof TutorRuntimeHttpError
+          && restoreError.status === 409
+          && restoreError.code === "SESSION_VERSION_UNSUPPORTED"
+        ) {
+          setError("该会话来自旧版本运行时，请刷新页面重新开始本轮学习。");
+          return "invalid";
+        }
+        handleRuntimeError(restoreError);
         return "invalid";
+      } finally {
+        setBootstrapPending(false);
       }
     }
     const generation = generationRef.current + 1;
@@ -772,43 +910,67 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
     } finally {
       setBootstrapPending(false);
     }
-  }, [applySession, speakTurn]);
+  }, [applySession, speakTurn, runtimeClient, adoptRuntimeSnapshot, handleRuntimeError]);
 
-  /** 整题完成：关闭会话（session_completed）——Topic 学习进度由页面记录。 */
+  /** 整题完成：legacy 链关闭会话（session_completed）——Topic 学习进度由页面
+   *  记录。Runtime 链 no-op：session_completed 属 v7 服务端事实（随快照
+   *  completed 派生），前端禁调 legacy completeTutorSession。 */
   const finishQuestion = useCallback(async () => {
+    if (runtimeClient) return;
     const activeSession = sessionIdRef.current;
     if (!activeSession) return;
     await api.completeTutorSession(activeSession, "finished").catch(() => undefined);
     setCompleted(true);
-  }, []);
+  }, [runtimeClient]);
 
   const replayNarration = useCallback(() => {
     void narration.replay();
   }, [narration]);
+
+  /** canonical Runtime 派生面（spec §4.2：Coach transcript、Participation、
+   *  Workspace、completed、active Action 均从单一 snapshot 派生）。 */
+  const runtimeQuestion = useMemo<TutorQuestionView | undefined>(
+    () => runtimeSnapshot
+      ? { artifact_id: runtimeSnapshot.question.artifact_id, stem: runtimeSnapshot.question.stem, subquestions: [] }
+      : undefined,
+    [runtimeSnapshot],
+  );
+  const runtimeTranscript = useMemo(
+    () => (runtimeSnapshot ? runtimeTranscriptEntries(runtimeSnapshot.views.coach_panel_view) : []),
+    [runtimeSnapshot],
+  );
+  const runtimeTurnFailure = useMemo(() => {
+    const turn = runtimeSnapshot?.turn;
+    return turn && turn.status !== "committed" ? turn.failure?.failure_class : undefined;
+  }, [runtimeSnapshot]);
 
   return {
     phase,
     sessionId,
     revision,
     experience,
-    question,
+    question: runtimeClient ? runtimeQuestion : question,
     alternatesAvailable,
-    transcript,
+    transcript: runtimeClient ? runtimeTranscript : transcript,
     workspaceView,
     activeOperation,
-    /** F7 vNext 数据源（canonical view/v1 + active_action；vnext=false 时全 undefined）。 */
-    vnextWorkspace,
-    vnextCoach,
-    vnextParticipationKind,
-    vnextActiveAction,
-    vnextCompleted,
-    vnextTurnFailure,
+    /** canonical Runtime 数据源（runtimeClient 缺省时 undefined——legacy 链不消费）。 */
+    runtimeSnapshot,
+    runtimeParticipation: runtimeSnapshot?.views.participation,
+    runtimeCoach: runtimeSnapshot?.views.coach_panel_view,
+    runtimeWorkspace: runtimeSnapshot?.views.student_workspace_view,
+    runtimePendingPresentation: runtimeSnapshot?.pending_presentation,
+    runtimeCompleted: runtimeSnapshot?.completed ?? false,
+    runtimeTurnFailure,
+    runtimeFailureNotice,
+    /** recoverable protocol error（保留最后一份合法 snapshot；retrySync 显式重对账）。 */
+    protocolError,
     /** VS1 remediation-2：拍点只读展示（turn/restore 同源 state）。 */
     currentCheckpoint,
     /** VS1 remediation-2：话术呈现指针（瞬时；门/回看状态见 TutorPresentation）。 */
     presentation,
     questionCompleted,
-    completed,
+    completed: runtimeClient ? (runtimeSnapshot?.completed ?? false) : completed,
     error,
     autoplayBlocked,
     transport,
@@ -816,7 +978,10 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, vnext }:
     start,
     restore,
     submitStudentInput,
-    vnextSubmitIntent,
+    submitUtterance,
+    submitControl,
+    adoptPendingEvaluationSnapshot,
+    retrySync,
     bargeIn,
     resumeFromInterrupt,
     finishQuestion,

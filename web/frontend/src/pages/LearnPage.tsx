@@ -17,13 +17,14 @@ import { ActionRuntimeFrame } from "../presentation/runtime/ActionRuntimeFrame";
 import { actionMachineRegistry } from "../action-runtime/registry";
 import { AcceptanceDiagnostics, type AcceptanceRouteKind } from "../presentation/acceptance/AcceptanceDiagnostics";
 import { TutorLearnExperience } from "./learn/TutorLearnExperience";
-import { vnextApi } from "../api/vnextTutorClient";
+import { tutorRuntimeHttp } from "../api/tutorRuntimeClient";
 import type { TutorExperienceResponse } from "../../../shared/tutorExperience";
 
 const EMPTY_DRAFT: ClientDraftState = { selections: {}, inputs: {} };
-/** F7：vNext availability（golden task + TUTOR_VNEXT_ROOT 挂载）→ canonical
- *  TutorLearnExperience(vnext)——不建新页面；不可用/失败回落既有 Phase 5 流程。 */
-type VNextMode = "pending" | "yes" | "no";
+/** F7：runtime availability（golden task + TUTOR_VNEXT_ROOT 挂载）→ LearnPage
+ *  仅为 canonical TutorLearnExperience 选择 TutorRuntimeClient 数据源（不选
+ *  页面、不选 UI 模式）；不可用/失败回落既有 Phase 5 流程（legacy 链 F8 退场）。 */
+type RuntimeAvailability = "pending" | "yes" | "no";
 const ACTION_RUNTIME_V2_ENABLED = import.meta.env.VITE_ACTION_RUNTIME_V2 !== "false";
 /** Phase 5 UI 集成：/learn/:taskId 先问 /experience；tutor 分流到 Tutor 工作台。 */
 type ExperienceMode = "pending" | "tutor" | "legacy";
@@ -78,8 +79,8 @@ export function LearnPage() {
   const acceptanceMode = searchParams.get("acceptance") === "1";
   const { focusedTask, setFocusedTaskId, studentName } = useOutletContext<WorkspaceOutletContext>();
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("pending");
-  const [vnextMode, setVNextMode] = useState<VNextMode>("pending");
-  const vnextAskedRef = useRef("");
+  const [runtimeAvailability, setRuntimeAvailability] = useState<RuntimeAvailability>("pending");
+  const availabilityAskedRef = useRef("");
   const [experienceError, setExperienceError] = useState<string | undefined>();
   const [experienceNonce, setExperienceNonce] = useState(0);
   /** VS0 REQ-06：tutor 尝试后回退 legacy（restore 失败重启返回 legacy）才置
@@ -117,18 +118,19 @@ export function LearnPage() {
     setActionPlan(null);
   }, [setFocusedTaskId, taskId]);
 
-  // F7：vNext availability 优先裁定（golden task → canonical TutorLearnExperience
-  // vnext 模式；不建新页面）。未裁定前不启动旧 /experience（避免建旧会话）。
+  // F7：runtime availability 优先裁定（golden task → canonical Runtime 数据源；
+  //  只选择 client，不选择页面/UI 模式）。未裁定前不启动旧 /experience
+  //  （避免建旧会话）。
   useEffect(() => {
-    if (!taskId || vnextAskedRef.current === taskId) return;
-    vnextAskedRef.current = taskId;
-    vnextApi.availability(taskId)
-      .then((result) => setVNextMode(result.enabled ? "yes" : "no"))
-      .catch(() => setVNextMode("no"));
+    if (!taskId || availabilityAskedRef.current === taskId) return;
+    availabilityAskedRef.current = taskId;
+    tutorRuntimeHttp.availability(taskId)
+      .then((result) => setRuntimeAvailability(result.enabled ? "yes" : "no"))
+      .catch(() => setRuntimeAvailability("no"));
   }, [taskId]);
 
   useEffect(() => {
-    if (!taskId || !studentName || restoreSessionId || vnextMode === "yes") return;
+    if (!taskId || !studentName || restoreSessionId || runtimeAvailability === "yes") return;
     const askKey = `${studentName}:${taskId}:${experienceNonce}`;
     if (experienceAskedRef.current === askKey) return;
     experienceAskedRef.current = askKey;
@@ -203,16 +205,17 @@ export function LearnPage() {
     />
   ) : null;
 
-  // F7：vNext 可用 → canonical TutorLearnExperience（vnext 数据源；原地收敛，
-  // 不建新页面；vNext fail-closed 由 hook 错误面呈现，不静默回 legacy）。
-  if (taskId && studentName && (vnextMode === "yes" || (vnextMode === "pending" && restoreSessionId))) {
+  // F7：runtime 可用 → canonical TutorLearnExperience（注入 TutorRuntimeClient
+  //  数据源；原地收敛不建新页面；fail-closed 由 hook 错误面呈现，不静默回
+  //  legacy）。restore 场景在裁定前乐观渲染（?session= 属 canonical 会话）。
+  if (taskId && studentName && (runtimeAvailability === "yes" || (runtimeAvailability === "pending" && restoreSessionId))) {
     return (
       <TutorLearnExperience
-        key={`vnext:${taskId}:${restoreSessionId ?? "start"}`}
+        key={`runtime:${taskId}:${restoreSessionId ?? "start"}`}
         taskId={taskId}
         studentId={studentName}
         restoreSessionId={restoreSessionId}
-        vnext
+        runtimeClient={tutorRuntimeHttp}
         onLegacy={() => undefined}
       />
     );

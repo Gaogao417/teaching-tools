@@ -35,6 +35,7 @@ import { TopicTeachingConfirm, TopicTeachingPlayback } from "../../presentation/
 import { AcceptanceDiagnostics } from "../../presentation/acceptance/AcceptanceDiagnostics";
 import { useCoachRecorder } from "../../presentation/coach/useCoachRecorder";
 import { api } from "../../api/client";
+import type { TutorRuntimeClient } from "../../api/tutorRuntimeClient";
 import { topicNodeByTaskId } from "../../../../shared/similarityLearningMap";
 import type { TaskId } from "../../../../shared/contracts";
 import type { TutorExperienceResponse } from "../../../../shared/tutorExperience";
@@ -56,16 +57,20 @@ export interface TutorLearnExperienceProps {
   fallbackOccurred?: boolean;
   /** /experience 返回 legacy（无 Approved Binding）→ 回退原 LearnPage。 */
   onLegacy: () => void;
-  /** F7 vNext 数据源（canonical Runtime 链；availability 由 LearnPage 裁定后传入）。 */
-  vnext?: boolean;
+  /** canonical Runtime 数据源（F7 Step 5，spec §4.1）：LearnPage 按 availability
+   *  选择 client 后注入。提供时组件消费 v7 SessionSnapshot 链（单一快照
+   *  派生）；缺省走 legacy V5 链——不据此切换页面或第二套 UI 模式。 */
+  runtimeClient?: TutorRuntimeClient;
 }
 
-export function TutorLearnExperience({ taskId, studentId, restoreSessionId, initial, acceptanceMode, fallbackOccurred, onLegacy, vnext }: TutorLearnExperienceProps) {
+export function TutorLearnExperience({ taskId, studentId, restoreSessionId, initial, acceptanceMode, fallbackOccurred, onLegacy, runtimeClient }: TutorLearnExperienceProps) {
   const navigate = useNavigate();
-  const tutor = useTutorLearning({ taskId, studentId, restoreSessionId, ...(vnext ? { vnext: true } : {}) });
+  const tutor = useTutorLearning({ taskId, studentId, restoreSessionId, ...(runtimeClient ? { runtimeClient } : {}) });
+  /** 数据源分派（迁移期双数据源，F8 删 legacy 侧）：canonical Runtime 链 /
+   *  legacy V5 链。UI 控件由各自数据源驱动，无双状态混写。 */
+  const runtimeMode = Boolean(runtimeClient);
   const [questionDraft, setQuestionDraft] = useState("");
   const [answerDraft, setAnswerDraft] = useState("");
-  const [inquiryDraft, setInquiryDraft] = useState("");
   const [asrBusy, setAsrBusy] = useState(false);
   const [notice, setNotice] = useState<string | undefined>();
   const startedRef = useRef(false);
@@ -124,35 +129,47 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tutor.questionCompleted]);
 
-  /** Assistance（ADR-010：Panel composer 恒为提问通道——kind 不由前端
-   *  phase 猜，语音提问同链路；语音回答入口让渡 VS5，偏差登记）。 */
+  /** Assistance（ADR-010：Panel composer 恒为提问通道）。canonical 链提交
+   *  原始 utterance(channel=assistance)——语义解释在后端（spec §2.5）。 */
   const submitQuestion = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
       setQuestionDraft("");
+      if (runtimeMode) {
+        void tutor.submitUtterance("assistance", trimmed);
+        return;
+      }
       void tutor.submitStudentInput({ input_kind: "question_asked", text: trimmed });
     },
-    [tutor],
+    [tutor, runtimeMode],
   );
 
-  /** 主线回答（Mainline Participation）：服务端 participation 投影为
-   *  teach（等待学生推理）时在 action bar 提交 reasoning_utterance。 */
+  /** 主线回答（Mainline Participation）：canonical 链提交原始
+   *  utterance(channel=mainline)（是否为答案由后端判断）；legacy 链提交
+   *  reasoning_utterance（服务端 participation 投影 teach 态）。 */
   const submitAnswer = useCallback(
     () => {
       const trimmed = answerDraft.trim();
       if (!trimmed) return;
       setAnswerDraft("");
+      if (runtimeMode) {
+        void tutor.submitUtterance("mainline", trimmed);
+        return;
+      }
       void tutor.submitStudentInput({ input_kind: "reasoning_utterance", text: trimmed });
     },
-    [answerDraft, tutor],
+    [answerDraft, tutor, runtimeMode],
   );
 
+  // canonical 链录音暂不开放（Step 8 接当前 client 的 /asr；迁移期禁止把新
+  // session 送入 legacy /api/tutor-sessions/:id/asr——spec §5 禁止形态），文字
+  // 入口保留。
   const recorder = useCoachRecorder({
-    disabled: asrBusy || !tutor.sessionId,
+    disabled: asrBusy || !tutor.sessionId || runtimeMode,
     media: undefined,
     onAudio: (audio) => {
-      if (!tutor.sessionId) return;
+      if (runtimeMode || !tutor.sessionId) return;
       setAsrBusy(true);
       setNotice("正在识别你的话…");
       api
@@ -226,7 +243,17 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   const statusNotes = (
     <>
       {tutor.error ? <p className="tutor-learn-error" role="alert" data-testid="tutor-error">{tutor.error}</p> : null}
-      {vnext && tutor.vnextTurnFailure ? <p className="tutor-learn-notice" role="status" data-testid="vnext-turn-failure">上一轮未生效（{tutor.vnextTurnFailure}），请重试。</p> : null}
+      {tutor.protocolError ? (
+        <p className="tutor-learn-error" role="alert" data-testid="tutor-protocol-error">
+          {tutor.protocolError}
+          <button type="button" className="btn btn-ghost" data-testid="tutor-protocol-retry" onClick={() => void tutor.retrySync()}>重新同步</button>
+        </p>
+      ) : null}
+      {tutor.runtimeTurnFailure || tutor.runtimeFailureNotice ? (
+        <p className="tutor-learn-notice" role="status" data-testid="tutor-turn-failure">
+          {tutor.runtimeFailureNotice ?? `上一轮未生效（${tutor.runtimeTurnFailure}），请重试。`}
+        </p>
+      ) : null}
       {notice ? <p className="tutor-learn-notice" role="status">{notice}</p> : null}
       {pres.reviewing ? <p className="topic-coach-recording" role="status"><span />正在回看上一段讲解…</p> : null}
       {asrBusy ? <p className="topic-coach-recording" role="status"><span />正在识别你的话…</p> : null}
@@ -234,7 +261,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   );
   const extraHeaderControls = (
     <>
-      {tutor.phase === "speaking" && !vnext && !pres.awaitingContinue && !pres.reviewing ? (
+      {tutor.phase === "speaking" && !runtimeMode && !pres.awaitingContinue && !pres.reviewing ? (
         <button type="button" className="tutor-session-control" data-testid="tutor-barge-in" onClick={() => void tutor.bargeIn()}>打断</button>
       ) : null}
       {tutor.phase === "interrupted" ? (
@@ -243,7 +270,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
       {tutor.phase === "recovering" ? (
         <button type="button" className="tutor-session-control" data-testid="tutor-retry" onClick={() => void tutor.start()}>重试</button>
       ) : null}
-      {tutor.alternatesAvailable && tutor.sessionId && !completed && !vnext ? (
+      {tutor.alternatesAvailable && tutor.sessionId && !completed && !runtimeMode ? (
         <button
           type="button"
           className="tutor-session-control"
@@ -265,12 +292,12 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
       title={panelTitle}
       promptLatex={pres.currentText ?? lastTutorEntry?.text ?? ""}
       thread={coachThread}
-      canHelp={!completed && Boolean(tutor.sessionId)}
+      canHelp={!completed && Boolean(tutor.sessionId) && (!runtimeMode || tutor.runtimeCoach?.assistance_available !== false)}
       message={questionDraft}
       onMessageChange={setQuestionDraft}
       onAsk={() => submitQuestion(questionDraft)}
       inputDisabled={busy || asrBusy}
-      micDisabled={busy || asrBusy}
+      micDisabled={busy || asrBusy || runtimeMode}
       recording={recorder.recording}
       onToggleRecorder={() => void recorder.toggle()}
       busy={busy}
@@ -312,6 +339,13 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     (window as unknown as { __tutorWorkspaceView?: unknown }).__tutorWorkspaceView = tutor.workspaceView;
   }, [acceptanceMode, tutor.workspaceView]);
 
+  // canonical 链验收模式：暴露已验证 SessionSnapshot（Step 8 Playwright 证据
+  // 采集锚点——snapshot 是渲染输入本身，无 hidden truth，不新增泄露面）。
+  useEffect(() => {
+    if (!acceptanceMode || !runtimeMode) return;
+    (window as unknown as { __runtimeSessionSnapshot?: unknown }).__runtimeSessionSnapshot = tutor.runtimeSnapshot;
+  }, [acceptanceMode, runtimeMode, tutor.runtimeSnapshot]);
+
   // VS1 remediation：Learn Question 一体化进 FocusPrompt（stem + 带编号
   // subquestions），teach/operate/completed 三阶段同构。
   const learnPrompt = (
@@ -326,9 +360,11 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     "data-tutor-phase": tutor.phase,
   };
 
-  /** 教学播放组（teach 态；operate=Frame assessment 动作条、completed 只读）。
-   *  下一拍=放行恰一步（仅门态可点）；上一拍/回开头=纯回看；重播=当前拍。 */
-  const teachingPlayback = !vnext && !completed && !operateActive ? (
+  /** 教学播放组（legacy 链 teach 态；canonical 链的呈现执行属 PresentationRuntime
+   *  ——F7 Step 6，本轮无音频自动播放）。operate=Frame assessment 动作条、
+   *  completed 只读。下一拍=放行恰一步（仅门态可点）；上一拍/回开头=纯回看；
+   *  重播=当前拍。 */
+  const teachingPlayback = !runtimeMode && !completed && !operateActive ? (
     <TopicTeachingPlayback
       positionCurrent={Math.max(pres.playedCount, 1)}
       positionTotal={Math.max(pres.totalCount, 1)}
@@ -344,9 +380,10 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     />
   ) : null;
 
-  /** 主线回答入口：呈现队列走完（非讲解中/门态）且非操作/完成态时出现；
-   *  提交 reasoning_utterance（服务端 participation 投影 teach 态）。 */
-  const answerVisible = !vnext && !completed && !operateActive && !pres.playing && !pres.awaitingContinue
+  /** 主线回答入口（legacy 链）：呈现队列走完（非讲解中/门态）且非操作/完成态
+   *  时出现；提交 reasoning_utterance（服务端 participation 投影 teach 态）。
+   *  canonical 链的对应入口由 runtimeControls 按 participation kind 驱动。 */
+  const answerVisible = !runtimeMode && !completed && !operateActive && !pres.playing && !pres.awaitingContinue
     && !busy && !tutor.error && Boolean(tutor.sessionId);
   const participationForm = answerVisible ? (
     <form
@@ -368,7 +405,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     </form>
   ) : null;
 
-  const teachingConfirm = !vnext && !completed && !operateActive ? (
+  const teachingConfirm = !runtimeMode && !completed && !operateActive ? (
     <TopicTeachingConfirm
       confusedDisabled={busy || !tutor.sessionId}
       onConfused={() => submitQuestion(CONFUSED_MESSAGE)}
@@ -383,11 +420,14 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
       <>
         {diagnostics}
         <div className="ks-focus-page tutor-learn-page" data-testid="page-lifecycle" data-lifecycle="ready" {...pageAttributes}>
+          {/* actor-first（spec §4.6）：Frame 内部先 applyEvaluation 再回调
+              onEvaluation——canonical 链在此原子采用 evidence 响应快照。 */}
           <ActionRuntimeFrame
             response={{ sessionId: tutor.sessionId, plan: activeOperation.plan }}
             transport={tutor.transport}
+            onEvaluation={runtimeMode ? () => tutor.adoptPendingEvaluationSnapshot() : undefined}
             boardView={tutor.workspaceView?.solutionBoard}
-            viewRevision={tutor.workspaceView?.revision}
+            viewRevision={runtimeMode ? tutor.runtimeWorkspace?.revision : tutor.workspaceView?.revision}
             questionPrompt={learnPrompt}
             railContent={coachPanel}
             railTrigger={dockTrigger}
@@ -405,64 +445,73 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     );
   }
 
-  // F7 vNext 参与区：canonical participation kind 驱动（类型化 intent；无通用聊天）。
-  const vnextParticipationBar = vnext ? (() => {
-    const kind = tutor.vnextParticipationKind;
-    if (tutor.vnextCompleted || kind === "read_only_completed") {
-      return <p className="canonical-participation-note" role="status" data-testid="vnext-participation">本题已完成（只读回顾）。</p>;
-    }
-    if (kind === "workspace_input") {
-      return <p className="canonical-participation-note" role="status" data-testid="vnext-participation">按老师要求在画布上完成标注操作。</p>;
-    }
-    if (kind === "temporarily_paused_for_inquiry") {
+  /** canonical 参与区（spec §4.4）：canonical participation kind 驱动既有控件
+   *  形态——answer=主线回答表单（utterance mainline）、confirm/continue=唯一
+   *  typed control CTA、inquiry=Coach assistance 提问 + 显式返回主线、
+   *  listen_only=状态说明、workspace_input=ActionRuntimeFrame 分支（上方）、
+   *  completed=只读回顾。 */
+  const runtimeControls = runtimeMode ? (() => {
+    const kind = tutor.runtimeParticipation?.kind ?? "listen_only";
+    if (tutor.runtimeCompleted || kind === "read_only_completed") {
       return (
-        <div className="vnext-inquiry-dialog" data-testid="vnext-inquiry-dialog">
-          <form
-            className="tutor-participation"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const trimmed = inquiryDraft.trim();
-              if (!trimmed) return;
-              setInquiryDraft("");
-              void tutor.vnextSubmitIntent("submit_answer", trimmed);
-            }}
+        <div className="action-row" data-testid="tutor-completed">
+          <span className="text-muted">这道题学完了，进入训练巩固？</span>
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-testid="tutor-start-practice"
+            onClick={() => navigate(`/practice/${taskId}`)}
           >
-            <input value={inquiryDraft} aria-label="回答老师的问题" placeholder="说说你卡在哪里" onChange={(event) => setInquiryDraft(event.target.value)} />
-            <button type="submit" data-testid="vnext-inquiry-answer" disabled={!inquiryDraft.trim() || busy}>回答</button>
-          </form>
-          <div className="action-row">
-            <button type="button" className="btn btn-ghost" data-testid="vnext-inquiry-confirm" disabled={busy} onClick={() => void tutor.vnextSubmitIntent("confirm")}>确认</button>
-            {tutor.vnextCoach?.inquiry.kind === "ready_to_return" ? (
-              <button type="button" className="btn btn-primary" data-testid="vnext-inquiry-return" disabled={busy} onClick={() => void tutor.vnextSubmitIntent("return_to_mainline")}>返回主线</button>
-            ) : null}
-          </div>
+            开始训练
+          </button>
         </div>
       );
     }
     if (kind === "confirm_input") {
       return (
-        <button type="button" className="btn btn-primary" data-testid="vnext-participation-confirm" disabled={busy} onClick={() => void tutor.vnextSubmitIntent("confirm")}>确认</button>
+        <button type="button" className="btn btn-primary" data-testid="tutor-confirm-input" disabled={busy} onClick={() => void tutor.submitControl("confirm")}>确认</button>
+      );
+    }
+    if (kind === "continue_input") {
+      return (
+        <button type="button" className="btn btn-primary" data-testid="tutor-continue-input" disabled={busy} onClick={() => void tutor.submitControl("continue")}>继续</button>
       );
     }
     if (kind === "answer_input") {
       return (
         <form
           className="tutor-participation"
-          data-testid="vnext-participation"
+          data-testid="tutor-participation"
+          aria-label="回答老师"
           onSubmit={(event) => {
             event.preventDefault();
-            const trimmed = answerDraft.trim();
-            if (!trimmed) return;
-            setAnswerDraft("");
-            void tutor.vnextSubmitIntent("submit_answer", trimmed);
+            submitAnswer();
           }}
         >
-          <input value={answerDraft} aria-label="回答输入" placeholder="说说这一步你是怎么想的" onChange={(event) => setAnswerDraft(event.target.value)} />
-          <button type="submit" data-testid="vnext-submit-answer" disabled={!answerDraft.trim() || busy}>回答</button>
+          <input
+            value={answerDraft}
+            placeholder="说说这一步你是怎么想的"
+            aria-label="回答输入"
+            onChange={(event) => setAnswerDraft(event.target.value)}
+          />
+          <button type="submit" data-testid="tutor-submit-answer" disabled={!answerDraft.trim() || busy}>回答</button>
         </form>
       );
     }
-    return <p className="canonical-participation-note" role="status" data-testid="vnext-participation">听老师讲解。</p>;
+    if (kind === "temporarily_paused_for_inquiry") {
+      return (
+        <div className="action-row" data-testid="tutor-inquiry-row">
+          <span className="text-muted">有问题随时在左侧问老师；想清楚了就回主线。</span>
+          {tutor.runtimeCoach?.inquiry.kind === "ready_to_return" ? (
+            <button type="button" className="btn btn-primary" data-testid="tutor-inquiry-return" disabled={busy} onClick={() => void tutor.submitControl("return_to_mainline")}>返回主线</button>
+          ) : null}
+        </div>
+      );
+    }
+    if (kind === "workspace_input") {
+      return <p className="canonical-participation-note" role="status" data-testid="tutor-participation">按老师要求在画布上完成标注操作。</p>;
+    }
+    return <p className="canonical-participation-note" role="status" data-testid="tutor-participation">听老师讲解。</p>;
   })() : null;
 
   // 讲解 / 完成：同一 FocusWorkspace 外壳 + 同一 StudentWorkspaceFrame
@@ -478,7 +527,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
           railOpen={railOpen}
           railTrigger={dockTrigger}
           actionBarLeft={teachingPlayback}
-          actionEnd={vnext ? vnextParticipationBar : completed ? (
+          actionEnd={runtimeMode ? runtimeControls : completed ? (
             <div className="action-row" data-testid="tutor-completed">
               <span className="text-muted">这道题学完了，进入训练巩固？</span>
               <button
@@ -497,8 +546,8 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
             </div>
           )}
         >
-          {vnext && tutor.vnextWorkspace ? (
-            <StudentWorkspaceViewSurface view={tutor.vnextWorkspace} />
+          {runtimeMode && tutor.runtimeWorkspace ? (
+            <StudentWorkspaceViewSurface view={tutor.runtimeWorkspace} />
           ) : (
           <StudentWorkspaceFrame
             viewRevision={tutor.workspaceView?.revision}
