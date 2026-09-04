@@ -53,6 +53,7 @@ import { realizePresentationPlanV6, type PresentationPlanV6 } from "./TutorPrese
 import { projectPendingPresentation, projectV6Views, type V6PendingPresentation, type V6SessionSnapshot } from "./V6SessionSnapshot";
 import { projectActiveAction, type ActiveAction, type ProjectedActionContract } from "./ActiveActionProjector";
 import { buildExternalSupportEvidence } from "../tutorNavigator/ExternalSupportEvidenceV5";
+import { constructionOutputId } from "./WorkspaceActionAdjudication";
 
 export const ORCHESTRATOR_V6_VERSION = "tutor-session-orchestrator/v6";
 
@@ -422,7 +423,7 @@ export class TutorSessionOrchestratorV6 {
         },
         occurred_at: nowIso(),
         causation_sequence: deliveredSequence,
-        idempotency_key: `${this.sessionId}:poutcome:${request.sequence_id}:${request.ordinal}:${request.action_id}`,
+        idempotency_key: `${this.sessionId}:poutcome:${request.sequence_id}:${request.ordinal}:${request.action_id}:${request.client_request_id}`,
       },
     ];
     if (request.outcome === "interrupted") {
@@ -493,7 +494,15 @@ export class TutorSessionOrchestratorV6 {
       factEntryIds: this.binding.golden.factEntryIds,
       sessionRevision: this.navigator.revision,
     });
-    const active = this.activeAction(promptLatex);
+    const active = (() => {
+      // F7 Step 3 rework（spec §1.3 / PLAN Step 4 一致性校验）：active action
+      // 只在 workspace_input 相位挂载——末项 presented 进入 awaiting_evidence
+      // 且无 pending delivery 时才对学生开放（「老师呈现完再开放学生操作」；
+      // 服务端 applied ≠ 浏览器呈现完成，构造进行中不得挂载）。
+      const presenterIdle = tutorState.teaching_cursor.phase === "awaiting_evidence"
+        && tutorState.presentation_cursor.status === "idle";
+      return presenterIdle ? this.activeAction(promptLatex) : undefined;
+    })();
     const pending = projectPendingPresentation({
       sessionId: this.sessionId,
       events,
@@ -578,6 +587,7 @@ export class TutorSessionOrchestratorV6 {
           .map((entry) => entry.entry_id),
       ),
       committedElementIds: new Set(workspaceRebuild.state.geometry.committed_element_ids),
+      representTargets: this.representTargets(),
     });
     // 队首 workspace 先经 F3 validator（五重校验）——拒绝即零事件（sequence 不
     // 入流；防「计划了必拒动作」）。非队首 workspace 在其交付点同样校验。
@@ -839,6 +849,41 @@ export class TutorSessionOrchestratorV6 {
     return this.events.filter((event) => event.event_type === "presentation_sequence_planned").length;
   }
 
+  /**
+   * F7 Step 3 rework：需重呈现的目标集——committed 流中「服务端 applied 但
+   * 浏览器未 presented（failed/interrupted/崩溃窗口）」的 workspace 动作目标
+   * （geometry 构造 output id / Board entry id）。恢复/重呈现序列对这些目标
+   * 以 presentation_only 重新入列（零服务端效果），不被 committed/hidden
+   * 幂等过滤跳过（spec §2.5：retry 必须重新呈现失败 action）。
+   */
+  private representTargets(): Set<string> {
+    const events = this.events;
+    const targets = new Set<string>();
+    for (const event of events) {
+      if (event.event_type !== "presentation_sequence_planned") continue;
+      const payload = event.payload as unknown as { sequence_id: string; actions: V6PresentationOrderedAction[] };
+      for (const action of payload.actions) {
+        if (action.kind !== "workspace" || !action.workspace_action) continue;
+        const ref = { sequence_id: payload.sequence_id, ordinal: action.ordinal, action_id: action.workspace_action.action_id };
+        const applied = events.some((candidate) =>
+          candidate.event_type === "presentation_action_applied"
+          && (candidate.payload as typeof ref).sequence_id === ref.sequence_id
+          && (candidate.payload as typeof ref).ordinal === ref.ordinal
+          && (candidate.payload as typeof ref).action_id === ref.action_id);
+        if (!applied) continue;
+        const presented = events.some((candidate) =>
+          candidate.event_type === "presentation_action_outcome_recorded"
+          && (candidate.payload as typeof ref & { outcome: string }).sequence_id === ref.sequence_id
+          && (candidate.payload as typeof ref & { outcome: string }).ordinal === ref.ordinal
+          && (candidate.payload as typeof ref & { outcome: string }).action_id === ref.action_id
+          && (candidate.payload as typeof ref & { outcome: string }).outcome === "presented");
+        if (presented) continue;
+        for (const id of workspaceActionTargetIds(action.workspace_action)) targets.add(id);
+      }
+    }
+    return targets;
+  }
+
   private checkExpectedRevision(expectedRevision: number | undefined): { revision: number; turn: V6TurnResult } | undefined {
     if (expectedRevision === undefined) return undefined;
     const current = this.navigator.revision;
@@ -975,4 +1020,19 @@ function nextUnpresentedOrdinal(events: readonly StoredV6Event[], sequenceId: st
     if (!presented.has(ordinal)) return ordinal;
   }
   return undefined;
+}
+
+/** workspace presentation action 的重呈现目标（构造 output / Board entry id）。 */
+function workspaceActionTargetIds(action: NonNullable<V6PresentationOrderedAction["workspace_action"]>): string[] {
+  if (action.surface === "solution_board") return [...(action.target_ids ?? [])];
+  if (action.command_payload !== undefined) {
+    try {
+      const command = JSON.parse(action.command_payload) as Parameters<typeof constructionOutputId>[0];
+      const output = constructionOutputId(command);
+      return output !== undefined ? [output] : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }

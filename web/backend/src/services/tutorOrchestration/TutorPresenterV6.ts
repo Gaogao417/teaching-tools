@@ -66,6 +66,14 @@ export interface PresenterV6Input {
   readonly assessmentMode?: boolean;
   /** 已 committed 的画布元素 id（构造呈现幂等过滤——重复呈现跳过已构造输出）。 */
   readonly committedElementIds?: ReadonlySet<string>;
+  /**
+   * F7 Step 3 rework：需重呈现的目标（构造 output id / Board entry id）——
+   * 服务端已 applied 但浏览器未 presented（failed/interrupted/崩溃窗口）的
+   * 动作目标。这些目标以 presentation_only=true 重新入列（零服务端效果、
+   * 浏览器重新呈现），不被 committed/hidden 过滤跳过（spec §2.5：retry 必须
+   * 重新呈现失败 action）。
+   */
+  readonly representTargets?: ReadonlySet<string>;
 }
 
 export class TutorPresenterV6Error extends Error {
@@ -128,13 +136,15 @@ export function realizePresentationPlanV6(input: PresenterV6Input): Presentation
     .filter((resource): resource is PlanResourceV4 => resource !== undefined);
 
   // ---- 1. Geometry 构造/高亮（approved workspace 资源 → geometry.construct×N，
-  // reveal_scope=none；已 committed 的输出幂等跳过——重复呈现/恢复序列不重发）。
+  // reveal_scope=none；已 presented 的输出幂等跳过——重复呈现/恢复序列不重发；
+  // applied-未-presented（represent）的目标以 presentation_only 重呈现）。----
   const constructions = resolveBeatConstructions([...approvedResources], beat);
   if (constructions) {
     let constructionIndex = 0;
     for (const command of constructions) {
       const outputId = constructionOutputId(command);
-      if (outputId && input.committedElementIds?.has(outputId)) continue;
+      const represent = outputId !== undefined && (input.representTargets?.has(outputId) ?? false);
+      if (outputId && !represent && input.committedElementIds?.has(outputId)) continue;
       // DomainCommand 基字段（commandId/actionId）由呈现层确定性补戳——artifact
       // 只承载几何本质（type/引用/输出 id）；幂等过滤保证不重复构造。
       const stamped = {
@@ -152,6 +162,7 @@ export function realizePresentationPlanV6(input: PresenterV6Input): Presentation
           origin: "tutor",
           command_payload: JSON.stringify(stamped),
           reveal_scope: "none",
+          ...(represent ? { presentation_only: true } : {}),
         },
       });
       constructionIndex += 1;
@@ -194,14 +205,21 @@ export function realizePresentationPlanV6(input: PresenterV6Input): Presentation
   const wantsBoard = input.presentationIntent?.workspace_surfaces?.includes("solution_board") === true;
   const mayRevealIntermediate = beat.support_boundary?.may_reveal_intermediate !== false;
   if (wantsBoard && mayRevealIntermediate) {
+    const representTargets: string[] = [];
     const revealTargets: string[] = [];
     for (const factId of beat.graph_fact_refs) {
       const entryId = factEntryIds.get(factId);
       if (!entryId) continue;
       const entry = boardEntryById(catalog, entryId);
       if (!entry) continue;
+      // applied-未-presented（represent）：重新入列（presentation_only）——
+      // 服务端 reveal 已落定，浏览器重新呈现；与新 reveal 拆列（效果语义不同）。
+      if (input.representTargets?.has(entryId)) {
+        representTargets.push(entryId);
+        continue;
+      }
       // solution_refs 会合法地重复前一 Beat 已显示的 premises；Presenter 只计划
-      // 状态增量，重复 reveal 仍由执行层严格拒绝（hidden 过滤）。
+      // 状态增量，已 presented 的 reveal（条目已 visible）由 hidden 过滤跳过。
       if (!hiddenEntryIds.has(entryId)) continue;
       if (entry.revealRequirement === "final") {
         if (finalRevealCurrentlyAuthorized(catalog, gateLedger, entryId)) {
@@ -210,6 +228,21 @@ export function realizePresentationPlanV6(input: PresenterV6Input): Presentation
         continue;
       }
       revealTargets.push(entryId);
+    }
+    if (representTargets.length > 0) {
+      push({
+        kind: "workspace",
+        workspace_action: {
+          action_id: `WSA-${sessionId}-${serial}-R`,
+          decision_id: decision.decision_id,
+          surface: "solution_board",
+          capability: "board.reveal-entry",
+          origin: "tutor",
+          target_ids: representTargets,
+          reveal_scope: "step_narration",
+          presentation_only: true,
+        },
+      });
     }
     if (revealTargets.length > 0) {
       push({

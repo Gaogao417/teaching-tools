@@ -98,6 +98,31 @@ export function projectPendingPresentation(args: {
   return canonical.data;
 }
 
+/**
+ * 结构兼容验证（F7 Step 3 rework P1）：v6 state/events 经只读结构 adapter 进入
+ * V5 projector 前，显式断言投影所依赖的字段存在——v6 合同字段漂移时立即显式
+ * 失败，不静默误投影。
+ */
+function assertV5ProjectionCompatible(
+  tutorState: TutorRuntimeStateV6,
+  events: readonly StoredV6Event[],
+): void {
+  const requiredStateFields = ["session_id", "state_revision", "pinned_plan", "teaching_cursor", "workspace_revision"] as const;
+  for (const field of requiredStateFields) {
+    if (tutorState[field] === undefined) {
+      throw new Error(`v6 tutor state lacks field '${field}' required by the shared V5 projector (contract drift; refusing to project)`);
+    }
+  }
+  if (tutorState.teaching_cursor.protocol_id === undefined || tutorState.teaching_cursor.beat_id === undefined) {
+    throw new Error("v6 teaching_cursor lacks protocol_id/beat_id required by the shared V5 projector (contract drift; refusing to project)");
+  }
+  for (const event of events) {
+    if (typeof event.sequence !== "number" || typeof event.event_type !== "string" || typeof event.payload !== "object" || event.payload === null) {
+      throw new Error("v6 event envelope lacks sequence/event_type/payload required by the shared V5 projector (contract drift; refusing to project)");
+    }
+  }
+}
+
 /** 三视图 + status 投影（v6 state/events 经只读结构 adapter 复用同一 projector）。 */
 export function projectV6Views(args: {
   sessionId: string;
@@ -109,6 +134,7 @@ export function projectV6Views(args: {
   factEntryIds: ReadonlyMap<string, string>;
   sessionRevision: number;
 }): UnifiedProjection {
+  assertV5ProjectionCompatible(args.tutorState, args.events);
   return projectUnifiedViews({
     sessionId: args.sessionId,
     tutorState: args.tutorState as unknown as TutorRuntimeStateV5,

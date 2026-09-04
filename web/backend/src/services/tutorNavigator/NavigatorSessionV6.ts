@@ -34,6 +34,7 @@ import {
 import {
   hypothesisEventPayload,
   hypothesisFromAdjudication,
+  INTERPRETER_V5_VERSION,
   interpretationMatchScore,
   interpretStudentInput,
   isNaturalLanguageInput,
@@ -105,10 +106,17 @@ export interface V6TurnResult {
   readonly failure?: { failure_class: string; message: string };
 }
 
-/** control 七值 → IntentKind 确定性映射（retry_recovery 由编排层先行处理）。 */
-function intentKindOfInput(input: V6StudentInputBody): IntentKind {
+/**
+ * 后端解释器的 intent 推导（F7 Step 3 rework，spec §2.5/ADR-011 决策 6）：
+ * **channel 是入口事实不是理解结果**——mainline utterance 不预判 submit_answer，
+ * intent 由模型裁决的 response_kind 推导；无法归类（restatement/
+ * mixed_or_ambiguous/降级）不落 intent 事件（unclear 假设 → 澄清/安全 fallback）。
+ * assistance utterance 的入口语义 = 求助通道（spec：进入独立 inquiry context），
+ * 预设 ask_question 仍经模型裁决产生 in_bound 判定；control 七值为显式控制语义。
+ */
+function presetIntentOfInput(input: V6StudentInputBody): IntentKind | undefined {
   if (input.kind === "utterance") {
-    return input.channel === "assistance" ? "ask_question" : "submit_answer";
+    return input.channel === "assistance" ? "ask_question" : undefined;
   }
   switch (input.command) {
     case "confirm": return "confirm";
@@ -120,6 +128,34 @@ function intentKindOfInput(input: V6StudentInputBody): IntentKind {
     case "retry_recovery": return "retry_recovery";
     default: return "continue";
   }
+}
+
+/** 模型裁决 → IntentKind（无法归类 → undefined，不伪造）。 */
+function deriveIntentFromAdjudication(adjudication: { response_kind: string }): IntentKind | undefined {
+  switch (adjudication.response_kind) {
+    case "final_answer":
+    case "alternate_path":
+      return "submit_answer";
+    case "question":
+      return "ask_question";
+    case "help_request":
+      return "request_scaffold";
+    default:
+      // restatement / mixed_or_ambiguous（含降级形态）：语义不可归类——不落 intent。
+      return undefined;
+  }
+}
+
+/** unclear 假设（无法归类输入的 canonical 假设；不携带 gate assessment）。 */
+function unclearHypothesis(): NavigatorInterpretation {
+  return {
+    intent: "unclear",
+    reasoning_location: "unknown",
+    confidence: 0.3,
+    interpreter_version: INTERPRETER_V5_VERSION,
+    reasoning_alignment: { kind: "unclear_reasoning" },
+    in_bound: true,
+  };
 }
 
 function isConfirmationIntent(intentKind: IntentKind): boolean {
@@ -150,7 +186,8 @@ function inquiryTriggerFor(decision: NavigatorDecision): string {
 
 /**
  * 同 client_request_id 的已提交轮次（幂等重试读取；v6 版）：input 事实 → 派生
- * intent（causation→input）→ gate/decision（trigger 序列集与 v5 同推导）。
+ * interpretation/intent（causation→input；mainline 无法归类时无 intent）→
+ * gate/decision（trigger 序列集与 v5 同推导）。
  */
 function findCommittedV6Turn(events: readonly StoredV6Event[], clientRequestId: string): {
   revision: number;
@@ -178,17 +215,15 @@ function findCommittedV6Turn(events: readonly StoredV6Event[], clientRequestId: 
       continue;
     }
     if (inputSequence === undefined) continue;
-    if (event.event_type === "student_intent_recorded" && event.causation_sequence === inputSequence) {
-      intentSequence = event.sequence;
-      continue;
-    }
-    if (intentSequence === undefined) continue;
-    const turnSequences = new Set<number>([inputSequence, intentSequence]);
+    const turnSequences = new Set<number>([inputSequence]);
     if (interpretationSequence !== undefined) turnSequences.add(interpretationSequence);
+    if (intentSequence !== undefined) turnSequences.add(intentSequence);
     if (gateSequence !== undefined) turnSequences.add(gateSequence);
     if (event.event_type === "semantic_interpretation_recorded" && event.causation_sequence === inputSequence) {
       interpretationSequence = event.sequence;
-    } else if (event.event_type === "gate_evaluated" && event.causation_sequence === intentSequence) {
+    } else if (event.event_type === "student_intent_recorded" && event.causation_sequence === inputSequence) {
+      intentSequence = event.sequence;
+    } else if (intentSequence !== undefined && event.event_type === "gate_evaluated" && event.causation_sequence === intentSequence) {
       gateSequence = event.sequence;
     } else if (event.event_type === "policy_decision_made") {
       const payload = event.payload as { source_event_sequence?: number };
@@ -322,8 +357,11 @@ export class NavigatorSessionV6 {
 
   /**
    * 接受学生输入（canonical utterance|control）：input 事实先独立批落库 →
-   * （自然语言）模型裁决 → interpretation + intent（causation→input）+（gate）
-   * + decision 同批原子 append。同 client_request_id 重试读已提交判断。
+   * 后端解释（mainline：模型裁决 response_kind 推导 intent，无预判；
+   * assistance/control：入口语义预设）→ interpretation + intent（causation→
+   * input）+（gate）+ decision 同批原子 append。无法归类的输入不落 intent
+   * （unclear 假设 → 澄清/安全 fallback；模型降级另落 runtime_failure 事实）。
+   * 同 client_request_id 重试读已提交判断。
    */
   async submitStudentInput(input: StudentInputTurnInput): Promise<V6TurnResult> {
     if (input.input.kind === "utterance" && (input.input.text === undefined || input.input.channel === undefined)) {
@@ -332,16 +370,14 @@ export class NavigatorSessionV6 {
     if (input.input.kind === "control" && input.input.command === undefined) {
       throw new Error("kind=control requires command (canonical mirror rule)");
     }
-    const intentKind = intentKindOfInput(input.input);
+    const intentKind = presetIntentOfInput(input.input);
     const text = input.input.kind === "utterance" ? input.input.text : undefined;
-    if ((intentKind === "submit_answer" || intentKind === "ask_question") && (text === undefined || text.length === 0)) {
-      throw new Error(`${intentKind} requires text (canonical mirror rule)`);
-    }
-    // 幂等重试：同 client_request_id 已有 committed 判断（intent 已落）→ 读已
-    // 提交判断返回，不重复落 input、不重复裁决（零新事件）。
+    // 幂等重试：同 client_request_id 已有 committed 判断（decision/failure 已落）
+    // → 读已提交判断返回，不重复落 input、不重复裁决（零新事件）。
     const committed = findCommittedV6Turn(this.events, input.client_request_id);
     if (committed?.decisionSequence !== undefined || committed?.failure !== undefined) {
       const { intentSequence, ...rest } = committed;
+      void intentSequence;
       return rest;
     }
 
@@ -364,8 +400,49 @@ export class NavigatorSessionV6 {
       revision = appended.revision;
     }
 
-    // 自然语言 → 单次模型裁决（R3：模型失败=runtime_failure 事实 + unclear 降级，
-    // 非 student incorrect）；结构化输入走确定性解释器。
+    // mainline utterance：channel 只是入口事实——intent 由模型裁决推导
+    //（spec §2.5：是否为答案、疑问、模糊由后端判断；裁决上下文不携带预判）。
+    if (intentKind === undefined) {
+      const adjudication = await this.adjudicator.adjudicate(
+        buildGateAdjudicationContext({
+          plan: this.plan,
+          beat: this.currentBeat,
+          events: priorEvents as unknown as Parameters<typeof buildGateAdjudicationContext>[0]["events"],
+          ...(this.state.reasoning_focus ? { reasoningFocus: this.state.reasoning_focus } : {}),
+          studentInput: { intent_kind: "utterance", text: text ?? "" },
+          factRelevanceScore: interpretationMatchScore,
+        }),
+      );
+      const derived = deriveIntentFromAdjudication(adjudication);
+      if (derived === undefined) {
+        // 无法归类（restatement/mixed_or_ambiguous/降级）：不落 intent——
+        // unclear 假设 → 澄清/安全 fallback；降级（模型失败）另落 runtime_failure
+        // 事实（ADR-007 不变量 6：不是 student incorrect，不回退字符串规则）。
+        const modelFailure = adjudication.degraded_reason
+          ? { reason: adjudication.degraded_reason, detail: `provider=${adjudication.provider}` }
+          : undefined;
+        return this.interpretUnclearAndDecide(revision, inputSequence, text, unclearHypothesis(), modelFailure);
+      }
+      return this.interpretAndDecide(
+        revision,
+        inputSequence,
+        input.client_request_id,
+        derived,
+        text,
+        hypothesisFromAdjudication({
+          plan: this.plan,
+          beat: this.currentBeat,
+          intent_kind: derived,
+          text: text ?? "",
+          adjudication,
+          evidence_sequence: this.nextSequence() + 1,
+        }),
+        undefined,
+      );
+    }
+
+    // assistance utterance / control：入口语义预设（assistance=求助通道），
+    // 自然语言仍经模型裁决（R3）；结构化输入走确定性解释器。
     // gate assessment 的 evidence_sequence 指向 intent 事件（resume 的 gate
     // 归属核对只采信 student_intent_recorded——v5 同口径）；intent 序列按批
     // 布局预测（[runtime_failure?] + interpretation + intent）。
@@ -444,6 +521,56 @@ export class NavigatorSessionV6 {
       },
     ]);
     return { revision: failed.revision, inputSequence: anchor, failure: { failure_class: failureClass, message } };
+  }
+
+  /**
+   * 无法归类输入（无 intent）的决策批：[runtime_failure?] + interpretation
+   * (unclear) + decision（student_input trigger 不携带 intent_kind——裁决只
+   * 依赖 hypothesis；NavigatorTrigger.intent_kind 已可选化）。零 intent、零 gate。
+   */
+  private interpretUnclearAndDecide(
+    revision: number,
+    inputSequence: number,
+    text: string | undefined,
+    hypothesis: NavigatorInterpretation,
+    modelFailure?: { reason: string; detail: string },
+  ): V6TurnResult {
+    const batch: PendingV6Event[] = [];
+    if (modelFailure) {
+      batch.push({
+        event_type: "runtime_failure",
+        payload: {
+          failure_class: "internal_error",
+          message: `gate_adjudicator_model_failure: ${modelFailure.reason} (${modelFailure.detail})`,
+          related_event_sequence: inputSequence,
+        },
+        occurred_at: nowIso(),
+        causation_sequence: inputSequence,
+      });
+    }
+    batch.push({
+      event_type: "semantic_interpretation_recorded",
+      payload: hypothesisEventPayload(hypothesis),
+      occurred_at: nowIso(),
+      causation_sequence: inputSequence,
+    });
+    const trigger: NavigatorTrigger = {
+      kind: "student_input",
+      sequence: inputSequence,
+      hypothesis,
+      ...(text !== undefined ? { text } : {}),
+    };
+    const outcome = decideNavigation(this.baseContext(), trigger);
+    const result = this.commitDecisions(
+      revision,
+      [
+        outcome.ok
+          ? { kind: "plain", sequence: inputSequence, decision: outcome.decision }
+          : { kind: "failed", sequence: inputSequence, failure: outcome.failure },
+      ],
+      batch,
+    );
+    return { ...result, inputSequence };
   }
 
   private interpretAndDecide(

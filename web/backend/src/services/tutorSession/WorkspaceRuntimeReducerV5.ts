@@ -465,6 +465,27 @@ export function applyWorkspaceEffect(args: WorkspaceEffectArgs): { fold: Workspa
     assertTutorActionCausation(asTutorAction(args.action), args.fold.context.gateLedger);
   }
 
+  // F7 Step 3 rework（additive）：presentation-only 重呈现——服务端语义已在
+  // 先前 sequence 的 applied 落定（浏览器 failed/interrupted 后 retry_recovery
+  // 重新呈现该动作）。零效果、零 revision（changed=false）；mode/causation 校验
+  // 已过，target 存在性仍校验。v5 流不产生 presentation_only 动作，行为零影响。
+  if (spec.origin === "tutor" && asTutorAction(args.action).presentation_only === true) {
+    const tutorAction = asTutorAction(args.action);
+    const targets = tutorAction.target_ids ?? [];
+    if (spec.surface === "solution_board") {
+      const missing = targets.filter((id) => !state.solution_board.entries.some((entry) => entry.entry_id === id));
+      if (missing.length) {
+        throw new WorkspaceTransitionRejectedError(`illegal target：未知 Board 条目 ${missing.join(", ")}`);
+      }
+    } else if (targets.length) {
+      const missing = targets.filter((id) => !known.has(id));
+      if (missing.length) {
+        throw new WorkspaceTransitionRejectedError(`illegal target：元素不存在 ${missing.join(", ")}`);
+      }
+    }
+    return { fold: next, changed: false };
+  }
+
   const commitGeometryCommand = (command: DomainCommand, owner: "tutor" | "student"): void => {
     const outputId = domainCommandOutputId(command);
     if (known.has(outputId)) {

@@ -163,6 +163,54 @@ describe("F7 Step 3 V6 Orchestrator（vitest）", () => {
     expect(recovery.snapshot.presentation_cursor.status).toBe("awaiting_browser");
   });
 
+  it("active_action 时序：构造 applied 未全 presented 不挂载（workspace_input 门禁）", async () => {
+    const sessionId = "TS-9807";
+    const { orchestrator: orch } = startOrch(sessionId);
+    presentAll(orch);
+    await orch.submitStudentInput({ input: { kind: "control", command: "confirm" }, client_request_id: "cr-1" });
+    presentAll(orch);
+    await orch.submitStudentInput({ input: { kind: "utterance", channel: "mainline", text: ANSWER_INVARIANTS_OK }, client_request_id: "cr-2" });
+    presentAll(orch);
+    await orch.submitStudentInput({ input: { kind: "utterance", channel: "mainline", text: ANSWER_INVARIANTS_OK }, client_request_id: "cr-3" });
+    // BT-04 首个构造交付点：applied+delivered、未 presented——不得挂载。
+    const first = orch.snapshot().pending_presentation!;
+    expect(first.action.kind).toBe("workspace");
+    expect(first.action.workspace_action?.capability).toBe("geometry.construct");
+    expect(orch.snapshot().teaching_phase).toBe("presenting");
+    expect(orch.snapshot().active_action).toBeUndefined();
+    presentAll(orch);
+    const final = orch.snapshot();
+    expect(final.teaching_phase).toBe("awaiting_evidence");
+    expect(final.active_action).toBeDefined();
+  });
+
+  it("P0-3 镜像：构造 failed → retry_recovery presentation_only 重呈现（revision 不变）", async () => {
+    const sessionId = "TS-9808";
+    const { orchestrator: orch } = startOrch(sessionId);
+    presentAll(orch);
+    await orch.submitStudentInput({ input: { kind: "control", command: "confirm" }, client_request_id: "cr-1" });
+    presentAll(orch);
+    await orch.submitStudentInput({ input: { kind: "utterance", channel: "mainline", text: ANSWER_INVARIANTS_OK }, client_request_id: "cr-2" });
+    presentAll(orch);
+    await orch.submitStudentInput({ input: { kind: "utterance", channel: "mainline", text: ANSWER_INVARIANTS_OK }, client_request_id: "cr-3" });
+    const first = orch.snapshot().pending_presentation!;
+    const revisionBefore = first.workspace_revision;
+    orch.reportPresentationOutcome({
+      sequence_id: first.sequence_id, ordinal: first.ordinal, action_id: first.action_id,
+      outcome: "failed", failure_class: "provider_failure", client_request_id: "po-1",
+    });
+    expect(orch.snapshot().presentation_cursor.status).toBe("failed");
+    const recovery = await orch.submitStudentInput({ input: { kind: "control", command: "retry_recovery" }, client_request_id: "cr-4" });
+    const head = recovery.snapshot.pending_presentation!;
+    expect(head.action.workspace_action?.presentation_only).toBe(true);
+    const applied = readTutorSessionEventsV6(sessionId, registryProvider).find(
+      (event) => event.event_type === "presentation_action_applied"
+        && (event.payload as { sequence_id: string }).sequence_id === recovery.presentations[0].sequence_id,
+    );
+    expect((applied!.payload as { resulting_workspace_revision: number }).resulting_workspace_revision).toBe(revisionBefore);
+    presentAll(orch);
+  });
+
   it("V5/V6 隔离：V6 resume 撞 v5 会话行 fail closed", () => {
     startTutorSessionV5(startInput("TS-9805"));
     expect(() => resumeOrch("TS-9805")).toThrowError(/v5 contract|SESSION_VERSION_UNSUPPORTED/);

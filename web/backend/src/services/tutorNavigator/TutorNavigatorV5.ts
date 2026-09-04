@@ -65,7 +65,13 @@ export type NavigatorTrigger =
   | {
       kind: "student_input";
       sequence: number;
-      intent_kind: IntentKind;
+      /**
+       * F7 Step 3 rework（additive 可选化）：v6 后端解释器对无法归类的输入
+       * （模型 mixed_or_ambiguous/降级）不预判 intent——此时省略本字段，裁决
+       * 只依赖 hypothesis（unclear → 澄清/安全 fallback）。本文件内全部读取点
+       * 均为字面量比较，undefined 自然落入默认分支；v5 调用方始终携带，行为不变。
+       */
+      intent_kind?: IntentKind;
       text?: string;
       hypothesis: NavigatorInterpretation;
     }

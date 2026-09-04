@@ -245,16 +245,31 @@ async function main(): Promise<void> {
       input: { kind: "utterance", channel: "mainline", text: ANSWER_INVARIANTS_OK },
       client_request_id: "cr-8001-3",
     });
-    const beforeBt04 = orch.snapshot();
-    const bt04ActiveBefore = beforeBt04.active_action;
-    const bt04Pending = presentAll(orch);
+    // BT-04 逐项推进：构造 applied 未全部 presented 时 active_action 不得挂载
+    //（spec §1.3：active action 只在 workspace_input 相位；服务端 applied ≠
+    // 浏览器呈现完成——真时序断言，替换原假断言）。
+    const bt04Pending: V6PendingPresentation[] = [];
+    for (let guard = 0; guard < 16; guard += 1) {
+      const pending = orch.snapshot().pending_presentation;
+      if (!pending) break;
+      bt04Pending.push(pending);
+      orch.reportPresentationOutcome({
+        sequence_id: pending.sequence_id, ordinal: pending.ordinal, action_id: pending.action_id,
+        outcome: "presented", client_request_id: `poutcome-${pending.sequence_id}-${pending.ordinal}`,
+      });
+      if (guard === 0) {
+        const mid = orch.snapshot();
+        assert.equal(mid.teaching_phase, "presenting", "首构造 presented 后相位仍 presenting");
+        assert.equal(mid.active_action, undefined, "构造未全部 presented 前 active_action 不挂载");
+        assert.notEqual(mid.pending_presentation, undefined, "序列未完仍有 pending");
+      }
+    }
     const bt04Sequence = bt04Pending[0]?.sequence_id;
     assert.ok(bt04Sequence, "BT-04 序列存在");
     // 构造呈现全部 presented 后 active_action 挂载（因果链 1）。
     const final = orch.snapshot();
     assert.equal(final.teaching_phase, "awaiting_evidence");
     assert.ok(final.active_action, "BT-04 awaiting_evidence 时 active_action 已挂载");
-    assert.ok(!bt04ActiveBefore || true, "挂载时点断言见下一条（构造未完成不挂载）");
     assert.ok(bt04Pending.length >= 6, `BT-04 序列 = 构造×N + voice（+ board）（got ${bt04Pending.length}）`);
 
     // 逐事件对账 + G2 parity + workspace rebuild。
@@ -458,13 +473,13 @@ async function main(): Promise<void> {
         return true;
       });
     // 篡改 committed v6 流 → resume fail closed。
-    const sessionId = "TS-8009";
-    const orch = startOrchestrator(sessionId, journeyProvider());
-    void orch;
+    const tamperSessionId = "TS-8009";
+    const tamperOrch = startOrchestrator(tamperSessionId, journeyProvider());
+    void tamperOrch;
     db.prepare("UPDATE tutor_session_events SET payload_json = ? WHERE session_id = ? AND sequence = 2")
-      .run(JSON.stringify({ tampered: true }), sessionId);
+      .run(JSON.stringify({ tampered: true }), tamperSessionId);
     assert.throws(() =>
-      resumeOrchestrator(sessionId, journeyProvider()), (error: unknown) => {
+      resumeOrchestrator(tamperSessionId, journeyProvider()), (error: unknown) => {
         const code = (error as { code?: string }).code ?? "";
         assert.ok(
           ["HASH_MISMATCH", "CORRUPT_EVENT", "SCHEMA_ISOLATION", "SESSION_VERSION_UNSUPPORTED"].includes(code)
@@ -473,6 +488,151 @@ async function main(): Promise<void> {
         );
         return true;
       });
+  });
+
+  await runTest("P0-1：mainline 提问由裁决推导 ask_question（channel 不是语义结果）", async () => {
+    const sessionId = "TS-8010";
+    const provider = new CountingProvider(new FixedResponseGateProvider([
+      JSON.stringify({ response_kind: "question", verdict: "not_applicable", reasoning_location: "aligned", grounding_refs: ["FN-03"] }),
+    ], "fixed-f7-v6-mainline-question"));
+    const orch = startOrchestrator(sessionId, provider);
+    presentAll(orch);
+    const turn = await orch.submitStudentInput({
+      input: { kind: "utterance", channel: "mainline", text: QUESTION_IN_BOUND },
+      client_request_id: "cr-8010-1",
+    });
+    assert.equal(turn.turn.decision?.decision_kind, "open_inquiry", "mainline 提问 → inquiry（不得按 submit_answer 答题路径评估 gate）");
+    const intentEvent = eventsOf(sessionId).find((event) => event.event_type === "student_intent_recorded");
+    assert.equal((intentEvent!.payload as { intent_kind: string }).intent_kind, "ask_question");
+    const gateEvents = eventsOf(sessionId).filter((event) => event.event_type === "gate_evaluated");
+    assert.equal(gateEvents.length, 0, "提问不作答：零 gate 评估");
+    assert.ok(turn.presentations.length >= 1, "inquiry 分支 Beat 呈现序列");
+  });
+
+  await runTest("P0-1：mixed_or_ambiguous 不落 intent（unclear 假设 → 澄清，零 gate、零 runtime_failure）", async () => {
+    const sessionId = "TS-8011";
+    const provider = new CountingProvider(new FixedResponseGateProvider([
+      JSON.stringify({ response_kind: "mixed_or_ambiguous", verdict: "unclear", reasoning_location: "unknown", grounding_refs: [] }),
+    ], "fixed-f7-v6-unclear"));
+    const orch = startOrchestrator(sessionId, provider);
+    presentAll(orch);
+    const turn = await orch.submitStudentInput({
+      input: { kind: "utterance", channel: "mainline", text: "这个和那个大概也许差不多吧" },
+      client_request_id: "cr-8011-1",
+    });
+    const events = eventsOf(sessionId).map((event) => event.event_type);
+    assert.ok(!events.includes("student_intent_recorded"), "无法归类输入不落 intent（不伪造语义）");
+    assert.ok(events.includes("semantic_interpretation_recorded"), "unclear 假设照常入流");
+    assert.ok(!events.includes("runtime_failure"), "模型真实 unclear 判定不是系统失败");
+    assert.ok(!events.includes("gate_evaluated"), "unclear 不作答：零 gate");
+    assert.ok(turn.turn.decision !== undefined, "Navigator 仍产出决策（澄清/安全 fallback）");
+  });
+
+  await runTest("P0-3：Geometry 构造 failed → retry_recovery 以 presentation_only 重呈现（revision 不变）", async () => {
+    const sessionId = "TS-8012";
+    const provider = journeyProvider();
+    const orch = startOrchestrator(sessionId, provider);
+    // 走到 BT-04 首个构造交付点（越过 BT-02/03 的 board reveal——谓词精确到
+    // geometry.construct）。
+    const atFirstConstruction = await advanceUntil(
+      orch,
+      (candidate) => candidate.action.kind === "workspace" && candidate.action.workspace_action?.capability === "geometry.construct",
+      [
+        { input: { kind: "control", command: "confirm" }, client_request_id: "cr-8012-1" },
+        { input: { kind: "utterance", channel: "mainline", text: ANSWER_INVARIANTS_OK }, client_request_id: "cr-8012-2" },
+        { input: { kind: "utterance", channel: "mainline", text: ANSWER_INVARIANTS_OK }, client_request_id: "cr-8012-3" },
+      ],
+    );
+    const failedPending = atFirstConstruction.pending_presentation!;
+    orch.reportPresentationOutcome({
+      sequence_id: failedPending.sequence_id, ordinal: failedPending.ordinal, action_id: failedPending.action_id,
+      outcome: "failed", failure_class: "provider_failure",
+      client_request_id: "po-8012-1",
+    });
+    const recovery = await orch.submitStudentInput({
+      input: { kind: "control", command: "retry_recovery" },
+      client_request_id: "cr-8012-4",
+    });
+    assert.equal(recovery.presentations.length, 1);
+    const recoverySequence = recovery.presentations[0];
+    assert.notEqual(recoverySequence.sequence_id, failedPending.sequence_id, "新恢复序列");
+    const recoveryHead = recovery.snapshot.pending_presentation!;
+    assert.equal(recoveryHead.action.kind, "workspace", "恢复序列首项 = 失败的构造（不得被 committed 过滤跳过）");
+    assert.equal(recoveryHead.action.workspace_action?.presentation_only, true, "重呈现动作 presentation_only（零服务端效果）");
+    const recoveryApplied = eventsOf(sessionId).filter((event) => event.event_type === "presentation_action_applied"
+      && (event.payload as { sequence_id: string }).sequence_id === recoverySequence.sequence_id);
+    assert.ok(recoveryApplied.length >= 1);
+    // presentation_only applied 的 revision 与失败前一致（零推进）。
+    const workspaceRevisionBefore = failedPending.workspace_revision;
+    assert.equal(
+      (recoveryApplied[0].payload as { resulting_workspace_revision: number }).resulting_workspace_revision,
+      workspaceRevisionBefore,
+      "presentation_only 重呈现不推进 workspace revision",
+    );
+    // 重呈现 presented 后正常推进剩余构造（效果应用恢复 +1）。
+    orch.reportPresentationOutcome({
+      sequence_id: recoveryHead.sequence_id, ordinal: recoveryHead.ordinal, action_id: recoveryHead.action_id,
+      outcome: "presented", client_request_id: "po-8012-2",
+    });
+    const nextPending = orch.snapshot().pending_presentation;
+    assert.ok(nextPending, "恢复序列推进到下一项");
+    const rest = presentAll(orch);
+    assert.ok(rest.length >= 5, "恢复序列剩余构造+voice 正常推进");
+  });
+
+  await runTest("P0-3：Board reveal failed → retry_recovery 以 presentation_only 重呈现条目", async () => {
+    const sessionId = "TS-8013";
+    const provider = journeyProvider();
+    const orch = startOrchestrator(sessionId, provider);
+    // BT-01 voice presented → confirm → BT-02 [voice, board] → voice presented → 停在 board。
+    const atBoard = await advanceUntil(orch, (candidate) => candidate.action.kind === "workspace", [
+      { input: { kind: "control", command: "confirm" }, client_request_id: "cr-8013-1" },
+    ]);
+    const boardPending = atBoard.pending_presentation!;
+    assert.equal(boardPending.action.workspace_action?.capability, "board.reveal-entry");
+    const revealedEntries = boardPending.action.workspace_action?.target_ids ?? [];
+    assert.ok(revealedEntries.length >= 1);
+    orch.reportPresentationOutcome({
+      sequence_id: boardPending.sequence_id, ordinal: boardPending.ordinal, action_id: boardPending.action_id,
+      outcome: "failed", failure_class: "provider_failure",
+      client_request_id: "po-8013-1",
+    });
+    const recovery = await orch.submitStudentInput({
+      input: { kind: "control", command: "retry_recovery" },
+      client_request_id: "cr-8013-2",
+    });
+    const recoverySequenceId = recovery.presentations[0].sequence_id;
+    const plannedEvent = eventsOf(sessionId).find((event) => event.event_type === "presentation_sequence_planned"
+      && (event.payload as { sequence_id: string }).sequence_id === recoverySequenceId)!;
+    const plannedActions = (plannedEvent.payload as { actions: { ordinal: number; kind: string; workspace_action?: { presentation_only?: boolean; target_ids?: string[] } }[] }).actions;
+    const representBoard = plannedActions.find((action) => action.kind === "workspace"
+      && action.workspace_action?.presentation_only === true);
+    assert.ok(representBoard, "恢复序列包含 presentation_only board 动作");
+    const representTargets = representBoard!.workspace_action!.target_ids ?? [];
+    for (const entry of revealedEntries) {
+      assert.ok(representTargets.includes(entry), `失败条目 ${entry} 必须重呈现`);
+    }
+    // 逐项推进到底（BT-02 完成 → awaiting_evidence）。
+    presentAll(orch);
+    assert.equal(orch.snapshot().teaching_phase, "awaiting_evidence");
+  });
+
+  await runTest("P1：outcome 同值不同 client_request_id 幂等零新事件（事实唯一以三元组为准）", async () => {
+    const sessionId = "TS-8014";
+    const provider = journeyProvider();
+    const orch = startOrchestrator(sessionId, provider);
+    const pending = orch.snapshot().pending_presentation!;
+    orch.reportPresentationOutcome({
+      sequence_id: pending.sequence_id, ordinal: pending.ordinal, action_id: pending.action_id,
+      outcome: "presented", client_request_id: "po-8014-1",
+    });
+    const afterFirst = countEvents(sessionId);
+    const replayOtherKey = orch.reportPresentationOutcome({
+      sequence_id: pending.sequence_id, ordinal: pending.ordinal, action_id: pending.action_id,
+      outcome: "presented", client_request_id: "po-8014-other-client",
+    });
+    assert.equal(countEvents(sessionId), afterFirst, "同值重放（不同请求键）零新事件");
+    assert.equal(replayOtherKey.advanced, false);
   });
 }
 

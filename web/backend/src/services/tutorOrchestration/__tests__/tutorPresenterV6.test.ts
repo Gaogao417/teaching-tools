@@ -202,6 +202,22 @@ async function main(): Promise<void> {
     assert.equal(realized.actions[0].voice_action!.interruptible, false);
   });
 
+  await runTest("represent 目标：applied-未-presented 的构造/条目以 presentation_only 重呈现（不被幂等过滤跳过）", () => {
+    const beat = plan.mainline.beats.get("BT-04")!;
+    const constructions = resolveBeatConstructions([...beat.resource_ids].map((id) => resources.get(id)!).filter(Boolean), beat)!;
+    const failedOutput = constructionOutputId(constructions[0])!;
+    const realized = realizePresentationPlanV6(baseInput("BT-04", {
+      committedElementIds: new Set([failedOutput]), // 服务端已 applied（fold 已 committed）
+      representTargets: new Set([failedOutput]),    // 但浏览器未 presented
+    }));
+    const first = realized.actions[0];
+    assert.equal(first.kind, "workspace");
+    assert.equal(first.workspace_action?.presentation_only, true, "失败构造以 presentation_only 重呈现");
+    const payload = JSON.parse(first.workspace_action!.command_payload!) as { outputLineId?: string; outputPointId?: string };
+    assert.equal(payload.outputLineId ?? payload.outputPointId, failedOutput, "重呈现命令指向原构造输出");
+    realized.actions.forEach((action, index) => assert.equal(action.ordinal, index));
+  });
+
   await runTest("final 条目不越权：BT-04 的 final reveal 不进入未授权计划", () => {
     // BT-04 阶段 gate 未满足（ledger 无 satisfied 评估）——final 条目（goal/
     // reveals_answer）不得进入计划；intermediate 条目正常进入。
