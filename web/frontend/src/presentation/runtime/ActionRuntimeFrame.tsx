@@ -65,6 +65,10 @@ interface ActionRuntimeFrameProps {
    *  的单行题干）——Tutor 链路传 LearnQuestionPrompt（stem+subquestions
    *  一体化）；practice 链路缺省不变。 */
   questionPrompt?: ReactNode;
+  /** F7 canonical 链（外部 Tutor runtime 拥有媒体/coach）：Frame 禁止创建/
+   *  调用 legacy 讲解语音与 coach 通道（复核裁定：迁移期最小媒体隔离，
+   *  Step 6 收敛为统一 PresentationRuntime）。 */
+  legacyMediaDisabled?: boolean;
 }
 
 /** Split transient emphasis into the canvas channel (entities + teaching marks). */
@@ -88,7 +92,7 @@ function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoa
   return expressionIds.length ? { key: emphasis.key, expressionIds } : undefined;
 }
 
-export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railTrigger: railTriggerOverride, railOpen: railOpenProp, onRailOpenChange, boardView, viewRevision, questionPrompt }: ActionRuntimeFrameProps) {
+export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railTrigger: railTriggerOverride, railOpen: railOpenProp, onRailOpenChange, boardView, viewRevision, questionPrompt, legacyMediaDisabled }: ActionRuntimeFrameProps) {
   // VS1：demonstration 形态独立渲染分支已删除——讲解演示内容由统一
   // StudentWorkspaceView 的 canvas/solutionBoard slice 驱动（服务端组合/
   // 披露投影），TutorLearnExperience 直接渲染只读面，不经本 Frame。
@@ -134,15 +138,17 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
       browserTimeMs: mark.browserTimeMs,
     }).catch(() => undefined);
   }), [response.sessionId]);
-  const teacherSpeech = useTeacherSpeech(snapshot.plan, action, mediaSession);
+  const teacherSpeech = useTeacherSpeech(snapshot.plan, action, mediaSession, { disabled: legacyMediaDisabled });
   const { speechUrl, speaking, autoplayBlocked, replay: replaySpeech, speak: playSpeechUrl } = teacherSpeech;
   const lastPreviewId = useRef("");
   // ADR-005 §Layer Responsibilities: coach turn / recorder / live orchestration
   // is owned by the CoachController (via useCoachController), not this Frame.
   // The Frame is now presentation over `coach` + the workspace view.
+  // legacyMediaDisabled（F7 canonical 链）：coach 通道同样归外部 Tutor runtime，
+  // 不在本 Frame 暴露（rail 已被调用方替换，此处同时关闭 canHelp）。
   const coach = useCoachController({
     media: mediaSession,
-    canHelp: view.controls.canHelp,
+    canHelp: view.controls.canHelp && !legacyMediaDisabled,
     transport: snapshot.plan.runtimeCapabilities?.coachTurnTransport,
     local: Boolean(local),
     sessionId: response.sessionId,

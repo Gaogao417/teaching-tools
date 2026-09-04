@@ -200,6 +200,50 @@ export const actionEvidenceResponseHttpV1Schema = sessionSnapshotHttpV1Schema.ex
 });
 
 // --------------------------------------------------------------------------- //
+// availability / 错误 envelope / action-evidence 组合解析（Step 4.1：后端路由
+// 与前端 adapter 共用，消除两侧手拼）
+// --------------------------------------------------------------------------- //
+
+export const availabilityResponseHttpV1Schema = z
+  .object({
+    task_id: z.string().min(1).max(64),
+    enabled: z.boolean(),
+    profile: z.literal(TUTOR_RUNTIME_HTTP_PROFILE),
+  })
+  .strict();
+
+/** 稳定错误 envelope（spec §2.1：所有错误保留稳定 error.code）。 */
+export const errorEnvelopeHttpV1Schema = z
+  .object({
+    error: z
+      .object({
+        code: z.string().min(1),
+        message: z.string().optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type AvailabilityResponseHttpV1 = z.infer<typeof availabilityResponseHttpV1Schema>;
+export type ErrorEnvelopeHttpV1 = z.infer<typeof errorEnvelopeHttpV1Schema>;
+
+/** action-evidence 响应组合解析（snapshot 过 §1.3 一致性门禁 + 五判别互斥）——
+ *  前后端同一入口；任一失败 → 错误列表（不部分采用）。 */
+export function parseActionEvidenceResponseHttp(payload: unknown):
+  { ok: true; snapshot: SessionSnapshotHttpV1; submission: ActionSubmissionHttpV1 } | { ok: false; errors: readonly string[] } {
+  const parsed = actionEvidenceResponseHttpV1Schema.safeParse(payload);
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.issues.map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`) };
+  }
+  const issues = validateSessionSnapshotConsistency(parsed.data);
+  if (issues.length > 0) {
+    return { ok: false, errors: issues.map((issue) => `[${issue.check}] ${issue.message}`) };
+  }
+  const { action_submission: submission, ...snapshot } = parsed.data;
+  return { ok: true, snapshot, submission };
+}
+
+// --------------------------------------------------------------------------- //
 // 请求 schema 组（spec §2.3-§2.9）
 // --------------------------------------------------------------------------- //
 

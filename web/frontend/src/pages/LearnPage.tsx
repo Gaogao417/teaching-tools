@@ -17,14 +17,16 @@ import { ActionRuntimeFrame } from "../presentation/runtime/ActionRuntimeFrame";
 import { actionMachineRegistry } from "../action-runtime/registry";
 import { AcceptanceDiagnostics, type AcceptanceRouteKind } from "../presentation/acceptance/AcceptanceDiagnostics";
 import { TutorLearnExperience } from "./learn/TutorLearnExperience";
-import { tutorRuntimeHttp } from "../api/tutorRuntimeClient";
+import { tutorRuntimeHttp, TutorRuntimeHttpError } from "../api/tutorRuntimeClient";
 import type { TutorExperienceResponse } from "../../../shared/tutorExperience";
 
 const EMPTY_DRAFT: ClientDraftState = { selections: {}, inputs: {} };
 /** F7：runtime availability（golden task + TUTOR_VNEXT_ROOT 挂载）→ LearnPage
  *  仅为 canonical TutorLearnExperience 选择 TutorRuntimeClient 数据源（不选
- *  页面、不选 UI 模式）；不可用/失败回落既有 Phase 5 流程（legacy 链 F8 退场）。 */
-type RuntimeAvailability = "pending" | "yes" | "no";
+ *  页面、不选 UI 模式）。四态：pending 未裁定 / yes canonical / no legacy
+ *  （含 vnext namespace 未挂载的 404——部署级迁移关闭）/ error 探测失败
+ *  （显式错误 + 重试，不静默回落 legacy，spec §2.2）。 */
+type RuntimeAvailability = "pending" | "yes" | "no" | "error";
 const ACTION_RUNTIME_V2_ENABLED = import.meta.env.VITE_ACTION_RUNTIME_V2 !== "false";
 /** Phase 5 UI 集成：/learn/:taskId 先问 /experience；tutor 分流到 Tutor 工作台。 */
 type ExperienceMode = "pending" | "tutor" | "legacy";
@@ -80,6 +82,8 @@ export function LearnPage() {
   const { focusedTask, setFocusedTaskId, studentName } = useOutletContext<WorkspaceOutletContext>();
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("pending");
   const [runtimeAvailability, setRuntimeAvailability] = useState<RuntimeAvailability>("pending");
+  const [availabilityError, setAvailabilityError] = useState<string | undefined>();
+  const [availabilityNonce, setAvailabilityNonce] = useState(0);
   const availabilityAskedRef = useRef("");
   const [experienceError, setExperienceError] = useState<string | undefined>();
   const [experienceNonce, setExperienceNonce] = useState(0);
@@ -120,17 +124,26 @@ export function LearnPage() {
 
   // F7：runtime availability 优先裁定（golden task → canonical Runtime 数据源；
   //  只选择 client，不选择页面/UI 模式）。未裁定前不启动旧 /experience
-  //  （避免建旧会话）。
+  //  （避免建旧会话与 canonical 并存的双会话竞态）。
   useEffect(() => {
     if (!taskId || availabilityAskedRef.current === taskId) return;
     availabilityAskedRef.current = taskId;
     tutorRuntimeHttp.availability(taskId)
       .then((result) => setRuntimeAvailability(result.enabled ? "yes" : "no"))
-      .catch(() => setRuntimeAvailability("no"));
-  }, [taskId]);
+      .catch((failure: unknown) => {
+        // 404 = /api/vnext 未挂载（部署级迁移关闭）→ 按 route policy 进 legacy；
+        // 其余失败（网络/5xx/协议漂移）显式错误，不静默回落（spec §2.2）。
+        if (failure instanceof TutorRuntimeHttpError && failure.status === 404) {
+          setRuntimeAvailability("no");
+          return;
+        }
+        setAvailabilityError(failure instanceof Error ? failure.message : String(failure));
+        setRuntimeAvailability("error");
+      });
+  }, [taskId, availabilityNonce]);
 
   useEffect(() => {
-    if (!taskId || !studentName || restoreSessionId || runtimeAvailability === "yes") return;
+    if (!taskId || !studentName || restoreSessionId || runtimeAvailability !== "no") return;
     const askKey = `${studentName}:${taskId}:${experienceNonce}`;
     if (experienceAskedRef.current === askKey) return;
     experienceAskedRef.current = askKey;
@@ -148,7 +161,7 @@ export function LearnPage() {
         // legacy 题面可能与绑定 Question 不同，静默切换等于换题。
         setExperienceError(error instanceof Error ? error.message : String(error));
       });
-  }, [studentName, taskId, restoreSessionId, experienceNonce]);
+  }, [studentName, taskId, restoreSessionId, experienceNonce, runtimeAvailability]);
 
   useEffect(() => {
     if (!taskId || experienceMode !== "legacy") return;
@@ -205,10 +218,36 @@ export function LearnPage() {
     />
   ) : null;
 
+  // F7：availability 探测失败 → 显式错误 + 重试（不静默回 legacy；G7 验收环境
+  //  TUTOR_VNEXT_ROOT 恒开，探测失败即环境故障）。
+  if (runtimeAvailability === "error") {
+    return (
+      <section className="ks-state-page" data-testid="page-lifecycle" data-lifecycle="error">
+        <span className="eyebrow">学习入口</span>
+        <h1>暂时无法确认这道题的学习通道</h1>
+        <p role="alert" data-testid="runtime-availability-error">{availabilityError}</p>
+        <button
+          className="btn btn-primary"
+          type="button"
+          data-testid="runtime-availability-retry"
+          onClick={() => {
+            setAvailabilityError(undefined);
+            setRuntimeAvailability("pending");
+            availabilityAskedRef.current = "";
+            setAvailabilityNonce((nonce) => nonce + 1);
+          }}
+        >
+          重试
+        </button>
+      </section>
+    );
+  }
+
   // F7：runtime 可用 → canonical TutorLearnExperience（注入 TutorRuntimeClient
   //  数据源；原地收敛不建新页面；fail-closed 由 hook 错误面呈现，不静默回
-  //  legacy）。restore 场景在裁定前乐观渲染（?session= 属 canonical 会话）。
-  if (taskId && studentName && (runtimeAvailability === "yes" || (runtimeAvailability === "pending" && restoreSessionId))) {
+  //  legacy）。restore 场景必须等 availability 裁定后再分派（不乐观渲染——
+  //  legacy session 不得送入 V7 restore）。
+  if (taskId && studentName && runtimeAvailability === "yes") {
     return (
       <TutorLearnExperience
         key={`runtime:${taskId}:${restoreSessionId ?? "start"}`}
@@ -218,6 +257,17 @@ export function LearnPage() {
         runtimeClient={tutorRuntimeHttp}
         onLegacy={() => undefined}
       />
+    );
+  }
+
+  // availability 未裁定的 restore 场景：等待分派（不创建任何会话、不猜测链路）。
+  if (taskId && studentName && restoreSessionId && runtimeAvailability === "pending") {
+    return (
+      <section className="ks-state-page" data-testid="page-lifecycle" data-lifecycle="loading">
+        <span className="eyebrow">学习会话</span>
+        <h1>正在恢复学习会话</h1>
+        <p>系统正在确认会话版本并恢复到你的学习位置。</p>
+      </section>
     );
   }
 

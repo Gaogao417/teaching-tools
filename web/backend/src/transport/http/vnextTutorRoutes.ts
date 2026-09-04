@@ -45,10 +45,11 @@ import { projectHttpSnapshotV1, V7RenderProjectionError } from "../../services/t
 import { transcribeForTutor, SpeechProviderError } from "../../services/tutorSession/asrService";
 import {
   actionEvidenceRequestHttpV1Schema,
-  actionSubmissionHttpV1Schema,
   asrRequestHttpV1Schema,
+  availabilityResponseHttpV1Schema,
+  errorEnvelopeHttpV1Schema,
+  parseActionEvidenceResponseHttp,
   presentationOutcomeRequestHttpV1Schema,
-  sessionSnapshotHttpV1Schema,
   startRequestHttpV1Schema,
   studentInputRequestHttpV1Schema,
   TUTOR_RUNTIME_HTTP_PROFILE,
@@ -95,60 +96,59 @@ function createApplication(): TutorRuntimeApplicationV7 {
 }
 
 function toHttpError(error: unknown, res: { status: (code: number) => { json: (body: unknown) => void } }): void {
+  /** 错误 envelope 过共享 schema 自证（稳定 error.code 线格式；Step 4.1）。 */
+  const emit = (status: number, code: string, message: string): void => {
+    res.status(status).json(errorEnvelopeHttpV1Schema.parse({ error: { code, message } }));
+  };
   if (error instanceof z.ZodError) {
-    res.status(400).json({ error: { code: "BAD_REQUEST", message: error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") } });
+    emit(400, "BAD_REQUEST", error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
     return;
   }
   if (error instanceof TutorRuntimeApplicationV7Error) {
-    res.status(400).json({ error: { code: "BAD_REQUEST", message: error.message } });
+    emit(400, "BAD_REQUEST", error.message);
     return;
   }
   if (error instanceof TutorSessionEventStoreV7Error) {
     if (error.code === "SESSION_NOT_FOUND") {
-      res.status(404).json({ error: { code: "SESSION_NOT_FOUND", message: error.message } });
+      emit(404, "SESSION_NOT_FOUND", error.message);
       return;
     }
     // 用户输入在 append 边界被 canonical 校验拒绝（如夹带未知字段）→ 400。
     if (error.code === "VALIDATION_FAILED") {
-      res.status(400).json({ error: { code: "BAD_REQUEST", message: error.message } });
+      emit(400, "BAD_REQUEST", error.message);
       return;
     }
-    res.status(error.code === "SESSION_VERSION_UNSUPPORTED" ? 409 : 500).json({ error: { code: error.code, message: error.message } });
+    emit(error.code === "SESSION_VERSION_UNSUPPORTED" ? 409 : 500, error.code, error.message);
     return;
   }
   if (error instanceof TutorSessionIntegrityV7Error) {
     if (error.code === "SESSION_NOT_FOUND") {
-      res.status(404).json({ error: { code: "SESSION_NOT_FOUND", message: error.message } });
+      emit(404, "SESSION_NOT_FOUND", error.message);
       return;
     }
     // verified rebuild 家族（v5/v6 行版本不支持 / gap / corrupt / revision / hash）
     // → 409（spec §2.4 restore 409 集；REPLAY_MISMATCH 语义）。
-    res.status(409).json({
-      error: {
-        code: error.code === "SESSION_VERSION_UNSUPPORTED" ? "SESSION_VERSION_UNSUPPORTED" : "REPLAY_MISMATCH",
-        message: error.message,
-      },
-    });
+    emit(409, error.code === "SESSION_VERSION_UNSUPPORTED" ? "SESSION_VERSION_UNSUPPORTED" : "REPLAY_MISMATCH", error.message);
     return;
   }
   if (error instanceof TutorTaskBindingError) {
     const status = error.code === "UNKNOWN_TASK" ? 404 : error.code === "PLAN_IMPORT_FAILED" ? 503 : 409;
-    res.status(status).json({ error: { code: error.code, message: error.message } });
+    emit(status, error.code, error.message);
     return;
   }
   if (error instanceof OrchestratorV7Error) {
     const status = error.code === "PLAN_IMPORT_FAILED" && error.message.includes("no committed stream")
       ? 404
       : ERROR_STATUS[error.code] ?? 500;
-    res.status(status).json({ error: { code: status === 404 ? "SESSION_NOT_FOUND" : error.code, message: error.message } });
+    emit(status, status === 404 ? "SESSION_NOT_FOUND" : error.code, error.message);
     return;
   }
   if (error instanceof V7RenderProjectionError) {
     // render 合成/一致性门禁失败 = 系统完整性失败——不产出「看似正常」snapshot。
-    res.status(503).json({ error: { code: "RUNTIME_INTEGRITY_FAILURE", message: error.message } });
+    emit(503, "RUNTIME_INTEGRITY_FAILURE", error.message);
     return;
   }
-  res.status(500).json({ error: { code: "INTERNAL_ERROR", message: error instanceof Error ? error.message : String(error) } });
+  emit(500, "INTERNAL_ERROR", error instanceof Error ? error.message : String(error));
 }
 
 /** ASR 音频上限（data_url 字符数；F7 one-golden 显式配置，spec §2.1）。 */
@@ -167,11 +167,11 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
   router.get("/availability/:taskId", (req, res) => {
     const parsed = taskIdParam.safeParse(req.params.taskId);
     if (!parsed.success) {
-      res.status(400).json({ error: { code: "BAD_REQUEST", message: "invalid taskId" } });
+      res.status(400).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "BAD_REQUEST", message: "invalid taskId" } }));
       return;
     }
     const enabled = Boolean(process.env.TUTOR_VNEXT_ROOT?.trim()) && vNextTaskIds().includes(parsed.data);
-    res.json({ task_id: parsed.data, enabled, profile: TUTOR_RUNTIME_HTTP_PROFILE });
+    res.json(availabilityResponseHttpV1Schema.parse({ task_id: parsed.data, enabled, profile: TUTOR_RUNTIME_HTTP_PROFILE }));
   });
 
   router.post("/tutor-sessions", (req, res) => {
@@ -185,12 +185,12 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         client_request_id: body.client_request_id,
       });
       if (outcome.kind === "payload-drift") {
-        res.status(409).json({
+        res.status(409).json(errorEnvelopeHttpV1Schema.parse({
           error: {
             code: "REQUEST_PAYLOAD_DRIFT",
             message: `client_request_id=${outcome.clientRequestId} payload drifts from the committed start (committed hash ${outcome.committedPayloadHash}); explicit refusal, zero facts`,
           },
-        });
+        }));
         return;
       }
       const snapshot = projectHttpSnapshotV1({ orchestrator: outcome.orchestrator });
@@ -236,13 +236,19 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         expectedRevision: body.expected_revision,
         client_request_id: body.client_request_id,
       });
-      const snapshot = sessionSnapshotHttpV1Schema.parse(projectHttpSnapshotV1({ orchestrator, turn: submission.turn, turnSource: "command" }));
-      const actionSubmission = actionSubmissionHttpV1Schema.parse(
-        "evaluation" in submission
+      // 组合响应（snapshot + action_submission）经共享组合 parser + 一致性门禁
+      // 自证后发出（Step 4.1：前后端同一入口，路由零手拼）。
+      const response = parseActionEvidenceResponseHttp({
+        ...projectHttpSnapshotV1({ orchestrator, turn: submission.turn, turnSource: "command" }),
+        action_submission: "evaluation" in submission
           ? { revision: submission.revision, status: submission.status, evaluation: submission.evaluation }
           : { revision: submission.revision, status: submission.status, failure: submission.failure },
-      );
-      res.json({ ...snapshot, action_submission: actionSubmission });
+      });
+      if (!response.ok) {
+        res.status(500).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "INTERNAL_ERROR", message: response.errors.join("; ") } }));
+        return;
+      }
+      res.json({ ...response.snapshot, action_submission: response.submission });
     } catch (error) {
       toHttpError(error, res);
     }
@@ -255,7 +261,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       // 含 input_evidence_sequence；session_id 与路径参数的对账在 parse 后强制）。
       const body = workspaceCommandRequestHttpV1Schema.parse(req.body);
       if (body.command.session_id !== sessionId) {
-        res.status(400).json({ error: { code: "BAD_REQUEST", message: `command.session_id ${body.command.session_id} does not match the path session ${sessionId}` } });
+        res.status(400).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "BAD_REQUEST", message: `command.session_id ${body.command.session_id} does not match the path session ${sessionId}` } }));
         return;
       }
       const command = body.command;
@@ -298,11 +304,11 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = asrRequestHttpV1Schema.parse(req.body);
       if (!ASR_ALLOWED_MIME.has(body.audio.mime_type)) {
-        res.status(415).json({ error: { code: "AUDIO_FORMAT_UNSUPPORTED", message: `mime_type ${body.audio.mime_type} is not supported` } });
+        res.status(415).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "AUDIO_FORMAT_UNSUPPORTED", message: `mime_type ${body.audio.mime_type} is not supported` } }));
         return;
       }
       if (body.audio.data_url.length > ASR_MAX_DATA_URL_CHARS) {
-        res.status(413).json({ error: { code: "AUDIO_TOO_LARGE", message: `audio data_url exceeds the configured cap (${ASR_MAX_DATA_URL_CHARS} chars)` } });
+        res.status(413).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "AUDIO_TOO_LARGE", message: `audio data_url exceeds the configured cap (${ASR_MAX_DATA_URL_CHARS} chars)` } }));
         return;
       }
       // observe-only：restore 零模型调用取 observed_revision；ASR 只转写，零教学事实。
@@ -313,7 +319,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         ...(body.audio.duration_ms !== undefined ? { durationMs: body.audio.duration_ms } : {}),
       });
       if (!transcript.transcript.trim()) {
-        res.status(422).json({ error: { code: "EMPTY_TRANSCRIPT", message: "transcription returned an empty transcript" } });
+        res.status(422).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "EMPTY_TRANSCRIPT", message: "transcription returned an empty transcript" } }));
         return;
       }
       res.json({
@@ -324,7 +330,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       });
     } catch (error) {
       if (error instanceof SpeechProviderError) {
-        res.status(503).json({ error: { code: "ASR_UNAVAILABLE", message: (error as Error).message } });
+        res.status(503).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "ASR_UNAVAILABLE", message: (error as Error).message } }));
         return;
       }
       toHttpError(error, res);

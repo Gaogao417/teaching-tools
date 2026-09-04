@@ -43,16 +43,19 @@ import type {
   TutorTurnResponse,
   TutorVoiceAction,
 } from "../../../../shared/tutorExperience";
-import type { StudentWorkspaceView } from "../../../../shared/studentWorkspace";
 import {
   newRuntimeRequestId,
   ProtocolParseError,
   TutorRuntimeHttpError,
+  type StudentBrowserInput,
   type StudentControlCommand,
   type TutorRuntimeClient,
   type ValidatedSessionSnapshot,
 } from "../../api/tutorRuntimeClient";
-import type { CoachPanelViewV1 } from "../../presentation/canonicalView/canonicalViewTypes";
+import { actionMachineRegistry } from "../registry";
+import type { SolutionBoardView } from "../types";
+import type { CoachPanelViewV1, StudentWorkspaceViewV1 } from "../../presentation/canonicalView/canonicalViewTypes";
+import type { StudentWorkspaceView } from "../../../../shared/studentWorkspace";
 import type { TaskId } from "../../../../shared/contracts";
 
 /** 计划 §3 ActionRuntimeTransport：evidence → {evaluation, tutorTurn}。 */
@@ -111,6 +114,63 @@ const INITIAL_PRESENTATION: TutorPresentation = {
   reviewing: false,
 };
 
+/** canonical「这步没懂」话术（与参考实现 ActionRuntimeFrame 同文案）。 */
+export const CONFUSED_MESSAGE = "我没听懂这一步，请换一种说法，并说明为什么这样做。";
+
+// --------------------------------------------------------------------------- //
+// 统一 UI view-model（复核裁定：数据源分派只发生在 controller 边界；
+// Participation/Workspace/播放控件由单一 view-model 驱动，组件不得按
+// Boolean(runtimeClient) 分两套 UI）
+// --------------------------------------------------------------------------- //
+
+/** 参与区控件（canonical kind 与 legacy 相位投影到同一控件词汇表）。 */
+export type ParticipationControls =
+  | { kind: "listen" }
+  | { kind: "answer"; onSubmit: (text: string) => void }
+  /** 唯一 typed CTA：canonical=control.confirm/continue（testId 供 e2e 锚点）；
+   *  legacy=讲解门「明白，继续」（TopicTeachingConfirm 复合布局：恒挂确认组、
+   *  answerVisible 时并行主线表单——原 actionEnd 行为零改动）。confused 仅
+   *  legacy 讲解门形态携带（assistance 提问入口）。 */
+  | {
+      kind: "cta";
+      label: string;
+      onSubmit: () => void;
+      testId?: string;
+      understoodDisabled?: boolean;
+      confusedDisabled?: boolean;
+      confused?: () => void;
+      answer?: { onSubmit: (text: string) => void };
+    }
+  | { kind: "inquiry"; canReturn: boolean; onReturn: () => void }
+  | { kind: "workspace_wait" }
+  | { kind: "completed" }
+  | { kind: "none" };
+
+/** legacy 讲解播放组（canonical 链无本地呈现管线——Step 6 PresentationRuntime）。 */
+export interface PlaybackControlsVm {
+  presentation: TutorPresentation;
+  advance: () => void;
+  replay: () => void;
+  reviewPrevious: () => void;
+  reviewFirst: () => void;
+}
+
+/** Workspace 呈现面（canonical=快照 student_workspace_view；legacy=统一 View）。 */
+export type WorkspaceSurfaceVm =
+  | { source: "canonical"; view: StudentWorkspaceViewV1 | undefined }
+  | { source: "legacy"; workspaceView: StudentWorkspaceView | undefined; completed: boolean };
+
+/** ActionRuntimeFrame 绑定（canonical：actor-first 采用 + 禁 Frame 私有 legacy 媒体）。 */
+export interface ActiveActionFrameVm {
+  transport: ActionRuntimeTransport;
+  onEvaluation?: () => void;
+  viewRevision?: number;
+  boardView?: SolutionBoardView;
+  /** 外部 Tutor runtime 拥有媒体/coach 时为 true：Frame 不得创建/调用 legacy
+   *  coach/媒体（复核裁定：迁移期最小隔离，Step 7 收敛为统一 PresentationRuntime）。 */
+  legacyMediaDisabled: boolean;
+}
+
 const SPEECH_PROFILE_VERSION = "tutor-zh-v1";
 
 function newTurnId(): string {
@@ -159,7 +219,6 @@ export interface UseTutorLearningOptions {
   runtimeClient?: TutorRuntimeClient;
 }
 
-/** spec §1.3 #9 前端侧：render.geometry 的安全段 id 集（record 宽松对象，只探测 id）。 */
 function renderGeometrySegmentIds(geometry: Record<string, unknown> | null): readonly string[] {
   if (!geometry) return [];
   const segments = geometry["segments"];
@@ -170,11 +229,33 @@ function renderGeometrySegmentIds(geometry: Record<string, unknown> | null): rea
     .filter((id): id is string => typeof id === "string");
 }
 
+function renderGeometryPointIds(geometry: Record<string, unknown> | null): readonly string[] {
+  if (!geometry) return [];
+  const points = geometry["points"];
+  if (!Array.isArray(points)) return [];
+  return points
+    .filter((point): point is Record<string, unknown> => typeof point === "object" && point !== null)
+    .map((point) => point["id"])
+    .filter((id): id is string => typeof id === "string");
+}
+
+function sameIdSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((id) => rightSet.has(id));
+}
+
 /**
- * active_action 派生（adopt 时校验 + 渲染时同源派生，零 cast）：
- * `action_plan` 必须通过既有 ExercisePlan runtime validator；`target_ids` 必须
- * 全部存在于 render geometry（spec §1.3 #9）。任一失败 fail closed——快照
- * 不被采用（原子采用纪律），非「不挂载但采用」。
+ * active_action 派生（adopt 时校验 + 渲染时同源派生，零 cast）。spec §1.3 #8/#9
+ * 前端侧全量 fail closed：
+ * - `action_plan` 过既有 ExercisePlan runtime validator；
+ * - `target_ids` ⊆ render geometry 段集；
+ * - `student_view` 过 action machine registry（kind/version 可执行）且 actionId 一致；
+ * - participation=workspace_input 时与 Coach awaiting_workspace 的 action_id/gate_id 对账；
+ * - plan.world.revision 与 render.workspace_revision 对账；world.geometry 与 render
+ *   geometry 的点/段 id 集合一致（同源合成，spec §1.3 #9「ActionPlan geometry 与
+ *   render geometry 一致」）。
+ * 任一失败 → 快照整体拒绝采用（原子采用纪律），非「不挂载但采用」。
  */
 function deriveRuntimeActiveOperation(snapshot: ValidatedSessionSnapshot):
   { ok: true; operation: { actionId: string; plan: ExercisePlan } | undefined }
@@ -188,6 +269,42 @@ function deriveRuntimeActiveOperation(snapshot: ValidatedSessionSnapshot):
   const missing = active.target_ids.filter((target) => !segmentIds.includes(target));
   if (missing.length > 0) {
     return { ok: false, reason: `active_action.target_ids 不在 render geometry 中：${missing.join(", ")}` };
+  }
+  const studentView = active.student_view;
+  if (
+    typeof studentView["actionId"] !== "string"
+    || typeof studentView["kind"] !== "string"
+    || typeof studentView["version"] !== "number"
+  ) {
+    return { ok: false, reason: "active_action.student_view 缺 actionId/kind/version" };
+  }
+  if (studentView["actionId"] !== active.action_id) {
+    return { ok: false, reason: `student_view.actionId ${String(studentView["actionId"])} ≠ active_action.action_id ${active.action_id}` };
+  }
+  if (!actionMachineRegistry.supports(studentView["kind"], studentView["version"])) {
+    return { ok: false, reason: `active_action.student_view（kind=${studentView["kind"]}, version=${String(studentView["version"])}）无已注册 action machine` };
+  }
+  const mainline = snapshot.views.coach_panel_view.mainline;
+  if (mainline.kind === "awaiting_workspace") {
+    if (mainline.action_id !== active.action_id) {
+      return { ok: false, reason: `Coach awaiting_workspace.action_id ${mainline.action_id} ≠ active_action.action_id ${active.action_id}` };
+    }
+    const participation = snapshot.views.participation;
+    if (participation.kind === "workspace_input" && participation.gate_id !== undefined && mainline.gate_id !== participation.gate_id) {
+      return { ok: false, reason: `participation.gate_id ${participation.gate_id} ≠ Coach awaiting_workspace.gate_id ${mainline.gate_id}` };
+    }
+  }
+  if (active.action_plan.world.revision !== snapshot.render.workspace_revision) {
+    return { ok: false, reason: `plan.world.revision ${active.action_plan.world.revision} ≠ render.workspace_revision ${snapshot.render.workspace_revision}` };
+  }
+  if (active.action_plan.world.geometry !== undefined && snapshot.render.geometry !== null) {
+    const planGeometry = active.action_plan.world.geometry;
+    if (
+      !sameIdSet(planGeometry.points.map((point) => point.id), renderGeometryPointIds(snapshot.render.geometry))
+      || !sameIdSet(planGeometry.segments.map((segment) => segment.id), renderGeometrySegmentIds(snapshot.render.geometry))
+    ) {
+      return { ok: false, reason: "plan.world.geometry 与 render geometry 的点/段 id 集合不一致" };
+    }
   }
   return { ok: true, operation: { actionId: active.action_id, plan: active.action_plan } };
 }
@@ -211,12 +328,31 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const [protocolError, setProtocolError] = useState<string | undefined>();
   /** evidence 系统失败的瞬时提示（非 committed turn 失败——那类随快照 turn 派生）。 */
   const [runtimeFailureNotice, setRuntimeFailureNotice] = useState<string | undefined>();
-  /** actor-first（spec §4.6）：evidence 成功响应的 snapshot 暂存于此，等当前
-   *  actor 消费 evaluation 后由 adoptPendingEvaluationSnapshot() 原子采用。 */
-  const pendingEvaluationSnapshotRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
   const runtimeSnapshotRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
   /** start 幂等键：同一挂载生命周期的重试复用同键（payload 相同 → Existing 回放）。 */
   const runtimeStartKeyRef = useRef<string | undefined>(undefined);
+
+  /** pending 输入幂等 token（spec §2.1/复核 P0-3）：controller 为一次逻辑操作
+   *  创建 key；同 payload 重试复用同 key（网络断开时服务端可能已提交——同键
+   *  幂等回放，不产生第二份事实）；只有确定响应（成功 / 4xx 含 drift）才释放。
+   *  adapter 只传输 key，不决定其生命周期。 */
+  interface PendingRuntimeInput { input: StudentBrowserInput; clientRequestId: string }
+  const pendingInputRef = useRef<PendingRuntimeInput | undefined>(undefined);
+
+  /** actor-first 暂存的 evidence 采用记录（复核 P0-5）：绑定提交身份，consume-once，
+   *  拒绝旧 session / 迟到（低 revision）响应。 */
+  interface PendingEvaluationAdoption {
+    idempotencyKey: string;
+    sessionId: string;
+    actionId: string;
+    sourceStepId: string;
+    baseSessionRevision: number;
+    baseActionRevision: number;
+    snapshot: ValidatedSessionSnapshot;
+  }
+  const pendingEvaluationRef = useRef<PendingEvaluationAdoption | undefined>(undefined);
+  /** 最近一次 evidence 提交（迟到旧响应不得覆盖新提交的暂存）。 */
+  const lastEvidenceSubmissionRef = useRef<{ clientRequestId: string } | undefined>(undefined);
 
   const adoptRuntimeSnapshot = useCallback((snapshot: ValidatedSessionSnapshot): boolean => {
     if (snapshot.task_id !== taskId) {
@@ -229,7 +365,6 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       return false;
     }
     runtimeSnapshotRef.current = snapshot;
-    pendingEvaluationSnapshotRef.current = undefined;
     setProtocolError(undefined);
     setRuntimeFailureNotice(undefined);
     setRuntimeSnapshot(snapshot);
@@ -247,12 +382,45 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     setError(failure instanceof Error ? failure.message : String(failure));
   }, []);
 
-  /** actor 消费 evaluation 后的原子采用（spec §4.6 第 5 步；组件经 onEvaluation 回调触发）。 */
+  /** 确定性失败（4xx，含 payload drift）释放输入 token；5xx/网络/协议解析失败保留
+   *  （服务端可能已提交——同 payload 重试必须同键幂等回放）。 */
+  const isDefinitiveInputFailure = (failure: unknown): boolean =>
+    failure instanceof TutorRuntimeHttpError && failure.status >= 400 && failure.status < 500;
+
+  const sameBrowserInput = (left: StudentBrowserInput, right: StudentBrowserInput): boolean =>
+    left.kind === right.kind && JSON.stringify(left) === JSON.stringify(right);
+
+  const submitRuntimeInput = useCallback(async (input: StudentBrowserInput): Promise<void> => {
+    if (!runtimeClient) return;
+    const current = runtimeSnapshotRef.current;
+    if (!current) return;
+    const pending = pendingInputRef.current;
+    const clientRequestId = pending && sameBrowserInput(pending.input, input)
+      ? pending.clientRequestId
+      : newRuntimeRequestId();
+    pendingInputRef.current = { input, clientRequestId };
+    setTurnPending(true);
+    try {
+      adoptRuntimeSnapshot(await runtimeClient.submitStudentInput(current.session_id, input, current.revision, clientRequestId));
+      pendingInputRef.current = undefined;
+    } catch (turnError) {
+      if (isDefinitiveInputFailure(turnError)) pendingInputRef.current = undefined;
+      handleRuntimeError(turnError);
+    } finally {
+      setTurnPending(false);
+    }
+  }, [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError]);
+
+  /** actor 消费 evaluation 后的原子采用（spec §4.6 第 5 步；组件经 onEvaluation
+   *  回调触发）。consume-once；拒绝旧 session 与迟到（低 revision）响应。 */
   const adoptPendingEvaluationSnapshot = useCallback(() => {
-    const pending = pendingEvaluationSnapshotRef.current;
+    const pending = pendingEvaluationRef.current;
     if (!pending) return;
-    pendingEvaluationSnapshotRef.current = undefined;
-    adoptRuntimeSnapshot(pending);
+    pendingEvaluationRef.current = undefined;
+    const current = runtimeSnapshotRef.current;
+    if (!current || current.session_id !== pending.sessionId) return;
+    if (pending.snapshot.revision < current.revision) return;
+    adoptRuntimeSnapshot(pending.snapshot);
   }, [adoptRuntimeSnapshot]);
 
   /** protocol error 的显式恢复：GET restore 重新对账（零教学副作用）。 */
@@ -577,53 +745,23 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   /** canonical 输入链（spec §2.5）：前端只提交原始学生输入或显式 UI control，
    *  不提交任何由前端猜出的语义意图（intent 由后端 SemanticInterpreter 解释）。
    *  channel 是用户选择的交互入口：Coach assistance composer=assistance、
-   *  mainline answer composer=mainline。 */
+   *  mainline answer composer=mainline。幂等 token 见 submitRuntimeInput。 */
   const submitUtterance = useCallback(
     async (channel: "mainline" | "assistance", text: string): Promise<void> => {
-      if (!runtimeClient) return;
-      const current = runtimeSnapshotRef.current;
-      if (!current) return;
       const trimmed = text.trim();
       if (!trimmed) return;
-      setTurnPending(true);
-      try {
-        adoptRuntimeSnapshot(await runtimeClient.submitStudentInput(
-          current.session_id,
-          { kind: "utterance", channel, text: trimmed },
-          current.revision,
-          newRuntimeRequestId(),
-        ));
-      } catch (turnError) {
-        handleRuntimeError(turnError);
-      } finally {
-        setTurnPending(false);
-      }
+      await submitRuntimeInput({ kind: "utterance", channel, text: trimmed });
     },
-    [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError],
+    [submitRuntimeInput],
   );
 
   /** canonical 显式控制（confirm/continue/barge_in/return_to_mainline/retry_recovery/
    *  request_scaffold/request_rephrase——七值 typed control）。 */
   const submitControl = useCallback(
     async (command: StudentControlCommand): Promise<void> => {
-      if (!runtimeClient) return;
-      const current = runtimeSnapshotRef.current;
-      if (!current) return;
-      setTurnPending(true);
-      try {
-        adoptRuntimeSnapshot(await runtimeClient.submitStudentInput(
-          current.session_id,
-          { kind: "control", command },
-          current.revision,
-          newRuntimeRequestId(),
-        ));
-      } catch (turnError) {
-        handleRuntimeError(turnError);
-      } finally {
-        setTurnPending(false);
-      }
+      await submitRuntimeInput({ kind: "control", command });
     },
-    [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError],
+    [submitRuntimeInput],
   );
 
   const submitStudentInput = useCallback(
@@ -666,6 +804,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
           const values: Record<string, string> = "values" in evidence && evidence.values !== undefined
             ? evidence.values
             : {};
+          // 幂等键复用 Frame 已管理的 submission key（同键重试幂等回放）。
+          const clientRequestId = request.idempotencyKey;
+          lastEvidenceSubmissionRef.current = { clientRequestId };
           const result = await runtimeClient.submitActionEvidence(current.session_id, {
             evidence: {
               actionId: evidence.actionId,
@@ -675,16 +816,34 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
               values,
             },
             expectedRevision: current.revision,
-            // 幂等键复用 Frame 已管理的 submission key（同键重试幂等回放）。
-            clientRequestId: request.idempotencyKey,
+            clientRequestId,
           });
           const submission = result.actionSubmission;
           if (submission.status === "evidence-rejected" || submission.status === "workspace-committed") {
             if (!isActionEvaluationResponse(submission.evaluation)) {
               throw new ProtocolParseError(["action_submission.evaluation 未通过 ActionEvaluationResponse runtime 校验"]);
             }
-            pendingEvaluationSnapshotRef.current = result.snapshot;
-            return { ...submission.evaluation, revision: result.snapshot.revision };
+            // actor-first（spec §4.6）：snapshot 暂存（绑定提交身份），等 actor 消费
+            // evaluation 后由组件 onEvaluation 回调原子采用；迟到旧响应不得覆盖。
+            if (lastEvidenceSubmissionRef.current?.clientRequestId === clientRequestId) {
+              pendingEvaluationRef.current = {
+                idempotencyKey: clientRequestId,
+                sessionId: current.session_id,
+                actionId: evidence.actionId,
+                sourceStepId: evidence.sourceStepId,
+                baseSessionRevision: current.revision,
+                baseActionRevision: request.revision,
+                snapshot: result.snapshot,
+              };
+            }
+            // evaluation.revision 语义（复核 P0-4）：ActionRuntime/plan-world revision
+            // 域——rejected 零事件 ⇒ actor 基线不变（request.revision）；committed ⇒
+            // 服务端权威 workspace revision。session revision 不得直入 actor
+            //（后端产正确 revision 登记为后续合同波裁定）。
+            const authoritativeRevision = submission.status === "evidence-rejected"
+              ? request.revision
+              : result.snapshot.render.workspace_revision;
+            return { ...submission.evaluation, revision: authoritativeRevision };
           }
           // 三类 system failure（revision-conflict/command-rejected/runtime-failure）：
           // 结构上禁 evaluation——不采用 snapshot、不评价，仅呈现可恢复失败。
@@ -944,6 +1103,106 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     return turn && turn.status !== "committed" ? turn.failure?.failure_class : undefined;
   }, [runtimeSnapshot]);
 
+  // ---- 统一 UI view-model 派生（controller 边界完成数据源分派）----
+  const mergedCompleted = runtimeClient
+    ? (runtimeSnapshot?.completed ?? false)
+    : (completed || questionCompleted);
+  const operateActive = phase === "workspaceActive";
+
+  /** 参与区：canonical kind / legacy 相位 → 同一控件词汇表。 */
+  const participationControls: ParticipationControls = useMemo(() => {
+    if (runtimeClient) {
+      const kind = runtimeSnapshot?.views.participation.kind ?? "listen_only";
+      if (runtimeSnapshot?.completed || kind === "read_only_completed") return { kind: "completed" };
+      switch (kind) {
+        case "confirm_input":
+          return { kind: "cta", label: "确认", onSubmit: () => { void submitControl("confirm"); }, testId: "tutor-confirm-input", understoodDisabled: turnPending };
+        case "continue_input":
+          return { kind: "cta", label: "继续", onSubmit: () => { void submitControl("continue"); }, testId: "tutor-continue-input", understoodDisabled: turnPending };
+        case "answer_input":
+          return { kind: "answer", onSubmit: (text: string) => { void submitUtterance("mainline", text); } };
+        case "temporarily_paused_for_inquiry":
+          return {
+            kind: "inquiry",
+            canReturn: runtimeSnapshot?.views.coach_panel_view.inquiry.kind === "ready_to_return",
+            onReturn: () => { void submitControl("return_to_mainline"); },
+          };
+        case "workspace_input":
+          return { kind: "workspace_wait" };
+        default:
+          return { kind: "listen" };
+      }
+    }
+    // legacy：teach 相位恒挂讲解确认组（awaitingContinue 前 understood 禁用）、
+    // answerVisible 时并行主线表单——原 actionEnd 布局与禁用语义零改动。
+    if (mergedCompleted) return { kind: "completed" };
+    if (operateActive) return { kind: "none" };
+    const answerVisible = !presentation.playing && !presentation.awaitingContinue && !turnPending && !error && Boolean(sessionId);
+    return {
+      kind: "cta",
+      label: presentation.awaitingContinue ? "明白，继续" : "等待你的回应",
+      onSubmit: advancePresentation,
+      understoodDisabled: !presentation.awaitingContinue || presentation.reviewing || turnPending,
+      confusedDisabled: turnPending || !sessionId,
+      confused: () => { void submitStudentInput({ input_kind: "question_asked", text: CONFUSED_MESSAGE }); },
+      ...(answerVisible ? { answer: { onSubmit: (text: string) => { void submitStudentInput({ input_kind: "reasoning_utterance", text }); } } } : {}),
+    };
+  }, [runtimeClient, runtimeSnapshot, mergedCompleted, operateActive, presentation.playing, presentation.awaitingContinue, presentation.reviewing, turnPending, error, sessionId, submitControl, submitUtterance, submitStudentInput, advancePresentation]);
+
+  /** 讲解播放组：legacy 呈现管线（canonical 无本地呈现——Step 6）。 */
+  const playbackControls = useMemo<PlaybackControlsVm | undefined>(() => {
+    if (runtimeClient || mergedCompleted || operateActive) return undefined;
+    return {
+      presentation,
+      advance: advancePresentation,
+      replay: replayNarration,
+      reviewPrevious: reviewPreviousNarration,
+      reviewFirst: reviewFirstNarration,
+    };
+  }, [runtimeClient, mergedCompleted, operateActive, presentation, advancePresentation, replayNarration, reviewPreviousNarration, reviewFirstNarration]);
+
+  /** Workspace 呈现面。 */
+  const workspaceSurface: WorkspaceSurfaceVm = useMemo(
+    () => (runtimeClient
+      ? { source: "canonical", view: runtimeSnapshot?.views.student_workspace_view }
+      : { source: "legacy", workspaceView, completed: mergedCompleted }),
+    [runtimeClient, runtimeSnapshot, workspaceView, mergedCompleted],
+  );
+
+  /** Coach composer：提问通道（canonical=utterance(assistance)；legacy=question_asked）
+   *  与可用性（canonical 由服务端 assistance_available 投影；legacy 恒开）；
+   *  micSuppressed：canonical 录音 Step 8 接线前禁用（禁调 legacy ASR）。 */
+  const coachControls = useMemo(() => ({
+    canHelp: !mergedCompleted && Boolean(sessionId) && (!runtimeClient || runtimeSnapshot?.views.coach_panel_view.assistance_available !== false),
+    micSuppressed: Boolean(runtimeClient),
+    ask: (text: string): void => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      if (runtimeClient) {
+        void submitUtterance("assistance", trimmed);
+        return;
+      }
+      void submitStudentInput({ input_kind: "question_asked", text: trimmed });
+    },
+  }), [mergedCompleted, sessionId, runtimeClient, runtimeSnapshot, submitUtterance, submitStudentInput]);
+
+  /** ActionRuntimeFrame 绑定。 */
+  const activeActionFrame: ActiveActionFrameVm = useMemo(() => ({
+    transport,
+    ...(runtimeClient ? { onEvaluation: adoptPendingEvaluationSnapshot } : {}),
+    viewRevision: runtimeClient ? runtimeSnapshot?.render.workspace_revision : workspaceView?.revision,
+    ...(runtimeClient ? {} : { boardView: workspaceView?.solutionBoard }),
+    legacyMediaDisabled: Boolean(runtimeClient),
+  }), [transport, runtimeClient, runtimeSnapshot, workspaceView, adoptPendingEvaluationSnapshot]);
+
+  /** restore 会话丢失策略：legacy 沿用 VS0 REQ-06 自动重开；canonical 先告知用户、
+   *  由用户明确重开（spec §2.1：restore 404 不得静默 start）。 */
+  const restartOnMissing = !runtimeClient;
+  /** legacy 换讲法入口（canonical 无此形态）。 */
+  const switchApproachAvailable = !runtimeClient && alternatesAvailable && Boolean(sessionId) && !mergedCompleted;
+  /** legacy 打断入口（canonical barge-in 属 Step 8 统一 PresentationRuntime）。 */
+  const bargeInAvailable = !runtimeClient && phase === "speaking" && !presentation.awaitingContinue && !presentation.reviewing;
+
   return {
     phase,
     sessionId,
@@ -954,6 +1213,15 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     transcript: runtimeClient ? runtimeTranscript : transcript,
     workspaceView,
     activeOperation,
+    /** 统一 UI view-model（组件零 Boolean(runtimeClient) 分叉）。 */
+    participationControls,
+    playbackControls,
+    workspaceSurface,
+    coachControls,
+    activeActionFrame,
+    restartOnMissing,
+    switchApproachAvailable,
+    bargeInAvailable,
     /** canonical Runtime 数据源（runtimeClient 缺省时 undefined——legacy 链不消费）。 */
     runtimeSnapshot,
     runtimeParticipation: runtimeSnapshot?.views.participation,
@@ -970,7 +1238,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     /** VS1 remediation-2：话术呈现指针（瞬时；门/回看状态见 TutorPresentation）。 */
     presentation,
     questionCompleted,
-    completed: runtimeClient ? (runtimeSnapshot?.completed ?? false) : completed,
+    completed: mergedCompleted,
     error,
     autoplayBlocked,
     transport,

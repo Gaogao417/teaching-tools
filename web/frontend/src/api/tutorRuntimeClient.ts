@@ -14,15 +14,16 @@
  */
 import {
   actionEvidenceRequestHttpV1Schema,
-  actionSubmissionHttpV1Schema,
   asrRequestHttpV1Schema,
   asrResponseHttpV1Schema,
+  availabilityResponseHttpV1Schema,
+  errorEnvelopeHttpV1Schema,
+  parseActionEvidenceResponseHttp,
   parseSessionSnapshotHttp,
   presentationOutcomeRequestHttpV1Schema,
   startRequestHttpV1Schema,
   studentInputRequestHttpV1Schema,
   workspaceCommandRequestHttpV1Schema,
-  TUTOR_RUNTIME_HTTP_PROFILE,
   type ActionSubmissionHttpV1,
   type SessionSnapshotHttpV1,
 } from "../../../shared/tutorHttpProfile";
@@ -116,10 +117,12 @@ function buildBody<T>(schema: { safeParse: (value: unknown) => { success: true; 
 
 async function readHttpError(response: Response): Promise<TutorRuntimeHttpError> {
   const body: unknown = await response.json().catch(() => undefined);
-  const error = (body as { error?: { code?: unknown; message?: unknown } } | undefined)?.error;
-  const code = error && typeof error.code === "string" ? error.code : "HTTP_ERROR";
-  const message = error && typeof error.message === "string" ? error.message : undefined;
-  return new TutorRuntimeHttpError(response.status, code, message);
+  // 错误 envelope 过共享 schema（稳定 error.code；无法解析的 body 用兜底码）。
+  const envelope = errorEnvelopeHttpV1Schema.safeParse(body);
+  if (envelope.success) {
+    return new TutorRuntimeHttpError(response.status, envelope.data.error.code, envelope.data.error.message);
+  }
+  return new TutorRuntimeHttpError(response.status, "HTTP_ERROR");
 }
 
 /** spec §2.1：2xx 只表示请求被理解；application outcome 由判别字段穷尽处理。 */
@@ -198,17 +201,15 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
 
   async availability(taskId: string): Promise<TutorRuntimeAvailability> {
     const payload = await this.request(`/availability/${encodeURIComponent(taskId)}`);
-    const body = payload as { task_id?: unknown; enabled?: unknown; profile?: unknown };
-    if (typeof body.task_id !== "string" || typeof body.enabled !== "boolean" || typeof body.profile !== "string") {
-      throw new ProtocolParseError(["availability: 响应缺 task_id/enabled/profile 或类型不符"]);
+    // availability 是独立线格式（非 SessionSnapshot）——过共享 availability schema。
+    const parsed = availabilityResponseHttpV1Schema.safeParse(payload);
+    if (!parsed.success) {
+      throw new ProtocolParseError(parsed.error.issues.map((issue) => `availability.${issue.path.join(".")}: ${issue.message}`));
     }
-    if (body.task_id !== taskId) {
-      throw new ProtocolParseError([`availability: task_id 不匹配（请求 ${taskId}，响应 ${body.task_id}）`]);
+    if (parsed.data.task_id !== taskId) {
+      throw new ProtocolParseError([`availability: task_id 不匹配（请求 ${taskId}，响应 ${parsed.data.task_id}）`]);
     }
-    if (body.enabled && body.profile !== TUTOR_RUNTIME_HTTP_PROFILE) {
-      throw new ProtocolParseError([`availability: unknown profile ${body.profile}`]);
-    }
-    return { taskId: body.task_id, enabled: body.enabled, profile: body.profile };
+    return { taskId: parsed.data.task_id, enabled: parsed.data.enabled, profile: parsed.data.profile };
   }
 
   async start(input: {
@@ -260,14 +261,13 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
       client_request_id: request.clientRequestId,
     });
     const payload = await this.post(`/tutor-sessions/${encodeURIComponent(sessionId)}/action-evidence`, body);
-    // snapshot 与 action_submission 分别过共享 schema（snapshot 同走一致性门禁）。
-    const { action_submission: submissionPayload, ...snapshotPayload } = payload as Record<string, unknown> & { action_submission?: unknown };
-    const snapshot = HttpTutorRuntimeClient.parseSnapshot(snapshotPayload);
-    const submission = actionSubmissionHttpV1Schema.safeParse(submissionPayload);
-    if (!submission.success) {
-      throw new ProtocolParseError(submission.error.issues.map((issue) => `action_submission.${issue.path.join(".")}: ${issue.message}`));
+    // action-evidence 响应是 Snapshot 的扩展（+action_submission）——走共享组合
+    // parser（snapshot 过 §1.3 一致性门禁 + 五判别互斥），不伪装成普通 Snapshot。
+    const parsed = parseActionEvidenceResponseHttp(payload);
+    if (!parsed.ok) {
+      throw new ProtocolParseError(parsed.errors);
     }
-    return { snapshot, actionSubmission: submission.data };
+    return { snapshot: parsed.snapshot, actionSubmission: parsed.submission };
   }
 
   async submitWorkspaceCommand(

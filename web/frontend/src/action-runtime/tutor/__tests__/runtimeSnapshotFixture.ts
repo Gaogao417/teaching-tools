@@ -206,7 +206,12 @@ export function runtimeSnapshotRaw(options: RuntimeSnapshotOptions = {}): Record
 
 /** 夹具构造单入口：schema + 一致性门禁 fail closed（非法夹具在此抛错）。 */
 export function validRuntimeSnapshot(options: RuntimeSnapshotOptions = {}): SessionSnapshotHttpV1 {
-  const result = parseSessionSnapshotHttp(runtimeSnapshotRaw(options));
+  return validFromRaw(runtimeSnapshotRaw(options));
+}
+
+/** 原始线 JSON → 已验证快照（构造漂移负例时直接传 raw）。 */
+export function validFromRaw(raw: Record<string, unknown>): SessionSnapshotHttpV1 {
+  const result = parseSessionSnapshotHttp(raw);
   if (!result.ok) {
     throw new Error(`runtime snapshot fixture invalid: ${result.errors.join("; ")}`);
   }

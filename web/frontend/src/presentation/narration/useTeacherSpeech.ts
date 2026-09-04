@@ -17,7 +17,12 @@ export interface TeacherSpeech {
 }
 
 /** Deterministic Action narration with cancellation, bounded prefetch/cache and exclusive playback. */
-export function useTeacherSpeech(plan: ExercisePlan, action: ActionContract, sharedMedia?: MediaSessionController): TeacherSpeech {
+export function useTeacherSpeech(
+  plan: ExercisePlan,
+  action: ActionContract,
+  sharedMedia?: MediaSessionController,
+  options?: { disabled?: boolean },
+) {
   const ownedMedia = useMemo(() => new MediaSessionController(), []);
   const media = sharedMedia || ownedMedia;
   const narrationTransport = plan.runtimeCapabilities?.narrationTransport || "url";
@@ -35,7 +40,9 @@ export function useTeacherSpeech(plan: ExercisePlan, action: ActionContract, sha
   useEffect(() => {
     narration.stop();
     setSpeechUrl(undefined);
-    if (plan.mode === "assessment" || plan.runtimeCapabilities?.narrationTransport === "off" || action.actionId === lastEnteredActionId.current) return;
+    // disabled：外部 Tutor runtime 拥有媒体（F7 canonical 链）——Frame 禁止
+    // 创建/调用 legacy 讲解语音（复核裁定：迁移期最小媒体隔离）。
+    if (options?.disabled || plan.mode === "assessment" || plan.runtimeCapabilities?.narrationTransport === "off" || action.actionId === lastEnteredActionId.current) return;
     lastEnteredActionId.current = action.actionId;
     const copy = teacherCopyForAction(plan, action);
     const index = plan.actions.findIndex((candidate) => candidate.actionId === action.actionId);
@@ -50,7 +57,7 @@ export function useTeacherSpeech(plan: ExercisePlan, action: ActionContract, sha
       spokenText: nextCopy.spokenText,
       cacheKey: `${SPEECH_PROFILE_VERSION}:speech-v${SPEECH_TEXT_VERSION}:${nextCopy.spokenText}`,
     } : undefined, plan.mode === "learn").then((url) => { if (url) setSpeechUrl(url); });
-  }, [action.actionId, plan.exerciseId, plan.revision, plan.mode, narration]);
+  }, [action.actionId, plan.exerciseId, plan.revision, plan.mode, narration, options?.disabled]);
 
   useEffect(() => () => {
     narration.stop();

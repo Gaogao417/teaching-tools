@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TutorLearnExperience } from "../TutorLearnExperience";
 import type { TutorRuntimeClient } from "../../../api/tutorRuntimeClient";
-import { ProtocolParseError } from "../../../api/tutorRuntimeClient";
+import { ProtocolParseError, TutorRuntimeHttpError } from "../../../api/tutorRuntimeClient";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -236,6 +236,24 @@ describe("TutorLearnExperience（canonical Runtime 数据源）", () => {
     await settle();
     expect(container!.querySelector('[data-testid="tutor-protocol-error"]')).toBeNull();
     expect(container!.querySelector('[data-testid="tutor-submit-answer"]')).not.toBeNull();
+  });
+
+  it("restore 404（canonical）：先告知用户、不静默 start；用户明确点击才重开（spec §2.1）", async () => {
+    const { client, mocks } = makeClient();
+    mocks.restore.mockRejectedValue(new TutorRuntimeHttpError(404, "SESSION_NOT_FOUND", "no row"));
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input" }));
+    mount(client, RUNTIME_SESSION_ID);
+    await settle();
+    expect(mocks.start).not.toHaveBeenCalled();
+    const offered = container!.querySelector('[data-testid="tutor-restart-offered"]');
+    expect(offered).not.toBeNull();
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('[data-testid="tutor-restart"]')!.click();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ taskId: RUNTIME_TASK_ID }));
+    expect(container!.querySelector('[data-testid="tutor-confirm-input"]')).not.toBeNull();
   });
 
   it("turn failure（200 + revision-conflict）：提示可见；system failure 不显示答错", async () => {
