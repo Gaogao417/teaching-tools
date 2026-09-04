@@ -104,8 +104,10 @@ async function main(): Promise<void> {
     // 起 42：+authoring/v4 teaching_approach；F7 runtime/v6 合同波（ADR-011，
     // 2026-09-03）起 48：+runtime/v6 五合同（student_input、presentation_plan/v2、
     // presentation_delivery、presentation_outcome、tutor_session_event/v6）、
-    // +state/v2 tutor_runtime_state）。
-    assert.equal(bySchema.size, 48);
+    // +state/v2 tutor_runtime_state；F7 Step 4 runtime/v7 合同波（ADR-011 修订，
+    // 2026-09-04，两轮独立复核后定稿——只开 tutor-session-event/v7）起 49：
+    // +tutor_session_event/v7）。
+    assert.equal(bySchema.size, 49);
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -257,6 +259,7 @@ async function main(): Promise<void> {
       "presentationDeliveryV1Schema",
       "presentationOutcomeV1Schema",
       "tutorSessionEventV6Schema",
+      "tutorSessionEventV7Schema",
       "workspaceRuntimeStateV1Schema",
       "tutorRuntimeStateV1Schema",
       "tutorRuntimeStateV2Schema",

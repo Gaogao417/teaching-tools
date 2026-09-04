@@ -4212,6 +4212,135 @@ export const tutorSessionEventV6Schema = z
     }
   });
 
+// runtime/v7/tutor-session-event（marker v7，F7 Step 4 合同波，两轮独立复核后定稿）：
+// v6 的后继 major，恢复 ADR-011 §6 的两条输入因果链并显式记录会话模式——
+// (1) 新增 student_workspace_command_recorded（学生来源的权威 WorkspaceCommand 事实，
+//     accepted action-evidence 下为服务端确定性派生；source 判别 direct|accepted_action_evidence）；
+// (2) student_intent_recorded 移除 submit_workspace_command（intent 只表示语义解释产物，
+//     intent→input causation 门禁对剩余 kind 全量可达，门禁本身不动）；
+// (3) session_started 增必填 session_mode（teaching|assessment，resume 与 catalog pin 双重对账）。
+// 独立 marker/reader：按行 event_schema 分派，V6 reader 原样保留；不以 v7 校验 v6 envelope，
+// 不做 v6→v7 迁移。student-input/v1 与 student-workspace-command/v1 原样复用（不新增输入 schema）。
+const v7StudentWorkspaceCommandRecordedPayload = z
+  .object({
+    command_id: studentCommandIdPattern,
+    surface: z.enum(["geometry", "solution_board"]),
+    capability: nonEmptyString,
+    origin: z.literal("student"),
+    target_ids: z.array(nonEmptyString),
+    params: z.record(z.unknown()).optional(),
+    expected_workspace_revision: z.number().int().min(0),
+    client_request_id: clientRequestIdPattern,
+    source: z.enum(["direct", "accepted_action_evidence"]).optional(),
+    evidence_action_id: nonEmptyString.optional(),
+    input_evidence_sequence: z.number().int().min(1).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.source === "accepted_action_evidence" && value.evidence_action_id === undefined) {
+      add("source=accepted_action_evidence requires evidence_action_id");
+    }
+    if (value.source !== "accepted_action_evidence" && value.evidence_action_id !== undefined) {
+      add("only source=accepted_action_evidence may carry evidence_action_id");
+    }
+  });
+
+// v7 session_started：v5 全字段 + 必填 session_mode（teaching|assessment）。
+const v7SessionStartedPayload = v5SessionStartedPayload.extend({
+  session_mode: z.enum(["teaching", "assessment"]),
+});
+
+// v7 student_intent_recorded：v5 收窄——移除 submit_workspace_command 与内嵌 workspace_command。
+const v7StudentIntentRecordedPayload = z
+  .object({
+    intent_kind: z.enum([
+      "submit_answer",
+      "confirm",
+      "continue",
+      "ask_question",
+      "request_scaffold",
+      "request_rephrase",
+      "replay_narration",
+      "barge_in",
+      "return_to_mainline",
+      "retry_recovery",
+    ]),
+    text: nonEmptyString.optional(),
+    client_request_id: clientRequestIdPattern,
+  })
+  .strict();
+
+const v7EventPayloadSchemas = {
+  ...v6EventPayloadSchemas,
+  session_started: v7SessionStartedPayload,
+  student_workspace_command_recorded: v7StudentWorkspaceCommandRecordedPayload,
+  student_intent_recorded: v7StudentIntentRecordedPayload,
+} as const;
+
+export const tutorSessionEventV7Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_session_event/v7"),
+    session_id: sessionId,
+    sequence: z.number().int().min(1),
+    state_revision: z.number().int().min(0),
+    occurred_at: isoDateTime,
+    event_type: z.enum([
+      "session_started",
+      "student_input_recorded",
+      "student_workspace_command_recorded",
+      "student_intent_recorded",
+      "semantic_interpretation_recorded",
+      "policy_decision_made",
+      "gate_evaluated",
+      "presentation_sequence_planned",
+      "presentation_action_validated",
+      "presentation_action_applied",
+      "presentation_action_delivered",
+      "presentation_action_outcome_recorded",
+      "presentation_sequence_superseded",
+      "action_outcome_recorded",
+      "external_support_recorded",
+      "inquiry_opened",
+      "inquiry_returned",
+      "student_progressed",
+      "policy_failed",
+      "runtime_failure",
+      "session_completed",
+    ]),
+    payload: z.record(z.unknown()),
+    causation_sequence: z.number().int().min(1).optional(),
+    idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const payloadSchema = v7EventPayloadSchemas[value.event_type as keyof typeof v7EventPayloadSchemas];
+    if (payloadSchema) {
+      const result = payloadSchema.safeParse(value.payload);
+      if (!result.success) {
+        for (const issue of result.error.issues) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+    } else {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `unknown event_type: ${value.event_type}`,
+      });
+    }
+    if (V6_CAUSATION_REQUIRED.has(value.event_type) && value.causation_sequence === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `event_type=${value.event_type} requires causation_sequence`,
+      });
+    }
+  });
+
 // state/v1/workspace-runtime-state
 export const workspaceRuntimeStateV1Schema = z
   .object({

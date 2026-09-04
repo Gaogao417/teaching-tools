@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 154,
+  "fixture_count": 163,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -1178,6 +1178,78 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:e9a5e4905a8f7b361e20c3ba68084f17725fd9a580defa7f6bdcd27b051313b0"
+    },
+    {
+      "file": "tutor-session-event.v7.negative.intent-without-input-causation.json",
+      "object_schema": "ai_teaching_tutor_session_event/v7",
+      "schema_ref": "../schemas/runtime/v7/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:bfbfde6c15cf1c256933cd0a510063b821d6cafb25c47e9d1540b5f5f23d3c40"
+    },
+    {
+      "file": "tutor-session-event.v7.negative.session-started-without-mode.json",
+      "object_schema": "ai_teaching_tutor_session_event/v7",
+      "schema_ref": "../schemas/runtime/v7/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:dbe0b4b3b34d583f78d4acf4464c48546c551cb31ca97f7693035de4e56fb732"
+    },
+    {
+      "file": "tutor-session-event.v7.negative.student-command-outcome-without-causation.json",
+      "object_schema": "ai_teaching_tutor_session_event/v7",
+      "schema_ref": "../schemas/runtime/v7/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:b20e43748ad69d9fe6ed260b0586f30dfba8c264a34af63c3ee5ee40a8061e26"
+    },
+    {
+      "file": "tutor-session-event.v7.negative.submit-workspace-command-intent.json",
+      "object_schema": "ai_teaching_tutor_session_event/v7",
+      "schema_ref": "../schemas/runtime/v7/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:004a420d3a5b9babf3af2c8024c76578e583a26cada9468cfb586c373db4ccdf"
+    },
+    {
+      "file": "tutor-session-event.v7.positive.session-started-with-mode.json",
+      "object_schema": "ai_teaching_tutor_session_event/v7",
+      "schema_ref": "../schemas/runtime/v7/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:20dfc34a64ac1f39e113a8a626320891d0d0c8673a459761b24f177c7a28c885"
+    },
+    {
+      "file": "tutor-session-event.v7.positive.student-command-outcome-with-causation.json",
+      "object_schema": "ai_teaching_tutor_session_event/v7",
+      "schema_ref": "../schemas/runtime/v7/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:8eca93b1a935f3655f81b79359b417da13fb3d2841907de2d50869eb3f9af843"
+    },
+    {
+      "file": "tutor-session-event.v7.positive.student-input-recorded.json",
+      "object_schema": "ai_teaching_tutor_session_event/v7",
+      "schema_ref": "../schemas/runtime/v7/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:b4a70cb6b893c7c2c2a2c350073a612962de36e6a2d5c9934072aef8a39b3d42"
+    },
+    {
+      "file": "tutor-session-event.v7.positive.workspace-command-recorded.direct.json",
+      "object_schema": "ai_teaching_tutor_session_event/v7",
+      "schema_ref": "../schemas/runtime/v7/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:45491f06bb31d51fdc6d922b6c090052a352fc59ed92b8328f7fc5a2a53654f5"
+    },
+    {
+      "file": "tutor-session-event.v7.positive.workspace-command-recorded.from-evidence.json",
+      "object_schema": "ai_teaching_tutor_session_event/v7",
+      "schema_ref": "../schemas/runtime/v7/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:68940c465bc917649bb9e93c020cb45eefc438774960b77696ec57e5dcb805eb"
     },
     {
       "file": "voice-action.negative.approved-without-resource.json",

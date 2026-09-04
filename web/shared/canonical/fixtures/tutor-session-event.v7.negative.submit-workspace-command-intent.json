@@ -1,0 +1,14 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v7",
+  "session_id": "TS-4242",
+  "sequence": 22,
+  "state_revision": 12,
+  "occurred_at": "2026-09-04T10:10:01Z",
+  "event_type": "student_intent_recorded",
+  "causation_sequence": 21,
+  "idempotency_key": "idem-20260904-0022",
+  "payload": {
+    "intent_kind": "submit_workspace_command",
+    "client_request_id": "cri-20260904-0021"
+  }
+}

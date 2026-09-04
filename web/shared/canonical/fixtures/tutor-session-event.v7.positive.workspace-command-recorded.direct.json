@@ -1,0 +1,26 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v7",
+  "session_id": "TS-4242",
+  "sequence": 21,
+  "state_revision": 12,
+  "occurred_at": "2026-09-04T10:10:00Z",
+  "event_type": "student_workspace_command_recorded",
+  "idempotency_key": "idem-20260904-0021",
+  "payload": {
+    "command_id": "SC-step4-0001",
+    "surface": "geometry",
+    "capability": "similarity.mark-known-segments",
+    "origin": "student",
+    "target_ids": [
+      "seg-AB"
+    ],
+    "expected_workspace_revision": 4,
+    "client_request_id": "cri-20260904-0021",
+    "source": "direct",
+    "params": {
+      "values": {
+        "seg-AB": "16/5"
+      }
+    }
+  }
+}

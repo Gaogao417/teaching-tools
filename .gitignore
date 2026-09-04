@@ -15,3 +15,5 @@ web/backend/.tutor-*.test.sqlite
 web/backend/.workspace-*.test.sqlite
 # Playwright tutor e2e run outputs (curated evidence lives in PRDS mvp/reports/).
 web/frontend/e2e/tutor/results-*/
+# F7 Step 4 v7 kernel tests write a throwaway sqlite next to the suite.
+web/backend/.f7-*.test.sqlite

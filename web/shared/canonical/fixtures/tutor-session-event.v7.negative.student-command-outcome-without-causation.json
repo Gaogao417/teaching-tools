@@ -1,0 +1,15 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v7",
+  "session_id": "TS-4242",
+  "sequence": 22,
+  "state_revision": 13,
+  "occurred_at": "2026-09-04T10:10:01Z",
+  "event_type": "action_outcome_recorded",
+  "idempotency_key": "idem-20260904-0022",
+  "payload": {
+    "action_id": "SC-step4-0001",
+    "action_kind": "student_command",
+    "outcome": "completed",
+    "resulting_revision": 5
+  }
+}
