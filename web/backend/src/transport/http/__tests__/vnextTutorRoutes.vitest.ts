@@ -17,8 +17,39 @@ import { realCanonicalRoot } from "../../../services/tutorNavigator/__tests__/na
 import { createVNextTutorRoutes } from "../vnextTutorRoutes";
 import { vNextGateModel } from "../../../services/tutorOrchestration/VNextGateModelFactory";
 import { TutorSessionOrchestratorV6 } from "../../../services/tutorOrchestration/TutorSessionOrchestratorV6";
+import { actionSubmissionHttpV1Schema, parseSessionSnapshotHttp } from "../../../../../shared/tutorHttpProfile";
+import { composeRenderGeometryV7 } from "../../../services/tutorOrchestration/V7HttpSnapshotProjector";
+
+/** 事件行数 oracle（安全负例/observe-only 的零事实判定）。 */
+function eventCount(sessionId: string): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM tutor_session_events WHERE session_id = ?").get(sessionId) as { n: number }).n;
+}
+
+/** 真值泄漏扫描：递归键黑名单 + 已知答案字符串缺席（start 快照面）。 */
+function assertNoTruthLeak(payload: unknown): void {
+  const forbiddenKeys = new Set(["answer", "canonical_answer", "solution", "truth", "answer_key"]);
+  const forbiddenValues = ["\\frac{16}{5}", "\\frac{32}{15}", "2\\sqrt{3}"];
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+    if (node && typeof node === "object") {
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        if (forbiddenKeys.has(key.toLowerCase())) throw new Error(`truth-leak key: ${key}`);
+        visit(value);
+      }
+      return;
+    }
+    if (typeof node === "string") {
+      for (const value of forbiddenValues) {
+        if (node.includes(value)) throw new Error(`truth-leak value: ${value}`);
+      }
+    }
+  };
+  visit(payload);
+}
 
 let baseUrl = "";
+/** 旅程→resume 两用例间的共享会话（模块级显式依赖，非 env 全局）。 */
+let sharedJourneySessionId: string | undefined;
 let server: import("node:http").Server | undefined;
 
 beforeAll(() => {
@@ -69,9 +100,26 @@ interface Snapshot {
   turn?: { status: string; failure?: { failure_class: string } };
 }
 
+/** mutation 成功响应（同型 SessionSnapshot）以共享 schema + 一致性门禁独立验收。 */
+function expectSnapshotBody(body: unknown): void {
+  const parsed = parseSessionSnapshotHttp(body);
+  expect(parsed.ok).toBe(true);
+}
+
+/** action-evidence 成功响应 = 同型 Snapshot + action_submission（两者分别过共享 schema）。 */
+function expectActionEvidenceResponse(body: unknown): void {
+  const { action_submission, ...snapshot } = body as Record<string, unknown>;
+  const parsed = parseSessionSnapshotHttp(snapshot);
+  expect(parsed.ok).toBe(true);
+  expect(actionSubmissionHttpV1Schema.safeParse(action_submission).success).toBe(true);
+}
+
 async function getSnapshot(sessionId: string): Promise<Snapshot> {
   const response = await call("GET", `/api/vnext/tutor-sessions/${sessionId}`);
   expect(response.status).toBe(200);
+  // 响应以共享 schema + 一致性门禁独立验收（不信任手写类型断言）。
+  const parsed = parseSessionSnapshotHttp(response.body);
+  expect(parsed.ok).toBe(true);
   return response.body as Snapshot;
 }
 
@@ -151,7 +199,7 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
     // 开场即 BT-01 序列队首 pending（呈现先于学生输入）。
     expect(snapshot.pending_presentation?.sequence_id).toMatch(/^PS-/);
     expect(snapshot.active_action).toBeUndefined();
-    expect(JSON.stringify(snapshot)).not.toContain("ANSWER");
+    assertNoTruthLeak(snapshot);
     // 同键同 payload → 200 existing（同一 session）。
     const replay = await call("POST", "/api/vnext/tutor-sessions", {
       student_id: "route-v7-student", task_id: "goldenMinhangFold2020", client_request_id: "rv7-start-1",
@@ -166,11 +214,11 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
     expect(drift.status).toBe(409);
     expect(drift.body.error.code).toBe("REQUEST_PAYLOAD_DRIFT");
     expect((db.prepare("SELECT COUNT(*) AS n FROM tutor_sessions").get() as { n: number }).n).toBe(sessionsBefore);
-    process.env.__VNEXT_V7_SESSION__ = snapshot.session_id;
+    sharedJourneySessionId = snapshot.session_id;
   });
 
   it("golden 旅程：presented 逐项推进 → confirm/utterance → BT-04 evidence 错值拒/对值 committed → completed", async () => {
-    const sessionId = process.env.__VNEXT_V7_SESSION__!;
+    const sessionId = sharedJourneySessionId!;
     // BT-01 呈现完 → confirm_input；control.confirm 过 GT-01 → BT-02 answer_input。
     const atAnswer = await advanceUntil(sessionId, (current) => current.views.participation.kind === "answer_input", [
       { input: { kind: "control", command: "confirm" }, client_request_id: "rv7-confirm-1" },
@@ -199,6 +247,7 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
     const bt04Action = atBt04.active_action!;
     // 安全①：错误数值 → evidence-rejected（wrong + diagnosis）零事件（revision 不变）。
     const revisionBefore = atBt04.revision;
+    const eventsBeforeWrong = eventCount(sessionId);
     const wrong = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/action-evidence`, {
       evidence: {
         actionId: bt04Action.action_id, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1,
@@ -211,6 +260,7 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
     expect(wrong.body.action_submission.evaluation.evaluation).toBe("wrong");
     expect(wrong.body.action_submission.evaluation.diagnosis.wrongObjectIds).toHaveLength(4);
     expect(wrong.body.revision).toBe(revisionBefore);
+    expect(eventCount(sessionId)).toBe(eventsBeforeWrong);
     // 正确四值 → workspace-committed（verified-correct 过 GT-04）→ BT-05。
     const right = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/action-evidence`, {
       evidence: {
@@ -219,6 +269,7 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
       },
       expected_revision: revisionBefore, client_request_id: "rv7-cc-right",
     });
+    expectActionEvidenceResponse(right.body);
     expect(right.body.action_submission.status).toBe("workspace-committed");
     expect(right.body.action_submission.evaluation.evaluation).toBe("correct");
     // BT-05 序列呈现完成后才开放作答（presenting → awaiting_evidence）。
@@ -244,13 +295,17 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
     expect(done.active_action).toBeUndefined();
   });
 
-  it("GET resume 与提交后投影一致（refresh 从服务端 verified rebuild；同 session/revision/题面）", async () => {
-    const sessionId = process.env.__VNEXT_V7_SESSION__!;
+  it("GET resume 零副作用（verified rebuild：事件行数不变 + 完整快照逐字段一致）", async () => {
+    const sessionId = sharedJourneySessionId!;
+    const before = await getSnapshot(sessionId);
+    const eventsBefore = eventCount(sessionId);
     const restored = await getSnapshot(sessionId);
     expect(restored.completed).toBe(true);
     expect(restored.views.status.session_revision).toBe(restored.revision);
     expect(restored.question.stem).toContain("翻折");
     expect(restored.pending_presentation).toBeUndefined();
+    expect(eventCount(sessionId)).toBe(eventsBefore);
+    expect(restored).toEqual(before);
   });
 
   it("安全失败：stale expected_revision → 显式 turn.revision-conflict（HTTP 200），服务端真 revision 重试可恢复", async () => {
@@ -396,7 +451,7 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
     expect(v6ViaV7.body.error.code).toBe("SESSION_VERSION_UNSUPPORTED");
   });
 
-  it("ASR：observe-only（415/413/注入 transcriber 422；响应携带 observed_revision）", async () => {
+  it("ASR：observe-only（415/413/422 + 前后 revision 与事件行数均不变；响应携带 observed_revision）", async () => {
     const started = await call("POST", "/api/vnext/tutor-sessions", {
       student_id: "route-v7-student-6", task_id: "goldenMinhangFold2020", client_request_id: "rv7-start-asr",
     });
@@ -410,6 +465,8 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
     });
     expect(tooLarge.status).toBe(413);
     // 注入 transcriber：空 transcript → 422；非空 → transcript + observed_revision。
+    const revisionBeforeAsr = (await getSnapshot(sessionId)).revision;
+    const eventsBeforeAsr = eventCount(sessionId);
     const app = express();
     app.use(express.json({ limit: "10mb" }));
     app.use("/api/vnext", createVNextTutorRoutes({
@@ -434,13 +491,162 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
           expect(ok.status).toBe(200);
           const body = (await ok.json()) as { session_id: string; observed_revision: number; transcript: string; model: string };
           expect(body.session_id).toBe(sessionId);
-          expect(body.observed_revision).toBe((await getSnapshot(sessionId)).revision);
+          expect(body.observed_revision).toBe(revisionBeforeAsr);
           expect(body.transcript).toContain("16");
+          // observe-only：两次 ASR（422 + 200）后 revision 与事件行数都不变。
+          expect((await getSnapshot(sessionId)).revision).toBe(revisionBeforeAsr);
+          expect(eventCount(sessionId)).toBe(eventsBeforeAsr);
           await new Promise<void>((done) => stubServer.close(() => done()));
           resolve();
         })();
       });
     });
+  });
+
+  it("P0 workspace-commands 正向安全链（teaching）：错误命令 completed 但 Gate 不满足；幂等零事件；漂移 409；正确命令过门；causation 对账", async () => {
+    const started = await call("POST", "/api/vnext/tutor-sessions", {
+      student_id: "route-v7-wc", task_id: "goldenMinhangFold2020", client_request_id: "rv7-start-wc",
+    });
+    const sessionId = started.body.session_id;
+    // 走到 BT-04 workspace_input（与 golden 旅程同型）。
+    await advanceUntil(sessionId, (current) => current.views.participation.kind === "answer_input", [
+      { input: { kind: "control", command: "confirm" }, client_request_id: "rv7-wc-c1" },
+    ]);
+    for (const step of [2, 3]) {
+      const current = await getSnapshot(sessionId);
+      const answered = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/student-inputs`, {
+        input: { kind: "utterance", channel: "mainline", text: "子母型相似，对应边成比例" },
+        client_request_id: `rv7-wc-a${step}`, expected_revision: current.revision,
+      });
+      expect(answered.status).toBe(200);
+      await presentAll(sessionId);
+    }
+    const atBt04 = await advanceUntil(
+      sessionId,
+      (current) => current.views.participation.kind === "workspace_input" && current.active_action !== undefined,
+      [],
+    );
+    const targets = atBt04.active_action!.target_ids;
+    const commandOf = (suffix: string, values: Record<string, string>) => {
+      const current = atBt04;
+      return {
+        schema: "ai_teaching_student_workspace_command/v1",
+        session_id: sessionId,
+        command_id: `SC-rv7-wc-${suffix}`,
+        surface: "geometry",
+        capability: "similarity.mark-known-segments",
+        origin: "student",
+        target_ids: targets,
+        expected_workspace_revision: current.render.workspace_revision,
+        client_command_id: `rv7-wc-cc-${suffix}`,
+        params: { values },
+      };
+    };
+    // 值键 = 线段短名（evidenceToWorkspaceCommand 同口径：seg-AO → AO）。
+    const wrongValues = Object.fromEntries(targets.map((id) => [id.replace(/^seg-/, ""), "1"]));
+
+    // ① 错误命令：F3 completed（合法命令）+ evaluator verified-wrong → Gate 不满足（仍 workspace_input）。
+    const eventsBefore = eventCount(sessionId);
+    const wrongCommand = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/workspace-commands`, {
+      command: commandOf("wrong", wrongValues), expected_revision: atBt04.revision,
+    });
+expect(wrongCommand.status).toBe(200);
+    expectSnapshotBody(wrongCommand.body);
+    expect((wrongCommand.body as Snapshot).views.participation.kind).toBe("workspace_input");
+    expect(eventCount(sessionId)).toBeGreaterThanOrEqual(eventsBefore + 4); // 命令事实 + 回执 + gate + decision（+ 重锚定呈现）
+    // causation 对账：回执事件 causation_sequence == 命令事实事件 sequence。
+    const rows = db.prepare(
+      "SELECT sequence, event_type, causation_sequence, payload_json FROM tutor_session_events WHERE session_id = ? AND sequence > ? ORDER BY sequence",
+    ).all(sessionId, eventsBefore) as Array<{ sequence: number; event_type: string; causation_sequence: number | null; payload_json: string }>;
+    const factRow = rows.find((row) => row.event_type === "student_workspace_command_recorded");
+    const receiptRow = rows.find((row) => row.event_type === "action_outcome_recorded");
+    expect(factRow).toBeDefined();
+    expect(receiptRow).toBeDefined();
+    expect(receiptRow!.causation_sequence).toBe(factRow!.sequence);
+    expect((JSON.parse(factRow!.payload_json) as { source?: string }).source).toBe("direct");
+    expect((JSON.parse(receiptRow!.payload_json) as { outcome?: string }).outcome).toBe("completed");
+
+    // ② 幂等重放：同 client_command_id 同 payload → 零新事件、零推进。
+    const eventsBeforeReplay = eventCount(sessionId);
+    const replay = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/workspace-commands`, {
+      command: commandOf("wrong", wrongValues), expected_revision: (await getSnapshot(sessionId)).revision,
+    });
+    expect(replay.status).toBe(200);
+    expect(eventCount(sessionId)).toBe(eventsBeforeReplay);
+
+    // ③ 载荷漂移：同 client_command_id 异 payload → 409 WORKSPACE_COMMAND_PAYLOAD_DRIFT（零事件）。
+    const drift = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/workspace-commands`, {
+      command: { ...commandOf("wrong", wrongValues), command_id: "SC-rv7-wc-drift", params: { values: { ...wrongValues, [targets[0]]: "999" } } },
+      expected_revision: (await getSnapshot(sessionId)).revision,
+    });
+    expect(drift.status).toBe(409);
+    expect(drift.body.error.code).toBe("WORKSPACE_COMMAND_PAYLOAD_DRIFT");
+    expect(eventCount(sessionId)).toBe(eventsBeforeReplay);
+
+    // ④ 错误命令后的重锚定呈现可正常走完（错误不毒化会话）。
+    const presentedAfterWrong = await presentAll(sessionId);
+    expect(presentedAfterWrong).toBeGreaterThan(0);
+  });
+
+  it("P0 workspace-commands 正确命令（teaching，全新会话）：verified-correct 过 GT-04 → BT-05", async () => {
+    const started = await call("POST", "/api/vnext/tutor-sessions", {
+      student_id: "route-v7-wc2", task_id: "goldenMinhangFold2020", client_request_id: "rv7-start-wc2",
+    });
+    const sessionId = started.body.session_id;
+    await advanceUntil(sessionId, (current) => current.views.participation.kind === "answer_input", [
+      { input: { kind: "control", command: "confirm" }, client_request_id: "rv7-wc2-c1" },
+    ]);
+    for (const step of [2, 3]) {
+      const current = await getSnapshot(sessionId);
+      const answered = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/student-inputs`, {
+        input: { kind: "utterance", channel: "mainline", text: "子母型相似，对应边成比例" },
+        client_request_id: `rv7-wc2-a${step}`, expected_revision: current.revision,
+      });
+      expect(answered.status).toBe(200);
+      await presentAll(sessionId);
+    }
+    const atBt04 = await advanceUntil(
+      sessionId,
+      (current) => current.views.participation.kind === "workspace_input" && current.active_action !== undefined,
+      [],
+    );
+    const targets = atBt04.active_action!.target_ids;
+    const rightValues: Record<string, string> = { AO: "\\frac{16}{5}", DO: "\\frac{32}{15}", BO: "\\frac{6}{5}", OE: "\\frac{4}{5}" };
+    // 直接命令正确值：与 evidence 派生命令同一 pinned evaluator/Gate 链 → verified-correct。
+    const rightCommand = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/workspace-commands`, {
+      command: {
+        schema: "ai_teaching_student_workspace_command/v1",
+        session_id: sessionId,
+        command_id: "SC-rv7-wc2-right",
+        surface: "geometry",
+        capability: "similarity.mark-known-segments",
+        origin: "student",
+        target_ids: targets,
+        expected_workspace_revision: atBt04.render.workspace_revision,
+        client_command_id: "rv7-wc2-cc-right",
+        params: { values: rightValues },
+      },
+      expected_revision: atBt04.revision,
+    });
+    expect(rightCommand.status).toBe(200);
+    expectSnapshotBody(rightCommand.body);
+    expect((rightCommand.body as Snapshot).turn?.status).toBe("committed");
+    const atBt05 = await advanceUntil(sessionId, (current) => current.views.participation.kind === "answer_input", []);
+    expect(atBt05.views.participation.gate_id).toBe("GT-05");
+  });
+
+  it("P0 render fail-closed：合成失败抛 V7RenderProjectionError，不回退题图（composeRenderGeometryV7 单元负例）", () => {
+    // committed tutor 命令引用 base 题图不存在的线段 → applyDomainCommands 抛
+    // missing-reference → fail closed（服务端 revision 已前进时绝不下发旧题图）。
+    const base = { points: [{ id: "pt-A", x: 0, y: 0, label: "A" }], segments: [{ id: "seg-AB", from: "pt-A", to: "pt-A" }] };
+    const goodFold = { state: { revision: 0 }, context: { tutorCommands: [] } } as never;
+    expect(composeRenderGeometryV7(goodFold, base)).toEqual(base);
+    const badCommand = {
+      commandId: "DC-bad-1", actionId: "WSA-bad-1", type: "set-segment-label",
+      segmentId: "seg-NOT-IN-BASE", markId: "mk-1", valueLatex: "x", labelKind: "length",
+    };
+    const badFold = { state: { revision: 1 }, context: { tutorCommands: [badCommand] } } as never;
+    expect(() => composeRenderGeometryV7(badFold, base)).toThrowError(/fail closed, no snapshot/);
   });
 
   it("F7 Step 2 task 绑定：restore 题面按 session pin 解析（allowlist 重排不改变内容）", async () => {

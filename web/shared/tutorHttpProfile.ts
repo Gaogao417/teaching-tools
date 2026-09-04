@@ -56,6 +56,8 @@ const statusViewSchema = z
         // 失败事实的流内溯源（F6 status 投影携带；只读引用）。
         event_type: z.string().optional(),
         sequence: z.number().int().min(1).optional(),
+        gate_id: z.string().optional(),
+        beat_id: z.string().optional(),
       })
       .strict()
       .optional(),
@@ -356,17 +358,20 @@ export function validateSessionSnapshotConsistency(snapshot: SessionSnapshotHttp
   if (snapshot.completed !== snapshot.views.status.completed) {
     add("completed-consistency", `envelope completed ${snapshot.completed} ≠ status completed ${snapshot.views.status.completed}`);
   }
-  // #8 participation.kind=workspace_input ⇒ 必须有 active_action；其他 participation 不得挂载。
-  if (participationKind === "workspace_input" && snapshot.active_action === undefined) {
+  // #8 participation.kind=workspace_input ⇒ 必须有 active_action（无 pending 呈现时
+  // ——参与类型是相位派生视图，重锚定呈现期间可能滞后；「输入已开放」的权威
+  // 信号是 active_action 挂载）；其他 participation 不得挂载。
+  if (participationKind === "workspace_input" && snapshot.pending_presentation === undefined && snapshot.active_action === undefined) {
     add("active-action-mount", "participation.kind=workspace_input requires active_action");
   }
   if (participationKind !== "workspace_input" && snapshot.active_action !== undefined) {
     add("active-action-mount", `participation.kind=${participationKind} must not mount an operable active_action`);
   }
-  // #11/#12 pending tutor presentation 与学生 workspace_input 互斥（默认串行——
-  // Voice/动画未完成时不得开放学生输入；呈现中的快照不得挂 active_action）。
-  if (snapshot.pending_presentation !== undefined && participationKind === "workspace_input") {
-    add("serial-presentation", "snapshot carries both a pending tutor presentation and a student workspace_input participation (default serial contract)");
+  // #11/#12 默认串行的执行点 = 挂载门禁：pending 呈现期间不得挂 active_action
+  //（spec §1.3 #12 允许 pending 与学生参与类型共存——Voice/动画未完成时输入
+  // 不开放由 mount 门禁保证，而非禁止参与类型字段）。
+  if (snapshot.pending_presentation !== undefined && snapshot.active_action !== undefined) {
+    add("serial-presentation", "snapshot carries both a pending tutor presentation and a mounted active_action (default serial contract)");
   }
   return issues;
 }

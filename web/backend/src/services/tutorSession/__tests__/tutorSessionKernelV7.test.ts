@@ -110,6 +110,17 @@ async function main(): Promise<void> {
     assert.equal((readEvents(sessionId)[0].payload as { session_mode?: string }).session_mode, "assessment");
   });
 
+  await run("reader 分派：v5 行 → SESSION_VERSION_UNSUPPORTED（读侧；v5 继续旧 API 到 F8）", () => {
+    const sessionId = "TS-70010109";
+    db.prepare(
+      "INSERT INTO tutor_sessions (session_id, student_id, plan_artifact_id, plan_version, plan_content_hash, started_at, event_schema) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(sessionId, "s", "TP-X", "v1", "sha256:aaaa", at(), "v5");
+    assert.throws(
+      () => TutorSessionKernelV7.resume(sessionId, registryProvider()),
+      (error: unknown) => error instanceof TutorSessionIntegrityV7Error && error.code === "SESSION_VERSION_UNSUPPORTED",
+    );
+  });
+
   await run("reader 分派：v6 行 → SESSION_VERSION_UNSUPPORTED（store 边界）", () => {
     const sessionId = "TS-70010103";
     db.prepare(

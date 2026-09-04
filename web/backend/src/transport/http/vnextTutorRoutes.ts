@@ -44,9 +44,15 @@ import {
 import { projectHttpSnapshotV1, V7RenderProjectionError } from "../../services/tutorOrchestration/V7HttpSnapshotProjector";
 import { transcribeForTutor, SpeechProviderError } from "../../services/tutorSession/asrService";
 import {
+  actionEvidenceRequestHttpV1Schema,
   actionSubmissionHttpV1Schema,
   asrRequestHttpV1Schema,
+  presentationOutcomeRequestHttpV1Schema,
+  sessionSnapshotHttpV1Schema,
+  startRequestHttpV1Schema,
+  studentInputRequestHttpV1Schema,
   TUTOR_RUNTIME_HTTP_PROFILE,
+  workspaceCommandRequestHttpV1Schema,
 } from "../../../../shared/tutorHttpProfile";
 
 const sessionIdParam = z.string().regex(/^TS-[0-9]{4,}$/);
@@ -170,12 +176,13 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
 
   router.post("/tutor-sessions", (req, res) => {
     try {
+      const body = startRequestHttpV1Schema.parse(req.body);
       const application = createApplication();
       const outcome = application.start({
-        task_id: z.string().min(1).max(64).parse(req.body?.task_id),
-        student_id: z.string().trim().min(1).max(64).parse(req.body?.student_id),
-        assessment: z.boolean().optional().parse(req.body?.assessment),
-        client_request_id: z.string().regex(/^[A-Za-z0-9._:-]{4,128}$/).parse(req.body?.client_request_id),
+        task_id: body.task_id,
+        student_id: body.student_id,
+        ...(body.assessment !== undefined ? { assessment: body.assessment } : {}),
+        client_request_id: body.client_request_id,
       });
       if (outcome.kind === "payload-drift") {
         res.status(409).json({
@@ -206,37 +213,11 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
   router.post("/tutor-sessions/:sessionId/student-inputs", async (req, res) => {
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
-      const body = z
-        .object({
-          input: z.object({ kind: z.enum(["utterance", "control"]) }).passthrough(),
-          client_request_id: z.string().regex(/^[A-Za-z0-9._:-]{4,128}$/),
-          expected_revision: z.number().int().min(0),
-        })
-        .parse(req.body);
+      const body = studentInputRequestHttpV1Schema.parse(req.body);
       const application = createApplication();
       const orchestrator = application.restore(sessionId);
-      // 只透传 canonical input 联合的已知字段（HTTP 面白名单——夹带未知字段 400）。
-      const input = z
-        .object({
-          kind: z.enum(["utterance", "control"]),
-          channel: z.enum(["mainline", "assistance"]).optional(),
-          text: z.string().min(1).optional(),
-          command: z
-            .enum(["confirm", "continue", "request_scaffold", "request_rephrase", "barge_in", "return_to_mainline", "retry_recovery"])
-            .optional(),
-        })
-        .strict()
-        .superRefine((value, ctx) => {
-          if (value.kind === "utterance" && (value.channel === undefined || value.text === undefined)) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "kind=utterance requires channel and text" });
-          }
-          if (value.kind === "control" && value.command === undefined) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "kind=control requires command" });
-          }
-        })
-        .parse(body.input);
       const result = await application.submitStudentInput(orchestrator, {
-        input,
+        input: body.input,
         client_request_id: body.client_request_id,
       }, { expectedRevision: body.expected_revision });
       res.json(projectHttpSnapshotV1({ orchestrator, turn: result.turn, turnSource: "input" }));
@@ -248,28 +229,14 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
   router.post("/tutor-sessions/:sessionId/action-evidence", (req, res) => {
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
-      const body = z
-        .object({
-          evidence: z
-            .object({
-              actionId: z.string().min(1),
-              sourceStepId: z.string().min(1),
-              kind: z.string().min(1),
-              version: z.literal(1),
-              values: z.record(z.string(), z.string()),
-            })
-            .strict(),
-          expected_revision: z.number().int().min(0),
-          client_request_id: z.string().regex(/^[A-Za-z0-9._:-]{4,128}$/),
-        })
-        .parse(req.body);
+      const body = actionEvidenceRequestHttpV1Schema.parse(req.body);
       const application = createApplication();
       const orchestrator = application.restore(sessionId);
       const submission = application.submitActionEvidence(orchestrator, body.evidence, {
         expectedRevision: body.expected_revision,
         client_request_id: body.client_request_id,
       });
-      const snapshot = projectHttpSnapshotV1({ orchestrator, turn: submission.turn, turnSource: "command" });
+      const snapshot = sessionSnapshotHttpV1Schema.parse(projectHttpSnapshotV1({ orchestrator, turn: submission.turn, turnSource: "command" }));
       const actionSubmission = actionSubmissionHttpV1Schema.parse(
         "evaluation" in submission
           ? { revision: submission.revision, status: submission.status, evaluation: submission.evaluation }
@@ -284,34 +251,19 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
   router.post("/tutor-sessions/:sessionId/workspace-commands", (req, res) => {
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
-      const body = z
-        .object({
-          command: z.object({ session_id: z.literal(sessionId) }).passthrough(),
-          expected_revision: z.number().int().min(0),
-        })
-        .parse(req.body);
-      const command = z
-        .object({
-          schema: z.literal("ai_teaching_student_workspace_command/v1"),
-          session_id: z.string().regex(/^TS-[0-9]{4,}$/),
-          command_id: z.string().regex(/^SC-[A-Za-z0-9._:-]{4,}$/),
-          surface: z.enum(["geometry", "solution_board"]),
-          capability: z.string().min(1).max(128),
-          origin: z.literal("student"),
-          target_ids: z.array(z.string().min(1).max(64)).min(1).max(32),
-          expected_workspace_revision: z.number().int().min(0),
-          client_command_id: z.string().regex(/^[A-Za-z0-9._:-]{4,128}$/),
-          params: z.record(z.string(), z.unknown()).optional(),
-        })
-        .strict()
-        .parse(body.command);
+      // 共享 request schema（canonical student-workspace-command/v1 全形状——
+      // 含 input_evidence_sequence；session_id 与路径参数的对账在 parse 后强制）。
+      const body = workspaceCommandRequestHttpV1Schema.parse(req.body);
+      if (body.command.session_id !== sessionId) {
+        res.status(400).json({ error: { code: "BAD_REQUEST", message: `command.session_id ${body.command.session_id} does not match the path session ${sessionId}` } });
+        return;
+      }
+      const command = body.command;
       const application = createApplication();
       const orchestrator = application.restore(sessionId);
-      const result = application.submitWorkspaceCommand(
-        orchestrator,
-        { ...command, session_id: sessionId },
-        { expectedRevision: body.expected_revision },
-      );
+      const result = application.submitWorkspaceCommand(orchestrator, command, {
+        expectedRevision: body.expected_revision,
+      });
       res.json(projectHttpSnapshotV1({ orchestrator, turn: result.turn, turnSource: "command" }));
     } catch (error) {
       toHttpError(error, res);
@@ -322,17 +274,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const actionId = actionIdParam.parse(req.params.actionId);
-      const body = z
-        .object({
-          sequence_id: z.string().regex(/^PS-[0-9]{4,}$/),
-          ordinal: z.number().int().min(0),
-          outcome: z.enum(["presented", "interrupted", "failed"]),
-          failure_class: z.string().min(1).optional(),
-          message: z.string().optional(),
-          client_request_id: z.string().regex(/^[A-Za-z0-9._:-]{4,128}$/),
-          expected_revision: z.number().int().min(0),
-        })
-        .parse(req.body);
+      const body = presentationOutcomeRequestHttpV1Schema.parse(req.body);
       const application = createApplication();
       const orchestrator = application.restore(sessionId);
       application.reportPresentationOutcome(orchestrator, {
