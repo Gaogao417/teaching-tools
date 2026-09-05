@@ -565,7 +565,14 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       client: runtimeClient,
       narration,
       media,
-      adoptOutcomeSnapshot: (snapshot, expectedSessionId) => adoptRuntimeSnapshot(snapshot, expectedSessionId),
+      adoptOutcomeSnapshot: (snapshot, expectedSessionId) => {
+        // 跨会话迟到响应兜底（二次复验 P1-5）：outcome 响应属于请求发起时的
+        // 会话；当前已采用其他会话（restore/重开）时整份拒绝——controller 的
+        // epoch 守卫之外的第二道门。
+        const current = runtimeSnapshotRef.current;
+        if (current !== undefined && snapshot.session_id !== current.session_id) return false;
+        return adoptRuntimeSnapshot(snapshot, expectedSessionId);
+      },
       onProtocolAnomaly: (message) => { setProtocolError(message); },
       onNotice: (message) => { setRuntimeFailureNotice(message); },
       onStateChanged: (state) => { setPresentationPhase(state); },

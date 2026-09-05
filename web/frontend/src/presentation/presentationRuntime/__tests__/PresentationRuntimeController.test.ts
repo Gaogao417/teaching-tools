@@ -426,6 +426,61 @@ describe("PresentationRuntimeController（queue head / 去重 / outcome 幂等�
     controller.dispose();
   });
 
+  it("REVIEW2 回归：旧 HTTP 占用期间完成的新动作，outcome 在旧请求结束后补发（两次请求，不自动重试网络失败）", async () => {
+    const voice = fakeAdapter((action) => action.kind === "voice");
+    const geometry = fakeAdapter((action) => action.kind === "workspace" && action.workspace_action?.capability === "geometry.construct");
+    const harness = fakePorts();
+    let releaseFirst: (snapshot: ValidatedSessionSnapshot) => void = () => undefined;
+    harness.ports.reportOutcome = (request) => {
+      harness.requests.push(request);
+      return new Promise((resolve) => { releaseFirst = resolve; });
+    };
+    const controller = makeController([voice, geometry], harness);
+    controller.adopt(snapshotWithVoicePending());
+    voice.resolvePresent(0, { outcome: "presented" }); // A 上报 → HTTP 在途
+    await vi.waitFor(() => expect(harness.requests).toHaveLength(1));
+    // 服务端换键交付 B；B 先完成，其上报被在途请求挡下（不发、不丢）。
+    controller.adopt(snapshotWithGeometryPending());
+    geometry.resolvePresent(0, { outcome: "presented" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.requests).toHaveLength(1);
+    // A 返回 → 补发 B 的当前 token。
+    releaseFirst(validFromRaw(runtimeSnapshotRaw({ revision: 99 })));
+    await vi.waitFor(() => expect(harness.requests).toHaveLength(2));
+    expect(harness.requests[1]).toMatchObject({ actionId: "WSA-bt03-construct-0", outcome: "presented" });
+    controller.dispose();
+  });
+
+  it("REVIEW2 回归：切到无 pending 的新会话后，旧会话 outcome 响应被 epoch 守卫拒绝（不进采用入口）", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    let releaseResponse: (snapshot: ValidatedSessionSnapshot) => void = () => undefined;
+    harness.ports.reportOutcome = (request) => {
+      harness.requests.push(request);
+      return new Promise((resolve) => { releaseResponse = resolve; });
+    };
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending()); // 会话 TS-99000801
+    voice.resolvePresent(0, { outcome: "presented" });
+    await vi.waitFor(() => expect(harness.requests).toHaveLength(1));
+    // restore 到新会话（无 pending）——会话作用域按每份 snapshot 更新。
+    const sessionBRaw = JSON.parse(JSON.stringify(runtimeSnapshotRaw({ revision: 5 }))) as {
+      session_id: string;
+      views: { student_workspace_view: { session_id: string }; coach_panel_view: { session_id: string }; status: { session_id: string } };
+    };
+    for (const target of [sessionBRaw, sessionBRaw.views.student_workspace_view, sessionBRaw.views.coach_panel_view, sessionBRaw.views.status]) {
+      target.session_id = "TS-99000802";
+    }
+    controller.adopt(validFromRaw(sessionBRaw));
+    expect(harness.states[harness.states.length - 1]).toBe("idle");
+    // 旧会话响应到达——不得进入采用入口，也不产生提示。
+    releaseResponse(validFromRaw(runtimeSnapshotRaw({ revision: 99 })));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.adoptResults).toHaveLength(0);
+    expect(harness.notices).toHaveLength(0);
+    controller.dispose();
+  });
+
   it("dispose：abort 执行中 adapter，迟到结果不上报", async () => {
     const voice = fakeAdapter();
     const harness = fakePorts();

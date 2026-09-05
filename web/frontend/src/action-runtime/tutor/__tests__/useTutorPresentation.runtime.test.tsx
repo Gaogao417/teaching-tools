@@ -86,6 +86,7 @@ const {
   RUNTIME_TASK_ID,
   pendingGeometryPresentation,
   runtimeSnapshotRaw,
+  validFromRaw,
   validRuntimeSnapshot,
 } = await import("./runtimeSnapshotFixture");
 
@@ -282,6 +283,39 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
     harness.unmount();
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
+  });
+
+  it("REVIEW2 回归：restore 到新会话后，旧会话 outcome 响应不得把页面切回旧会话", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    let releaseOutcome: (snapshot: ReturnType<typeof validRuntimeSnapshot>) => void = () => undefined;
+    mocks.reportPresentationOutcome.mockImplementation(() => new Promise((resolve) => { releaseOutcome = resolve; }));
+    /** 会话 TS-99000802 的无 pending 快照（restore 结果）。 */
+    const sessionBRaw = JSON.parse(JSON.stringify(runtimeSnapshotRaw({ revision: 40 }))) as {
+      session_id: string;
+      views: { student_workspace_view: { session_id: string }; coach_panel_view: { session_id: string }; status: { session_id: string } };
+    };
+    for (const target of [sessionBRaw, sessionBRaw.views.student_workspace_view, sessionBRaw.views.coach_panel_view, sessionBRaw.views.status]) {
+      target.session_id = "TS-99000802";
+    }
+    mocks.restore.mockResolvedValue(validFromRaw(sessionBRaw));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "presenting");
+    });
+    const generation = mediaHarness.state.generation;
+    await emitAndDrain(() => mediaHarness.emitPlayback({ type: "ended", owner: "narration", generation }));
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+    // restore 到新会话（页面已采用 TS-99000802）。
+    await act(async () => { await harness.tutor().restore("TS-99000802"); });
+    expect(harness.tutor().runtimeSnapshot?.session_id).toBe("TS-99000802");
+    // 旧会话（TS-99000801）的 outcome 响应到达——页面不得回切。
+    await act(async () => {
+      releaseOutcome(validRuntimeSnapshot({ revision: 13 }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(harness.tutor().runtimeSnapshot?.session_id).toBe("TS-99000802");
   });
 
   it("卸载后迟到 outcome 响应：静默丢弃（不采用、不二次上报）", async () => {

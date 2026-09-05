@@ -73,6 +73,11 @@ export class PresentationRuntimeController {
   private epoch = 0;
   private currentSessionId: string | undefined;
   private outcomeInFlight = false;
+  /** 在途请求身份（区分「同一请求已在途」与「新 token 被挡」）。 */
+  private inFlightRequest: PendingPresentationOutcomeRequest | undefined;
+  /** 当前 token 曾被在途请求挡下、尚未发出过——旧请求结束后补发（二次复验
+   *  P1-4）。网络失败保留的 token 不置此标记：不自动循环重试。 */
+  private outcomeDispatchQueued = false;
 
   constructor(
     private readonly registry: CapabilityRegistry,
@@ -86,14 +91,20 @@ export class PresentationRuntimeController {
   adopt(snapshot: ValidatedSessionSnapshot): void {
     if (this.disposed) return;
     const pending = snapshot.pending_presentation;
-    if (pending !== undefined && pending.session_id !== this.currentSessionId) {
-      this.currentSessionId = pending.session_id;
+    // 会话作用域按**每份** snapshot 更新（二次复验 P1-5）：切到无 pending 的
+    // 新会话同样推进 epoch——旧会话在途 outcome 响应随即失配被丢弃，不能把
+    // 采用面拉回旧会话。
+    const sessionScope = pending?.session_id ?? snapshot.session_id;
+    if (sessionScope !== this.currentSessionId) {
+      this.currentSessionId = sessionScope;
       this.epoch += 1;
       this.acked = undefined;
     }
     if (pending === undefined) {
-      // 服务端已推进（无 pending）：丢弃陈旧执行（不上报迟到结果）。
+      // 服务端已推进（无 pending）：丢弃陈旧执行（不上报迟到结果），并释放
+      // 挂起的 outcome token（其在途响应由 epoch 守卫丢弃）。
       this.discardExecution();
+      this.clearOutcomePending();
       this.setState({ kind: "idle" });
       return;
     }
@@ -284,8 +295,19 @@ export class PresentationRuntimeController {
   }
 
   private async dispatchOutcome(request: PendingPresentationOutcomeRequest): Promise<void> {
-    if (this.disposed || this.outcomeInFlight) return;
+    if (this.disposed) return;
+    if (this.outcomeInFlight) {
+      // 另一请求在途：只有「不同身份的新 token」记待补发（同一请求重入不
+      // 重复发送）；补发仅发生在旧请求结束（finally），网络失败不自动重试。
+      if (this.inFlightRequest !== request
+        && this.state.kind === "outcome-pending"
+        && this.state.request === request) {
+        this.outcomeDispatchQueued = true;
+      }
+      return;
+    }
     this.outcomeInFlight = true;
+    this.inFlightRequest = request;
     const epoch = this.epoch;
     /** 请求身份守卫（复验 P1-2）：只有当本请求仍是当前挂起的 outcome token
      *  时，其响应/异常才允许触碰状态——adopt 换键/释放后到达的旧响应不得
@@ -338,6 +360,14 @@ export class PresentationRuntimeController {
       }
     } finally {
       this.outcomeInFlight = false;
+      this.inFlightRequest = undefined;
+      // 补发被挡下的当前 token（只补发从未成功发出的请求；请求身份以当下
+      // state 为准——期间再换键则自然发最新 token）。
+      if (this.outcomeDispatchQueued && !this.disposed) {
+        this.outcomeDispatchQueued = false;
+        const current = this.state.kind === "outcome-pending" ? this.state.request : undefined;
+        if (current !== undefined) void this.dispatchOutcome(current);
+      }
     }
   }
 
