@@ -81,8 +81,13 @@ export interface RuntimeSnapshotOptions {
   /** workspace_input 时默认挂载合法 active_action；置 false 构造「呈现中未挂载」
    *  负例（必须同时携带 pending_presentation 才能过 §1.3 #8/#11 门禁）。 */
   activeAction?: boolean;
-  /** 携带 pending_presentation（voice 交付；Step 6 PresentationRuntime 消费）。 */
-  pendingPresentation?: boolean;
+  /** 携带 pending_presentation（默认 voice 交付；传对象则使用该交付——
+   *  Step 6 PresentationRuntime 消费）。 */
+  pendingPresentation?: boolean | Record<string, unknown>;
+  /** 填充 student_workspace_view.canvas.elements（geometry 呈现对账面）。 */
+  canvasElements?: { element_id: string; kind: string; highlighted?: boolean; annotated?: boolean; student_authored?: boolean }[];
+  /** 填充 solution_board.groups（单组；board 呈现对账面）。 */
+  boardEntries?: { entry_id: string; kind: string; content: string; state?: string; attempt_summary?: string }[];
   /** 覆写 active_action 的 action_plan（构造 ExercisePlan 校验负例）。 */
   actionPlanOverride?: unknown;
   /** 覆写 active_action 的 target_ids（构造 render geometry 对账负例）。 */
@@ -118,6 +123,66 @@ export function pendingVoicePresentation(revision: number): Record<string, unkno
   };
 }
 
+/** BT-03 队首 geometry 构造交付（geometry.construct、reveal_scope=none、
+ *  workspace_revision=服务端应用回执；构造类无 target_ids——输出在
+ *  command_payload 内，元素落 student_workspace_view.canvas）。 */
+export function pendingGeometryPresentation(revision: number, workspaceRevision: number): Record<string, unknown> {
+  return {
+    schema: "ai_teaching_presentation_delivery/v1",
+    session_id: RUNTIME_SESSION_ID,
+    sequence_id: "PS-0003",
+    ordinal: 0,
+    action_id: "WSA-bt03-construct-0",
+    action: {
+      kind: "workspace",
+      workspace_action: {
+        action_id: "WSA-bt03-construct-0",
+        decision_id: "TD-seed-0003",
+        surface: "geometry",
+        capability: "geometry.construct",
+        origin: "tutor",
+        command_payload: JSON.stringify({
+          type: "construct:segment",
+          commandId: `cmd-${RUNTIME_SESSION_ID}-bt03-0`,
+          actionId: "WSA-bt03-construct-0",
+          from: "C",
+          to: "O",
+          outputId: "seg-CO",
+        }),
+        reveal_scope: "none",
+      },
+    },
+    session_revision: revision,
+    workspace_revision: workspaceRevision,
+  };
+}
+
+/** BT-03 板书 reveal 交付（board.reveal-entry、reveal_scope=step_narration、
+ *  target_ids=BE- 条目）。 */
+export function pendingBoardPresentation(revision: number, workspaceRevision: number, targets: string[] = ["BE-301"]): Record<string, unknown> {
+  return {
+    schema: "ai_teaching_presentation_delivery/v1",
+    session_id: RUNTIME_SESSION_ID,
+    sequence_id: "PS-0003",
+    ordinal: 2,
+    action_id: "WSA-bt03-reveal",
+    action: {
+      kind: "workspace",
+      workspace_action: {
+        action_id: "WSA-bt03-reveal",
+        decision_id: "TD-seed-0003",
+        surface: "solution_board",
+        capability: "board.reveal-entry",
+        origin: "tutor",
+        target_ids: targets,
+        reveal_scope: "step_narration",
+      },
+    },
+    session_revision: revision,
+    workspace_revision: workspaceRevision,
+  };
+}
+
 function mainlineFor(kind: string): Record<string, unknown> {
   if (kind === "read_only_completed") return { kind: "completed" };
   if (kind === "temporarily_paused_for_inquiry") return { kind: "presenting", beat_id: "BT-02" };
@@ -137,7 +202,11 @@ export function runtimeSnapshotRaw(options: RuntimeSnapshotOptions = {}): Record
   const workspaceRevision = options.workspaceRevision ?? 3;
   const completed = kind === "read_only_completed";
   const attachActive = kind === "workspace_input" && options.activeAction !== false;
-  const attachPending = options.pendingPresentation === true;
+  const pendingDelivery = options.pendingPresentation === true
+    ? pendingVoicePresentation(revision)
+    : (options.pendingPresentation !== undefined && options.pendingPresentation !== false
+      ? options.pendingPresentation
+      : undefined);
   /** view 内嵌 participation（student_workspace_view.participation——无 schema 字段）。 */
   const participationView = {
     kind,
@@ -146,6 +215,20 @@ export function runtimeSnapshotRaw(options: RuntimeSnapshotOptions = {}): Record
   };
   /** 独立 views.participation envelope（canonical mainline-participation/v1）。 */
   const participationEnvelope = { schema: "ai_teaching_mainline_participation/v1", ...participationView };
+  const canvasElements = options.canvasElements ?? [];
+  const boardGroups = options.boardEntries !== undefined && options.boardEntries.length > 0
+    ? [{
+      group_id: "PG-01",
+      title: "板书",
+      entries: options.boardEntries.map((entry) => ({
+        entry_id: entry.entry_id,
+        kind: entry.kind,
+        content: entry.content,
+        state: entry.state ?? "visible",
+        ...(entry.attempt_summary !== undefined ? { attempt_summary: entry.attempt_summary } : {}),
+      })),
+    }]
+    : [];
   return {
     profile: "f7-tutor-runtime-http/v1",
     session_id: RUNTIME_SESSION_ID,
@@ -159,8 +242,18 @@ export function runtimeSnapshotRaw(options: RuntimeSnapshotOptions = {}): Record
         schema: "ai_teaching_student_workspace_view/v1",
         session_id: RUNTIME_SESSION_ID,
         revision: workspaceRevision,
-        canvas: { elements: [], interaction_enabled: kind === "workspace_input" },
-        solution_board: { mode: "building", groups: [] },
+        canvas: {
+          elements: canvasElements.map((element) => ({
+            element_id: element.element_id,
+            kind: element.kind,
+            visible: true,
+            ...(element.highlighted !== undefined ? { highlighted: element.highlighted } : {}),
+            ...(element.annotated !== undefined ? { annotated: element.annotated } : {}),
+            ...(element.student_authored !== undefined ? { student_authored: element.student_authored } : {}),
+          })),
+          interaction_enabled: kind === "workspace_input",
+        },
+        solution_board: { mode: "building", groups: boardGroups },
         participation: participationView,
       },
       coach_panel_view: {
@@ -180,7 +273,7 @@ export function runtimeSnapshotRaw(options: RuntimeSnapshotOptions = {}): Record
       status: { session_id: RUNTIME_SESSION_ID, session_revision: revision, workspace_revision: workspaceRevision, completed },
     },
     render: { workspace_revision: workspaceRevision, geometry: attachActive ? runtimeGeometry() : null },
-    ...(attachPending ? { pending_presentation: pendingVoicePresentation(revision) } : {}),
+    ...(pendingDelivery !== undefined ? { pending_presentation: pendingDelivery } : {}),
     ...(attachActive ? {
       active_action: {
         action_id: "tp:TP-SMV-009:1:mark-segment-values-bt04",

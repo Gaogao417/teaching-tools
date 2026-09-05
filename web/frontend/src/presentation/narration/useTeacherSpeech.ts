@@ -56,7 +56,10 @@ export function useTeacherSpeech(
       utteranceId: nextAction.actionId,
       spokenText: nextCopy.spokenText,
       cacheKey: `${SPEECH_PROFILE_VERSION}:speech-v${SPEECH_TEXT_VERSION}:${nextCopy.spokenText}`,
-    } : undefined, plan.mode === "learn").then((url) => { if (url) setSpeechUrl(url); });
+    } : undefined, plan.mode === "learn").then((result) => {
+      // F7 Step 6：enter 返回细分结果——只有 playing 才暴露 speechUrl。
+      if (result && result.status === "playing") setSpeechUrl(result.audioUrl);
+    });
   }, [action.actionId, plan.exerciseId, plan.revision, plan.mode, narration, options?.disabled]);
 
   useEffect(() => () => {

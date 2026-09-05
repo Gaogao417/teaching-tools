@@ -12,6 +12,8 @@
  *   Board 真相，ADR-009 不变量 7）；View 层无 hidden——未揭示条目整个不
  *   存在，不存在"置空占位"；空 groups 渲染明确 empty surface（不变量 6）。
  */
+import { useEffect } from "react";
+
 import { MathText } from "../../components/math/MathText";
 import { StudentWorkspaceFrame } from "../workspace/StudentWorkspaceFrame";
 import type { StudentWorkspaceViewV1 } from "./canonicalViewTypes";
@@ -33,7 +35,37 @@ const BOARD_ENTRY_KIND_TEXT = {
   question: "问题",
 } as const;
 
-export function StudentWorkspaceViewSurface({ view }: { view: StudentWorkspaceViewV1 }) {
+/**
+ * F7 Step 6：过渡呈现面的 commit 通知——render 提交后（rAF，jsdom 无 rAF 时
+ * setTimeout 回退）携带 session+revision 回调。注意：这只是过渡面的诊断/开发
+ * 信号，PresentationRuntime 的 workspace adapter 只认真实完成信号源（Step 7
+ * 接入 production Canvas commit / Board reveal 动画；见
+ * presentationRuntime/workspaceCommitPort）。
+ */
+export function useWorkspaceCommitRevision(
+  view: StudentWorkspaceViewV1,
+  onCommitRevision?: (note: { sessionId: string; revision: number }) => void,
+): void {
+  useEffect(() => {
+    if (!onCommitRevision) return;
+    const note = { sessionId: view.session_id, revision: view.revision };
+    if (typeof requestAnimationFrame === "function") {
+      const handle = requestAnimationFrame(() => onCommitRevision(note));
+      return () => cancelAnimationFrame(handle);
+    }
+    const handle = window.setTimeout(() => onCommitRevision(note), 0);
+    return () => window.clearTimeout(handle);
+  }, [view.session_id, view.revision, onCommitRevision]);
+}
+
+export function StudentWorkspaceViewSurface({
+  view,
+  onCommitRevision,
+}: {
+  view: StudentWorkspaceViewV1;
+  onCommitRevision?: (note: { sessionId: string; revision: number }) => void;
+}) {
+  useWorkspaceCommitRevision(view, onCommitRevision);
   return (
     <StudentWorkspaceFrame
       frameTestId="canonical-student-workspace"

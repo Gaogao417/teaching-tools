@@ -286,7 +286,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   const dockTrigger = (
     <TopicCoachDockTrigger
       avatarId="school"
-      speaking={pres.playing || pres.reviewing}
+      speaking={(tutor.playbackControls?.source === "canonical" && tutor.playbackControls.phase.phase === "presenting") || pres.playing || pres.reviewing}
       open={railOpen}
       unread={railUnread}
       previewLatex={dockPreview?.text}
@@ -431,22 +431,62 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     }
   })();
 
-  /** 讲解播放组（legacy 呈现管线 view-model；canonical 无本地呈现——Step 6）。 */
-  const teachingPlayback = tutor.playbackControls ? (
-    <TopicTeachingPlayback
-      positionCurrent={Math.max(tutor.playbackControls.presentation.playedCount, 1)}
-      positionTotal={Math.max(tutor.playbackControls.presentation.totalCount, 1)}
-      firstDisabled={tutor.playbackControls.presentation.playedCount <= 1 || tutor.playbackControls.presentation.reviewing || busy}
-      onFirst={() => tutor.playbackControls?.reviewFirst()}
-      previousDisabled={tutor.playbackControls.presentation.playedCount <= 1 || tutor.playbackControls.presentation.reviewing || busy}
-      onPrevious={() => tutor.playbackControls?.reviewPrevious()}
-      replayDisabled={tutor.playbackControls.presentation.reviewing || (!tutor.playbackControls.presentation.currentText && !lastTutorEntry)}
-      onReplay={() => tutor.playbackControls?.replay()}
-      nextDisabled={!tutor.playbackControls.presentation.awaitingContinue || tutor.playbackControls.presentation.reviewing || busy}
-      onNext={() => tutor.playbackControls?.advance()}
-      pauseNote={tutor.playbackControls.presentation.playing ? "老师讲解中…" : "已暂停，等待学生回应后继续演示"}
-    />
-  ) : null;
+  /** 讲解播放组（统一 view-model：legacy=本地呈现管线；canonical=
+   *  PresentationRuntime 执行状态——F7 Step 6，呈现由服务端 pending 驱动）。 */
+  const teachingPlayback = (() => {
+    const controls = tutor.playbackControls;
+    if (!controls) return null;
+    if (controls.source === "canonical") {
+      switch (controls.phase.phase) {
+        case "presenting":
+          return (
+            <div className="tutor-presentation-status" data-testid="tutor-presentation" data-presentation-phase="presenting" data-presentation-kind={controls.phase.kind} role="status">
+              {controls.phase.kind === "voice" ? "老师讲解中…" : controls.phase.kind === "geometry" ? "正在呈现画布…" : "正在呈现板书…"}
+            </div>
+          );
+        case "awaiting-gesture":
+          return (
+            <div className="action-row tutor-presentation-status" data-testid="tutor-presentation" data-presentation-phase="awaiting-gesture">
+              <span className="text-muted">浏览器暂停了自动播放。</span>
+              <button type="button" className="btn btn-primary" data-testid="tutor-presentation-resume" onClick={controls.resume}>开始播放</button>
+            </div>
+          );
+        case "outcome-pending":
+          return (
+            <div className="tutor-presentation-status" data-testid="tutor-presentation" data-presentation-phase="outcome-pending" role="status">
+              正在确认呈现结果…
+            </div>
+          );
+        case "paused":
+          return controls.phase.reason === "real-signal-unavailable" ? (
+            <div className="tutor-presentation-status" data-testid="tutor-presentation" data-presentation-phase="paused" role="status">
+              画布/板书呈现执行链将在下一步接入（F7 进行中）——当前已暂停，不影响语音讲解。
+            </div>
+          ) : (
+            <div className="tutor-presentation-status" data-testid="tutor-presentation" data-presentation-phase="paused" role="status">
+              呈现已暂停{controls.phase.message ? `：${controls.phase.message}` : ""}。
+            </div>
+          );
+        default:
+          return null;
+      }
+    }
+    return (
+      <TopicTeachingPlayback
+        positionCurrent={Math.max(controls.presentation.playedCount, 1)}
+        positionTotal={Math.max(controls.presentation.totalCount, 1)}
+        firstDisabled={controls.presentation.playedCount <= 1 || controls.presentation.reviewing || busy}
+        onFirst={() => tutor.playbackControls?.source === "legacy" && tutor.playbackControls.reviewFirst()}
+        previousDisabled={controls.presentation.playedCount <= 1 || controls.presentation.reviewing || busy}
+        onPrevious={() => tutor.playbackControls?.source === "legacy" && tutor.playbackControls.reviewPrevious()}
+        replayDisabled={controls.presentation.reviewing || (!controls.presentation.currentText && !lastTutorEntry)}
+        onReplay={() => tutor.playbackControls?.source === "legacy" && tutor.playbackControls.replay()}
+        nextDisabled={!controls.presentation.awaitingContinue || controls.presentation.reviewing || busy}
+        onNext={() => tutor.playbackControls?.source === "legacy" && tutor.playbackControls.advance()}
+        pauseNote={controls.presentation.playing ? "老师讲解中…" : "已暂停，等待学生回应后继续演示"}
+      />
+    );
+  })();
 
   const frame = tutor.activeActionFrame;
   if (activeOperation && tutor.sessionId && !completed) {
@@ -487,7 +527,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   //  板书面；完成态板书即同一 View 的最终披露，无第二份真源）。
   const workspaceArea = tutor.workspaceSurface.source === "canonical"
     ? (tutor.workspaceSurface.view
-      ? <StudentWorkspaceViewSurface view={tutor.workspaceSurface.view} />
+      ? <StudentWorkspaceViewSurface view={tutor.workspaceSurface.view} onCommitRevision={tutor.workspaceSurface.onCommitRevision} />
       : <section className="topic-answer-panel solution-board-panel is-empty" aria-label="学习工作区（加载中）" data-testid="region-workspace" />)
     : (
       <StudentWorkspaceFrame

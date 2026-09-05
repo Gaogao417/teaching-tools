@@ -70,12 +70,15 @@ vi.mock("../../../presentation/audio/MediaSessionController", () => ({
 }));
 vi.mock("../../../presentation/narration/NarrationController", () => ({
   NarrationController: class {
-    /** 波次 E：真实 NarrationController.enter 会在返回前把 media 推到
-     *  playing（playUrl 已开始）——mock 同步该事实，供 getState 初始化
-     *  waitForPlaybackEnd 的 attach-during-playing 竞态面。 */
+    /** 波段 E：真实的 NarrationController.enter will push the media to playing before returning
+     * (playUrl has already started)——the mock synchronizes this fact, for getState initialization
+     * the attach-during-playing race surface of waitForPlaybackEnd. F7 Step 6: enter returns
+     * detailed results (playing/aborted/failed)——legacy mapping consumes audioUrl. */
     enter = vi.fn(async () => {
       if (narrationHarness.audioUrl) narrationHarness.status = "playing";
-      return narrationHarness.audioUrl ? { audioUrl: narrationHarness.audioUrl } : undefined;
+      return narrationHarness.audioUrl
+        ? { status: "playing" as const, audioUrl: narrationHarness.audioUrl, generation: 1 }
+        : { status: "failed" as const };
     });
     stop = vi.fn();
     replay = vi.fn();

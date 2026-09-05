@@ -23,6 +23,19 @@ export type MediaSessionState =
   | { status: "blocked-by-autoplay"; owner: MediaOwner; replayKey?: string }
   | { status: "error"; owner: MediaOwner; message: string };
 
+/**
+ * F7 Step 6：单次播放尝试的生命周期事件（携带发起该次播放的 generation）。
+ * 与 subscribe 的聚合状态正交：状态只知道「现在如何」，事件能区分
+ * `ended`（自然播完）与 `stopped`（被停/被替换）——PresentationRuntime 只
+ * 允许对应播放的 `ended` 产生 presented，聚合 idle 不再等价于播完。
+ */
+export type MediaPlaybackEvent =
+  | { type: "started"; owner: MediaOwner; generation: number }
+  | { type: "ended"; owner: MediaOwner; generation: number }
+  | { type: "stopped"; owner: MediaOwner; generation: number }
+  | { type: "blocked"; owner: MediaOwner; generation: number }
+  | { type: "error"; owner: MediaOwner; generation: number; message: string };
+
 interface UrlHandle { owner: MediaOwner; url: string; replayKey?: string; correlationId?: string; started?: boolean }
 export interface MediaTelemetryMark { correlationId: string; owner: "narration" | "turn" | "live"; stage: "requested" | "browser-audio-started" | "blocked-by-autoplay" | "cancelled" | "completed" | "error"; browserTimeMs: number }
 
@@ -42,8 +55,12 @@ export class MediaSessionController {
   private audio?: HTMLAudioElement;
   private state: MediaSessionState = { status: "idle" };
   private readonly listeners = new Set<(state: MediaSessionState) => void>();
+  private readonly playbackListeners = new Set<(event: MediaPlaybackEvent) => void>();
   private readonly replayHandles = new Map<string, UrlHandle>();
   private generation = 0;
+  /** generation of the playback attempt that currently owns the output. */
+  private activeGeneration = 0;
+  private lastStartedGeneration = -1;
   private active?: UrlHandle;
   private externalStop?: () => void;
   private queue: UrlHandle[] = [];
@@ -57,6 +74,32 @@ export class MediaSessionController {
   subscribe(listener: (state: MediaSessionState) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** F7 Step 6：播放生命周期事件流（per-generation；见 MediaPlaybackEvent）。 */
+  subscribePlaybackEvents(listener: (event: MediaPlaybackEvent) => void): () => void {
+    this.playbackListeners.add(listener);
+    return () => this.playbackListeners.delete(listener);
+  }
+
+  /** 当前播放代数（每次新的播放尝试递增；等待者以此绑定「本次播放」）。 */
+  currentGeneration(): number { return this.generation; }
+
+  private emitPlayback(event: MediaPlaybackEvent): void {
+    // 与 telemetry 同纪律：事件监听器失败不得影响播放路径。
+    for (const listener of [...this.playbackListeners]) {
+      try { listener(event); } catch { /* best-effort */ }
+    }
+  }
+
+  /** 以新播放接管输出时，为被替换的旧播放补发 stopped（其等待者不得悬挂）。 */
+  private supersedeActive(): void {
+    if (this.active) {
+      const owner = this.active.owner;
+      const generation = this.activeGeneration;
+      this.active = undefined;
+      this.emitPlayback({ type: "stopped", owner, generation });
+    }
   }
 
   /**
@@ -89,27 +132,35 @@ export class MediaSessionController {
   /** The owner currently holding the microphone, if any. */
   getCaptureOwner(): CaptureOwner | undefined { return this.captureOwner; }
 
-  async playUrl(owner: MediaOwner, url: string, options: { autoplay: boolean; replayKey?: string; correlationId?: string } = { autoplay: true }): Promise<void> {
+  /** 开始一次 URL 播放；resolve 值为本次播放的 generation（供等待者绑定）。 */
+  async playUrl(owner: MediaOwner, url: string, options: { autoplay: boolean; replayKey?: string; correlationId?: string } = { autoplay: true }): Promise<number> {
     const generation = ++this.generation;
     this.externalStop?.();
     this.externalStop = undefined;
     this.queue = [];
     this.abortStream();
+    this.supersedeActive();
     this.stopAudio();
     const handle = { owner, url, replayKey: options.replayKey, correlationId: options.correlationId };
     this.active = handle;
+    this.activeGeneration = generation;
     if (options.replayKey) this.replayHandles.set(options.replayKey, handle);
     const audio = this.ensureAudio();
     audio.src = url;
     this.setState({ status: "loading", owner, replayKey: options.replayKey });
     this.mark(handle, "requested");
-    if (!options.autoplay) return;
+    if (!options.autoplay) return generation;
     try {
       await audio.play();
       if (generation === this.generation) this.notifyAudioStarted(owner);
     } catch {
-      if (generation === this.generation) { this.setState({ status: "blocked-by-autoplay", owner, replayKey: options.replayKey }); this.mark(handle, "blocked-by-autoplay"); }
+      if (generation === this.generation) {
+        this.setState({ status: "blocked-by-autoplay", owner, replayKey: options.replayKey });
+        this.mark(handle, "blocked-by-autoplay");
+        this.emitPlayback({ type: "blocked", owner, generation });
+      }
     }
+    return generation;
   }
 
   /**
@@ -128,9 +179,11 @@ export class MediaSessionController {
     this.externalStop?.();
     this.externalStop = undefined;
     this.abortStream();
+    this.supersedeActive();
     this.stopAudio();
     this.queue = [];
     this.active = { owner, url: "", correlationId: options.correlationId };
+    this.activeGeneration = generation;
     this.setState({ status: "loading", owner });
     this.mark(this.active, "requested");
 
@@ -217,6 +270,7 @@ export class MediaSessionController {
         if (generation === this.generation) {
           this.setState({ status: "blocked-by-autoplay", owner, replayKey: this.active?.replayKey });
           if (this.active) this.mark(this.active, "blocked-by-autoplay");
+          this.emitPlayback({ type: "blocked", owner, generation });
         }
       });
   }
@@ -225,6 +279,7 @@ export class MediaSessionController {
     if (generation !== this.generation) return;
     this.setState({ status: "error", owner, message });
     if (this.active) this.mark(this.active, "error");
+    this.emitPlayback({ type: "error", owner, generation, message });
   }
 
   private abortStream(): void {
@@ -233,9 +288,9 @@ export class MediaSessionController {
     handle?.abort();
   }
 
-  replay(replayKey: string): Promise<void> {
+  replay(replayKey: string): Promise<number | undefined> {
     const handle = this.replayHandles.get(replayKey);
-    return handle ? this.playUrl(handle.owner, handle.url, { autoplay: true, replayKey }) : Promise.resolve();
+    return handle ? this.playUrl(handle.owner, handle.url, { autoplay: true, replayKey }) : Promise.resolve(undefined);
   }
 
   enqueueUrl(owner: MediaOwner, url: string, replayKey?: string, correlationId?: string): void {
@@ -249,26 +304,38 @@ export class MediaSessionController {
     this.stop();
     this.externalStop = stop;
     this.active = { owner, url: "", correlationId };
+    this.activeGeneration = ++this.generation;
     this.setState({ status: "loading", owner });
     this.mark(this.active, "requested");
   }
 
   release(owner: MediaOwner): void {
     if (this.active?.owner !== owner) return;
+    const generation = this.activeGeneration;
     this.externalStop = undefined;
     this.active = undefined;
+    this.emitPlayback({ type: "stopped", owner, generation });
     this.setState({ status: "idle" });
   }
 
   notifyAudioStarted(owner: MediaOwner): void {
     if (!this.active || this.active.owner !== owner) return;
     this.setState({ status: "playing", owner, replayKey: this.active.replayKey });
+    if (this.activeGeneration !== this.lastStartedGeneration) {
+      this.lastStartedGeneration = this.activeGeneration;
+      this.emitPlayback({ type: "started", owner, generation: this.activeGeneration });
+    }
     if (!this.active.started) { this.active.started = true; this.mark(this.active, "browser-audio-started"); }
   }
 
   stop(owner?: MediaOwner): void {
     if (owner && this.active?.owner !== owner) return;
-    if (this.active) this.mark(this.active, "cancelled");
+    if (this.active) {
+      const stoppedOwner = this.active.owner;
+      const stoppedGeneration = this.activeGeneration;
+      this.mark(this.active, "cancelled");
+      this.emitPlayback({ type: "stopped", owner: stoppedOwner, generation: stoppedGeneration });
+    }
     this.generation += 1;
     this.queue = [];
     const externalStop = this.externalStop;
@@ -284,6 +351,7 @@ export class MediaSessionController {
     this.stop();
     this.captureOwner = undefined;
     this.listeners.clear();
+    this.playbackListeners.clear();
     this.replayHandles.clear();
     if (this.audio) this.detach(this.audio);
     this.audio = undefined;
@@ -296,12 +364,23 @@ export class MediaSessionController {
       this.audio.onplay = () => { if (this.active) this.notifyAudioStarted(this.active.owner); };
       this.audio.onpause = () => { if (this.state.status === "playing") this.setState({ status: "idle" }); };
       this.audio.onended = () => {
-        if (this.active) this.mark(this.active, "completed");
+        if (this.active) {
+          this.emitPlayback({ type: "ended", owner: this.active.owner, generation: this.activeGeneration });
+          this.mark(this.active, "completed");
+        }
         this.active = undefined;
         if (this.queue.length) this.playQueued();
         else this.setState({ status: "idle" });
       };
-      this.audio.onerror = () => { if (this.active) { this.setState({ status: "error", owner: this.active.owner, message: "media playback failed" }); this.mark(this.active, "error"); } };
+      this.audio.onerror = () => {
+        if (this.active) {
+          const owner = this.active.owner;
+          const generation = this.activeGeneration;
+          this.setState({ status: "error", owner, message: "media playback failed" });
+          this.mark(this.active, "error");
+          this.emitPlayback({ type: "error", owner, generation, message: "media playback failed" });
+        }
+      };
     }
     return this.audio;
   }
@@ -315,6 +394,7 @@ export class MediaSessionController {
     const next = this.queue.shift();
     if (!next) return;
     this.active = next;
+    this.activeGeneration = ++this.generation;
     if (next.replayKey) this.replayHandles.set(next.replayKey, next);
     const audio = this.ensureAudio();
     audio.src = next.url;

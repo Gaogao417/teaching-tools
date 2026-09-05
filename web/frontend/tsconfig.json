@@ -14,7 +14,9 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "zod": ["../backend/node_modules/zod/index.d.ts"]
+      "zod": ["../backend/node_modules/zod/index.d.ts"],
+      "node:http": ["../backend/node_modules/@types/node/http.d.ts"],
+      "node:net": ["../backend/node_modules/@types/node/net.d.ts"]
     }
   },
   "include": ["src", "../shared/**/*.ts"],

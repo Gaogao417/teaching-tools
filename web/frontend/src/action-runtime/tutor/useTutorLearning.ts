@@ -25,7 +25,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, ResponseSchemaError } from "../../api/client";
 import { MediaSessionController } from "../../presentation/audio/MediaSessionController";
-import { NarrationController } from "../../presentation/narration/NarrationController";
+import { waitForPlaybackEndLegacy } from "../../presentation/audio/waitForPlaybackEnd";
+import { NarrationController, type NarrationEnterResult, type NarrationUtterance } from "../../presentation/narration/NarrationController";
+import {
+  createTutorPresentationRuntime,
+  type TutorPresentationRuntime,
+} from "../../presentation/presentationRuntime/createTutorPresentationRuntime";
+import type { PresentationRuntimePhase } from "../../presentation/presentationRuntime/types";
 import type {
   ActionEvaluationRequest,
   ActionEvaluationResponse,
@@ -146,18 +152,40 @@ export type ParticipationControls =
   | { kind: "completed" }
   | { kind: "none" };
 
-/** legacy 讲解播放组（canonical 链无本地呈现管线——Step 6 PresentationRuntime）。 */
-export interface PlaybackControlsVm {
-  presentation: TutorPresentation;
-  advance: () => void;
-  replay: () => void;
-  reviewPrevious: () => void;
-  reviewFirst: () => void;
-}
+/** 讲解播放组（统一 view-model；数据源分派在 controller 边界）：
+ *  legacy=本地呈现管线（门/回看指针）；canonical=PresentationRuntime 执行
+ *  状态投影（F7 Step 6——呈现由服务端 pending 驱动，无手动 advance）。 */
+export type PlaybackControlsVm =
+  | {
+    source: "legacy";
+    presentation: TutorPresentation;
+    advance: () => void;
+    replay: () => void;
+    reviewPrevious: () => void;
+    reviewFirst: () => void;
+  }
+  | {
+    source: "canonical";
+    phase: PresentationRuntimePhase;
+    canInterrupt: boolean;
+    canReplay: boolean;
+    interrupt: () => void;
+    /** autoplay 解锁（用户手势恢复；与 failure 的 retrySync/retry_recovery 分离）。 */
+    resume: () => void;
+    /** 纯回放缓存（零上报）。 */
+    replay: () => void;
+  };
 
-/** Workspace 呈现面（canonical=快照 student_workspace_view；legacy=统一 View）。 */
+/** Workspace 呈现面（canonical=快照 student_workspace_view + commit 通知端口；
+ *  legacy=统一 View）。 */
 export type WorkspaceSurfaceVm =
-  | { source: "canonical"; view: StudentWorkspaceViewV1 | undefined }
+  | {
+    source: "canonical";
+    view: StudentWorkspaceViewV1 | undefined;
+    /** 过渡呈现面 render 后的 commit 通知（诊断/开发；真实完成信号 Step 7 接入，
+     *  见 presentationRuntime/workspaceCommitPort）。 */
+    onCommitRevision?: (note: { sessionId: string; revision: number }) => void;
+  }
   | { source: "legacy"; workspaceView: StudentWorkspaceView | undefined; completed: boolean };
 
 /** ActionRuntimeFrame 绑定（canonical：actor-first 采用 + 禁 Frame 私有 legacy 媒体）。 */
@@ -177,36 +205,16 @@ function newTurnId(): string {
   return `turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** 等待当前 narration 播放自然结束（loading/playing → idle/error）。
- *  blocked-by-autoplay 视作已交付（音频已就绪，可手动 replay）。
- *  isCancelled 为真（barge-in）立即返回。
- *  sawActive 以订阅时的当前状态初始化（波次 E 真实链修复）：tutor 流程里
- *  enter() 先把 media 推到 playing 才返回，waitFor 随后才订阅——subscribe
- *  不回放当前状态，若只靠后续转移置位，attach-during-playing 的等待者
- *  在 ended→idle 时因 sawActive=false 不结算，播放完成永远不回报
- *  （真实 TTS 下复现；fake 链走 failed 路径从未触发该竞态）。 */
-function waitForPlaybackEnd(
-  media: MediaSessionController,
-  isCancelled: () => boolean,
-  timeoutMs = 10 * 60_000,
-): Promise<"done" | "cancelled" | "error"> {
-  const initialStatus = media.getState().status;
-  let sawActive = initialStatus === "loading" || initialStatus === "playing";
-  return new Promise((resolve) => {
-    const finish = (result: "done" | "cancelled" | "error") => {
-      window.clearTimeout(timer);
-      unsubscribe();
-      resolve(result);
-    };
-    const timer = window.setTimeout(() => finish("done"), timeoutMs);
-    const unsubscribe = media.subscribe((state) => {
-      if (isCancelled()) finish("cancelled");
-      else if (state.status === "loading" || state.status === "playing") sawActive = true;
-      else if (sawActive && state.status === "error") finish("error");
-      else if (sawActive && state.status === "idle") finish("done");
-      else if (state.status === "blocked-by-autoplay" && sawActive) finish("done");
-    });
-  });
+/** legacy 映射：NarrationController.enter 细分结果 → 旧 `string | undefined`
+ *  语义（playing → audioUrl；aborted/failed/异常 → undefined）。抽取自
+ *  NarrationController 的返回细分（F7 Step 6），legacy 行为零改动。 */
+async function enterNarrationForLegacy(
+  narration: NarrationController,
+  utterance: NarrationUtterance,
+  autoplay: boolean,
+): Promise<string | undefined> {
+  const result: NarrationEnterResult | undefined = await narration.enter(utterance, undefined, autoplay).catch(() => undefined);
+  return result && result.status === "playing" ? result.audioUrl : undefined;
 }
 
 export interface UseTutorLearningOptions {
@@ -547,6 +555,49 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     };
   }, [narration, media]);
 
+  // ---- F7 Step 6：唯一 PresentationRuntime（canonical 链；spec §4.7）----
+  // 以 runtimeClient 实例为 scope 创建一次（渲染期创建、零副作用构造）；
+  // StrictMode 的 effect 重放不销毁——去重由 controller 单次执行纪律 +
+  // 快照对象身份守卫共同保证。Voice adapter 复用上方同一 media/narration。
+  const [presentationPhase, setPresentationPhase] = useState<PresentationRuntimePhase>({ phase: "idle" });
+  const presentationRuntimeRef = useRef<{ client: TutorRuntimeClient; runtime: TutorPresentationRuntime } | undefined>(undefined);
+  if (runtimeClient && presentationRuntimeRef.current?.client !== runtimeClient) {
+    presentationRuntimeRef.current?.runtime.controller.dispose();
+    presentationRuntimeRef.current = {
+      client: runtimeClient,
+      runtime: createTutorPresentationRuntime({
+        client: runtimeClient,
+        narration,
+        media,
+        adoptOutcomeSnapshot: (snapshot, expectedSessionId) => adoptRuntimeSnapshot(snapshot, expectedSessionId),
+        onProtocolAnomaly: (message) => { setProtocolError(message); },
+        onNotice: (message) => { setRuntimeFailureNotice(message); },
+        onStateChanged: (state) => { setPresentationPhase(state); },
+      }),
+    };
+  }
+  if (!runtimeClient && presentationRuntimeRef.current !== undefined) {
+    presentationRuntimeRef.current.runtime.controller.dispose();
+    presentationRuntimeRef.current = undefined;
+  }
+
+  /** 过渡呈现面的 commit 通知（携带 session+revision；经 VM 注入 Surface）。 */
+  const notifyWorkspaceCommitted = useCallback((note: { sessionId: string; revision: number }) => {
+    presentationRuntimeRef.current?.runtime.commitPort.notifyTransitionalCommitted(note);
+  }, []);
+
+  // 已采用快照 → PresentationRuntime.adopt（唯一驱动口）。对象身份守卫：同一
+  // 快照对象（StrictMode effect 重放）不重复 adopt；新对象由状态机按去重键
+  // 分派（单次执行 / 幂等重发 / 暂停规则见 PresentationRuntimeController）。
+  const lastPresentationAdoptedRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
+  useEffect(() => {
+    const current = presentationRuntimeRef.current;
+    if (!runtimeClient || !current || !runtimeSnapshot) return;
+    if (lastPresentationAdoptedRef.current === runtimeSnapshot) return;
+    lastPresentationAdoptedRef.current = runtimeSnapshot;
+    current.runtime.controller.adopt(runtimeSnapshot);
+  }, [runtimeClient, runtimeSnapshot]);
+
   // 浏览器阻止自动播放 → 沿用重播提示机制（不新造）。
   useEffect(() => {
     return media.subscribe((state) => {
@@ -666,20 +717,18 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         if (!playingRef.current || generation !== generationRef.current) return;
         appendTranscript("tutor", voice.text);
         setPresentation((prev) => ({ ...prev, playing: true, reviewing: false, currentText: voice.text }));
-        const url = await narration
-          .enter(
-            {
-              utteranceId: voice.action_id,
-              spokenText: voice.text,
-              cacheKey: `${SPEECH_PROFILE_VERSION}:${voice.voice_source ?? "approved-resource"}:${voice.text}`,
-            },
-            undefined,
-            true,
-          )
-          .catch(() => undefined);
+        const url = await enterNarrationForLegacy(
+          narration,
+          {
+            utteranceId: voice.action_id,
+            spokenText: voice.text,
+            cacheKey: `${SPEECH_PROFILE_VERSION}:${voice.voice_source ?? "approved-resource"}:${voice.text}`,
+          },
+          true,
+        );
         let outcome: "completed" | "failed" = "completed";
         if (url && playingRef.current) {
-          const playback = await waitForPlaybackEnd(media, () => !playingRef.current);
+          const playback = await waitForPlaybackEndLegacy(media, () => !playingRef.current);
           if (playback === "cancelled" || !playingRef.current) return;
           if (playback === "error") outcome = "failed";
         } else if (!url) {
@@ -734,19 +783,17 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const reviewUtterance = useCallback(
     async (voice: TutorVoiceAction): Promise<void> => {
       setPresentation((prev) => (prev.reviewing ? prev : { ...prev, reviewing: true, currentText: voice.text }));
-      const url = await narration
-        .enter(
-          {
-            utteranceId: `${voice.action_id}:review`,
-            spokenText: voice.text,
-            cacheKey: `${SPEECH_PROFILE_VERSION}:${voice.voice_source ?? "approved-resource"}:${voice.text}`,
-          },
-          undefined,
-          true,
-        )
-        .catch(() => undefined);
+      const url = await enterNarrationForLegacy(
+        narration,
+        {
+          utteranceId: `${voice.action_id}:review`,
+          spokenText: voice.text,
+          cacheKey: `${SPEECH_PROFILE_VERSION}:${voice.voice_source ?? "approved-resource"}:${voice.text}`,
+        },
+        true,
+      );
       if (url) {
-        await waitForPlaybackEnd(media, () => !playingRef.current);
+        await waitForPlaybackEndLegacy(media, () => !playingRef.current);
       }
       setPresentation((prev) => ({
         ...prev,
@@ -942,6 +989,10 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  remediation-2：门上等待的呈现队列一并 abandon（interrupted 态 CTA
    *  禁用，不再静默放行）。 */
   const bargeIn = useCallback(async () => {
+    if (runtimeClient) {
+      presentationRuntimeRef.current?.runtime.controller.interruptCurrent();
+      return;
+    }
     const activeSession = sessionIdRef.current;
     const pendingGate = continueGateRef.current;
     if (pendingGate) {
@@ -959,7 +1010,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     if (activeSession && pending) {
       await api.completeTutorVoice(activeSession, pending.action_id, "interrupted").catch(() => null);
     }
-  }, [media, narration]);
+  }, [media, narration, runtimeClient]);
 
   const resumeFromInterrupt = useCallback(() => setInterrupted(false), []);
 
@@ -1153,8 +1204,15 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   }, [runtimeClient]);
 
   const replayNarration = useCallback(() => {
+    if (runtimeClient) {
+      // canonical：纯回放缓存（零上报；actionId + 缓存 + 播放互斥由 adapter 核对）。
+      const controller = presentationRuntimeRef.current?.runtime.controller;
+      const target = controller?.replayTarget();
+      if (controller && target !== undefined) controller.replayVoice(target);
+      return;
+    }
     void narration.replay();
-  }, [narration]);
+  }, [narration, runtimeClient]);
 
   /** canonical Runtime 派生面（spec §4.2：Coach transcript、Participation、
    *  Workspace、completed、active Action 均从单一 snapshot 派生）。 */
@@ -1219,24 +1277,48 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     };
   }, [runtimeClient, runtimeSnapshot, mergedCompleted, operateActive, presentation.playing, presentation.awaitingContinue, presentation.reviewing, turnPending, error, sessionId, submitControl, submitUtterance, submitStudentInput, advancePresentation]);
 
-  /** 讲解播放组：legacy 呈现管线（canonical 无本地呈现——Step 6）。 */
+  /** 讲解播放组（统一 view-model：legacy 本地管线 / canonical PresentationRuntime
+   *  执行状态投影——F7 Step 6 填补增补 18 调整点 6 登记的 canonical 挂点）。 */
   const playbackControls = useMemo<PlaybackControlsVm | undefined>(() => {
-    if (runtimeClient || mergedCompleted || operateActive) return undefined;
+    if (mergedCompleted || operateActive) return undefined;
+    if (runtimeClient) {
+      const controller = presentationRuntimeRef.current?.runtime.controller;
+      if (!controller) return undefined;
+      const replayActionId = controller.replayTarget();
+      return {
+        source: "canonical",
+        phase: presentationPhase,
+        canInterrupt: presentationPhase.phase === "awaiting-gesture"
+          || (presentationPhase.phase === "presenting" && presentationPhase.interruptible),
+        canReplay: replayActionId !== undefined
+          && runtimeSnapshot?.views.coach_panel_view.replay_available !== false,
+        interrupt: () => controller.interruptCurrent(),
+        resume: () => { void controller.resumeAfterGesture(); },
+        replay: () => {
+          if (replayActionId !== undefined) controller.replayVoice(replayActionId);
+        },
+      };
+    }
     return {
+      source: "legacy",
       presentation,
       advance: advancePresentation,
       replay: replayNarration,
       reviewPrevious: reviewPreviousNarration,
       reviewFirst: reviewFirstNarration,
     };
-  }, [runtimeClient, mergedCompleted, operateActive, presentation, advancePresentation, replayNarration, reviewPreviousNarration, reviewFirstNarration]);
+  }, [runtimeClient, runtimeSnapshot, presentationPhase, mergedCompleted, operateActive, presentation, advancePresentation, replayNarration, reviewPreviousNarration, reviewFirstNarration]);
 
   /** Workspace 呈现面。 */
   const workspaceSurface: WorkspaceSurfaceVm = useMemo(
     () => (runtimeClient
-      ? { source: "canonical", view: runtimeSnapshot?.views.student_workspace_view }
+      ? {
+        source: "canonical",
+        view: runtimeSnapshot?.views.student_workspace_view,
+        onCommitRevision: notifyWorkspaceCommitted,
+      }
       : { source: "legacy", workspaceView, completed: mergedCompleted }),
-    [runtimeClient, runtimeSnapshot, workspaceView, mergedCompleted],
+    [runtimeClient, runtimeSnapshot, workspaceView, mergedCompleted, notifyWorkspaceCommitted],
   );
 
   /** Coach composer：提问通道（canonical=utterance(assistance)；legacy=question_asked）
@@ -1270,8 +1352,11 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const restartOnMissing = !runtimeClient;
   /** legacy 换讲法入口（canonical 无此形态）。 */
   const switchApproachAvailable = !runtimeClient && alternatesAvailable && Boolean(sessionId) && !mergedCompleted;
-  /** legacy 打断入口（canonical barge-in 属 Step 8 统一 PresentationRuntime）。 */
-  const bargeInAvailable = !runtimeClient && phase === "speaking" && !presentation.awaitingContinue && !presentation.reviewing;
+  /** legacy 打断入口；canonical=PresentationRuntime InterruptCurrent（barge-in
+   *  第 1/2 步——abort adapter → 上报 interrupted；control.barge_in 自动提交属 Step 8）。 */
+  const bargeInAvailable = runtimeClient
+    ? playbackControls?.source === "canonical" && playbackControls.canInterrupt
+    : phase === "speaking" && !presentation.awaitingContinue && !presentation.reviewing;
 
   return {
     phase,
@@ -1298,6 +1383,8 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     runtimeCoach: runtimeSnapshot?.views.coach_panel_view,
     runtimeWorkspace: runtimeSnapshot?.views.student_workspace_view,
     runtimePendingPresentation: runtimeSnapshot?.pending_presentation,
+    /** F7 Step 6：PresentationRuntime 执行状态投影（瞬时；恢复真源是服务端快照）。 */
+    runtimePresentationPhase: presentationPhase,
     runtimeCompleted: runtimeSnapshot?.completed ?? false,
     runtimeTurnFailure,
     runtimeFailureNotice,

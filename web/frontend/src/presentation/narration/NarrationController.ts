@@ -5,6 +5,16 @@ export interface NarrationClient { synthesize(text: string, signal: AbortSignal,
 const sharedNarrationCache = new Map<string, string>();
 export function clearNarrationCacheForTests(): void { sharedNarrationCache.clear(); }
 
+/**
+ * F7 Step 6：enter 的细分结果。旧签名只回 `audioUrl | undefined`，把
+ * 「被取消/被替换」与「合成失败」折成同一个 undefined——canonical
+ * PresentationRuntime 必须区分二者（aborted 不是 provider failure）。
+ */
+export type NarrationEnterResult =
+  | { status: "playing"; audioUrl: string; generation: number }
+  | { status: "aborted" }
+  | { status: "failed" };
+
 /** Bounded deterministic narration prefetch/cache. It never calls a language model. */
 export class NarrationController {
   private readonly cache = sharedNarrationCache;
@@ -13,7 +23,7 @@ export class NarrationController {
 
   constructor(private readonly client: NarrationClient, private readonly media: MediaSessionController, private readonly capacity = 8) {}
 
-  async enter(current: NarrationUtterance, next: NarrationUtterance | undefined, autoplay: boolean): Promise<string | undefined> {
+  async enter(current: NarrationUtterance, next: NarrationUtterance | undefined, autoplay: boolean): Promise<NarrationEnterResult> {
     this.abort?.abort();
     this.media.stop("narration");
     this.current = current;
@@ -21,19 +31,22 @@ export class NarrationController {
     this.abort = abort;
     try {
       const url = await this.load(current, abort.signal);
-      if (abort.signal.aborted || this.current?.utteranceId !== current.utteranceId) return undefined;
+      if (abort.signal.aborted || this.current?.utteranceId !== current.utteranceId) return { status: "aborted" };
       // ADR-005 §Observability Contract: thread the utterance id as the
       // correlationId so the server-side narration timeline merges with the
       // browser-reported `browser_first_audio_at` under one id.
-      await this.media.playUrl("narration", url, { autoplay, replayKey: "action-narration", correlationId: current.utteranceId });
+      const generation = await this.media.playUrl("narration", url, { autoplay, replayKey: "action-narration", correlationId: current.utteranceId });
       if (next) void this.load(next, abort.signal).catch(() => undefined);
-      return url;
+      return { status: "playing", audioUrl: url, generation };
     } catch {
-      return undefined;
+      if (abort.signal.aborted || this.current?.utteranceId !== current.utteranceId) return { status: "aborted" };
+      return { status: "failed" };
     }
   }
 
-  replay(): Promise<void> { return this.media.replay("action-narration"); }
+  /** 重播最近一次播放的缓存（用户手势触发 autoplay 可解锁）；返回新播放
+   *  generation（无缓存句柄时 undefined）。 */
+  replay(): Promise<number | undefined> { return this.media.replay("action-narration"); }
   stop(): void { this.abort?.abort(); this.media.stop("narration"); }
   has(cacheKey: string): boolean { return this.cache.has(cacheKey); }
 

@@ -1,0 +1,132 @@
+/**
+ * F7 Step 6 Geometry / Board adapter（ledger 增补 20 偏差 1/2）。
+ *
+ * 完成判据 = workspaceCommitPort 的**真实** commit 信号（同 session 且
+ * revision ≥ delivery.workspace_revision——服务端在 delivery 前已应用语义，
+ * workspace_revision 是应用回执）+ 快照数据级对账（target 存在/高亮）。
+ * 真实信号源未注册（Step 7 接入前）→ awaiting-real-signal 暂停，不上报。
+ * 过渡呈现面（文字列表）的 rAF 通知永不满足本等待（见 workspaceCommitPort）。
+ */
+import type { PendingPresentationDelivery, PresentationAdapterResult, PresentationToolAdapter } from "../types";
+import type { WorkspaceCommitPort } from "../workspaceCommitPort";
+
+export interface WorkspaceSurfaceAdapterDependencies {
+  commitPort: WorkspaceCommitPort;
+  waitTimeoutMs?: number;
+}
+
+type WorkspaceAction = NonNullable<PendingPresentationDelivery["action"]["workspace_action"]>;
+
+interface TargetCheck {
+  ok: boolean;
+  message?: string;
+}
+
+function verifyGeometryTargets(
+  action: WorkspaceAction,
+  canvasElements: readonly { element_id: string; highlighted?: boolean }[],
+): TargetCheck {
+  const targets = action.target_ids ?? [];
+  if (targets.length === 0) return { ok: true };
+  const byId = new Map(canvasElements.map((element) => [element.element_id, element]));
+  const missing = targets.filter((target) => !byId.has(target));
+  if (missing.length > 0) {
+    return { ok: false, message: `geometry target_ids not present in workspace view canvas: ${missing.join(", ")}` };
+  }
+  if (action.reveal_scope === "target_highlight") {
+    const notHighlighted = targets.filter((target) => byId.get(target)?.highlighted !== true);
+    if (notHighlighted.length > 0) {
+      return { ok: false, message: `reveal_scope=target_highlight but targets not highlighted: ${notHighlighted.join(", ")}` };
+    }
+  }
+  return { ok: true };
+}
+
+function verifyBoardTargets(
+  action: WorkspaceAction,
+  groups: readonly { entries: readonly { entry_id: string; state: string }[] }[],
+): TargetCheck {
+  const targets = action.target_ids ?? [];
+  if (targets.length === 0) return { ok: true };
+  const entryIds = new Set(groups.flatMap((group) => group.entries.map((entry) => entry.entry_id)));
+  const missing = targets.filter((target) => !entryIds.has(target));
+  if (missing.length > 0) {
+    return { ok: false, message: `solution_board target_ids not present in workspace view board: ${missing.join(", ")}` };
+  }
+  return { ok: true };
+}
+
+async function presentWorkspaceSurface(
+  surface: "geometry" | "solution_board",
+  delivery: PendingPresentationDelivery,
+  snapshotCanvasElements: readonly { element_id: string; highlighted?: boolean }[],
+  snapshotBoardGroups: readonly { entries: readonly { entry_id: string; state: string }[] }[],
+  dependencies: WorkspaceSurfaceAdapterDependencies,
+  abort: AbortSignal,
+): Promise<PresentationAdapterResult> {
+  const action = delivery.action.workspace_action!;
+  // 1. 真实完成信号源未接（Step 7 前）：暂停，不上报 presented。
+  if (!dependencies.commitPort.hasRealCommitSource()) {
+    return { outcome: "awaiting-real-signal" };
+  }
+  // 2. 数据级对账：服务端在 delivery 前已应用 workspace 语义——目标必须已在
+  //    同快照 student_workspace_view 生效（target 缺失 = illegal_target）。
+  const check = surface === "geometry"
+    ? verifyGeometryTargets(action, snapshotCanvasElements)
+    : verifyBoardTargets(action, snapshotBoardGroups);
+  if (!check.ok) {
+    return { outcome: "failed", failureClass: "illegal_target", message: check.message };
+  }
+  // 3. 等待真实 commit（同 session + revision ≥ 应用回执）。
+  const wait = await dependencies.commitPort.waitForCommit(delivery.session_id, delivery.workspace_revision ?? 0, {
+    abort,
+    ...(dependencies.waitTimeoutMs !== undefined ? { timeoutMs: dependencies.waitTimeoutMs } : {}),
+  });
+  if (wait === "aborted") return { outcome: "interrupted" };
+  if (wait === "timeout") {
+    return { outcome: "failed", failureClass: "timeout", message: `${surface} commit not observed within timeout` };
+  }
+  return { outcome: "presented" };
+}
+
+export function createGeometryPresentationAdapter(dependencies: WorkspaceSurfaceAdapterDependencies): PresentationToolAdapter {
+  return {
+    supports(action) {
+      return action.kind === "workspace"
+        && action.workspace_action !== undefined
+        && action.workspace_action.surface === "geometry"
+        && action.workspace_action.capability === "geometry.construct";
+    },
+    async present({ delivery, snapshot, abort }) {
+      return presentWorkspaceSurface(
+        "geometry",
+        delivery,
+        snapshot.views.student_workspace_view.canvas.elements,
+        snapshot.views.student_workspace_view.solution_board.groups,
+        dependencies,
+        abort,
+      );
+    },
+  };
+}
+
+export function createBoardPresentationAdapter(dependencies: WorkspaceSurfaceAdapterDependencies): PresentationToolAdapter {
+  return {
+    supports(action) {
+      return action.kind === "workspace"
+        && action.workspace_action !== undefined
+        && action.workspace_action.surface === "solution_board"
+        && action.workspace_action.capability === "board.reveal-entry";
+    },
+    async present({ delivery, snapshot, abort }) {
+      return presentWorkspaceSurface(
+        "solution_board",
+        delivery,
+        snapshot.views.student_workspace_view.canvas.elements,
+        snapshot.views.student_workspace_view.solution_board.groups,
+        dependencies,
+        abort,
+      );
+    },
+  };
+}
