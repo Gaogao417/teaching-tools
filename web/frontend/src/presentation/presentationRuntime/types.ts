@@ -46,8 +46,9 @@ export type PresentationAdapterResult =
 export interface PresentationToolAdapter {
   supports(action: PendingPresentationDelivery["action"]): boolean;
   present(request: PresentationPresentRequest): Promise<PresentationAdapterResult>;
-  /** autoplay 解除后的续播（仅 voice；等待同一份缓存的真实 ended）。 */
-  resume?(): Promise<PresentationAdapterResult>;
+  /** autoplay 解除后的续播（仅 voice；等待同一份缓存的真实 ended）。
+   *  abort 与 present 同语义：controller 打断/服务端已推进/销毁时停播。 */
+  resume?(abort: AbortSignal): Promise<PresentationAdapterResult>;
   /** 纯回放（零上报）：核对 actionId + 缓存 + 播放互斥后回放缓存。 */
   canReplay?(actionId: string): boolean;
   replay?(actionId: string): void;

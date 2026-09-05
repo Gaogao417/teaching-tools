@@ -371,6 +371,61 @@ describe("PresentationRuntimeController（queue head / 去重 / outcome 幂等�
     expect(harness.adoptResults).toHaveLength(0); // 迟到响应被丢弃
   });
 
+  it("REVIEW 回归：旧 outcome 响应不得清掉正在执行的新动作（请求身份守卫）", async () => {
+    const voice = fakeAdapter((action) => action.kind === "voice");
+    const geometry = fakeAdapter((action) => action.kind === "workspace" && action.workspace_action?.capability === "geometry.construct");
+    const harness = fakePorts();
+    let releaseResponse: (snapshot: ValidatedSessionSnapshot) => void = () => undefined;
+    harness.ports.reportOutcome = (request) => {
+      harness.requests.push(request);
+      return new Promise((resolve) => { releaseResponse = resolve; });
+    };
+    const controller = makeController([voice, geometry], harness);
+    controller.adopt(snapshotWithVoicePending());
+    voice.resolvePresent(0, { outcome: "presented" });
+    await vi.waitFor(() => expect(harness.requests).toHaveLength(1));
+    // 服务端推进：同会话换键交付 B；A 的 outcome 响应尚未返回。
+    controller.adopt(snapshotWithGeometryPending());
+    await vi.waitFor(() => expect(geometry.presentCalls).toHaveLength(1));
+    expect(harness.states[harness.states.length - 1]).toBe("presenting");
+    // 旧响应（200 committed）到达——不得把 executing B 清成 idle。
+    releaseResponse(validFromRaw(runtimeSnapshotRaw({ revision: 99 })));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.states[harness.states.length - 1]).toBe("presenting");
+    expect(harness.requests).toHaveLength(1); // 旧响应不触发重试
+    // B 正常完成仍可上报（未被旧响应废掉）。
+    geometry.resolvePresent(0, { outcome: "presented" });
+    await vi.waitFor(() => expect(harness.requests).toHaveLength(2));
+    expect(harness.requests[1]).toMatchObject({ actionId: "WSA-bt03-construct-0", outcome: "presented" });
+    controller.dispose();
+  });
+
+  it("REVIEW 回归：旧 outcome 响应 200+turn 冲突/确定性失败同样不得触碰新执行", async () => {
+    const voice = fakeAdapter((action) => action.kind === "voice");
+    const geometry = fakeAdapter((action) => action.kind === "workspace" && action.workspace_action?.capability === "geometry.construct");
+    const harness = fakePorts();
+    const pendingReleases: Array<(value: ValidatedSessionSnapshot | Error) => void> = [];
+    harness.ports.reportOutcome = (request) => {
+      harness.requests.push(request);
+      return new Promise((resolve, reject) => { pendingReleases.push((value) => (value instanceof Error ? reject(value) : resolve(value))); });
+    };
+    const controller = makeController([voice, geometry], harness);
+    controller.adopt(snapshotWithVoicePending());
+    voice.resolvePresent(0, { outcome: "failed", failureClass: "provider_failure", message: "x" });
+    await vi.waitFor(() => expect(pendingReleases).toHaveLength(1));
+    controller.adopt(snapshotWithGeometryPending());
+    await vi.waitFor(() => expect(geometry.presentCalls).toHaveLength(1));
+    // 旧 failed outcome 以 200+turn revision-conflict 返回。
+    pendingReleases[0]!(validFromRaw(runtimeSnapshotRaw({
+      revision: 99,
+      turn: { status: "revision-conflict", failure: { category: "presentation", failure_class: "STALE_REVISION", retryable: true } },
+    })));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(harness.states[harness.states.length - 1]).toBe("presenting");
+    expect(harness.notices).toHaveLength(0); // 陈旧请求的冲突不产生噪音提示
+    controller.dispose();
+  });
+
   it("dispose：abort 执行中 adapter，迟到结果不上报", async () => {
     const voice = fakeAdapter();
     const harness = fakePorts();

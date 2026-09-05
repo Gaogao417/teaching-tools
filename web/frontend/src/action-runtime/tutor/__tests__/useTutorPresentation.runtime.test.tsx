@@ -258,6 +258,32 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
     expect(controls?.source === "canonical" && controls.phase.phase === "paused").toBe(true);
   });
 
+  it("REVIEW 回归：播放期间卸载不得上报 interrupted（先失效执行、再停媒体）", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "presenting");
+    });
+    harness.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
+  });
+
+  it("REVIEW 回归：StrictMode 下播放期间卸载同样不得上报 interrupted", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    harness = mountHarness(client, { strictMode: true });
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "presenting");
+    });
+    harness.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
+  });
+
   it("卸载后迟到 outcome 响应：静默丢弃（不采用、不二次上报）", async () => {
     const { client, mocks } = makeClient();
     mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));

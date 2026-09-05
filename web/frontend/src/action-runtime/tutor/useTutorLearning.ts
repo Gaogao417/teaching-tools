@@ -548,55 +548,59 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     [media],
   );
 
+  // ---- F7 Step 6：唯一 PresentationRuntime（canonical 链；spec §4.7）----
+  // 创建/销毁走 effect（不在渲染期做副作用）。卸载顺序契约：先 dispose
+  // controller 使执行失效——停播引发的 stopped/迟到 adapter 结果被丢弃，
+  // 不误报 interrupted、不改服务端教学流程；再停媒体。StrictMode 的
+  // setup→cleanup→setup 重建实例（快照对象身份守卫随 cleanup 复位以重驱动）。
+  const [presentationPhase, setPresentationPhase] = useState<PresentationRuntimePhase>({ phase: "idle" });
+  const [presentationRuntime, setPresentationRuntime] = useState<TutorPresentationRuntime | undefined>(undefined);
+  const presentationRuntimeRef = useRef<TutorPresentationRuntime | undefined>(undefined);
+  presentationRuntimeRef.current = presentationRuntime;
+  const lastPresentationAdoptedRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
+
+  useEffect(() => {
+    if (!runtimeClient) return;
+    const runtime = createTutorPresentationRuntime({
+      client: runtimeClient,
+      narration,
+      media,
+      adoptOutcomeSnapshot: (snapshot, expectedSessionId) => adoptRuntimeSnapshot(snapshot, expectedSessionId),
+      onProtocolAnomaly: (message) => { setProtocolError(message); },
+      onNotice: (message) => { setRuntimeFailureNotice(message); },
+      onStateChanged: (state) => { setPresentationPhase(state); },
+    });
+    setPresentationRuntime(runtime);
+    return () => {
+      runtime.controller.dispose();
+      setPresentationRuntime(undefined);
+      lastPresentationAdoptedRef.current = undefined;
+    };
+  }, [runtimeClient, narration, media, adoptRuntimeSnapshot]);
+
   useEffect(() => {
     return () => {
+      // 顺序兜底（幂等）：无论 effect 声明序如何，停播前 controller 必已失效。
+      presentationRuntimeRef.current?.controller.dispose();
       narration.stop();
       media.dispose();
     };
   }, [narration, media]);
 
-  // ---- F7 Step 6：唯一 PresentationRuntime（canonical 链；spec §4.7）----
-  // 以 runtimeClient 实例为 scope 创建一次（渲染期创建、零副作用构造）；
-  // StrictMode 的 effect 重放不销毁——去重由 controller 单次执行纪律 +
-  // 快照对象身份守卫共同保证。Voice adapter 复用上方同一 media/narration。
-  const [presentationPhase, setPresentationPhase] = useState<PresentationRuntimePhase>({ phase: "idle" });
-  const presentationRuntimeRef = useRef<{ client: TutorRuntimeClient; runtime: TutorPresentationRuntime } | undefined>(undefined);
-  if (runtimeClient && presentationRuntimeRef.current?.client !== runtimeClient) {
-    presentationRuntimeRef.current?.runtime.controller.dispose();
-    presentationRuntimeRef.current = {
-      client: runtimeClient,
-      runtime: createTutorPresentationRuntime({
-        client: runtimeClient,
-        narration,
-        media,
-        adoptOutcomeSnapshot: (snapshot, expectedSessionId) => adoptRuntimeSnapshot(snapshot, expectedSessionId),
-        onProtocolAnomaly: (message) => { setProtocolError(message); },
-        onNotice: (message) => { setRuntimeFailureNotice(message); },
-        onStateChanged: (state) => { setPresentationPhase(state); },
-      }),
-    };
-  }
-  if (!runtimeClient && presentationRuntimeRef.current !== undefined) {
-    presentationRuntimeRef.current.runtime.controller.dispose();
-    presentationRuntimeRef.current = undefined;
-  }
-
   /** 过渡呈现面的 commit 通知（携带 session+revision；经 VM 注入 Surface）。 */
   const notifyWorkspaceCommitted = useCallback((note: { sessionId: string; revision: number }) => {
-    presentationRuntimeRef.current?.runtime.commitPort.notifyTransitionalCommitted(note);
+    presentationRuntimeRef.current?.commitPort.notifyTransitionalCommitted(note);
   }, []);
 
   // 已采用快照 → PresentationRuntime.adopt（唯一驱动口）。对象身份守卫：同一
   // 快照对象（StrictMode effect 重放）不重复 adopt；新对象由状态机按去重键
   // 分派（单次执行 / 幂等重发 / 暂停规则见 PresentationRuntimeController）。
-  const lastPresentationAdoptedRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
   useEffect(() => {
-    const current = presentationRuntimeRef.current;
-    if (!runtimeClient || !current || !runtimeSnapshot) return;
+    if (!runtimeClient || !presentationRuntime || !runtimeSnapshot) return;
     if (lastPresentationAdoptedRef.current === runtimeSnapshot) return;
     lastPresentationAdoptedRef.current = runtimeSnapshot;
-    current.runtime.controller.adopt(runtimeSnapshot);
-  }, [runtimeClient, runtimeSnapshot]);
+    presentationRuntime.controller.adopt(runtimeSnapshot);
+  }, [runtimeClient, presentationRuntime, runtimeSnapshot]);
 
   // 浏览器阻止自动播放 → 沿用重播提示机制（不新造）。
   useEffect(() => {
@@ -990,7 +994,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  禁用，不再静默放行）。 */
   const bargeIn = useCallback(async () => {
     if (runtimeClient) {
-      presentationRuntimeRef.current?.runtime.controller.interruptCurrent();
+      presentationRuntime?.controller.interruptCurrent();
       return;
     }
     const activeSession = sessionIdRef.current;
@@ -1010,7 +1014,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     if (activeSession && pending) {
       await api.completeTutorVoice(activeSession, pending.action_id, "interrupted").catch(() => null);
     }
-  }, [media, narration, runtimeClient]);
+  }, [media, narration, runtimeClient, presentationRuntime]);
 
   const resumeFromInterrupt = useCallback(() => setInterrupted(false), []);
 
@@ -1206,13 +1210,13 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const replayNarration = useCallback(() => {
     if (runtimeClient) {
       // canonical：纯回放缓存（零上报；actionId + 缓存 + 播放互斥由 adapter 核对）。
-      const controller = presentationRuntimeRef.current?.runtime.controller;
+      const controller = presentationRuntime?.controller;
       const target = controller?.replayTarget();
       if (controller && target !== undefined) controller.replayVoice(target);
       return;
     }
     void narration.replay();
-  }, [narration, runtimeClient]);
+  }, [narration, runtimeClient, presentationRuntime]);
 
   /** canonical Runtime 派生面（spec §4.2：Coach transcript、Participation、
    *  Workspace、completed、active Action 均从单一 snapshot 派生）。 */
@@ -1282,7 +1286,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const playbackControls = useMemo<PlaybackControlsVm | undefined>(() => {
     if (mergedCompleted || operateActive) return undefined;
     if (runtimeClient) {
-      const controller = presentationRuntimeRef.current?.runtime.controller;
+      const controller = presentationRuntime?.controller;
       if (!controller) return undefined;
       const replayActionId = controller.replayTarget();
       return {
@@ -1307,7 +1311,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       reviewPrevious: reviewPreviousNarration,
       reviewFirst: reviewFirstNarration,
     };
-  }, [runtimeClient, runtimeSnapshot, presentationPhase, mergedCompleted, operateActive, presentation, advancePresentation, replayNarration, reviewPreviousNarration, reviewFirstNarration]);
+  }, [runtimeClient, runtimeSnapshot, presentationRuntime, presentationPhase, mergedCompleted, operateActive, presentation, advancePresentation, replayNarration, reviewPreviousNarration, reviewFirstNarration]);
 
   /** Workspace 呈现面。 */
   const workspaceSurface: WorkspaceSurfaceVm = useMemo(

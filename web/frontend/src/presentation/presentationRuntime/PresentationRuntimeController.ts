@@ -173,7 +173,7 @@ export class PresentationRuntimeController {
     execution.abort = new AbortController();
     this.state = { kind: "executing", execution };
     this.publish();
-    const result = await execution.adapter.resume();
+    const result = await execution.adapter.resume(execution.abort.signal);
     this.handleAdapterResult(execution, result);
   }
 
@@ -287,31 +287,33 @@ export class PresentationRuntimeController {
     if (this.disposed || this.outcomeInFlight) return;
     this.outcomeInFlight = true;
     const epoch = this.epoch;
+    /** 请求身份守卫（复验 P1-2）：只有当本请求仍是当前挂起的 outcome token
+     *  时，其响应/异常才允许触碰状态——adopt 换键/释放后到达的旧响应不得
+     *  清掉正在执行的新动作。 */
+    const isLiveOutcome = (): boolean => this.state.kind === "outcome-pending" && this.state.request === request;
     try {
       const snapshot = await this.ports.reportOutcome(request);
       if (this.disposed || epoch !== this.epoch) return; // 迟到响应：保持 token，由新代数重驱动
       const turn = snapshot.turn;
       if (turn !== undefined && turn.status !== "committed") {
         // 应用层确定性失败（200 内 revision-conflict 等）：释放 token，不盲重试。
-        this.ports.onNotice(`呈现回执未被接受（${turn.status}），服务端已推进；请重新同步。`);
-        this.clearOutcomePending();
-        this.setState({ kind: "idle" });
+        if (isLiveOutcome()) {
+          this.ports.onNotice(`呈现回执未被接受（${turn.status}），服务端已推进；请重新同步。`);
+          this.clearOutcomePending();
+          this.setState({ kind: "idle" });
+        }
         return;
       }
-      const adopted = this.ports.adoptOutcomeSnapshot(snapshot, request.sessionId);
-      if (!adopted) {
-        // hook 采用门禁拒绝（如 revision 回退=服务端已推进）：不记 acked，
-        // 释放 token——后续快照/重同步按服务端真源重新驱动。
-        this.clearOutcomePending();
-        this.setState({ kind: "idle" });
-        return;
-      }
+      // 200 committed：服务端已接受该 outcome——acked 按服务端真源记录
+      //（与本地采用门禁是否放行无关）；本地采用仍走同一 hook 门禁。
+      void this.ports.adoptOutcomeSnapshot(snapshot, request.sessionId);
       this.acked = { key: keyOfRequest(request), outcome: request.outcome };
+      if (!isLiveOutcome()) return; // token 已被换键释放：不改写当前执行状态
       this.clearOutcomePending();
       if (request.outcome === "failed") {
         this.setState({
           kind: "paused-failure",
-          key: this.acked.key,
+          key: keyOfRequest(request),
           failureClass: request.failureClass ?? "internal_error",
           ...(request.message !== undefined ? { message: request.message } : {}),
         });
@@ -322,13 +324,17 @@ export class PresentationRuntimeController {
     } catch (failure) {
       if (this.disposed || epoch !== this.epoch) return;
       if (this.ports.isDefinitiveFailure(failure)) {
-        this.ports.onNotice(`呈现回执被拒绝（${failure instanceof Error ? failure.message : String(failure)}）；已停止重试。`);
-        this.clearOutcomePending();
-        this.setState({ kind: "idle" });
-      } else {
-        // 网络/5xx：保留完整请求，同 key 同 payload 待重发（restore 重同步后）。
+        if (isLiveOutcome()) {
+          this.ports.onNotice(`呈现回执被拒绝（${failure instanceof Error ? failure.message : String(failure)}）；已停止重试。`);
+          this.clearOutcomePending();
+          this.setState({ kind: "idle" });
+        }
+        return;
+      }
+      // 网络/5xx：保留完整请求，同 key 同 payload 待重发（restore 重同步后）。
+      if (isLiveOutcome()) {
         this.ports.onNotice("呈现回执网络失败；重新同步后将用同一幂等键重试。");
-        if (this.state.kind === "outcome-pending" && this.state.request === request) this.publish();
+        this.publish();
       }
     } finally {
       this.outcomeInFlight = false;

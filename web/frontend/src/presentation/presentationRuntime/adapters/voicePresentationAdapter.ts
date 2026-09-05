@@ -137,10 +137,13 @@ export function createVoicePresentationAdapter(deps: VoicePresentationAdapterDep
         waiter.dispose();
       }
     },
-    async resume() {
+    async resume(abort: AbortSignal) {
       // 用户手势触发（autoplay 解锁）；只回放缓存，不重新合成。订阅先于
-      // replay 发起——blocked/started 可能在 playUrl 内部就已发射。
+      // replay 发起——blocked/started 可能在 playUrl 内部就已发射。abort 与
+      // present 同语义（打断/销毁 → narration.stop → stopped 事件）。
       const waiter = new GenerationPlaybackWaiter(deps.media, VOICE_WAIT_TIMEOUT_MS);
+      const onAbort = () => deps.narration.stop();
+      abort.addEventListener("abort", onAbort);
       try {
         const generation = await deps.narration.replay();
         if (generation === undefined) {
@@ -149,6 +152,7 @@ export function createVoicePresentationAdapter(deps: VoicePresentationAdapterDep
         waiter.bind(generation);
         return describeCompletion(await waiter.wait());
       } finally {
+        abort.removeEventListener("abort", onAbort);
         waiter.dispose();
       }
     },

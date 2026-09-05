@@ -92,10 +92,25 @@ describe("voicePresentationAdapter（generation 绑定的真实 ended）", () =>
     const presented = adapter.present({ delivery, snapshot, abort: new AbortController().signal });
     await expect(presented).resolves.toEqual({ outcome: "blocked-by-autoplay" });
     expect(media.getState().status).toBe("blocked-by-autoplay");
-    const resume = adapter.resume!();
+    const resume = adapter.resume!(new AbortController().signal);
     await vi.waitFor(() => expect(audio.play).toHaveBeenCalledTimes(2)); // 缓存重播
     audio.onended?.();
     await expect(resume).resolves.toEqual({ outcome: "presented" });
+  });
+
+  it("REVIEW 回归：resume 后打断仍生效（abort → narration.stop → stopped → interrupted；媒体回 idle）", async () => {
+    audio.play.mockRejectedValueOnce(new Error("blocked"));
+    const adapter = createVoicePresentationAdapter({ narration, media });
+    const { snapshot, delivery } = pendingSnapshot();
+    const presented = adapter.present({ delivery, snapshot, abort: new AbortController().signal });
+    await expect(presented).resolves.toEqual({ outcome: "blocked-by-autoplay" });
+    const abort = new AbortController();
+    const resumed = adapter.resume!(abort.signal);
+    await vi.waitFor(() => expect(audio.play).toHaveBeenCalledTimes(2));
+    expect(media.getState().status).toBe("playing");
+    abort.abort();
+    await expect(resumed).resolves.toEqual({ outcome: "interrupted" });
+    expect(media.getState().status).toBe("idle");
   });
 
   it("synthesize 失败 → failed(provider_failure)", async () => {
