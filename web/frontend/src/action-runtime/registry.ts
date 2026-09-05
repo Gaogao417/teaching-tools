@@ -79,10 +79,12 @@ const ACTION_REGISTRY: Record<string, RegistryEntry> = {
 
 export interface ActionMachineRegistry {
   supports(kind: ActionKind | string, version: number): boolean;
+  validate(contract: ActionContract): boolean;
   create(contract: ActionContract): ActionActor;
 }
 
 export const actionMachineRegistry: ActionMachineRegistry = {
+  validate(contract) { return ACTION_REGISTRY[`${contract.kind}@${contract.version}`]?.validate(contract) ?? false; },
   supports(kind, version) { return Boolean(ACTION_REGISTRY[`${kind}@${version}`]); },
   create(contract) {
     const entry = ACTION_REGISTRY[`${contract.kind}@${contract.version}`];

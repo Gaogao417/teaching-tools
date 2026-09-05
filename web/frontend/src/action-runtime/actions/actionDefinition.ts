@@ -45,10 +45,11 @@ export function projectStandardSnapshot<Contract extends ActionContract = Action
   isReady: (context: StandardActionContext<Contract>) => boolean,
   present: (context: StandardActionContext<Contract>) => ActionPresentationProjection,
   commands: (contract: Contract, evidence: ActionEvidence) => DomainCommand[] = () => [],
+  submittedEvidence?: ActionEvidence,
 ): ActionSnapshotView {
   const context = snapshot.context as StandardActionContext<Contract>;
-  const done = snapshot.status === "done";
-  const output = done ? snapshot.output as ActionEvidence | { type: "cancelled" } | undefined : undefined;
+  const done = snapshot.status === "done" || submittedEvidence !== undefined;
+  const output = submittedEvidence ?? (done ? snapshot.output as ActionEvidence | { type: "cancelled" } | undefined : undefined);
   const evidence = output && !("type" in output && output.type === "cancelled")
     ? output as ActionEvidence
     : undefined;

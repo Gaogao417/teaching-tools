@@ -10,6 +10,7 @@
  * 错误映射（404/400/409 v6 行）、ASR observe-only（415/413/422/注入 transcriber）。
  */
 import express from "express";
+import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { db } from "../../../db/database";
@@ -65,6 +66,41 @@ beforeAll(() => {
       resolve();
     });
   });
+});
+
+it("Step 5 真实 HTTP client → golden route：start/restore/呈现/输入/evidence 全链", async () => {
+  // Browser module is loaded by Vitest/Vite, not emitted into the CommonJS
+  // backend build (it reads import.meta.env).
+  const clientModulePath = resolve(__dirname, "../../../../../frontend/src/api/tutorRuntimeClient.ts");
+  const { HttpTutorRuntimeClient } = await import(clientModulePath);
+  const client = new HttpTutorRuntimeClient(baseUrl);
+  expect((await client.availability("goldenMinhangFold2020")).enabled).toBe(true);
+  const input = { taskId: "goldenMinhangFold2020", studentId: "step5-http-client", clientRequestId: "step5-http-start" };
+  let snapshot = await client.start(input);
+  const id = snapshot.session_id;
+  const initialCount = eventCount(id);
+  expect((await client.start(input)).session_id).toBe(id);
+  expect(await client.restore(id)).toEqual(snapshot);
+  expect(eventCount(id)).toBe(initialCount);
+  for (let i = 0; i < 64 && !snapshot.active_action; i++) {
+    const pending = snapshot.pending_presentation;
+    snapshot = pending
+      ? await client.reportPresentationOutcome(id, pending.action_id, { sequenceId: pending.sequence_id, ordinal: pending.ordinal, outcome: "presented", expectedRevision: snapshot.revision, clientRequestId: `step5-present-${i}` })
+      : await client.submitStudentInput(id, snapshot.views.participation.kind === "confirm_input"
+        ? { kind: "control", command: "confirm" }
+        : { kind: "utterance", channel: "mainline", text: "子母型相似，对应边成比例" }, snapshot.revision, `step5-input-${i}`);
+  }
+  expect(snapshot.active_action).toBeDefined();
+  const evidence = { actionId: snapshot.active_action!.action_id, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "9", "seg-DO": "9", "seg-BO": "9", "seg-OE": "9" } };
+  const before = eventCount(id);
+  const wrong = await client.submitActionEvidence(id, { evidence, expectedRevision: snapshot.revision, clientRequestId: "step5-wrong" });
+  expect(wrong.actionSubmission.status).toBe("evidence-rejected");
+  expect(wrong.snapshot.revision).toBe(snapshot.revision);
+  expect(eventCount(id)).toBe(before);
+  const right = await client.submitActionEvidence(id, { evidence: { ...evidence, values: { "seg-AO": "\\frac{16}{5}", "seg-DO": "\\frac{32}{15}", "seg-BO": "\\frac{6}{5}", "seg-OE": "\\frac{4}{5}" } }, expectedRevision: snapshot.revision, clientRequestId: "step5-right" });
+  expect(right.actionSubmission.status).toBe("workspace-committed");
+  expect(right.snapshot.active_action).toBeUndefined();
+  expect(eventCount(id)).toBeGreaterThan(before);
 });
 
 afterAll(async () => {

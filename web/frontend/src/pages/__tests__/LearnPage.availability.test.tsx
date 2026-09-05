@@ -5,7 +5,7 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Outlet, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LearnPage } from "../LearnPage";
@@ -60,6 +60,7 @@ function outletContext(): WorkspaceOutletContext {
 
 let container: HTMLDivElement | undefined;
 let root: Root | undefined;
+let navigate: ReturnType<typeof useNavigate>;
 
 function mount(): void {
   container = document.createElement("div");
@@ -79,6 +80,7 @@ function mount(): void {
 }
 
 function OutletWrapper() {
+  navigate = useNavigate();
   return <Outlet context={outletContext()} />;
 }
 
@@ -105,6 +107,23 @@ afterEach(() => {
 });
 
 describe("LearnPage runtime availability（复核裁定四态）", () => {
+  it("切题后忽略上一题的迟到 availability，不提前启动旧 experience", async () => {
+    let releaseOld!: (value: unknown) => void;
+    let releaseNew!: (value: unknown) => void;
+    availabilityMock.mockReturnValueOnce(new Promise((resolve) => { releaseOld = resolve; }))
+      .mockReturnValueOnce(new Promise((resolve) => { releaseNew = resolve; }));
+    mount();
+    await settle();
+    await act(async () => { navigate("/learn/auxiliaryTwoRatios"); });
+    await settle();
+    await act(async () => { releaseOld({ taskId: "goldenMinhangFold2020", enabled: false, profile: "f7-tutor-runtime-http/v1" }); });
+    await settle();
+    expect(startLearnExperienceMock).not.toHaveBeenCalled();
+    await act(async () => { releaseNew({ taskId: "auxiliaryTwoRatios", enabled: false, profile: "f7-tutor-runtime-http/v1" }); });
+    await settle();
+    expect(startLearnExperienceMock).toHaveBeenCalledTimes(1);
+    expect(startLearnExperienceMock).toHaveBeenCalledWith("auxiliaryTwoRatios", expect.anything());
+  });
   it("探测失败（5xx 网络/协议）→ 显式错误面 + 重试；不启动旧 /experience、不静默回落", async () => {
     availabilityMock.mockRejectedValueOnce(new TutorRuntimeHttpError(503, "MODEL_UNAVAILABLE", "down"));
     availabilityMock.mockResolvedValueOnce({ taskId: "goldenMinhangFold2020", enabled: false, profile: "f7-tutor-runtime-http/v1" });

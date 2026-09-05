@@ -556,7 +556,10 @@ export function createActionPageRuntime(
         setEmphasis(sourceStepId ? deriveTransientEmphasis({ acceptedBoard: { context: ctx, sourceStepId } }) : []);
       }
       pageActor.send({ type: "EVALUATION", result });
-      if (result.outcome === "rejected" || result.outcome === "conflict") mountChild();
+      if (result.outcome === "rejected" && child.getSnapshot().state === "awaitingEvaluation") {
+        handledEvidenceActionId = undefined;
+        child.send({ type: "EVALUATION.REJECTED" });
+      } else if (result.outcome === "rejected" || result.outcome === "conflict") mountChild();
     },
     resetFromPlan(nextPlan) {
       draftToHydrate = undefined;

@@ -460,6 +460,7 @@ describe("Action Runtime v2", () => {
     let stopped = 0;
     const countingRegistry = {
       supports: actionMachineRegistry.supports,
+      validate: actionMachineRegistry.validate,
       create(contract: ExercisePlan["actions"][number]) {
         created += 1;
         const actor = actionMachineRegistry.create(contract);

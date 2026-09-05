@@ -4,6 +4,7 @@ export type ActionRuntimeEvent =
   | { type: "BACK" }
   | { type: "CLEAR" }
   | { type: "SUBMIT" }
+  | { type: "EVALUATION.REJECTED" }
   | { type: "CANCEL" };
 
 export type PageRuntimeEvent =

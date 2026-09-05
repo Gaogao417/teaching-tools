@@ -118,6 +118,14 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     [view.canvas.geometry],
   );
   const submissionKeys = useRef(new Map<string, string>());
+  const pendingSubmissions = useRef(new Set<string>());
+  const currentRuntime = useRef(runtime);
+  currentRuntime.current = runtime;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const completionNotified = useRef(false);
   const trainingCompletionNotified = useRef(false);
   const [internalRailOpen, setInternalRailOpen] = useState(false);
@@ -174,7 +182,9 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     if (snapshot.status !== "submitting") return;
     const sourceStepId = action.sourceStepId;
     const evidence = snapshot.evidence.filter((item) => item.sourceStepId === sourceStepId);
-    const key = `${response.sessionId}:${snapshot.revision}:${sourceStepId}:${evidence.map((item) => item.actionId).join(",")}`;
+    const key = `${response.sessionId}:${snapshot.revision}:${sourceStepId}:${JSON.stringify(evidence)}`;
+    if (pendingSubmissions.current.has(key)) return;
+    pendingSubmissions.current.add(key);
     const idempotencyKey = submissionKeys.current.get(key) || crypto.randomUUID();
     submissionKeys.current.set(key, idempotencyKey);
     const request = {
@@ -189,11 +199,12 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
       ? () => transport.submitEvidence(request)
       : () => api.evaluateAction(request);
     void submit().then(async (result) => {
+      if (!mounted.current || currentRuntime.current !== runtime) return;
       runtime.applyEvaluation(result);
       await onEvaluation?.(result);
     }).catch(() => {
-      runtime.markTransportFailure();
-    });
+      if (mounted.current && currentRuntime.current === runtime) runtime.markTransportFailure();
+    }).finally(() => pendingSubmissions.current.delete(key));
   }, [local, snapshot.status, snapshot.currentActionId, snapshot.revision, snapshot.evidence, response.sessionId, transport, onEvaluation]);
 
   useEffect(() => {

@@ -163,7 +163,7 @@ export type WorkspaceSurfaceVm =
 /** ActionRuntimeFrame 绑定（canonical：actor-first 采用 + 禁 Frame 私有 legacy 媒体）。 */
 export interface ActiveActionFrameVm {
   transport: ActionRuntimeTransport;
-  onEvaluation?: () => void;
+  onEvaluation?: (result: ActionEvaluationResponse) => void;
   viewRevision?: number;
   boardView?: SolutionBoardView;
   /** 外部 Tutor runtime 拥有媒体/coach 时为 true：Frame 不得创建/调用 legacy
@@ -245,6 +245,14 @@ function sameIdSet(left: readonly string[], right: readonly string[]): boolean {
   return left.every((id) => rightSet.has(id));
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 /**
  * active_action 派生（adopt 时校验 + 渲染时同源派生，零 cast）。spec §1.3 #8/#9
  * 前端侧全量 fail closed：
@@ -253,8 +261,8 @@ function sameIdSet(left: readonly string[], right: readonly string[]): boolean {
  * - `student_view` 过 action machine registry（kind/version 可执行）且 actionId 一致；
  * - participation=workspace_input 时与 Coach awaiting_workspace 的 action_id/gate_id 对账；
  * - plan.world.revision 与 render.workspace_revision 对账；world.geometry 与 render
- *   geometry 的点/段 id 集合一致（同源合成，spec §1.3 #9「ActionPlan geometry 与
- *   render geometry 一致」）。
+ *   geometry 内容一致（点/段 id + 坐标 + 端点深度相等——同源合成，spec §1.3 #9
+ *   「ActionPlan geometry 与 render geometry 一致」；缺 geometry fail closed）。
  * 任一失败 → 快照整体拒绝采用（原子采用纪律），非「不挂载但采用」。
  */
 function deriveRuntimeActiveOperation(snapshot: ValidatedSessionSnapshot):
@@ -284,7 +292,14 @@ function deriveRuntimeActiveOperation(snapshot: ValidatedSessionSnapshot):
   if (!actionMachineRegistry.supports(studentView["kind"], studentView["version"])) {
     return { ok: false, reason: `active_action.student_view（kind=${studentView["kind"]}, version=${String(studentView["version"])}）无已注册 action machine` };
   }
+  const contract = active.action_plan.actions.find((action) => action.actionId === active.action_plan.currentActionId);
+  if (!contract || contract.actionId !== active.action_id || contract.kind !== studentView.kind
+    || contract.version !== studentView.version || !actionMachineRegistry.validate(contract)
+    || stableJson(contract.input) !== stableJson(studentView.input)) {
+    return { ok: false, reason: "student_view 与当前 ActionContract/input 不一致或 input 非法" };
+  }
   const mainline = snapshot.views.coach_panel_view.mainline;
+  if (mainline.kind !== "awaiting_workspace") return { ok: false, reason: "active_action 必须对应 Coach awaiting_workspace" };
   if (mainline.kind === "awaiting_workspace") {
     if (mainline.action_id !== active.action_id) {
       return { ok: false, reason: `Coach awaiting_workspace.action_id ${mainline.action_id} ≠ active_action.action_id ${active.action_id}` };
@@ -297,6 +312,9 @@ function deriveRuntimeActiveOperation(snapshot: ValidatedSessionSnapshot):
   if (active.action_plan.world.revision !== snapshot.render.workspace_revision) {
     return { ok: false, reason: `plan.world.revision ${active.action_plan.world.revision} ≠ render.workspace_revision ${snapshot.render.workspace_revision}` };
   }
+  if (active.action_plan.world.geometry === undefined || snapshot.render.geometry === null) {
+    return { ok: false, reason: "active_action 缺 geometry" };
+  }
   if (active.action_plan.world.geometry !== undefined && snapshot.render.geometry !== null) {
     const planGeometry = active.action_plan.world.geometry;
     if (
@@ -304,6 +322,9 @@ function deriveRuntimeActiveOperation(snapshot: ValidatedSessionSnapshot):
       || !sameIdSet(planGeometry.segments.map((segment) => segment.id), renderGeometrySegmentIds(snapshot.render.geometry))
     ) {
       return { ok: false, reason: "plan.world.geometry 与 render geometry 的点/段 id 集合不一致" };
+    }
+    if (stableJson(planGeometry) !== stableJson(snapshot.render.geometry)) {
+      return { ok: false, reason: "plan.world.geometry 与 render geometry 内容不一致" };
     }
   }
   return { ok: true, operation: { actionId: active.action_id, plan: active.action_plan } };
@@ -329,6 +350,17 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   /** evidence 系统失败的瞬时提示（非 committed turn 失败——那类随快照 turn 派生）。 */
   const [runtimeFailureNotice, setRuntimeFailureNotice] = useState<string | undefined>();
   const runtimeSnapshotRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
+  const runtimeEpochRef = useRef(0);
+  const runtimeScopeRef = useRef({ taskId, studentId, runtimeClient });
+  if (runtimeScopeRef.current.taskId !== taskId || runtimeScopeRef.current.studentId !== studentId || runtimeScopeRef.current.runtimeClient !== runtimeClient) {
+    runtimeScopeRef.current = { taskId, studentId, runtimeClient };
+    runtimeEpochRef.current += 1;
+  }
+  const runtimeMountedRef = useRef(true);
+  useEffect(() => {
+    runtimeMountedRef.current = true;
+    return () => { runtimeMountedRef.current = false; };
+  }, []);
   /** start 幂等键：同一挂载生命周期的重试复用同键（payload 相同 → Existing 回放）。 */
   const runtimeStartKeyRef = useRef<string | undefined>(undefined);
 
@@ -336,7 +368,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  创建 key；同 payload 重试复用同 key（网络断开时服务端可能已提交——同键
    *  幂等回放，不产生第二份事实）；只有确定响应（成功 / 4xx 含 drift）才释放。
    *  adapter 只传输 key，不决定其生命周期。 */
-  interface PendingRuntimeInput { input: StudentBrowserInput; clientRequestId: string }
+  interface PendingRuntimeInput { input: StudentBrowserInput; clientRequestId: string; sessionId: string; revision: number }
   const pendingInputRef = useRef<PendingRuntimeInput | undefined>(undefined);
 
   /** actor-first 暂存的 evidence 采用记录（复核 P0-5）：绑定提交身份，consume-once，
@@ -349,12 +381,20 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     baseSessionRevision: number;
     baseActionRevision: number;
     snapshot: ValidatedSessionSnapshot;
+    evaluation: ActionEvaluationResponse;
   }
   const pendingEvaluationRef = useRef<PendingEvaluationAdoption | undefined>(undefined);
   /** 最近一次 evidence 提交（迟到旧响应不得覆盖新提交的暂存）。 */
   const lastEvidenceSubmissionRef = useRef<{ clientRequestId: string } | undefined>(undefined);
 
-  const adoptRuntimeSnapshot = useCallback((snapshot: ValidatedSessionSnapshot): boolean => {
+  const adoptRuntimeSnapshot = useCallback((snapshot: ValidatedSessionSnapshot, expectedSessionId?: string, epoch = runtimeEpochRef.current): boolean => {
+    if (!runtimeMountedRef.current || epoch !== runtimeEpochRef.current) return false;
+    if (expectedSessionId && snapshot.session_id !== expectedSessionId) {
+      setProtocolError("响应 session_id 与请求不一致（fail closed）");
+      return false;
+    }
+    const previous = runtimeSnapshotRef.current;
+    if (previous?.session_id === snapshot.session_id && snapshot.revision < previous.revision) return false;
     if (snapshot.task_id !== taskId) {
       setProtocolError(`快照 task_id=${snapshot.task_id} 与会话任务 ${taskId} 不一致（fail closed）`);
       return false;
@@ -366,6 +406,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     }
     runtimeSnapshotRef.current = snapshot;
     setProtocolError(undefined);
+    setError(undefined);
     setRuntimeFailureNotice(undefined);
     setRuntimeSnapshot(snapshot);
     setSessionId(snapshot.session_id);
@@ -395,40 +436,51 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     const current = runtimeSnapshotRef.current;
     if (!current) return;
     const pending = pendingInputRef.current;
-    const clientRequestId = pending && sameBrowserInput(pending.input, input)
+    const retry = pending && pending.sessionId === current.session_id && sameBrowserInput(pending.input, input);
+    if (pending && !retry) {
+      setProtocolError("上一输入结果尚未确认，请重试原输入并恢复同步");
+      return;
+    }
+    const clientRequestId = retry
       ? pending.clientRequestId
       : newRuntimeRequestId();
-    pendingInputRef.current = { input, clientRequestId };
+    const operation = retry ? pending : { input, clientRequestId, sessionId: current.session_id, revision: current.revision };
+    pendingInputRef.current = operation;
+    const epoch = runtimeEpochRef.current;
     setTurnPending(true);
     try {
-      adoptRuntimeSnapshot(await runtimeClient.submitStudentInput(current.session_id, input, current.revision, clientRequestId));
-      pendingInputRef.current = undefined;
+      const response = await runtimeClient.submitStudentInput(operation.sessionId, operation.input, operation.revision, clientRequestId);
+      if (adoptRuntimeSnapshot(response, operation.sessionId, epoch) && pendingInputRef.current === operation) pendingInputRef.current = undefined;
     } catch (turnError) {
-      if (isDefinitiveInputFailure(turnError)) pendingInputRef.current = undefined;
+      if (epoch !== runtimeEpochRef.current) return;
+      if (isDefinitiveInputFailure(turnError) && pendingInputRef.current === operation) pendingInputRef.current = undefined;
       handleRuntimeError(turnError);
     } finally {
-      setTurnPending(false);
+      if (runtimeMountedRef.current && epoch === runtimeEpochRef.current) setTurnPending(false);
     }
   }, [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError]);
 
   /** actor 消费 evaluation 后的原子采用（spec §4.6 第 5 步；组件经 onEvaluation
    *  回调触发）。consume-once；拒绝旧 session 与迟到（低 revision）响应。 */
-  const adoptPendingEvaluationSnapshot = useCallback(() => {
+  const adoptPendingEvaluationSnapshot = useCallback((evaluation?: ActionEvaluationResponse) => {
     const pending = pendingEvaluationRef.current;
     if (!pending) return;
+    if (evaluation && evaluation !== pending.evaluation) return;
     pendingEvaluationRef.current = undefined;
     const current = runtimeSnapshotRef.current;
     if (!current || current.session_id !== pending.sessionId) return;
+    if (current.active_action?.action_id !== pending.actionId || current.revision !== pending.baseSessionRevision) return;
     if (pending.snapshot.revision < current.revision) return;
-    adoptRuntimeSnapshot(pending.snapshot);
+    adoptRuntimeSnapshot(pending.snapshot, pending.sessionId);
   }, [adoptRuntimeSnapshot]);
 
   /** protocol error 的显式恢复：GET restore 重新对账（零教学副作用）。 */
   const retrySync = useCallback(async (): Promise<void> => {
     const current = runtimeSnapshotRef.current;
     if (!runtimeClient || !current) return;
+    const epoch = runtimeEpochRef.current;
     try {
-      adoptRuntimeSnapshot(await runtimeClient.restore(current.session_id));
+      adoptRuntimeSnapshot(await runtimeClient.restore(current.session_id), current.session_id, epoch);
     } catch (failure) {
       handleRuntimeError(failure);
     }
@@ -801,6 +853,13 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
           const current = runtimeSnapshotRef.current;
           if (!current) throw new Error("runtime 会话未启动");
           const evidence = request.evidence[request.evidence.length - 1];
+          const active = current.active_action;
+          if (!evidence || request.sessionId !== current.session_id || !active || evidence.actionId !== active.action_id
+            || !isExercisePlan(active.action_plan) || request.exerciseId !== active.action_plan.exerciseId
+            || evidence.sourceStepId !== active.action_plan.actions.find((action) => action.actionId === active.action_id)?.sourceStepId) {
+            throw new ProtocolParseError(["evidence 请求与当前 session/action 不匹配"]);
+          }
+          const epoch = runtimeEpochRef.current;
           const values: Record<string, string> = "values" in evidence && evidence.values !== undefined
             ? evidence.values
             : {};
@@ -819,12 +878,24 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
             clientRequestId,
           });
           const submission = result.actionSubmission;
+          const latest = runtimeSnapshotRef.current;
+          if (!runtimeMountedRef.current || epoch !== runtimeEpochRef.current || latest?.session_id !== current.session_id
+            || latest.active_action?.action_id !== evidence.actionId || latest.revision !== current.revision
+            || lastEvidenceSubmissionRef.current?.clientRequestId !== clientRequestId) {
+            throw new ProtocolParseError(["过期的 evidence 响应，禁止评价当前 actor"]);
+          }
+          const nextOperation = deriveRuntimeActiveOperation(result.snapshot);
+          if (result.snapshot.session_id !== current.session_id || result.snapshot.task_id !== taskId
+            || result.snapshot.revision < current.revision || !nextOperation.ok) {
+            throw new ProtocolParseError(["evidence 响应快照不一致，禁止部分采用"]);
+          }
           if (submission.status === "evidence-rejected" || submission.status === "workspace-committed") {
             if (!isActionEvaluationResponse(submission.evaluation)) {
               throw new ProtocolParseError(["action_submission.evaluation 未通过 ActionEvaluationResponse runtime 校验"]);
             }
             // actor-first（spec §4.6）：snapshot 暂存（绑定提交身份），等 actor 消费
             // evaluation 后由组件 onEvaluation 回调原子采用；迟到旧响应不得覆盖。
+            const evaluation = { ...submission.evaluation, revision: submission.status === "evidence-rejected" ? request.revision : result.snapshot.render.workspace_revision };
             if (lastEvidenceSubmissionRef.current?.clientRequestId === clientRequestId) {
               pendingEvaluationRef.current = {
                 idempotencyKey: clientRequestId,
@@ -834,16 +905,14 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
                 baseSessionRevision: current.revision,
                 baseActionRevision: request.revision,
                 snapshot: result.snapshot,
+                evaluation,
               };
             }
             // evaluation.revision 语义（复核 P0-4）：ActionRuntime/plan-world revision
             // 域——rejected 零事件 ⇒ actor 基线不变（request.revision）；committed ⇒
             // 服务端权威 workspace revision。session revision 不得直入 actor
             //（后端产正确 revision 登记为后续合同波裁定）。
-            const authoritativeRevision = submission.status === "evidence-rejected"
-              ? request.revision
-              : result.snapshot.render.workspace_revision;
-            return { ...submission.evaluation, revision: authoritativeRevision };
+            return evaluation;
           }
           // 三类 system failure（revision-conflict/command-rejected/runtime-failure）：
           // 结构上禁 evaluation——不采用 snapshot、不评价，仅呈现可恢复失败。
@@ -864,7 +933,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         return turn.action_evaluation;
       },
     }),
-    [consumeTurn, runtimeClient],
+    [consumeTurn, runtimeClient, taskId],
   );
 
   /** barge-in：立即停播并上报 interrupted（目标 <150ms 停止播放）。
@@ -934,13 +1003,14 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       setProtocolError(undefined);
       setBootstrapPending(true);
       if (runtimeClient) {
+        const epoch = ++runtimeEpochRef.current;
         try {
           runtimeStartKeyRef.current ??= newRuntimeRequestId();
           adoptRuntimeSnapshot(await runtimeClient.start({
             taskId,
             studentId,
             clientRequestId: runtimeStartKeyRef.current,
-          }));
+          }), undefined, epoch);
         } catch (startError) {
           handleRuntimeError(startError);
         } finally {
@@ -981,9 +1051,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     setBootstrapPending(true);
     setInterrupted(false);
     if (runtimeClient) {
+      const epoch = ++runtimeEpochRef.current;
       try {
-        adoptRuntimeSnapshot(await runtimeClient.restore(targetSessionId));
-        return "restored";
+        return adoptRuntimeSnapshot(await runtimeClient.restore(targetSessionId), targetSessionId, epoch) ? "restored" : "invalid";
       } catch (restoreError) {
         if (restoreError instanceof ProtocolParseError) {
           setProtocolError(restoreError.message);

@@ -33,7 +33,7 @@ let client: HttpTutorRuntimeClient;
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
-  client = new HttpTutorRuntimeClient();
+  client = new HttpTutorRuntimeClient("");
 });
 
 afterEach(() => {
@@ -234,9 +234,25 @@ describe("TutorRuntimeClient HTTP adapter", () => {
   });
 
   it("workspace-commands：canonical 命令 session_id 与路径不符 → 客户端即拒", async () => {
+    const command = {
+      schema: "ai_teaching_student_workspace_command/v1", session_id: "TS-99000999",
+      command_id: "SC-test-0001", origin: "student", surface: "geometry",
+      capability: "similarity.mark-known-segments", target_ids: ["seg-AO"],
+      expected_workspace_revision: 3, client_command_id: "req-command-0001",
+    };
     await expect(
-      client.submitWorkspaceCommand(RUNTIME_SESSION_ID, { session_id: "TS-99000999", command_id: "SC-0001" }, 12),
-    ).rejects.toBeInstanceOf(TutorRuntimeRequestError);
+      client.submitWorkspaceCommand(RUNTIME_SESSION_ID, command, 12),
+    ).rejects.toThrow("does not match path session");
     expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValue(jsonResponse(200, runtimeSnapshotRaw()));
+    await client.submitWorkspaceCommand(RUNTIME_SESSION_ID, { ...command, session_id: RUNTIME_SESSION_ID }, 12);
+    expect(await requestBody(0)).toEqual({ command: { ...command, session_id: RUNTIME_SESSION_ID }, expected_revision: 12 });
+  });
+
+  it("使用配置的后端 origin；非 JSON 2xx 归类为协议错误", async () => {
+    client = new HttpTutorRuntimeClient("http://127.0.0.1:43123/");
+    fetchMock.mockResolvedValue(new Response("<html>frontend</html>", { status: 200 }));
+    await expect(client.restore(RUNTIME_SESSION_ID)).rejects.toBeInstanceOf(ProtocolParseError);
+    expect(fetchMock.mock.calls[0][0]).toBe(`http://127.0.0.1:43123/api/vnext/tutor-sessions/${RUNTIME_SESSION_ID}`);
   });
 });

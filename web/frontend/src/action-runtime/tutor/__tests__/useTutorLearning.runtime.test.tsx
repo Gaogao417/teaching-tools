@@ -150,13 +150,13 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
     expect(harness.tutor().runtimeTurnFailure).toBeUndefined();
   });
 
-  it("transport actor-first：evidence-rejected 返回真实 evaluation 且 snapshot 未采用；adoptPendingEvaluationSnapshot 才采用；wrong 后 actor 身份保留", async () => {
+  it("transport 暂存拒绝回执，callback 后采用；plan 身份稳定（真实 actor 见 Frame acceptance）", async () => {
     const { client, mocks } = makeClient();
     mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "workspace_input", revision: 30 }));
-    const nextSnapshot = validRuntimeSnapshot({ participationKind: "workspace_input", revision: 31 });
+    const nextSnapshot = validRuntimeSnapshot({ participationKind: "workspace_input", revision: 30 });
     mocks.submitActionEvidence.mockResolvedValue({
       snapshot: nextSnapshot,
-      actionSubmission: { revision: 31, status: "evidence-rejected", evaluation: rejectedEvaluation() },
+      actionSubmission: { revision: 30, status: "evidence-rejected", evaluation: rejectedEvaluation() },
     });
     harness = mountHarness(client);
     await act(async () => { await harness.tutor().start(); });
@@ -173,7 +173,7 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
     });
     expect(evaluation?.evaluation).toBe("wrong");
     // P0-4：rejected 零事件 ⇒ evaluation.revision = actor 基线 revision（请求
-    // 时的 plan/world revision），session revision（31）不得直入 actor。
+    // 时的 plan/world revision），session revision（30）不得直入 actor。
     expect(evaluation?.revision).toBe(3);
     expect(mocks.submitActionEvidence).toHaveBeenCalledWith(RUNTIME_SESSION_ID, expect.objectContaining({
       expectedRevision: 30,
@@ -182,7 +182,7 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
     // actor 尚未消费 evaluation：快照停留在旧 revision（先评价后采用，spec §4.6）。
     expect(harness.tutor().runtimeSnapshot?.revision).toBe(30);
     await act(async () => { harness.tutor().adoptPendingEvaluationSnapshot(); });
-    expect(harness.tutor().runtimeSnapshot?.revision).toBe(31);
+    expect(harness.tutor().runtimeSnapshot?.revision).toBe(30);
     // P0-5：wrong 后同一 actor 保留——active_action 的 actionId 与 plan revision
     //（useActionPageRuntime 以 plan.exerciseId+plan.revision 重建 runtime）不变。
     const after = harness.tutor();
@@ -208,10 +208,10 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
     await act(async () => {
       evaluation = await harness.tutor().transport.submitEvidence({
         sessionId: RUNTIME_SESSION_ID,
-        exerciseId: "e",
+        exerciseId: runtimeActionPlan().exerciseId,
         sourceStepId: "BT-04",
         revision: 3,
-        evidence: [{ actionId: "a", sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: {} } as never],
+        evidence: [{ actionId: runtimeActionPlan().currentActionId, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: {} }],
         idempotencyKey: "idem-evidence-0003",
       });
     });
@@ -233,8 +233,8 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
     await act(async () => { await harness.tutor().start(); });
     await act(async () => {
       await harness.tutor().transport.submitEvidence({
-        sessionId: RUNTIME_SESSION_ID, exerciseId: "e", sourceStepId: "BT-04", revision: 3,
-        evidence: [{ actionId: "a", sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: {} } as never],
+        sessionId: RUNTIME_SESSION_ID, exerciseId: runtimeActionPlan().exerciseId, sourceStepId: "BT-04", revision: 3,
+        evidence: [{ actionId: runtimeActionPlan().currentActionId, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: {} }],
         idempotencyKey: "idem-late-0001",
       });
     });
@@ -266,10 +266,10 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
     await act(async () => {
       failure = await harness.tutor().transport.submitEvidence({
         sessionId: RUNTIME_SESSION_ID,
-        exerciseId: "e",
+        exerciseId: runtimeActionPlan().exerciseId,
         sourceStepId: "BT-04",
         revision: 30,
-        evidence: [{ actionId: "a", sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: {} } as never],
+        evidence: [{ actionId: runtimeActionPlan().currentActionId, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: {} }],
         idempotencyKey: "idem-evidence-0002",
       }).catch((error: unknown) => error);
     });
@@ -413,5 +413,81 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
     expect(harness.tutor().runtimeSnapshot?.revision).toBe(12);
     await act(async () => { await harness.tutor().retrySync(); });
     expect(harness.tutor().protocolError).toBeUndefined();
+  });
+
+  it("restore 乱序与错误 session：旧响应不得回退，新 session 不得串入", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ revision: 12 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    let release!: (snapshot: ReturnType<typeof validRuntimeSnapshot>) => void;
+    mocks.restore.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    let old!: Promise<void>;
+    await act(async () => { old = harness.tutor().retrySync(); });
+    mocks.restore.mockResolvedValueOnce(validRuntimeSnapshot({ revision: 14 }));
+    await act(async () => { await harness.tutor().retrySync(); });
+    await act(async () => { release(validRuntimeSnapshot({ revision: 13 })); await old; });
+    expect(harness.tutor().runtimeSnapshot?.revision).toBe(14);
+    const other = validRuntimeSnapshot({ revision: 15 });
+    other.session_id = "TS-99000999";
+    mocks.restore.mockResolvedValueOnce(other);
+    await act(async () => { await harness.tutor().retrySync(); });
+    expect(harness.tutor().runtimeSnapshot?.session_id).toBe(RUNTIME_SESSION_ID);
+    expect(harness.tutor().protocolError).toContain("session_id");
+  });
+
+  it("网络断开后 restore 改变 revision，原输入重试保持完整请求不变", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 12 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    mocks.submitStudentInput.mockRejectedValueOnce(new TypeError("connection lost"));
+    await act(async () => { await harness.tutor().submitUtterance("mainline", "答"); });
+    mocks.restore.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 13 }));
+    await act(async () => { await harness.tutor().retrySync(); });
+    mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 13 }));
+    await act(async () => { await harness.tutor().submitUtterance("mainline", "答"); });
+    expect(mocks.submitStudentInput.mock.calls[1]).toEqual(mocks.submitStudentInput.mock.calls[0]);
+  });
+
+  it.each(["coordinate", "endpoint", "missing-geometry", "input"])("active action %s 损坏保留最后合法快照", async (fault) => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "workspace_input", revision: 30 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    const plan = runtimeActionPlan();
+    if (fault === "coordinate") plan.world.geometry!.points[0].x += 10;
+    if (fault === "endpoint") plan.world.geometry!.segments[0].from = "B";
+    if (fault === "missing-geometry") delete plan.world.geometry;
+    if (fault === "input") plan.actions[0].input = {} as typeof plan.actions[0]["input"];
+    mocks.restore.mockResolvedValue(validRuntimeSnapshot({ participationKind: "workspace_input", revision: 31, actionPlanOverride: plan }));
+    await act(async () => { await harness.tutor().retrySync(); });
+    expect(harness.tutor().protocolError).toBeDefined();
+    expect(harness.tutor().runtimeSnapshot?.revision).toBe(30);
+  });
+
+  it("网络中的旧 evidence 响应在 restore 后拒绝，不向 actor 返回 evaluation", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "workspace_input", revision: 30 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    let release!: (value: unknown) => void;
+    mocks.submitActionEvidence.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    let pending!: Promise<unknown>;
+    await act(async () => {
+      pending = harness.tutor().transport.submitEvidence({ sessionId: RUNTIME_SESSION_ID, exerciseId: runtimeActionPlan().exerciseId, sourceStepId: "BT-04", revision: 3,
+        evidence: [{ actionId: runtimeActionPlan().currentActionId, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: {} }], idempotencyKey: "late-network-0001" }).catch((error: unknown) => error);
+    });
+    mocks.restore.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 32 }));
+    await act(async () => { await harness.tutor().retrySync(); });
+    let outcome: unknown;
+    await act(async () => {
+      release({ snapshot: validRuntimeSnapshot({ participationKind: "workspace_input", revision: 30 }), actionSubmission: { status: "evidence-rejected", revision: 30, evaluation: rejectedEvaluation() } });
+      outcome = await pending;
+    });
+    expect(outcome).toBeInstanceOf(ProtocolParseError);
+    expect(harness.tutor().runtimeSnapshot?.revision).toBe(32);
+    harness.tutor().adoptPendingEvaluationSnapshot();
+    expect(harness.tutor().runtimeSnapshot?.revision).toBe(32);
   });
 });

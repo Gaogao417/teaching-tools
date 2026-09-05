@@ -177,22 +177,28 @@ export interface TutorRuntimeClient {
 }
 
 export class HttpTutorRuntimeClient implements TutorRuntimeClient {
+  constructor(private readonly baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001") {}
   /** 迁移期 HTTP namespace（spec §0 裁决 1）——只存在于本 adapter。 */
   private static readonly API_ROOT = "/api/vnext";
 
-  private static parseSnapshot(payload: unknown): ValidatedSessionSnapshot {
+  private static parseSnapshot(payload: unknown, expectedSessionId?: string): ValidatedSessionSnapshot {
     const result = parseSessionSnapshotHttp(payload);
     if (!result.ok) throw new ProtocolParseError(result.errors);
+    if (expectedSessionId && result.snapshot.session_id !== expectedSessionId) throw new ProtocolParseError(["响应 session_id 与请求不一致"]);
     return result.snapshot;
   }
 
   private async request(path: string, init?: RequestInit): Promise<unknown> {
-    const response = await fetch(`${HttpTutorRuntimeClient.API_ROOT}${path}`, {
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${HttpTutorRuntimeClient.API_ROOT}${path}`, {
       ...init,
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
     if (!response.ok) throw await readHttpError(response);
-    return response.json();
+    try {
+      return await response.json();
+    } catch {
+      throw new ProtocolParseError(["成功响应不是合法 JSON"]);
+    }
   }
 
   private post(path: string, body: unknown): Promise<unknown> {
@@ -228,7 +234,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
   }
 
   async restore(sessionId: string): Promise<ValidatedSessionSnapshot> {
-    return HttpTutorRuntimeClient.parseSnapshot(await this.request(`/tutor-sessions/${encodeURIComponent(sessionId)}`));
+    return HttpTutorRuntimeClient.parseSnapshot(await this.request(`/tutor-sessions/${encodeURIComponent(sessionId)}`), sessionId);
   }
 
   async submitStudentInput(
@@ -244,6 +250,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     });
     return HttpTutorRuntimeClient.parseSnapshot(
       await this.post(`/tutor-sessions/${encodeURIComponent(sessionId)}/student-inputs`, body),
+      sessionId,
     );
   }
 
@@ -267,6 +274,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     if (!parsed.ok) {
       throw new ProtocolParseError(parsed.errors);
     }
+    if (parsed.snapshot.session_id !== sessionId) throw new ProtocolParseError(["响应 session_id 与请求不一致"]);
     return { snapshot: parsed.snapshot, actionSubmission: parsed.submission };
   }
 
@@ -293,6 +301,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     });
     return HttpTutorRuntimeClient.parseSnapshot(
       await this.post(`/tutor-sessions/${encodeURIComponent(sessionId)}/workspace-commands`, body),
+      sessionId,
     );
   }
 
@@ -323,6 +332,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
         `/tutor-sessions/${encodeURIComponent(sessionId)}/presentation-actions/${encodeURIComponent(actionId)}/outcomes`,
         body,
       ),
+      sessionId,
     );
   }
 

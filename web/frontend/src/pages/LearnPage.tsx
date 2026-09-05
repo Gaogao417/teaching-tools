@@ -81,7 +81,9 @@ export function LearnPage() {
   const acceptanceMode = searchParams.get("acceptance") === "1";
   const { focusedTask, setFocusedTaskId, studentName } = useOutletContext<WorkspaceOutletContext>();
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("pending");
-  const [runtimeAvailability, setRuntimeAvailability] = useState<RuntimeAvailability>("pending");
+  const [availabilityState, setRuntimeAvailability] = useState<RuntimeAvailability>("pending");
+  const [availabilityTaskId, setAvailabilityTaskId] = useState<string>();
+  const runtimeAvailability = availabilityTaskId === taskId ? availabilityState : "pending";
   const [availabilityError, setAvailabilityError] = useState<string | undefined>();
   const [availabilityNonce, setAvailabilityNonce] = useState(0);
   const availabilityAskedRef = useRef("");
@@ -126,11 +128,16 @@ export function LearnPage() {
   //  只选择 client，不选择页面/UI 模式）。未裁定前不启动旧 /experience
   //  （避免建旧会话与 canonical 并存的双会话竞态）。
   useEffect(() => {
-    if (!taskId || availabilityAskedRef.current === taskId) return;
+    if (!taskId) return;
+    let cancelled = false;
+    setAvailabilityTaskId(taskId);
+    setRuntimeAvailability("pending");
+    setAvailabilityError(undefined);
     availabilityAskedRef.current = taskId;
     tutorRuntimeHttp.availability(taskId)
-      .then((result) => setRuntimeAvailability(result.enabled ? "yes" : "no"))
+      .then((result) => { if (!cancelled) setRuntimeAvailability(result.enabled ? "yes" : "no"); })
       .catch((failure: unknown) => {
+        if (cancelled) return;
         // 404 = /api/vnext 未挂载（部署级迁移关闭）→ 按 route policy 进 legacy；
         // 其余失败（网络/5xx/协议漂移）显式错误，不静默回落（spec §2.2）。
         if (failure instanceof TutorRuntimeHttpError && failure.status === 404) {
@@ -140,6 +147,7 @@ export function LearnPage() {
         setAvailabilityError(failure instanceof Error ? failure.message : String(failure));
         setRuntimeAvailability("error");
       });
+    return () => { cancelled = true; };
   }, [taskId, availabilityNonce]);
 
   useEffect(() => {

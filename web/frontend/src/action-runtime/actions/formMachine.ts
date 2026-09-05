@@ -101,10 +101,11 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
               "ANSWER.CHANGED": { actions: "changeAnswer" },
               BACK: { actions: "back" },
               CLEAR: { actions: "clear" },
-              SUBMIT: [{ guard: "canComplete", target: "completed" }, { guard: "structurallyReady", actions: "diagnose" }],
+              SUBMIT: [{ guard: "canComplete", target: contract.validationPolicy === "server-authoritative" ? "awaitingEvaluation" : "completed" }, { guard: "structurallyReady", actions: "diagnose" }],
               CANCEL: "cancelled",
             },
           },
+          awaitingEvaluation: { on: { "EVALUATION.REJECTED": "editing" } },
           completed: { type: "final" },
           cancelled: { type: "final" },
         },
@@ -112,6 +113,8 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
       }) as AnyStateMachine;
     },
     project(snapshot: SnapshotFrom<AnyStateMachine>) {
+      // Submission exposes evidence, but keeps the same actor alive for server
+      // rejection. Its selected objects, answers and undo history remain intact.
       return projectStandardSnapshot(
         snapshot,
         (context) => behavior.structurallyReady(context as FormMachineContext<Contract>),
@@ -150,6 +153,7 @@ export function createFormMachineDefinition<Contract extends ActionContract>(
           };
         },
         behavior.commands,
+        snapshot.value === "awaitingEvaluation" ? behavior.evidence(snapshot.context as FormMachineContext<Contract>) : undefined,
       );
     },
     commands: behavior.commands || (() => []),

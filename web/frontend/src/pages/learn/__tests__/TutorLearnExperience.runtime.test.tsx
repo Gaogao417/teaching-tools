@@ -5,7 +5,7 @@
  * active_action 挂载 ActionRuntimeFrame（pending 呈现期间不挂载）、协议错误
  * 呈现（保留最后合法快照 + 重新同步）、turn failure 提示。
  */
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,12 +41,14 @@ let root: Root | undefined;
 let onLegacy: () => void;
 
 function mount(client: TutorRuntimeClient, restoreSessionId?: string): void {
+  if (root) act(() => root!.unmount());
+  container?.remove();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
     root!.render(
-      <MemoryRouter>
+      <StrictMode><MemoryRouter>
         <TutorLearnExperience
           taskId={RUNTIME_TASK_ID as never}
           studentId="runtime-test-student"
@@ -54,7 +56,7 @@ function mount(client: TutorRuntimeClient, restoreSessionId?: string): void {
           runtimeClient={client}
           onLegacy={onLegacy}
         />
-      </MemoryRouter>,
+      </MemoryRouter></StrictMode>,
     );
   });
 }
