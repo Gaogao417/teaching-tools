@@ -249,6 +249,13 @@ describe("TutorRuntimeClient HTTP adapter", () => {
     expect(await requestBody(0)).toEqual({ command: { ...command, session_id: RUNTIME_SESSION_ID }, expected_revision: 12 });
   });
 
+  it("start/ASR 拒绝来自其他题目或会话的合法响应", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, runtimeSnapshotRaw()));
+    await expect(client.start({ taskId: "auxiliaryTwoRatios", studentId: "test", clientRequestId: "req-other-task" })).rejects.toThrow("task_id");
+    fetchMock.mockResolvedValue(jsonResponse(200, { session_id: "TS-99000999", observed_revision: 12, transcript: "another student", model: "scripted" }));
+    await expect(client.transcribe(RUNTIME_SESSION_ID, { audio: { dataUrl: "data:audio/wav;base64,AAAA", mimeType: "audio/wav" }, clientRequestId: "req-other-asr" })).rejects.toThrow("session_id");
+  });
+
   it("使用配置的后端 origin；非 JSON 2xx 归类为协议错误", async () => {
     client = new HttpTutorRuntimeClient("http://127.0.0.1:43123/");
     fetchMock.mockResolvedValue(new Response("<html>frontend</html>", { status: 200 }));

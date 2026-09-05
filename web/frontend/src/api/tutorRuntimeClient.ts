@@ -230,7 +230,9 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
       ...(input.assessment !== undefined ? { assessment: input.assessment } : {}),
       client_request_id: input.clientRequestId,
     });
-    return HttpTutorRuntimeClient.parseSnapshot(await this.post("/tutor-sessions", body));
+    const snapshot = HttpTutorRuntimeClient.parseSnapshot(await this.post("/tutor-sessions", body));
+    if (snapshot.task_id !== input.taskId) throw new ProtocolParseError(["start 响应 task_id 与请求不一致"]);
+    return snapshot;
   }
 
   async restore(sessionId: string): Promise<ValidatedSessionSnapshot> {
@@ -356,6 +358,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     if (!parsed.success) {
       throw new ProtocolParseError(parsed.error.issues.map((issue) => `asr.${issue.path.join(".")}: ${issue.message}`));
     }
+    if (parsed.data.session_id !== sessionId) throw new ProtocolParseError(["asr 响应 session_id 与请求不一致"]);
     return {
       sessionId: parsed.data.session_id,
       observedRevision: parsed.data.observed_revision,

@@ -195,7 +195,7 @@ function inquiryTriggerFor(decision: NavigatorDecision): string {
  * interpretation/intent（causation→input；mainline 无法归类时无 intent）→
  * gate/decision（trigger 序列集与 v5/v6 同推导）。
  */
-function findCommittedV7Turn(events: readonly StoredV7Event[], clientRequestId: string): {
+export function findCommittedV7Turn(events: readonly StoredV7Event[], clientRequestId: string): {
   revision: number;
   inputSequence: number;
   intentSequence?: number;

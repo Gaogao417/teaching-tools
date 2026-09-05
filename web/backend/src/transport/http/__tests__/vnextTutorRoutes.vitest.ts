@@ -11,7 +11,7 @@
  */
 import express from "express";
 import { resolve } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { db } from "../../../db/database";
 import { realCanonicalRoot } from "../../../services/tutorNavigator/__tests__/navigatorSupport";
@@ -82,8 +82,39 @@ it("Step 5 真实 HTTP client → golden route：start/restore/呈现/输入/evi
   expect((await client.start(input)).session_id).toBe(id);
   expect(await client.restore(id)).toEqual(snapshot);
   expect(eventCount(id)).toBe(initialCount);
+  let testedLostInput = false;
   for (let i = 0; i < 64 && !snapshot.active_action; i++) {
     const pending = snapshot.pending_presentation;
+    if (!pending && !testedLostInput) {
+      const input = snapshot.views.participation.kind === "confirm_input"
+        ? { kind: "control", command: "confirm" }
+        : { kind: "utterance", channel: "mainline", text: "子母型相似，对应边成比例" };
+      const revision = snapshot.revision;
+      const nativeFetch = globalThis.fetch;
+      let lostResponse: unknown;
+      const lost = vi.spyOn(globalThis, "fetch").mockImplementationOnce(async (...args) => {
+        const response = await nativeFetch(...args);
+        expect(response.ok).toBe(true);
+        lostResponse = await response.json();
+        throw new TypeError("simulated response lost after commit");
+      });
+      try {
+        await expect(client.submitStudentInput(id, input, revision, "step5-lost-input")).rejects.toThrow("response lost");
+      } finally { lost.mockRestore(); }
+      const committedCount = eventCount(id);
+      const restored = await client.restore(id);
+      expect(restored.revision).toBeGreaterThan(revision);
+      snapshot = await client.submitStudentInput(id, input, revision, "step5-lost-input");
+      expect(snapshot).toEqual(lostResponse);
+      expect(snapshot.revision).toBe(restored.revision);
+      expect(snapshot.views).toEqual(restored.views);
+      expect(snapshot.render).toEqual(restored.render);
+      expect(eventCount(id)).toBe(committedCount);
+      await expect(client.submitStudentInput(id, { kind: "utterance", channel: "mainline", text: "changed payload" }, revision, "step5-lost-input")).rejects.toMatchObject({ status: 409, code: "REQUEST_PAYLOAD_DRIFT" });
+      expect(eventCount(id)).toBe(committedCount);
+      testedLostInput = true;
+      continue;
+    }
     snapshot = pending
       ? await client.reportPresentationOutcome(id, pending.action_id, { sequenceId: pending.sequence_id, ordinal: pending.ordinal, outcome: "presented", expectedRevision: snapshot.revision, clientRequestId: `step5-present-${i}` })
       : await client.submitStudentInput(id, snapshot.views.participation.kind === "confirm_input"
@@ -91,6 +122,7 @@ it("Step 5 真实 HTTP client → golden route：start/restore/呈现/输入/evi
         : { kind: "utterance", channel: "mainline", text: "子母型相似，对应边成比例" }, snapshot.revision, `step5-input-${i}`);
   }
   expect(snapshot.active_action).toBeDefined();
+  expect(testedLostInput).toBe(true);
   const evidence = { actionId: snapshot.active_action!.action_id, sourceStepId: "BT-04", kind: "mark-segment-values", version: 1, values: { "seg-AO": "9", "seg-DO": "9", "seg-BO": "9", "seg-OE": "9" } };
   const before = eventCount(id);
   const wrong = await client.submitActionEvidence(id, { evidence, expectedRevision: snapshot.revision, clientRequestId: "step5-wrong" });

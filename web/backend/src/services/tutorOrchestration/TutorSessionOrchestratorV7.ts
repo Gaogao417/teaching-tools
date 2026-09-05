@@ -37,7 +37,8 @@ import type { WorkspaceGateAssessmentInput } from "../tutorNavigator/GateEvidenc
 import type { NavigatorDecision } from "../tutorNavigator/TutorNavigatorV5";
 import type { V5ModelGatePin } from "./StructuredModelGateProvider";
 import { TutorTaskBindingResolver, assessmentCatalogVariant, type TutorTaskBinding } from "./TutorTaskBindingResolver";
-import { NavigatorSessionV7, type V7TurnResult } from "../tutorNavigator/NavigatorSessionV7";
+import { NavigatorSessionV7, findCommittedV7Turn, type V7TurnResult } from "../tutorNavigator/NavigatorSessionV7";
+import { isDeepStrictEqual } from "node:util";
 import { realizePresentationPlanV6, type PresentationPlanV6 } from "./TutorPresenterV6";
 import { projectPendingPresentation, projectV6Views, type V6PendingPresentation, type V6SessionSnapshot } from "./V6SessionSnapshot";
 import { projectActiveAction, type ActiveAction, type ProjectedActionContract } from "./ActiveActionProjector";
@@ -166,6 +167,7 @@ export type OrchestratorV7ErrorCode =
   | "RETRY_RECOVERY_WITHOUT_FAILURE"
   | "ASSESSMENT_INTENT_FORBIDDEN"
   | "WORKSPACE_COMMAND_PAYLOAD_DRIFT"
+  | "REQUEST_PAYLOAD_DRIFT"
   | "WORKSPACE_COMMAND_UNRESOLVABLE"
   | "NO_ACTIVE_ACTION";
 
@@ -474,6 +476,19 @@ export class TutorSessionOrchestratorV7 {
    */
   async submitStudentInput(input: V7StudentInputTurn, options: V7InputTurnOptions = {}): Promise<V7InputTurnResult> {
     this.refreshWrappers();
+    const prior = this.events.find((event) => event.event_type === "student_input_recorded"
+      && (event.payload as { client_request_id?: string }).client_request_id === input.client_request_id);
+    if (prior && !isDeepStrictEqual((prior.payload as { input: unknown }).input, input.input)) {
+      throw new OrchestratorV7Error("REQUEST_PAYLOAD_DRIFT", "student input retry changed payload for the same client_request_id");
+    }
+    const committed = findCommittedV7Turn(this.events, input.client_request_id);
+    if (committed?.decisionSequence !== undefined || committed?.failure !== undefined) {
+      // A completed request is a read, even if its original revision is stale.
+      // Never re-enter interruption/presentation effects or invoke the model.
+      const { intentSequence, ...turn } = committed;
+      void intentSequence;
+      return { revision: this.navigator.revision, turn, presentations: [], snapshot: this.snapshot() };
+    }
     const conflict = this.checkExpectedRevision(options.expectedRevision);
     if (conflict) {
       return { revision: conflict.revision, turn: conflict.turn, presentations: [], snapshot: this.snapshot() };
