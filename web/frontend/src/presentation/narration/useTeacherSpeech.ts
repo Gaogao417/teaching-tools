@@ -16,33 +16,44 @@ export interface TeacherSpeech {
   stop(): void;
 }
 
-/** Deterministic Action narration with cancellation, bounded prefetch/cache and exclusive playback. */
+/**
+ * Deterministic Action narration with cancellation, bounded prefetch/cache and
+ * exclusive playback.
+ *
+ * F7 Step 7（零媒体创建裁定）：`disabled`（canonical tutor 模式——外部
+ * PresentationRuntime 拥有媒体）时本 hook 不再创建 MediaSessionController /
+ * NarrationController 实例，返回 inert 视图（legacy 未 disabled 路径行为零
+ * 改动）。
+ */
 export function useTeacherSpeech(
   plan: ExercisePlan,
   action: ActionContract,
   sharedMedia?: MediaSessionController,
   options?: { disabled?: boolean },
 ) {
-  const ownedMedia = useMemo(() => new MediaSessionController(), []);
+  const disabled = options?.disabled === true;
+  const ownedMedia = useMemo(() => (disabled ? undefined : new MediaSessionController()), [disabled]);
   const media = sharedMedia || ownedMedia;
   const narrationTransport = plan.runtimeCapabilities?.narrationTransport || "url";
-  const narration = useMemo(() => new NarrationController({
-    synthesize: (text, signal, correlationId) => narrationTransport === "stream"
-      ? api.streamActionSpeech({ text, correlationId }, signal)
-      : api.synthesizeActionSpeech({ text, correlationId }, signal),
-  }, media), [media, narrationTransport]);
+  const narration = useMemo<NarrationController | undefined>(() => (media
+    ? new NarrationController({
+      synthesize: (text, signal, correlationId) => narrationTransport === "stream"
+        ? api.streamActionSpeech({ text, correlationId }, signal)
+        : api.synthesizeActionSpeech({ text, correlationId }, signal),
+    }, media)
+    : undefined), [media, narrationTransport]);
   const [speechUrl, setSpeechUrl] = useState<string>();
-  const [mediaState, setMediaState] = useState<MediaSessionState>(media.getState());
+  const [mediaState, setMediaState] = useState<MediaSessionState | undefined>(() => media?.getState());
   const lastEnteredActionId = useRef<string | undefined>(undefined);
 
-  useEffect(() => media.subscribe(setMediaState), [media]);
+  useEffect(() => (media ? media.subscribe(setMediaState) : undefined), [media]);
 
   useEffect(() => {
-    narration.stop();
+    narration?.stop();
     setSpeechUrl(undefined);
-    // disabled：外部 Tutor runtime 拥有媒体（F7 canonical 链）——Frame 禁止
-    // 创建/调用 legacy 讲解语音（复核裁定：迁移期最小媒体隔离）。
-    if (options?.disabled || plan.mode === "assessment" || plan.runtimeCapabilities?.narrationTransport === "off" || action.actionId === lastEnteredActionId.current) return;
+    // disabled：外部 Tutor runtime 拥有媒体（F7 canonical 链）——本 hook 已零
+    // 媒体创建，讲解语音由外层 PresentationRuntime 执行。
+    if (!narration || disabled || plan.mode === "assessment" || plan.runtimeCapabilities?.narrationTransport === "off" || action.actionId === lastEnteredActionId.current) return;
     lastEnteredActionId.current = action.actionId;
     const copy = teacherCopyForAction(plan, action);
     const index = plan.actions.findIndex((candidate) => candidate.actionId === action.actionId);
@@ -60,23 +71,24 @@ export function useTeacherSpeech(
       // F7 Step 6：enter 返回细分结果——只有 playing 才暴露 speechUrl。
       if (result && result.status === "playing") setSpeechUrl(result.audioUrl);
     });
-  }, [action.actionId, plan.exerciseId, plan.revision, plan.mode, narration, options?.disabled]);
+  }, [action.actionId, plan.exerciseId, plan.revision, plan.mode, narration, disabled]);
 
   useEffect(() => () => {
-    narration.stop();
-    if (!sharedMedia) ownedMedia.dispose();
+    narration?.stop();
+    if (!sharedMedia) ownedMedia?.dispose();
   }, [narration, ownedMedia, sharedMedia]);
 
-  const replay = () => { void narration.replay(); };
+  const replay = () => { if (narration) void narration.replay(); };
   const speak = (url: string) => {
-    narration.stop();
+    if (!media) return;
+    narration?.stop();
     void media.playUrl("coach-turn", url, { autoplay: true, replayKey: "coach-turn" });
   };
-  const stop = () => narration.stop();
+  const stop = () => narration?.stop();
   return {
     speechUrl,
-    speaking: mediaState.status === "playing",
-    autoplayBlocked: mediaState.status === "blocked-by-autoplay" && mediaState.owner === "narration",
+    speaking: mediaState?.status === "playing",
+    autoplayBlocked: mediaState?.status === "blocked-by-autoplay" && mediaState?.owner === "narration",
     replay,
     speak,
     stop,

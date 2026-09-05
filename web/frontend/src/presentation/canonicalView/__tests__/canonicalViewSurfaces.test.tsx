@@ -6,13 +6,81 @@
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoachPanelViewSurface } from "../CoachPanelViewSurface";
 import { MainlineParticipationSurface } from "../MainlineParticipationSurface";
 import { parseCoachPanelView, parseStudentWorkspaceView } from "../parseCanonicalView";
-import { StudentWorkspaceViewSurface } from "../StudentWorkspaceViewSurface";
+import { SolutionBoardViewSurface } from "../SolutionBoardViewSurface";
+import { StudentWorkspaceViewSurface, type StudentWorkspaceViewSurfaceProps } from "../StudentWorkspaceViewSurface";
+import { parseRenderGeometryV1 } from "../renderGeometry";
 import type { CoachPanelViewV1, MainlineParticipationKind, StudentWorkspaceViewV1 } from "../canonicalViewTypes";
+import type { TopicGeometryModel } from "../../../../../shared/topicPractice";
+
+// F7 Step 7：production Canvas 经 jsxgraph-board 挂载（jsdom 不跑真实
+// JSXGraph——与 GeometryCanvas.callbacks.test 同纪律：捕获回调/模型断言）。
+const boardHarness = vi.hoisted(() => ({
+  mountedModels: [] as unknown[],
+  callbacks: undefined as unknown,
+  render: vi.fn(),
+  destroy: vi.fn(),
+  reset() {
+    this.mountedModels = [];
+    this.callbacks = undefined;
+    this.render.mockClear();
+    this.destroy.mockClear();
+  },
+}));
+
+vi.mock("../../../geometry/react/jsxgraph-board", () => ({
+  mountGeometryBoard: vi.fn((_container: HTMLDivElement, model: unknown, callbacks: unknown) => {
+    boardHarness.mountedModels.push(model);
+    boardHarness.callbacks = callbacks;
+    return {
+      board: {} as never,
+      getPointer: () => null,
+      render: boardHarness.render,
+      destroy: boardHarness.destroy,
+    };
+  }),
+}));
+
+/** commitSignal 注入面（PresentationRuntime commitPort 生产接线）。 */
+function commitSignalHarness() {
+  const unregister = vi.fn();
+  const notifyRealCommitted = vi.fn();
+  const registerRealCommitSource = vi.fn(() => unregister);
+  return {
+    signal: { registerRealCommitSource, notifyRealCommitted },
+    registerRealCommitSource,
+    notifyRealCommitted,
+    unregister,
+  };
+}
+
+/** 排空 rAF×2 / setTimeout(0) 结算链（jsdom rAF 可用与否两路径都覆盖）。 */
+async function drainSettle(ms = 60): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  });
+}
+
+/** 与 view/v1 正例同 id 宇宙的 student-safe 组合几何（SVG 坐标系，Y 向下）。 */
+function fixtureGeometry(): TopicGeometryModel {
+  return {
+    viewBox: { width: 100, height: 100 },
+    points: [
+      { id: "A", x: 20, y: 30, derived: false },
+      { id: "D", x: 80, y: 30, derived: false },
+      { id: "B", x: 10, y: 90, derived: false },
+      { id: "C", x: 90, y: 90, derived: false },
+    ],
+    segments: [
+      { id: "seg-AD", from: "A", to: "D", derived: false },
+      { id: "seg-BC", from: "B", to: "C", derived: false },
+    ],
+  };
+}
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -68,8 +136,8 @@ afterEach(() => {
   root = null;
 });
 
-describe("canonical StudentWorkspaceView renderer（view/v1）", () => {
-  it("renders the positive fixture with six-region semantics and one workspace revision", () => {
+describe("canonical StudentWorkspaceView renderer（view/v1 + F7 Step 7 production Canvas）", () => {
+  it("renders the positive fixture: six-region semantics, one revision, explicit no-diagram placeholder (text list deleted)", () => {
     const view = parsedWorkspaceVariant();
     const host = render(<StudentWorkspaceViewSurface view={view} />);
     const frame = host.querySelector('[data-testid="canonical-student-workspace"]')!;
@@ -80,12 +148,11 @@ describe("canonical StudentWorkspaceView renderer（view/v1）", () => {
     const geometry = host.querySelector('[data-testid="region-geometry"]')!;
     expect(geometry.getAttribute("aria-label")).toBe("几何画布");
     expect(host.querySelector('[data-testid="region-solution-board"]')).toBeTruthy();
-    // 画布元素：student-safe 语义摘要，逐元素锚定
-    expect(host.querySelector(".canonical-canvas-surface")!.getAttribute("data-element-count")).toBe("3");
-    expect(host.querySelectorAll("[data-element-id]").length).toBe(3);
-    expect(host.querySelector('[data-element-id="seg-AD"]')!.getAttribute("data-highlighted")).toBe("true");
-    expect(host.querySelector('[data-element-id="label-DE"]')!.getAttribute("data-student-authored")).toBe("true");
-    // Board：同一 View 的 building 模式；条目内容与尝试摘要可见
+    // PLAN Step 7：文字列表已删除——无 geometry 输入时渲染明确占位，不得出现元素清单。
+    expect(host.querySelector(".geometry-canvas")).toBeNull();
+    expect(host.querySelectorAll("[data-element-id]").length).toBe(0);
+    expect(host.querySelector(".canonical-workspace-canvas")!.textContent).toContain("本题没有图示");
+    // Board：同一 View 的 building 模式；条目内容与尝试摘要可见（共享 canonical 渲染面）
     const board = host.querySelector('[data-testid="region-solution-board"]')!;
     expect(board.getAttribute("data-board-mode")).toBe("building");
     expect(board.getAttribute("aria-label")).toBe("解题板书");
@@ -94,21 +161,41 @@ describe("canonical StudentWorkspaceView renderer（view/v1）", () => {
     expect(host.querySelector('[data-entry-id="BE-02"]')!.getAttribute("data-entry-state")).toBe("active");
   });
 
+  it("renders the production GeometryCanvas from render.geometry（Y 翻折 + View highlight 映射 + 只读实体）", () => {
+    const view = parsedWorkspaceVariant();
+    const geometry = fixtureGeometry();
+    const host = render(<StudentWorkspaceViewSurface view={view} geometry={geometry} />);
+    expect(host.querySelector(".geometry-canvas")).toBeTruthy();
+    expect(boardHarness.mountedModels.length).toBe(1);
+    const model = boardHarness.mountedModels[0] as { getPoint(id: string): { x: number; y: number } | undefined; getLine(id: string): unknown };
+    // buildGeometryModel 的 SVG→math Y 翻折（viewBox.height - svgY）
+    expect(model.getPoint("A")).toMatchObject({ x: 20, y: 70 });
+    expect(model.getPoint("B")).toMatchObject({ x: 10, y: 10 });
+    expect(model.getLine("seg-AD")).toBeTruthy();
+    // InteractionView 来自 canonical View：highlighted→selected（display-only）、
+    // 其余 idle、实体 enabled=false（讲解/完成只读——学生操作走 ActionRuntimeFrame）。
+    const entities = (boardHarness.callbacks as { getEntities(): Record<string, { visualState: string; enabled: boolean; kind: string }> }).getEntities();
+    expect(entities["seg-AD"].visualState).toBe("selected");
+    expect(entities["seg-BC"].visualState).toBe("idle");
+    expect(entities["A"].visualState).toBe("idle");
+    expect(Object.values(entities).every((entity) => entity.enabled === false)).toBe(true);
+  });
+
   it("renders review/readonly without second board truth or operable canvas", () => {
     const view = parsedWorkspaceVariant((base) => ({
       ...base,
       canvas: { ...base.canvas, interaction_enabled: false },
       solution_board: { ...base.solution_board, mode: "review" },
     }));
-    const host = render(<StudentWorkspaceViewSurface view={view} />);
+    const host = render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} />);
     const board = host.querySelector('[data-testid="region-solution-board"]')!;
     expect(board.getAttribute("data-board-mode")).toBe("review");
     expect(board.getAttribute("aria-label")).toBe("解题板书（回顾）");
     expect(board.textContent).toContain("只读阅读模式");
-    const canvas = host.querySelector(".canonical-canvas-surface")!;
+    const canvas = host.querySelector(".canonical-workspace-canvas")!;
     expect(canvas.getAttribute("data-interaction-enabled")).toBe("false");
     expect(canvas.getAttribute("aria-readonly")).toBe("true");
-    expect(canvas.textContent).toContain("只读回顾");
+    expect(canvas.textContent).toContain("只读画布");
   });
 
   it("renders an explicit empty board surface without changing the top-level owner", () => {
@@ -121,6 +208,109 @@ describe("canonical StudentWorkspaceView renderer（view/v1）", () => {
     expect(board.className).toContain("is-empty");
     expect(board.textContent).toContain("板书还没有开始");
     expect(host.querySelector('[data-testid="canonical-student-workspace"]')).toBeTruthy();
+  });
+});
+
+describe("SolutionBoardViewSurface（共享 canonical Board 渲染面）", () => {
+  it("is the same renderer consumed by the workspace surface（groups/entries/MathText 语义）", () => {
+    const view = parsedWorkspaceVariant();
+    const host = render(<SolutionBoardViewSurface board={view.solution_board} />);
+    const board = host.querySelector('[data-testid="region-solution-board"]')!;
+    expect(board.getAttribute("data-board-mode")).toBe("building");
+    expect(host.querySelector('[data-entry-id="BE-01"]')!.getAttribute("data-entry-kind")).toBe("statement");
+    expect(board.textContent).toContain("AD/AB = DE/BC");
+  });
+});
+
+describe("parseRenderGeometryV1（render.geometry → production Canvas 输入，零 cast）", () => {
+  it("null → undefined；合法 record → TopicGeometryModel；结构非法 → undefined", () => {
+    expect(parseRenderGeometryV1(null)).toBeUndefined();
+    const valid = parseRenderGeometryV1(fixtureGeometry() as unknown as Record<string, unknown>);
+    expect(valid).toBeDefined();
+    expect(valid!.points.map((point) => point.id)).toEqual(["A", "D", "B", "C"]);
+    expect(valid!.segments.length).toBe(2);
+    expect(parseRenderGeometryV1({ points: [], segments: [] })).toBeUndefined();
+    expect(parseRenderGeometryV1({ viewBox: { width: 100, height: 100 }, points: [{ id: "A", x: 1, y: "bad" }], segments: [] })).toBeUndefined();
+    expect(parseRenderGeometryV1({ viewBox: { width: 100, height: 100 }, points: [{ id: "A", x: 1, y: 2 }], segments: [{ id: "s", from: "A", to: "MISSING" }] })).toBeDefined();
+  });
+});
+
+describe("Workspace 真实 commit 信号（F7 Step 7：production Canvas + Board reveal 双结算）", () => {
+  beforeEach(() => {
+    boardHarness.reset();
+  });
+
+  it("registers the real commit source on mount and unregisters on unmount", () => {
+    const view = parsedWorkspaceVariant();
+    const harness = commitSignalHarness();
+    const host = render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
+    expect(harness.registerRealCommitSource).toHaveBeenCalledTimes(1);
+    act(() => root!.unmount());
+    expect(harness.unregister).toHaveBeenCalledTimes(1);
+    void host;
+  });
+
+  it("notifies once per revision only after canvas post-paint ∧ board settle（重复渲染不重复通知）", async () => {
+    const view = parsedWorkspaceVariant();
+    const harness = commitSignalHarness();
+    render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
+    await drainSettle();
+    expect(harness.registerRealCommitSource).toHaveBeenCalledTimes(1);
+    expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+    expect(harness.notifyRealCommitted).toHaveBeenCalledWith({ sessionId: "TS-4242", revision: 6 });
+    // 同 revision 重渲染（新对象同值）：不重复通知。
+    const sameRevision = parsedWorkspaceVariant();
+    act(() => root!.render(<StudentWorkspaceViewSurface view={sameRevision} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+    await drainSettle();
+    expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+    // revision 7 + 新板书条目：board 走 paint 结算（jsdom 无 animate）→ 再通知一次。
+    const nextView = parsedWorkspaceVariant((base) => ({
+      ...base,
+      revision: 7,
+      solution_board: {
+        mode: "building",
+        groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [{ entry_id: "BE-03", kind: "conclusion", content: "BE=\\dfrac{16}{5}", state: "visible" }] }],
+      },
+    }));
+    act(() => root!.render(<StudentWorkspaceViewSurface view={nextView} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+    await drainSettle();
+    expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
+    expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 7 });
+    // 跨会话同号 revision 不被去重键误抑制（结算键绑 session+revision）。
+    const otherSession = parsedWorkspaceVariant((base) => ({ ...base, session_id: "TS-4243" }));
+    act(() => root!.render(<StudentWorkspaceViewSurface view={otherSession} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+    await drainSettle();
+    expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4243", revision: 6 });
+    expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(3);
+  });
+
+  it("waits for the new-entry reveal animation before settling（animate 只作用于新增条目）", async () => {
+    const animateSpy = vi.fn((_keyframes: Keyframe[], _options: unknown) => ({ finished: Promise.resolve() }));
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = animateSpy;
+    try {
+      const view = parsedWorkspaceVariant();
+      const harness = commitSignalHarness();
+      render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
+      await drainSettle();
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+      expect(animateSpy).not.toHaveBeenCalled();
+      const nextView = parsedWorkspaceVariant((base) => ({
+        ...base,
+        revision: 7,
+        solution_board: {
+          mode: "building",
+          groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [{ entry_id: "BE-03", kind: "conclusion", content: "BE=\\dfrac{16}{5}", state: "visible" }] }],
+        },
+      }));
+      act(() => root!.render(<StudentWorkspaceViewSurface view={nextView} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      await drainSettle();
+      // 只有新增条目 BE-03 播放 reveal；既有 BE-01/BE-02 不重复。
+      expect(animateSpy).toHaveBeenCalledTimes(1);
+      expect(animateSpy.mock.calls[0] && (animateSpy.mock.calls[0][0] as unknown)).toBeDefined();
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 7 });
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    }
   });
 });
 

@@ -56,8 +56,13 @@ interface ActionRuntimeFrameProps {
   /** VS1（mvp/vs-01 REQ-04）：统一 StudentWorkspaceView 的板书投影。
    *  提供时（Tutor 链路）板书面从服务端统一 View 渲染（hidden 行服务端
    *  已过滤、与画布同 revision）——操作回合板书不消失；缺省回退 Frame
-   *  内部 plan.solutionBoardContexts 投影（practice 链路，L-08 Isolate）。 */
+   *  内部 plan.solutionBoardContexts 投影（practice 链路，L-08 Isolate）。
+   *  F8 退场（legacy V5 专用）；canonical V6 不消费（用 boardSurface）。 */
   boardView?: SolutionBoardView;
+  /** F7 Step 7：tutor 模式 canonical 板书槽（= 快照 student_workspace_view
+   *  .solution_board 经共享 SolutionBoardViewSurface 渲染）。优先于
+   *  boardView/内部投影——canonical Solution Board 唯一渲染面。 */
+  boardSurface?: ReactNode;
   /** VS1：统一 View 的 revision（Frame 容器 data-view-revision；供验收
    *  断言两 surface 同 revision）。 */
   viewRevision?: number;
@@ -65,9 +70,10 @@ interface ActionRuntimeFrameProps {
    *  的单行题干）——Tutor 链路传 LearnQuestionPrompt（stem+subquestions
    *  一体化）；practice 链路缺省不变。 */
   questionPrompt?: ReactNode;
-  /** F7 canonical 链（外部 Tutor runtime 拥有媒体/coach）：Frame 禁止创建/
-   *  调用 legacy 讲解语音与 coach 通道（复核裁定：迁移期最小媒体隔离，
-   *  Step 6 收敛为统一 PresentationRuntime）。 */
+  /** F7 canonical 链（外部 Tutor runtime 拥有媒体/coach）：Frame 零媒体创建
+   *  （F7 Step 7 裁定：不 new MediaSessionController/NarrationController、
+   *  关闭 legacy 讲解语音与 coach 通道；媒体实例唯一属主 = 外层
+   *  PresentationRuntime）。 */
   legacyMediaDisabled?: boolean;
 }
 
@@ -92,7 +98,7 @@ function boardEmphasisFrom(emphasis: TransientEmphasis | undefined): SolutionBoa
   return expressionIds.length ? { key: emphasis.key, expressionIds } : undefined;
 }
 
-export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railTrigger: railTriggerOverride, railOpen: railOpenProp, onRailOpenChange, boardView, viewRevision, questionPrompt, legacyMediaDisabled }: ActionRuntimeFrameProps) {
+export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, onComplete, transport, railContent, railTrigger: railTriggerOverride, railOpen: railOpenProp, onRailOpenChange, boardView, boardSurface, viewRevision, questionPrompt, legacyMediaDisabled }: ActionRuntimeFrameProps) {
   // VS1：demonstration 形态独立渲染分支已删除——讲解演示内容由统一
   // StudentWorkspaceView 的 canvas/solutionBoard slice 驱动（服务端组合/
   // 披露投影），TutorLearnExperience 直接渲染只读面，不经本 Frame。
@@ -136,17 +142,23 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   };
   const [coachPreview, setCoachPreview] = useState<{ id: string; latex: string } | null>(null);
   const [coachUnread, setCoachUnread] = useState(false);
-  const mediaSession = useMemo(() => new MediaSessionController((mark) => {
-    void api.reportVoiceTelemetry({
-      version: COACH_MEDIA_PROTOCOL_VERSION,
-      correlationId: mark.correlationId,
-      sessionId: response.sessionId,
-      owner: mark.owner,
-      stage: mark.stage,
-      browserTimeMs: mark.browserTimeMs,
-    }).catch(() => undefined);
-  }), [response.sessionId]);
-  const teacherSpeech = useTeacherSpeech(snapshot.plan, action, mediaSession, { disabled: legacyMediaDisabled });
+  // F7 Step 7（零媒体创建裁定）：canonical tutor 模式（legacyMediaDisabled，
+  // 媒体实例唯一属主 = 外层 PresentationRuntime）本 Frame 不创建
+  // MediaSessionController；legacy 链恒建（行为零改动）。
+  const ownedMediaSession = useMemo(() => {
+    if (legacyMediaDisabled) return undefined;
+    return new MediaSessionController((mark) => {
+      void api.reportVoiceTelemetry({
+        version: COACH_MEDIA_PROTOCOL_VERSION,
+        correlationId: mark.correlationId,
+        sessionId: response.sessionId,
+        owner: mark.owner,
+        stage: mark.stage,
+        browserTimeMs: mark.browserTimeMs,
+      }).catch(() => undefined);
+    });
+  }, [response.sessionId, legacyMediaDisabled]);
+  const teacherSpeech = useTeacherSpeech(snapshot.plan, action, ownedMediaSession, { disabled: legacyMediaDisabled });
   const { speechUrl, speaking, autoplayBlocked, replay: replaySpeech, speak: playSpeechUrl } = teacherSpeech;
   const lastPreviewId = useRef("");
   // ADR-005 §Layer Responsibilities: coach turn / recorder / live orchestration
@@ -155,7 +167,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
   // legacyMediaDisabled（F7 canonical 链）：coach 通道同样归外部 Tutor runtime，
   // 不在本 Frame 暴露（rail 已被调用方替换，此处同时关闭 canHelp）。
   const coach = useCoachController({
-    media: mediaSession,
+    media: ownedMediaSession,
     canHelp: view.controls.canHelp && !legacyMediaDisabled,
     transport: snapshot.plan.runtimeCapabilities?.coachTurnTransport,
     local: Boolean(local),
@@ -169,7 +181,7 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
     playSpeechUrl,
   });
 
-  useEffect(() => () => mediaSession.dispose(), [mediaSession]);
+  useEffect(() => () => ownedMediaSession?.dispose(), [ownedMediaSession]);
 
   // VS0 验收模式：只读暴露当前 student-safe View（证据采集，见顶部注释）。
   useEffect(() => {
@@ -451,24 +463,27 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
             : view.canvas.diagramAsset ? <img src={view.canvas.diagramAsset} alt="题目图形" /> : null
         }
         board={
-          /* VS0（ADR-009 布局不变量 6）：无板书内容时渲染明确 empty surface。
-             VS1：boardView（统一 View 板书投影）优先——Tutor 链路操作回合
-             板书不消失、与画布同 revision；practice 链路维持内部投影。 */
-          boardView
-            ? (boardView.visibleExpressions.length
-                ? <SolutionBoardPanel board={boardView} />
+          /* F7 Step 7：tutor canonical 板书槽优先（共享 canonical
+             SolutionBoardViewSurface，与讲解/完成面同一渲染面）；VS0（ADR-009
+             布局不变量 6）：无板书内容时渲染明确 empty surface。VS1：
+             boardView（legacy 统一 View 板书投影）次之——legacy Tutor 链操作
+             回合板书不消失；practice 链维持内部投影。 */
+          boardSurface
+            ?? (boardView
+              ? (boardView.visibleExpressions.length
+                  ? <SolutionBoardPanel board={boardView} />
+                  : <section className="topic-answer-panel solution-board-panel is-empty" aria-label="解题板书（暂空）" data-testid="region-solution-board">
+                      <div className="solution-board-document">
+                        <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
+                      </div>
+                    </section>)
+              : view.solutionBoard
+                ? <SolutionBoardPanel board={view.solutionBoard} emphasis={boardEmphasis} />
                 : <section className="topic-answer-panel solution-board-panel is-empty" aria-label="解题板书（暂空）" data-testid="region-solution-board">
                     <div className="solution-board-document">
                       <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
                     </div>
                   </section>)
-            : view.solutionBoard
-              ? <SolutionBoardPanel board={view.solutionBoard} emphasis={boardEmphasis} />
-              : <section className="topic-answer-panel solution-board-panel is-empty" aria-label="解题板书（暂空）" data-testid="region-solution-board">
-                  <div className="solution-board-document">
-                    <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
-                  </div>
-                </section>
         }
         overlay={
           /* Tutor transport（rail 被替换）时 wrong 反馈落工作区，不依赖 coach 栏。 */
@@ -482,9 +497,11 @@ export function ActionRuntimeFrame({ response, disabled, local, onEvaluation, on
           "action-id": snapshot.currentActionId,
           "action-state": runtime.getTrace().actionState,
           "selected": runtime.getTrace().selectedObjectIds.join(","),
-          "board": boardView
-            ? (boardView.visibleExpressions.length ? "content" : "empty")
-            : view.solutionBoard ? "content" : "empty",
+          "board": boardSurface
+            ? "canonical"
+            : boardView
+              ? (boardView.visibleExpressions.length ? "content" : "empty")
+              : view.solutionBoard ? "content" : "empty",
         }}
       />
     </FocusWorkspace>

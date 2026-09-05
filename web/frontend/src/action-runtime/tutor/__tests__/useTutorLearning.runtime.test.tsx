@@ -389,6 +389,55 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
     expect(tutor.phase).toBe("workspaceActive");
   });
 
+  it("F7 Step 7 workspaceSurface VM：geometry（render.geometry 解析产物）+ commitSignal（commitPort 注入）派生", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "workspace_input" }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    const surface = harness.tutor().workspaceSurface;
+    if (surface.source !== "canonical") throw new Error("canonical surface expected");
+    expect(surface.view?.session_id).toBe(RUNTIME_SESSION_ID);
+    // render.geometry → TopicGeometryModel（Y 不在此翻折——buildGeometryModel 在 surface 内做）
+    expect(surface.geometry?.viewBox).toEqual({ width: 420, height: 420 });
+    expect(surface.geometry?.points.map((point) => point.id)).toContain("O");
+    expect(surface.geometry?.segments.map((segment) => segment.id)).toEqual(["seg-AO", "seg-DO", "seg-BO", "seg-OE"]);
+    // commitSignal = PresentationRuntime commitPort 的生产接线面（可注册/可通知）
+    expect(surface.commitSignal).toBeDefined();
+    expect(typeof surface.commitSignal?.registerRealCommitSource).toBe("function");
+    expect(typeof surface.commitSignal?.notifyRealCommitted).toBe("function");
+  });
+
+  it("F7 Step 7 activeActionFrame.board：canonical 快照 solution_board（legacy boardView 不携带）", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({
+      participationKind: "workspace_input",
+      boardEntries: [{ entry_id: "BE-301", kind: "derivation", content: "\\triangle AOB \\sim \\triangle DOC" }],
+    }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    const frame = harness.tutor().activeActionFrame;
+    expect(frame.board?.mode).toBe("building");
+    expect(frame.board?.groups[0]?.entries[0]?.entry_id).toBe("BE-301");
+    expect(frame.boardView).toBeUndefined();
+  });
+
+  it("F7 Step 7 adopt 门禁：render.geometry 非 null 且不可解析 → 整份快照拒绝 + protocolError", async () => {
+    const { client, mocks } = makeClient();
+    const broken = runtimeSnapshotRaw({
+      participationKind: "confirm_input",
+      overrides: { render: { workspace_revision: 3, geometry: { viewBox: { width: "bad" }, points: [], segments: [] } } },
+    });
+    mocks.start.mockResolvedValueOnce(validFromRaw(broken));
+    mocks.start.mockResolvedValueOnce(validRuntimeSnapshot({ participationKind: "confirm_input" }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    expect(harness.tutor().protocolError).toContain("render.geometry");
+    expect(harness.tutor().runtimeSnapshot).toBeUndefined();
+    await act(async () => { await harness.tutor().start(); });
+    expect(harness.tutor().protocolError).toBeUndefined();
+    expect(harness.tutor().runtimeSnapshot?.session_id).toBe(RUNTIME_SESSION_ID);
+  });
+
   it("completed：read_only_completed 快照 → phase=completed；finishQuestion 不触 legacy API", async () => {
     const { client, mocks } = makeClient();
     mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "read_only_completed" }));

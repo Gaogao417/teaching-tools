@@ -1,167 +1,174 @@
 /**
- * fe-prep（2026-08-28）：StudentWorkspaceView（view/v1）→ Workspace 双
- * surface 纯渲染。
+ * F7 Step 7：StudentWorkspaceView（view/v1）→ Workspace 双 surface 产品面。
  *
  * - 组合外壳复用 canonical `StudentWorkspaceFrame`（vs01-rem2 裁定的唯一
  *   Workspace composition owner：region-geometry 槽 + board 槽同一 grid、
  *   同一 data-view-revision）；不建第二套 Workspace renderer/CSS。
- * - Geometry：fe-prep 渲染 student-safe 的画布元素语义摘要（真实
- *   GeometryCanvas/typed command 接线属 F7 生产化范围）；interaction_enabled
- *   =false（完成/只读 review）时明确只读、不可操作。
- * - Board：同一 View 的 building/review 两种阅读模式（review 不加载第二份
- *   Board 真相，ADR-009 不变量 7）；View 层无 hidden——未揭示条目整个不
- *   存在，不存在"置空占位"；空 groups 渲染明确 empty surface（不变量 6）。
+ * - Geometry：production `GeometryCanvasSurface`——数据源 = 服务端
+ *   `render.geometry`（student-safe 组合几何，经 parseRenderGeometryV1 零
+ *   cast 解析）→ buildGeometryModel；highlight/annotated 自 canonical
+ *   Workspace View 的 canvas.elements 映射为 display-only visualState；
+ *   实体 enabled=false（讲解/完成只读，学生操作经 ActionRuntimeFrame 的
+ *   同一 Canvas 切 affordance，不换 renderer）。PLAN Step 7：点/线段文字
+ *   列表已删除，不得再以摘要冒充画布（2026-09-06 用户裁定彻底删除）。
+ * - Board：共享 canonical `SolutionBoardViewSurface`（操作拍
+ *   ActionRuntimeFrame boardSurface 槽同一渲染面，禁第二份 Board）。
+ * - 真实完成信号（F7 Step 7 解除 Step 6 生产暂停）：mount 注册
+ *   registerRealCommitSource；canvas post-paint 与 board reveal 稳定在
+ *   **同一 workspace revision** 双结算后 notifyRealCommitted（每 revision
+ *   至多一次）——单一 commitPort 通知代表「本 revision 的 workspace 已在
+ *   浏览器可见」，Geometry/Board adapter 共用（见
+ *   presentationRuntime/workspaceCommitPort）。
  */
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import { MathText } from "../../components/math/MathText";
+import { buildGeometryModel } from "../../geometry/adapters/topicGeometryModel";
+import type { EntityAffordance } from "../../geometry/interaction/interaction-view";
+import type { InteractionView } from "../../geometry/interaction/interaction-view";
+import { GeometryCanvasSurface } from "../../geometry/react/GeometryCanvas";
 import { StudentWorkspaceFrame } from "../workspace/StudentWorkspaceFrame";
+import { SolutionBoardViewSurface } from "./SolutionBoardViewSurface";
+import type { WorkspaceCommitSignal } from "../presentationRuntime/workspaceCommitPort";
 import type { StudentWorkspaceViewV1 } from "./canonicalViewTypes";
+import type { TopicGeometryModel } from "../../../../shared/topicPractice";
 
-const ELEMENT_KIND_TEXT = {
-  point: "点",
-  segment: "线段",
-  line: "直线",
-  circle: "圆",
-  polygon: "多边形",
-  label: "标签",
-  measure: "度量",
-} as const;
-
-const BOARD_ENTRY_KIND_TEXT = {
-  statement: "陈述",
-  derivation: "推导",
-  conclusion: "结论",
-  question: "问题",
-} as const;
-
-/**
- * F7 Step 6：过渡呈现面的 commit 通知——render 提交后（rAF，jsdom 无 rAF 时
- * setTimeout 回退）携带 session+revision 回调。注意：这只是过渡面的诊断/开发
- * 信号，PresentationRuntime 的 workspace adapter 只认真实完成信号源（Step 7
- * 接入 production Canvas commit / Board reveal 动画；见
- * presentationRuntime/workspaceCommitPort）。
- */
-export function useWorkspaceCommitRevision(
-  view: StudentWorkspaceViewV1,
-  onCommitRevision?: (note: { sessionId: string; revision: number }) => void,
-): void {
-  useEffect(() => {
-    if (!onCommitRevision) return;
-    const note = { sessionId: view.session_id, revision: view.revision };
-    if (typeof requestAnimationFrame === "function") {
-      const handle = requestAnimationFrame(() => onCommitRevision(note));
-      return () => cancelAnimationFrame(handle);
-    }
-    const handle = window.setTimeout(() => onCommitRevision(note), 0);
-    return () => window.clearTimeout(handle);
-  }, [view.session_id, view.revision, onCommitRevision]);
+export interface StudentWorkspaceViewSurfaceProps {
+  view: StudentWorkspaceViewV1;
+  /** render.geometry 的运行时解析产物；undefined = 无图示任务（明确占位）。 */
+  geometry?: TopicGeometryModel;
+  /** 提供时接入真实完成信号源（讲解/完成面挂载期注册）。 */
+  commitSignal?: WorkspaceCommitSignal;
 }
 
-export function StudentWorkspaceViewSurface({
-  view,
-  onCommitRevision,
-}: {
-  view: StudentWorkspaceViewV1;
-  onCommitRevision?: (note: { sessionId: string; revision: number }) => void;
-}) {
-  useWorkspaceCommitRevision(view, onCommitRevision);
+/** 高亮/批注 → display-only visualState（renderer 只消费 affordance 颜色）。 */
+function visualStateFor(element: { highlighted?: boolean; annotated?: boolean } | undefined): EntityAffordance["visualState"] {
+  if (element?.highlighted) return "selected";
+  if (element?.annotated) return "correct";
+  return "idle";
+}
+
+export function StudentWorkspaceViewSurface({ view, geometry, commitSignal }: StudentWorkspaceViewSurfaceProps) {
+  const { elements, interaction_enabled: interactionEnabled } = view.canvas;
+
+  // ---- 真实 commit 信号：注册 + 同 revision 双结算 ----
+  useEffect(() => {
+    if (!commitSignal) return;
+    return commitSignal.registerRealCommitSource();
+  }, [commitSignal]);
+
+  const settleRecordRef = useRef<{ canvas?: string; board?: string; notified?: string }>({});
+  const commitSignalRef = useRef(commitSignal);
+  commitSignalRef.current = commitSignal;
+  const viewMetaRef = useRef(view);
+  viewMetaRef.current = view;
+
+  /** 结算键绑 session+revision：跨会话同号 revision 不得互相抑制/误放行。 */
+  const settleKey = (sessionId: string, revision: number): string => `${sessionId}:${revision}`;
+
+  const tryNotify = (sessionId: string, revision: number): void => {
+    const record = settleRecordRef.current;
+    const key = settleKey(sessionId, revision);
+    if (record.canvas !== key || record.board !== key || record.notified === key) return;
+    record.notified = key;
+    const signal = commitSignalRef.current;
+    if (signal) signal.notifyRealCommitted({ sessionId, revision });
+  };
+  // 最新结算回调经 ref 透传（effect/子组件拿稳定入口、读到最新闭包）。
+  const canvasSettledRef = useRef<(revision: number) => void>(() => undefined);
+  canvasSettledRef.current = (revision) => {
+    const sessionId = view.session_id;
+    settleRecordRef.current.canvas = settleKey(sessionId, revision);
+    tryNotify(sessionId, revision);
+  };
+  const boardSettledStable = useCallback((revision: number) => {
+    // 稳定回调：session 读最新 render 的 view（board 结算总发生在其对应
+    // render commit 之后）。
+    const sessionId = viewMetaRef.current.session_id;
+    settleRecordRef.current.board = settleKey(sessionId, revision);
+    tryNotify(sessionId, revision);
+  }, []);
+  const boardOnSettled = commitSignal ? boardSettledStable : undefined;
+
+  // canvas 结算：本 revision 的 React commit（含 JSXGraph 同步 render）paint 后。
+  useEffect(() => {
+    if (!commitSignal) return;
+    let active = true;
+    let inner = 0;
+    const settleNow = (): void => {
+      if (active) canvasSettledRef.current(view.revision);
+    };
+    if (typeof requestAnimationFrame === "function") {
+      const outer = requestAnimationFrame(() => {
+        inner = requestAnimationFrame(settleNow);
+      });
+      return () => {
+        active = false;
+        cancelAnimationFrame(outer);
+        if (inner) cancelAnimationFrame(inner);
+      };
+    }
+    const timer = window.setTimeout(settleNow, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [commitSignal, view.session_id, view.revision]);
+
+  // ---- production Canvas 投影（零本地教学状态；visualState 全部来自 View）----
+  const model = useMemo(() => (geometry ? buildGeometryModel(geometry) : undefined), [geometry]);
+  const interactionView = useMemo<InteractionView>(() => {
+    const byId = new Map(elements.map((element) => [element.element_id, element]));
+    const entities: Record<string, EntityAffordance> = {};
+    if (geometry) {
+      for (const point of geometry.points) {
+        entities[point.id] = {
+          id: point.id, kind: "point", enabled: false, expected: false,
+          visualState: visualStateFor(byId.get(point.id)),
+        };
+      }
+      const lines: readonly { id: string }[] = [
+        ...geometry.segments,
+        ...(geometry.derivedLines ?? []),
+      ];
+      for (const line of lines) {
+        entities[line.id] = {
+          id: line.id, kind: "line", enabled: false, expected: false,
+          visualState: visualStateFor(byId.get(line.id)),
+        };
+      }
+    }
+    return {
+      prompt: "题目图形",
+      entities,
+      selected: [],
+      cursor: "default",
+      canCancel: false,
+      canGoBack: false,
+    };
+  }, [geometry, elements]);
+
   return (
     <StudentWorkspaceFrame
       frameTestId="canonical-student-workspace"
       viewRevision={view.revision}
       dataAttributes={{ "session-id": view.session_id, "workspace-mode": view.solution_board.mode }}
-      geometry={<CanvasElementsSurface view={view} />}
-      board={<SolutionBoardSurface view={view} />}
-    />
-  );
-}
-
-function CanvasElementsSurface({ view }: { view: StudentWorkspaceViewV1 }) {
-  const { elements, interaction_enabled: interactionEnabled } = view.canvas;
-  return (
-    <div
-      className={`canonical-canvas-surface${interactionEnabled ? "" : " is-readonly"}`}
-      aria-readonly={interactionEnabled ? undefined : true}
-      data-interaction-enabled={interactionEnabled}
-      data-element-count={elements.length}
-    >
-      {elements.length ? (
-        <ul className="canonical-canvas-elements" aria-label="画布元素">
-          {elements.map((element) => (
-            <li
-              key={element.element_id}
-              data-element-id={element.element_id}
-              data-element-kind={element.kind}
-              data-highlighted={element.highlighted ? true : undefined}
-              data-annotated={element.annotated ? true : undefined}
-              data-student-authored={element.student_authored ? true : undefined}
-            >
-              <span className="sr-only">
-                {ELEMENT_KIND_TEXT[element.kind]}
-                {element.element_id}
-                {element.highlighted ? "，高亮" : ""}
-                {element.annotated ? "，已批注" : ""}
-                {element.student_authored ? "，学生所作" : ""}
-                {"。"}
-              </span>
-              <span aria-hidden="true">
-                {ELEMENT_KIND_TEXT[element.kind]} {element.element_id}
-                {element.highlighted ? "（高亮）" : ""}
-                {element.annotated ? "（批注）" : ""}
-                {element.student_authored ? "（学生所作）" : ""}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="student-workspace-empty-note">画布还没有内容——跟随老师的讲解开始。</p>
+      geometry={(
+        <div
+          className="canonical-workspace-canvas"
+          aria-readonly={interactionEnabled ? undefined : true}
+          data-interaction-enabled={interactionEnabled}
+        >
+          {model ? (
+            <GeometryCanvasSurface model={model} view={interactionView} onClickEntity={() => undefined} modelVersion={view.revision} />
+          ) : (
+            <p className="student-workspace-empty-note">本题没有图示，跟随老师板书推理。</p>
+          )}
+          {!interactionEnabled ? (
+            <p className="canonical-canvas-readonly-note" role="status">当前为只读画布，跟随老师讲解；操作环节会在同一画布上开放。</p>
+          ) : null}
+        </div>
       )}
-      {!interactionEnabled ? <p className="canonical-canvas-readonly-note" role="status">当前为只读回顾，画布不可操作。</p> : null}
-    </div>
-  );
-}
-
-function SolutionBoardSurface({ view }: { view: StudentWorkspaceViewV1 }) {
-  const { groups, mode } = view.solution_board;
-  const review = mode === "review";
-  const entryCount = groups.reduce((total, group) => total + group.entries.length, 0);
-  return (
-    <section
-      className={`topic-answer-panel solution-board-panel${entryCount === 0 ? " is-empty" : ""}${review ? " is-review" : ""}`}
-      aria-label={review ? "解题板书（回顾）" : "解题板书"}
-      data-testid="region-solution-board"
-      data-board-mode={mode}
-    >
-      <div className="solution-board-document">
-        {entryCount === 0 ? (
-          <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
-        ) : (
-          groups.map((group) => (
-            <div key={group.group_id} className="solution-board-group" data-group-id={group.group_id}>
-              {group.title ? <h3 className="solution-board-group-title">{group.title}</h3> : null}
-              {group.entries.map((entry) => (
-                <div
-                  key={entry.entry_id}
-                  className={`solution-board-line${entry.state === "active" ? " is-current" : ""}`}
-                  data-entry-id={entry.entry_id}
-                  data-entry-kind={entry.kind}
-                  data-entry-state={entry.state}
-                >
-                  <span className="sr-only">{BOARD_ENTRY_KIND_TEXT[entry.kind]}：</span>
-                  <MathText value={entry.content} block />
-                  {entry.attempt_summary ? (
-                    <small className="solution-board-attempt" data-attempt-summary={entry.attempt_summary}>
-                      你的尝试：{entry.attempt_summary}
-                    </small>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ))
-        )}
-        {review ? <p className="solution-board-review-note" role="status">已完成回顾：同一份板书的只读阅读模式。</p> : null}
-      </div>
-    </section>
+      board={<SolutionBoardViewSurface board={view.solution_board} revision={view.revision} onSettled={boardOnSettled} />}
+    />
   );
 }

@@ -66,7 +66,10 @@ export interface CoachControllerCallbacks {
 }
 
 export interface CoachControllerDeps {
-  media: MediaSessionController;
+  /** F7 Step 7 optional：canonical tutor 模式 Frame 零媒体创建（外部
+   *  PresentationRuntime 唯一属主）——无 session 时音频播放/停播 no-op，
+   *  文本 turn 语义保留；legacy 调用方恒传实例，行为零改动。 */
+  media?: MediaSessionController;
   client: CoachTurnClient;
   callbacks: CoachControllerCallbacks;
 }
@@ -195,9 +198,11 @@ export class CoachController {
           } else if (event.type === "turn.audio.delta") {
             // Feed each MP3 chunk into one incremental MediaSource stream so
             // playback starts on the first chunk — before the full answer lands.
-            const handle = audioStreamRef.current ?? this.deps.media.startAudioStream("coach-turn", { correlationId: event.correlationId });
-            audioStreamRef.current = handle;
-            handle.appendChunk(decodeBase64ToBytes(event.audioBase64));
+            const handle = audioStreamRef.current ?? this.deps.media?.startAudioStream("coach-turn", { correlationId: event.correlationId });
+            if (handle) {
+              audioStreamRef.current = handle;
+              handle.appendChunk(decodeBase64ToBytes(event.audioBase64));
+            }
           } else if (event.type === "turn.directive") {
             directive = event.directive;
           }
@@ -219,7 +224,7 @@ export class CoachController {
     } catch {
       // Cancelled by a new turn / Action switch / live start: leave the thread as-is.
       if (abort.signal.aborted) return true;
-      this.deps.media.stop("coach-turn");
+      this.deps.media?.stop("coach-turn");
       const failure: CoachDirective = {
         directiveId: crypto.randomUUID(),
         messageLatex: COACH_FAILURE_MESSAGE,
@@ -243,7 +248,7 @@ export class CoachController {
    */
   cancel(reason: string): void {
     this.abort?.abort();
-    this.deps.media.stop("coach-turn");
+    this.deps.media?.stop("coach-turn");
   }
 
   dispose(): void {

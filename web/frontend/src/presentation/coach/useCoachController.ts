@@ -29,8 +29,10 @@ import { useRealtimeCoach, type RealtimeStartContext, type UseRealtimeCoach } fr
  *  - cancelling in-flight coach/TTS on Action switch, unmount, and live start.
  */
 
+/** F7 Step 7：media optional——canonical tutor 模式 Frame 零媒体创建（媒体
+ *  唯一属主 = 外层 PresentationRuntime）；legacy 调用方恒传实例不变。 */
 export interface UseCoachControllerParams {
-  media: MediaSessionController;
+  media?: MediaSessionController;
   canHelp: boolean;
   transport: CoachTurnTransport | undefined;
   local: boolean;

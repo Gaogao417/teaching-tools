@@ -61,7 +61,10 @@ import {
 import { actionMachineRegistry } from "../registry";
 import type { SolutionBoardView } from "../types";
 import type { CoachPanelViewV1, StudentWorkspaceViewV1 } from "../../presentation/canonicalView/canonicalViewTypes";
+import { parseRenderGeometryV1 } from "../../presentation/canonicalView/renderGeometry";
+import type { WorkspaceCommitSignal } from "../../presentation/presentationRuntime/workspaceCommitPort";
 import type { StudentWorkspaceView } from "../../../../shared/studentWorkspace";
+import type { TopicGeometryModel } from "../../../../shared/topicPractice";
 import type { TaskId } from "../../../../shared/contracts";
 
 /** 计划 §3 ActionRuntimeTransport：evidence → {evaluation, tutorTurn}。 */
@@ -176,26 +179,33 @@ export type PlaybackControlsVm =
     replay: () => void;
   };
 
-/** Workspace 呈现面（canonical=快照 student_workspace_view + commit 通知端口；
- *  legacy=统一 View）。 */
+/** Workspace 呈现面（canonical=快照 student_workspace_view + render.geometry
+ *  解析产物 + 真实 commit 信号注入面；legacy=统一 View）。 */
 export type WorkspaceSurfaceVm =
   | {
     source: "canonical";
     view: StudentWorkspaceViewV1 | undefined;
-    /** 过渡呈现面 render 后的 commit 通知（诊断/开发；真实完成信号 Step 7 接入，
-     *  见 presentationRuntime/workspaceCommitPort）。 */
-    onCommitRevision?: (note: { sessionId: string; revision: number }) => void;
+    /** render.geometry 运行时解析产物（F7 Step 7 production Canvas 数据源）。 */
+    geometry: TopicGeometryModel | undefined;
+    /** 真实完成信号（production Canvas commit ∧ Board reveal 稳定双结算）。 */
+    commitSignal: WorkspaceCommitSignal | undefined;
   }
   | { source: "legacy"; workspaceView: StudentWorkspaceView | undefined; completed: boolean };
 
-/** ActionRuntimeFrame 绑定（canonical：actor-first 采用 + 禁 Frame 私有 legacy 媒体）。 */
+/** ActionRuntimeFrame 绑定（canonical：actor-first 采用 + canonical board
+ *  surface + 禁 Frame 私有 legacy 媒体）。 */
 export interface ActiveActionFrameVm {
   transport: ActionRuntimeTransport;
   onEvaluation?: (result: ActionEvaluationResponse) => void;
   viewRevision?: number;
+  /** legacy 统一 View 板书投影（V5 链，F8 退场；canonical 不消费）。 */
   boardView?: SolutionBoardView;
-  /** 外部 Tutor runtime 拥有媒体/coach 时为 true：Frame 不得创建/调用 legacy
-   *  coach/媒体（复核裁定：迁移期最小隔离，Step 7 收敛为统一 PresentationRuntime）。 */
+  /** canonical 板书面（= 快照 student_workspace_view.solution_board；页面经
+   *  共享 SolutionBoardViewSurface 渲染进 Frame boardSurface 槽）。 */
+  board?: StudentWorkspaceViewV1["solution_board"];
+  /** 外部 Tutor runtime 拥有媒体/coach 时为 true：Frame 零媒体创建（F7 Step 7
+   *  裁定：不 new MediaSessionController/NarrationController；媒体实例唯一
+   *  属主 = 外层 PresentationRuntime）。 */
   legacyMediaDisabled: boolean;
 }
 
@@ -412,6 +422,13 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       setProtocolError(`active_action 校验失败（fail closed）：${operation.reason}`);
       return false;
     }
+    // F7 Step 7：render.geometry 是 production Canvas 的渲染输入——非 null 而
+    // 不可解析 = 快照不可用于 Workspace 呈现，整份拒绝（原子采用纪律；null =
+    // 无图示任务，放行渲染占位）。
+    if (snapshot.render.geometry !== null && parseRenderGeometryV1(snapshot.render.geometry) === undefined) {
+      setProtocolError("render.geometry 无法解析为可渲染几何（fail closed）");
+      return false;
+    }
     runtimeSnapshotRef.current = snapshot;
     setProtocolError(undefined);
     setError(undefined);
@@ -594,10 +611,16 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     };
   }, [narration, media]);
 
-  /** 过渡呈现面的 commit 通知（携带 session+revision；经 VM 注入 Surface）。 */
-  const notifyWorkspaceCommitted = useCallback((note: { sessionId: string; revision: number }) => {
-    presentationRuntimeRef.current?.commitPort.notifyTransitionalCommitted(note);
-  }, []);
+  /** F7 Step 7：真实 commit 信号注入面（production Canvas + Board reveal 双
+   *  结算经 workspaceSurface VM 下发；port 方法为闭包实现，无 this 绑定）。 */
+  const workspaceCommitSignal = useMemo<WorkspaceCommitSignal | undefined>(() => {
+    if (!presentationRuntime) return undefined;
+    const port = presentationRuntime.commitPort;
+    return {
+      registerRealCommitSource: port.registerRealCommitSource,
+      notifyRealCommitted: port.notifyRealCommitted,
+    };
+  }, [presentationRuntime]);
 
   // 已采用快照 → PresentationRuntime.adopt（唯一驱动口）。对象身份守卫：同一
   // 快照对象（StrictMode effect 重放）不重复 adopt；新对象由状态机按去重键
@@ -1326,10 +1349,11 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       ? {
         source: "canonical",
         view: runtimeSnapshot?.views.student_workspace_view,
-        onCommitRevision: notifyWorkspaceCommitted,
+        geometry: runtimeSnapshot ? parseRenderGeometryV1(runtimeSnapshot.render.geometry) : undefined,
+        commitSignal: workspaceCommitSignal,
       }
       : { source: "legacy", workspaceView, completed: mergedCompleted }),
-    [runtimeClient, runtimeSnapshot, workspaceView, mergedCompleted, notifyWorkspaceCommitted],
+    [runtimeClient, runtimeSnapshot, workspaceCommitSignal, workspaceView, mergedCompleted],
   );
 
   /** Coach composer：提问通道（canonical=utterance(assistance)；legacy=question_asked）
@@ -1354,6 +1378,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     transport,
     ...(runtimeClient ? { onEvaluation: adoptPendingEvaluationSnapshot } : {}),
     viewRevision: runtimeClient ? runtimeSnapshot?.render.workspace_revision : workspaceView?.revision,
+    ...(runtimeClient ? { board: runtimeSnapshot?.views.student_workspace_view.solution_board } : {}),
     ...(runtimeClient ? {} : { boardView: workspaceView?.solutionBoard }),
     legacyMediaDisabled: Boolean(runtimeClient),
   }), [transport, runtimeClient, runtimeSnapshot, workspaceView, adoptPendingEvaluationSnapshot]);

@@ -30,6 +30,7 @@ import { useTutorLearning } from "../../action-runtime/tutor/useTutorLearning";
 import { LearnQuestionPrompt } from "../../presentation/workspace/LearnQuestionPrompt";
 import { ReadOnlyGeometrySurface, StudentBoardSurface, StudentWorkspaceFrame } from "../../presentation/workspace/StudentWorkspaceFrame";
 import { StudentWorkspaceViewSurface } from "../../presentation/canonicalView/StudentWorkspaceViewSurface";
+import { SolutionBoardViewSurface } from "../../presentation/canonicalView/SolutionBoardViewSurface";
 import { FocusWorkspace } from "../../components/layout/FocusWorkspace";
 import { TopicCoachDockTrigger, TopicCoachPanel, type TopicCoachTurn } from "../../presentation/coach/TopicCoachPanel";
 import { TopicTeachingConfirm, TopicTeachingPlayback } from "../../presentation/coach/TopicTeachingControls";
@@ -503,6 +504,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
             transport={frame.transport}
             onEvaluation={frame.onEvaluation}
             boardView={frame.boardView}
+            boardSurface={frame.board ? <SolutionBoardViewSurface board={frame.board} /> : undefined}
             viewRevision={frame.viewRevision}
             legacyMediaDisabled={frame.legacyMediaDisabled}
             questionPrompt={learnPrompt}
@@ -523,11 +525,19 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   }
 
   // 讲解 / 完成：同一 FocusWorkspace 外壳 + 同一 Workspace 呈现面
-  //（canonical=快照 student_workspace_view；legacy=统一 View 的只读画布 +
-  //  板书面；完成态板书即同一 View 的最终披露，无第二份真源）。
+  //（canonical=快照 student_workspace_view + render.geometry 驱动的 production
+  //  Canvas + 共享 canonical Board（真实 commit 信号接入 PresentationRuntime）；
+  //  legacy=统一 View 的只读画布 + 板书面；完成态板书即同一 View 的最终披露，
+  //  无第二份真源）。
   const workspaceArea = tutor.workspaceSurface.source === "canonical"
     ? (tutor.workspaceSurface.view
-      ? <StudentWorkspaceViewSurface view={tutor.workspaceSurface.view} onCommitRevision={tutor.workspaceSurface.onCommitRevision} />
+      ? (
+        <StudentWorkspaceViewSurface
+          view={tutor.workspaceSurface.view}
+          geometry={tutor.workspaceSurface.geometry}
+          commitSignal={tutor.workspaceSurface.commitSignal}
+        />
+      )
       : <section className="topic-answer-panel solution-board-panel is-empty" aria-label="学习工作区（加载中）" data-testid="region-workspace" />)
     : (
       <StudentWorkspaceFrame

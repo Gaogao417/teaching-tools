@@ -16,6 +16,16 @@ export interface WorkspaceCommitNote {
   revision: number;
 }
 
+/**
+ * F7 Step 7：生产呈现面（StudentWorkspaceViewSurface）接入 commitPort 的
+ * 注入面——useTutorLearning 经 view-model 下发；真实信号源 = production
+ * Canvas post-paint ∧ Board reveal 稳定的同 revision 双结算。
+ */
+export interface WorkspaceCommitSignal {
+  registerRealCommitSource(): () => void;
+  notifyRealCommitted(note: WorkspaceCommitNote): void;
+}
+
 export interface CommitWaitOptions {
   abort?: AbortSignal;
   timeoutMs?: number;
