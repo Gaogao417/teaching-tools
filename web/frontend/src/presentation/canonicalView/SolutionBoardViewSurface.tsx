@@ -21,7 +21,8 @@
  *     （结算键 sessionId+revision 由父组件管理）；被替换 revision 不回补；
  *   · sessionId 变化：取消旧句柄、清空已完成/失败集合、重置首份投影
  *     语义（新会话首份板书 = restore，不播动画）；
- *   · reduce-motion / 无 WAAPI 环境：跳过动画，条目即时视为已呈现。
+ *   · reduce-motion / 无 WAAPI 环境：跳过动画，条目即时视为已呈现（声明的
+ *     回退面）；条目数据在而 DOM 节点缺失 = 该呈现执行失败（不静默回退）。
  */
 import { useEffect, useRef } from "react";
 
@@ -135,10 +136,18 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, onSettled
     for (const id of currentIds) {
       if (handles.has(id) || revealed.has(id)) continue;
       const node = containerRef.current?.querySelector<HTMLElement>(`[data-entry-id="${id}"]`);
-      const animate = node && typeof node.animate === "function" && !reduce
+      if (!node) {
+        // 完成度审计 P3：条目数据在而 DOM 节点缺失 = 渲染承诺被破坏——按
+        // 该呈现执行失败处理（不标记已呈现、该 revision 不结算；后续 effect
+        // 重跑若节点出现可重试动画）。不静默回退为「已呈现」。
+        failedRevisionsRef.current.add(latest.revision);
+        continue;
+      }
+      // 声明的回退面：reduced-motion / 无 WAAPI 环境跳过动画，即时视为已呈现。
+      const animate = typeof node.animate === "function" && !reduce
         ? node.animate(REVEAL_KEYFRAMES, { duration: 600, easing: "ease-out" })
         : undefined;
-      if (animate === undefined || node === undefined) {
+      if (animate === undefined) {
         revealed.add(id);
         continue;
       }

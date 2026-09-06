@@ -73,10 +73,12 @@ function parseSegment(value: unknown): TopicGeometryModel["segments"][number] | 
 
 function parseParallelLine(value: unknown): NonNullable<TopicGeometryModel["derivedLines"]>[number] | undefined {
   if (!isRecord(value)) return undefined;
-  // 已知字段非法即拒绝：kind 必须已是 "parallel-line"，不由解析器代填。
+  // 已知字段非法即拒绝：kind 必须已是 "parallel-line"，不由解析器代填；
+  // derived 是模型 literal true——缺失/false 均拒绝，不静默改写为 true
+  //（完成度审计 P2：原实现对 false/缺省会静默写出 true，违反「不静默修正」纪律）。
   if (value["kind"] !== "parallel-line") return undefined;
   if (!isString(value["id"]) || !isString(value["through"]) || !isString(value["parallelTo"])) return undefined;
-  if (optionalFlag(value["derived"]) === null) return undefined;
+  if (value["derived"] !== true) return undefined;
   const endPoint = value["endPoint"];
   if (endPoint !== undefined && !isString(endPoint)) return undefined;
   return {

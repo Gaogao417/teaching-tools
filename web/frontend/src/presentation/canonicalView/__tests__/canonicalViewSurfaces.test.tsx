@@ -170,6 +170,9 @@ describe("parseRenderGeometryV1 返工负例（P1-4：统一组装/已知字段�
     expect(parseRenderGeometryV1({ ...base(), teachingMarks: [{ id: "m", kind: "segment-label", segmentId: "seg-AB", valueLatex: "5", labelKind: "wrong" }] } as unknown as Record<string, unknown>)).toBeUndefined();
     expect(parseRenderGeometryV1({ ...base(), teachingMarks: [{ id: "m", kind: "correspondence", segmentIds: ["seg-AB", "seg-AB"], tickCount: "2" }] } as unknown as Record<string, unknown>)).toBeUndefined();
     expect(parseRenderGeometryV1({ ...base(), points: [{ id: "A", x: 0, y: 0, derived: "yes" }] } as unknown as Record<string, unknown>)).toBeUndefined();
+    // 完成度审计 P2：derivedLines[].derived 为 false / 缺失 → 拒绝（不静默改写为 true）。
+    expect(parseRenderGeometryV1({ ...base(), derivedLines: [{ id: "dl", kind: "parallel-line", through: "A", parallelTo: "seg-AB", derived: false }] } as unknown as Record<string, unknown>)).toBeUndefined();
+    expect(parseRenderGeometryV1({ ...base(), derivedLines: [{ id: "dl", kind: "parallel-line", through: "A", parallelTo: "seg-AB" }] } as unknown as Record<string, unknown>)).toBeUndefined();
   });
 
   it("重复实体 id / 悬空引用（through/segmentId/entityIds）拒绝", () => {
@@ -371,7 +374,7 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
     }
   });
 
-  it("StrictMode 重挂载：注册/注销配对，结算仍每键一次", () => {
+  it("StrictMode 重挂载：注册/注销配对，结算仍每键一次", async () => {
     const view = parsedWorkspaceVariant();
     const harness = commitSignalHarness();
     const container = document.createElement("div");
@@ -379,6 +382,11 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
     const strictRoot = createRoot(container);
     act(() => strictRoot.render(<StrictMode><StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} /></StrictMode>));
     expect(harness.registerRealCommitSource.mock.calls.length).toBeGreaterThanOrEqual(1);
+    // 完成度审计 P3：标题承诺的「结算每键一次」需真实断言（session+revision
+    // 双结算键在 StrictMode 双 effect 下只通知一次）。
+    await drainSettle();
+    expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+    expect(harness.notifyRealCommitted).toHaveBeenCalledWith({ sessionId: "TS-4242", revision: 6 });
     act(() => strictRoot.unmount());
     expect(harness.unregister.mock.calls.length).toBe(harness.registerRealCommitSource.mock.calls.length);
     container.remove();
