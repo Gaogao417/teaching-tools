@@ -1,0 +1,35 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v8",
+  "session_id": "TS-4242",
+  "sequence": 47,
+  "state_revision": 13,
+  "occurred_at": "2026-09-07T09:00:00Z",
+  "event_type": "resolution_frame_changed",
+  "payload": {
+    "change": "popped",
+    "frame": {
+      "frame_id": "RF-TS4242-0001",
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-002",
+        "beat_id": "BT-03"
+      },
+      "region_id": "SR-01",
+      "frontier_unit_ids": [
+        "RU-03"
+      ],
+      "focused_unit_id": "RU-03",
+      "evidence_refs": [
+        42
+      ],
+      "return_target": {
+        "scope": {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-002",
+          "beat_id": "BT-03"
+        }
+      }
+    }
+  },
+  "idempotency_key": "idem-20260907-0001"
+}

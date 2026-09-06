@@ -1,0 +1,24 @@
+{
+  "schema": "ai_teaching_tutor_policy_decision/v2",
+  "session_id": "TS-4242",
+  "decision_id": "TD-20260907-0003",
+  "policy_version": "nav-v8-1",
+  "protocol_id": "PR-SMV-002",
+  "beat_id": "BT-03",
+  "decision_kind": "execute_beat",
+  "source_event_sequence": 42,
+  "source_state_revision": 9,
+  "resolution": {
+    "frame_id": "RF-TS4242-0001",
+    "region_id": "SR-01",
+    "action": "expand",
+    "unit_id": "RU-03",
+    "new_frontier_unit_ids": [
+      "RU-01",
+      "RU-02",
+      "RU-03"
+    ],
+    "evidence_sequence": 42,
+    "reason": "学生卡在 RU-03 的比例方向，展开其批准子单位"
+  }
+}

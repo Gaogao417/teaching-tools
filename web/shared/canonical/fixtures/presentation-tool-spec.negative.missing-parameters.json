@@ -1,0 +1,12 @@
+{
+  "schema": "ai_teaching_presentation_tool_spec/v1",
+  "tool_id": "board.explain",
+  "version": "v1",
+  "description": "在解答板上新增一条临场解释板书，内容限于批准公式/关系引用与说明文本。",
+  "capability": "solution_board.explain_fragment",
+  "surface": "solution_board",
+  "effect_class": "explain_fragment",
+  "reveal_scope_ceiling": "step_narration",
+  "requires_binding": true,
+  "teaching_mode_only": true
+}

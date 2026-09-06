@@ -1,0 +1,59 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v8",
+  "session_id": "TS-4242",
+  "sequence": 45,
+  "state_revision": 11,
+  "occurred_at": "2026-09-07T09:00:00Z",
+  "event_type": "presentation_sequence_planned",
+  "payload": {
+    "sequence_id": "PS-0002",
+    "decision_id": "TD-20260907-0001",
+    "scope": {
+      "kind": "approved",
+      "protocol_id": "PR-SMV-002",
+      "beat_id": "BT-03"
+    },
+    "generation": {
+      "request_id": "GR-TS4242-0001",
+      "attempt": 1,
+      "input_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "resolution_frame_id": "RF-TS4242-0001",
+    "actions": [
+      {
+        "ordinal": 0,
+        "kind": "voice",
+        "basis_refs": [
+          "RES1"
+        ],
+        "voice_action": {
+          "action_id": "VA-20260907-0001",
+          "decision_id": "TD-20260907-0001",
+          "text": "先看这两个角的对应关系。",
+          "source": "model-generated",
+          "generation_id": "VG-20260907-0001"
+        }
+      },
+      {
+        "ordinal": 1,
+        "kind": "workspace",
+        "basis_refs": [
+          "VB-01"
+        ],
+        "workspace_action": {
+          "action_id": "WSA-20260907-0001",
+          "decision_id": "TD-20260907-0001",
+          "surface": "geometry",
+          "capability": "geometry.emphasize",
+          "origin": "tutor",
+          "reveal_scope": "target_highlight",
+          "target_ids": [
+            "segment-AD"
+          ]
+        }
+      }
+    ]
+  },
+  "idempotency_key": "idem-20260907-0003",
+  "causation_sequence": 43
+}

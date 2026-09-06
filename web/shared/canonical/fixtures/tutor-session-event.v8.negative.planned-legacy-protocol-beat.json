@@ -1,0 +1,29 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v8",
+  "session_id": "TS-4242",
+  "sequence": 45,
+  "state_revision": 11,
+  "occurred_at": "2026-09-07T09:00:00Z",
+  "event_type": "presentation_sequence_planned",
+  "payload": {
+    "sequence_id": "PS-0003",
+    "decision_id": "TD-20260907-0001",
+    "protocol_id": "PR-SMV-002",
+    "beat_id": "BT-03",
+    "actions": [
+      {
+        "ordinal": 0,
+        "kind": "voice",
+        "voice_action": {
+          "action_id": "VA-20260907-0002",
+          "decision_id": "TD-20260907-0001",
+          "text": "旧版平铺字段。",
+          "source": "approved-resource",
+          "resource_ref": "RES1"
+        }
+      }
+    ]
+  },
+  "idempotency_key": "idem-20260907-0004",
+  "causation_sequence": 43
+}

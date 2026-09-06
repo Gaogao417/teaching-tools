@@ -1,0 +1,61 @@
+{
+  "schema": "ai_teaching_presentation_plan/v3",
+  "session_id": "TS-4242",
+  "sequence_id": "PS-0004",
+  "decision_id": "TD-20260907-0001",
+  "scope": {
+    "kind": "local",
+    "inquiry_id": "IQ-20260907-0001",
+    "local_protocol_id": "LPR-TS4242-0001",
+    "local_beat_id": "LBT-01",
+    "anchor": {
+      "protocol_id": "PR-SMV-002",
+      "beat_id": "BT-03"
+    }
+  },
+  "generation": {
+    "request_id": "GR-TS4242-0001",
+    "attempt": 1,
+    "input_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "presenter_pin": {
+      "provider": "structured-model",
+      "model_id": "glm-presenter-1",
+      "prompt_version": "ppt-pv-1",
+      "context_builder_version": "cb-1",
+      "tool_catalog_version": "tc-1"
+    }
+  },
+  "resolution_frame_id": "RF-TS4242-0001",
+  "actions": [
+    {
+      "ordinal": 0,
+      "kind": "voice",
+      "basis_refs": [
+        "RES1"
+      ],
+      "voice_action": {
+        "action_id": "VA-20260907-0003",
+        "decision_id": "TD-20260907-0001",
+        "text": "我们把这一步再拆细。",
+        "source": "model-generated",
+        "generation_id": "VG-20260907-0002"
+      }
+    },
+    {
+      "ordinal": 1,
+      "kind": "workspace",
+      "basis_refs": [
+        "VB-03"
+      ],
+      "workspace_action": {
+        "action_id": "WSA-20260907-0002",
+        "decision_id": "TD-20260907-0001",
+        "surface": "solution_board",
+        "capability": "board.explain",
+        "origin": "tutor",
+        "command_payload": "EF-TS4242-0001",
+        "reveal_scope": "step_narration"
+      }
+    }
+  ]
+}

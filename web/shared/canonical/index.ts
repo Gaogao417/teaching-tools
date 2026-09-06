@@ -57,6 +57,15 @@ import {
   studentWorkspaceViewV1Schema,
   coachPanelViewV1Schema,
   mainlineParticipationV1Schema,
+  tutorPlanBundleV6Schema,
+  tutorRuntimeStateV3Schema,
+  tutorSessionEventV8Schema,
+  tutorPolicyDecisionV2Schema,
+  presentationPlanV3Schema,
+  presentationDraftV1Schema,
+  presentationToolSpecV1Schema,
+  workspaceRuntimeStateV2Schema,
+  studentWorkspaceViewV2Schema,
 } from "./schemas";
 
 export * from "./schemas";
@@ -113,6 +122,16 @@ const SCHEMA_CONST_TO_ZOD: Record<string, z.ZodTypeAny> = {
   "ai_teaching_intervention/v1": interventionSchema,
   "ai_teaching_sut_config/v1": sutConfigSchema,
   "ai_teaching_benchmark_run/v1": benchmarkRunSchema,
+  // F7 RT0 集中合同波（2026-09-07，f7-rt0-baseline-freeze 清单 2）：9 份新 schema。
+  "ai_teaching_tutor_plan_bundle/v6": tutorPlanBundleV6Schema,
+  "ai_teaching_tutor_runtime_state/v3": tutorRuntimeStateV3Schema,
+  "ai_teaching_tutor_session_event/v8": tutorSessionEventV8Schema,
+  "ai_teaching_tutor_policy_decision/v2": tutorPolicyDecisionV2Schema,
+  "ai_teaching_presentation_plan/v3": presentationPlanV3Schema,
+  "ai_teaching_presentation_draft/v1": presentationDraftV1Schema,
+  "ai_teaching_presentation_tool_spec/v1": presentationToolSpecV1Schema,
+  "ai_teaching_workspace_runtime_state/v2": workspaceRuntimeStateV2Schema,
+  "ai_teaching_student_workspace_view/v2": studentWorkspaceViewV2Schema,
 };
 
 export interface ValidationOutcome {

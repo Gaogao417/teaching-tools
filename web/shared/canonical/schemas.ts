@@ -2639,7 +2639,7 @@ const tutorPlanV5ResourceSchema = z
   })
   .strict();
 
-export const tutorPlanBundleV5Schema = z
+const tutorPlanBundleV5Body = z
   .object({
     schema: z.literal("ai_teaching_tutor_plan_bundle/v5"),
     artifact_id: planId,
@@ -2697,9 +2697,12 @@ export const tutorPlanBundleV5Schema = z
     content_hash: sha256,
     artifact_uri: z.string().regex(/^artifact:\/\/tutor-plan\/TP-[A-Z0-9]+-[0-9]{3,}@v[0-9]+$/),
   })
-  .strict()
-  .superRefine((value, ctx) => {
-    const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  .strict();
+
+const planBundleCrossFieldRules = (
+  value: Omit<z.infer<typeof tutorPlanBundleV5Body>, "schema">,
+  add: (message: string) => void,
+): void => {
     const chunkIds = value.chunks.map((chunk) => chunk.chunk_id);
     const chunkIdSet = new Set(chunkIds);
     const regionIds = value.solution_regions.map((region) => region.region_id);
@@ -2746,7 +2749,13 @@ export const tutorPlanBundleV5Schema = z
       for (const id of chunk.resource_ids ?? []) if (!resourceIds.has(id)) add(`chunk ${chunk.chunk_id} references unknown resource ${id}`);
     }
     if (value.status === "Approved" && !value.approval) add("Approved requires approval block");
-  });
+};
+
+export const tutorPlanBundleV5Schema = tutorPlanBundleV5Body.superRefine((value, ctx) => {
+  planBundleCrossFieldRules(value, (message) =>
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message }),
+  );
+});
 
 // runtime/v5/student-intent
 const studentWorkspaceCommandBody = z
@@ -3009,52 +3018,50 @@ export const tutorPolicyDecisionV1Schema = z
   })
   .strict()
   .superRefine((value, ctx) => {
+    policyDecisionCommonRules(value, (message) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message }),
+    );
+  });
+
+type PolicyDecisionCommonValue = Omit<
+  z.infer<typeof v5PolicyDecisionBody>,
+  "schema" | "decision_kind"
+> & { decision_kind: string };
+
+const policyDecisionCommonRules = (
+  value: PolicyDecisionCommonValue,
+  add: (message: string) => void,
+): void => {
     if (
       ["open_inquiry", "open_scaffold", "continue_inquiry", "return_to_mainline"].includes(
         value.decision_kind,
       ) &&
       !value.inquiry
     ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `decision_kind=${value.decision_kind} requires inquiry (with return_beat_id)`,
-      });
+      add(`decision_kind=${value.decision_kind} requires inquiry (with return_beat_id)`);
     }
     if (["transition_beat", "revisit_beat", "return_to_mainline"].includes(value.decision_kind) &&
       !value.to_beat_id) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `decision_kind=${value.decision_kind} requires to_beat_id`,
-      });
+      add(`decision_kind=${value.decision_kind} requires to_beat_id`);
     }
     if (value.local_inquiry_protocol) {
       if (value.decision_kind !== "open_inquiry") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `local_inquiry_protocol is only allowed with decision_kind=open_inquiry (got ${value.decision_kind})`,
-        });
+        add(`local_inquiry_protocol is only allowed with decision_kind=open_inquiry (got ${value.decision_kind})`);
       }
       if (!value.inquiry) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "local_inquiry_protocol requires inquiry (with return_beat_id)",
-        });
+        add("local_inquiry_protocol requires inquiry (with return_beat_id)");
       } else {
         if (value.inquiry.inquiry_protocol_id) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "local_inquiry_protocol must not coexist with inquiry.inquiry_protocol_id (session-local protocols are not PR- artifacts)",
-          });
+          add("local_inquiry_protocol must not coexist with inquiry.inquiry_protocol_id (session-local protocols are not PR- artifacts)");
         }
         if (value.inquiry.return_beat_id !== value.local_inquiry_protocol.return_beat_id) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `local_inquiry_protocol.return_beat_id ${value.local_inquiry_protocol.return_beat_id} differs from inquiry.return_beat_id ${value.inquiry.return_beat_id}`,
-          });
+          add(
+            `local_inquiry_protocol.return_beat_id ${value.local_inquiry_protocol.return_beat_id} differs from inquiry.return_beat_id ${value.inquiry.return_beat_id}`,
+          );
         }
       }
     }
-  });
+};
 
 // runtime/v5/voice-action
 export const voiceActionV1Schema = z
@@ -3431,7 +3438,7 @@ const v5SemanticInterpretationPayload = z
     }
   });
 
-const v5PolicyDecisionPayload = z
+const v5PolicyDecisionBody = z
   .object({
     decision_id: decisionIdPattern,
     decision_kind: decisionKindEnum,
@@ -3460,54 +3467,13 @@ const v5PolicyDecisionPayload = z
     inquiry: inquiryBlock.optional(),
     local_inquiry_protocol: v5LocalInquiryProtocol.optional(),
   })
-  .strict()
-  .superRefine((value, ctx) => {
-    if (
-      ["open_inquiry", "open_scaffold", "continue_inquiry", "return_to_mainline"].includes(
-        value.decision_kind,
-      ) &&
-      !value.inquiry
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `decision_kind=${value.decision_kind} requires inquiry (with return_beat_id)`,
-      });
-    }
-    if (["transition_beat", "revisit_beat", "return_to_mainline"].includes(value.decision_kind) &&
-      !value.to_beat_id) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `decision_kind=${value.decision_kind} requires to_beat_id`,
-      });
-    }
-    if (value.local_inquiry_protocol) {
-      if (value.decision_kind !== "open_inquiry") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `local_inquiry_protocol is only allowed with decision_kind=open_inquiry (got ${value.decision_kind})`,
-        });
-      }
-      if (!value.inquiry) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "local_inquiry_protocol requires inquiry (with return_beat_id)",
-        });
-      } else {
-        if (value.inquiry.inquiry_protocol_id) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "local_inquiry_protocol must not coexist with inquiry.inquiry_protocol_id (session-local protocols are not PR- artifacts)",
-          });
-        }
-        if (value.inquiry.return_beat_id !== value.local_inquiry_protocol.return_beat_id) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `local_inquiry_protocol.return_beat_id ${value.local_inquiry_protocol.return_beat_id} differs from inquiry.return_beat_id ${value.inquiry.return_beat_id}`,
-          });
-        }
-      }
-    }
-  });
+  .strict();
+
+const v5PolicyDecisionPayload = v5PolicyDecisionBody.superRefine((value, ctx) => {
+  policyDecisionCommonRules(value, (message) =>
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message }),
+  );
+});
 
 const v5GateEvaluatedPayload = z
   .object({
@@ -4634,3 +4600,747 @@ export const coachPanelViewV1Schema = z
     ),
   })
   .strict();
+
+// ============================================================================
+// F7 RT0 集中合同波（2026-09-07，f7-rt0-baseline-freeze 清单 2，9 份新 schema）
+// planning/v6 bundle、state/v3、runtime/v8 event、decision/v2、plan/v3、
+// generation/v1 draft+tool-spec、state/v2 workspace、view/v2。
+// 跨字段规则与 Python model_validator 逐条一致（191 fixtures 双语言判定一致是门禁）。
+// ============================================================================
+
+const refinementUnitIdPattern = z.string().regex(/^RU-[0-9]{1,3}$/);
+const refinementCheckpointIdPattern = z.string().regex(/^CP-[0-9]{1,3}$/);
+const resourceBindingIdPattern = z.string().regex(/^VB-[0-9]{1,3}$/);
+const resolutionFrameIdPattern = z.string().regex(/^RF-[A-Za-z0-9._:-]{4,}$/);
+const generationRequestIdPattern = z.string().regex(/^GR-[A-Za-z0-9._:-]{4,}$/);
+const explanationFragmentIdPattern = z.string().regex(/^EF-[A-Za-z0-9._:-]{4,}$/);
+
+// planning/v6/tutor-plan-bundle（marker v6）：v5 + refinement_spec + resource_bindings。
+const refinementUnitSchema = z
+  .object({
+    unit_id: refinementUnitIdPattern,
+    fine_refs: solutionRefsV5Schema,
+    prerequisite_refs: z.array(refinementUnitIdPattern),
+    child_unit_ids: z.array(refinementUnitIdPattern),
+    explanation_resource_refs: z.array(resourceIdPattern),
+    visual_binding_refs: z.array(resourceBindingIdPattern),
+    checkpoint_ref: refinementCheckpointIdPattern,
+  })
+  .strict();
+
+const refinementCheckpointSchema = z
+  .object({
+    checkpoint_id: refinementCheckpointIdPattern,
+    evidence_kind: z.enum([
+      "student_answer",
+      "workspace_command",
+      "student_confirmation",
+      "semantic_gate_pass",
+      "tutor_observed",
+    ]),
+    requirement: nonEmptyString,
+    gate: z
+      .object({
+        gate_id: gateIdPattern,
+        capability: nonEmptyString.optional(),
+        graph_fact_id: z.string().regex(/^FN-[0-9]{1,3}$/).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const resourceBindingSchema = z
+  .object({
+    binding_id: resourceBindingIdPattern,
+    binding_kind: z.enum(["geometry", "board", "explanation"]),
+    purpose: nonEmptyString,
+    geometry_target: nonEmptyString.optional(),
+    semantic_role: nonEmptyString.optional(),
+    allowed_template_ids: z.array(nonEmptyString).min(1).optional(),
+    board_entry_id: z.string().regex(/^BE-[0-9]{1,3}$/).optional(),
+    reveal_after_checkpoint: refinementCheckpointIdPattern.optional(),
+    basis_refs: solutionRefsV5Schema.optional(),
+    presentation_resource: resourceIdPattern.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.binding_kind === "geometry") {
+      if (value.geometry_target === undefined) add("binding_kind=geometry requires geometry_target");
+      if (value.semantic_role === undefined) add("binding_kind=geometry requires semantic_role");
+      if (value.allowed_template_ids === undefined) add("binding_kind=geometry requires allowed_template_ids");
+    } else {
+      if (value.geometry_target !== undefined) add(`binding_kind=${value.binding_kind} must not carry geometry_target`);
+      if (value.semantic_role !== undefined) add(`binding_kind=${value.binding_kind} must not carry semantic_role`);
+      if (value.allowed_template_ids !== undefined) add(`binding_kind=${value.binding_kind} must not carry allowed_template_ids`);
+    }
+    if (value.binding_kind === "board") {
+      if (value.board_entry_id === undefined) add("binding_kind=board requires board_entry_id");
+      if (value.reveal_after_checkpoint === undefined) add("binding_kind=board requires reveal_after_checkpoint");
+    } else {
+      if (value.board_entry_id !== undefined) add(`binding_kind=${value.binding_kind} must not carry board_entry_id`);
+      if (value.reveal_after_checkpoint !== undefined) add(`binding_kind=${value.binding_kind} must not carry reveal_after_checkpoint`);
+    }
+    if (value.binding_kind === "explanation") {
+      if (value.basis_refs === undefined) add("binding_kind=explanation requires basis_refs");
+      if (value.presentation_resource === undefined) add("binding_kind=explanation requires presentation_resource");
+    } else {
+      if (value.basis_refs !== undefined) add(`binding_kind=${value.binding_kind} must not carry basis_refs`);
+      if (value.presentation_resource !== undefined) add(`binding_kind=${value.binding_kind} must not carry presentation_resource`);
+    }
+  });
+
+export const tutorPlanBundleV6Schema = tutorPlanBundleV5Body
+  .omit({ schema: true })
+  .extend({
+    schema: z.literal("ai_teaching_tutor_plan_bundle/v6"),
+    refinement_spec: z
+      .object({
+        units: z.array(refinementUnitSchema).min(1),
+        defaults_by_chunk: z
+          .array(
+            z
+              .object({
+                chunk_id: chunkIdV5Pattern,
+                frontier_unit_ids: z.array(refinementUnitIdPattern).min(1),
+              })
+              .strict(),
+          )
+          .min(1),
+        region_bindings: z
+          .array(
+            z
+              .object({
+                region_id: solutionRegionIdPattern,
+                root_unit_ids: z.array(refinementUnitIdPattern).min(1),
+              })
+              .strict(),
+          )
+          .min(1),
+        checkpoints: z.array(refinementCheckpointSchema).min(1),
+      })
+      .strict(),
+    resource_bindings: z.array(resourceBindingSchema).min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    planBundleCrossFieldRules(value, add);
+    const unitIds = value.refinement_spec.units.map((unit) => unit.unit_id);
+    const unitIdSet = new Set(unitIds);
+    const unitById = new Map(value.refinement_spec.units.map((unit) => [unit.unit_id, unit]));
+    const checkpointIds = new Set(value.refinement_spec.checkpoints.map((cp) => cp.checkpoint_id));
+    const bindingIds = new Set(value.resource_bindings.map((b) => b.binding_id));
+    const resourceIds = new Set(value.resources.map((r) => r.resource_id));
+    const chunkIds = new Set(value.chunks.map((chunk) => chunk.chunk_id));
+    const regionIds = new Set(value.solution_regions.map((region) => region.region_id));
+    if (unitIdSet.size !== unitIds.length) add("unit_id must be unique");
+    if (checkpointIds.size !== value.refinement_spec.checkpoints.length) add("checkpoint_id must be unique");
+    if (bindingIds.size !== value.resource_bindings.length) add("binding_id must be unique");
+    const defaultChunkIds = value.refinement_spec.defaults_by_chunk.map((d) => d.chunk_id);
+    if (new Set(defaultChunkIds).size !== defaultChunkIds.length) add("defaults_by_chunk chunk_id must be unique");
+    for (const unit of value.refinement_spec.units) {
+      for (const child of unit.child_unit_ids) if (!unitIdSet.has(child)) add(`unit ${unit.unit_id} references unknown child ${child}`);
+      for (const prereq of unit.prerequisite_refs) if (!unitIdSet.has(prereq)) add(`unit ${unit.unit_id} references unknown prerequisite ${prereq}`);
+      if (!checkpointIds.has(unit.checkpoint_ref)) add(`unit ${unit.unit_id} references unknown checkpoint ${unit.checkpoint_ref}`);
+      for (const res of unit.explanation_resource_refs) if (!resourceIds.has(res)) add(`unit ${unit.unit_id} references unknown resource ${res}`);
+      for (const vb of unit.visual_binding_refs) if (!bindingIds.has(vb)) add(`unit ${unit.unit_id} references unknown binding ${vb}`);
+    }
+    // 无环（child_unit_ids 边）
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (id: string): boolean => {
+      if (visiting.has(id)) return true;
+      if (visited.has(id)) return false;
+      visiting.add(id);
+      const unit = unitById.get(id);
+      const cyclic = unit ? unit.child_unit_ids.some(visit) : false;
+      visiting.delete(id);
+      visited.add(id);
+      return cyclic;
+    };
+    if (unitIds.some(visit)) add("refinement unit graph must be acyclic");
+    // 子单位核心 refs ⊆ 父单位 fine_refs
+    for (const unit of value.refinement_spec.units) {
+      for (const childId of unit.child_unit_ids) {
+        const child = unitById.get(childId);
+        if (!child) continue;
+        const parentFacts = new Set(unit.fine_refs.fact_ids);
+        const parentInferences = new Set(unit.fine_refs.inference_ids);
+        if (child.fine_refs.fact_ids.some((id) => !parentFacts.has(id))) add(`child ${childId} core fact escapes parent ${unit.unit_id}`);
+        if (child.fine_refs.inference_ids.some((id) => !parentInferences.has(id))) add(`child ${childId} core inference escapes parent ${unit.unit_id}`);
+      }
+    }
+    for (const entry of value.refinement_spec.defaults_by_chunk) {
+      if (!chunkIds.has(entry.chunk_id)) add(`defaults_by_chunk references unknown chunk ${entry.chunk_id}`);
+      for (const unitId of entry.frontier_unit_ids) if (!unitIdSet.has(unitId)) add(`defaults_by_chunk ${entry.chunk_id} references unknown unit ${unitId}`);
+    }
+    // 每个 chunk 有默认 frontier 且覆盖其 source subgraph
+    const defaultsByChunk = new Map(value.refinement_spec.defaults_by_chunk.map((d) => [d.chunk_id, d]));
+    for (const chunk of value.chunks) {
+      const entry = defaultsByChunk.get(chunk.chunk_id);
+      if (!entry) {
+        add(`chunk ${chunk.chunk_id} has no default frontier`);
+        continue;
+      }
+      const coveredFacts = new Set<string>();
+      const coveredInferences = new Set<string>();
+      for (const unitId of entry.frontier_unit_ids) {
+        const unit = unitById.get(unitId);
+        if (!unit) continue;
+        unit.fine_refs.fact_ids.forEach((id) => coveredFacts.add(id));
+        unit.fine_refs.inference_ids.forEach((id) => coveredInferences.add(id));
+      }
+      if (chunk.source_subgraph_refs.fact_ids.some((id) => !coveredFacts.has(id))) add(`default frontier of chunk ${chunk.chunk_id} loses facts`);
+      if (chunk.source_subgraph_refs.inference_ids.some((id) => !coveredInferences.has(id))) add(`default frontier of chunk ${chunk.chunk_id} loses inferences`);
+    }
+    for (const regionBinding of value.refinement_spec.region_bindings) {
+      if (!regionIds.has(regionBinding.region_id)) add(`region_bindings references unknown region ${regionBinding.region_id}`);
+      for (const unitId of regionBinding.root_unit_ids) if (!unitIdSet.has(unitId)) add(`region_bindings ${regionBinding.region_id} references unknown unit ${unitId}`);
+    }
+    for (const binding of value.resource_bindings) {
+      if (binding.binding_kind === "board" && !checkpointIds.has(binding.reveal_after_checkpoint!)) {
+        add(`board binding ${binding.binding_id} references unknown checkpoint ${binding.reveal_after_checkpoint}`);
+      }
+      if (binding.binding_kind === "explanation" && !resourceIds.has(binding.presentation_resource!)) {
+        add(`explanation binding ${binding.binding_id} references unknown resource ${binding.presentation_resource}`);
+      }
+    }
+  });
+
+// TeachingScopeRef（state/v3、runtime/v8、plan/v3 共用形状）
+const teachingScopeRefSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("approved"),
+      protocol_id: teachingProtocolId,
+      beat_id: beatIdPattern,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("local"),
+      inquiry_id: inquiryIdPattern,
+      local_protocol_id: z.string().regex(/^LPR-[A-Za-z0-9._:-]{4,}$/),
+      local_beat_id: z.string().regex(/^LBT-[0-9]{1,3}$/),
+      anchor: z.object({ protocol_id: teachingProtocolId, beat_id: beatIdPattern }).strict(),
+    })
+    .strict(),
+]);
+
+// state/v3/tutor-runtime-state（marker v3）：v2 + resolution_frames + generation_slot + presenter pin。
+const presenterGenerationPinSchema = z
+  .object({
+    provider: nonEmptyString,
+    model_id: nonEmptyString,
+    prompt_version: nonEmptyString,
+    context_builder_version: nonEmptyString,
+    tool_catalog_version: nonEmptyString,
+  })
+  .strict();
+
+const resolutionFrameSchema = z
+  .object({
+    frame_id: resolutionFrameIdPattern,
+    scope: teachingScopeRefSchema,
+    region_id: solutionRegionIdPattern,
+    frontier_unit_ids: z.array(refinementUnitIdPattern).min(1),
+    focused_unit_id: refinementUnitIdPattern,
+    evidence_refs: z.array(z.number().int().min(1)).min(1),
+    return_target: z
+      .object({
+        scope: teachingScopeRefSchema,
+        frame_id: resolutionFrameIdPattern.optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const generationErrorClassEnum = z.enum([
+  "provider_failure",
+  "timeout",
+  "draft_invalid",
+  "preflight_failed",
+  "context_irreproducible",
+  "internal_error",
+]);
+
+const generationSlotSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("idle") }).strict(),
+  z
+    .object({
+      status: z.literal("pending"),
+      request_id: generationRequestIdPattern,
+      decision_id: decisionIdPattern,
+      scope: teachingScopeRefSchema,
+      reservation_revision: z.number().int().min(0),
+      epoch: z.number().int().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("failed"),
+      request_id: generationRequestIdPattern,
+      error_class: generationErrorClassEnum,
+    })
+    .strict(),
+]);
+
+export const tutorRuntimeStateV3Schema = tutorRuntimeStateV2Schema
+  .omit({ schema: true })
+  .extend({
+    schema: z.literal("ai_teaching_tutor_runtime_state/v3"),
+    pinned_plan: z
+      .object({
+        tutor_plan_ref: planArtifactRefV4,
+        solution_graph_ref: solutionGraphArtifactRef,
+        protocol_refs: z.array(protocolArtifactRef).min(1),
+        policy_profile_snapshot: tutorRuntimeStateV1Schema.shape.pinned_plan.shape.policy_profile_snapshot,
+        presenter_generation_pin: presenterGenerationPinSchema.optional(),
+      })
+      .strict(),
+    resolution_frames: z.array(resolutionFrameSchema),
+    generation_slot: generationSlotSchema,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    const frameIds = value.resolution_frames.map((frame) => frame.frame_id);
+    if (new Set(frameIds).size !== frameIds.length) add("frame_id must be unique within stack");
+    const seen = new Set<string>();
+    for (const frame of value.resolution_frames) {
+      for (const ref of frame.return_target.frame_id ? [frame.return_target.frame_id] : []) {
+        if (!seen.has(ref)) add(`return_target frame ${ref} not below current frame ${frame.frame_id}`);
+      }
+      seen.add(frame.frame_id);
+    }
+  });
+
+// runtime/v6/tutor-policy-decision（marker v2）：v1 + refine/collapse_resolution + resolution。
+const resolutionDecisionSchema = z
+  .object({
+    frame_id: resolutionFrameIdPattern,
+    region_id: solutionRegionIdPattern,
+    action: z.enum(["expand", "collapse", "return"]),
+    unit_id: refinementUnitIdPattern.optional(),
+    new_frontier_unit_ids: z.array(refinementUnitIdPattern).min(1).optional(),
+    evidence_sequence: z.number().int().min(1).optional(),
+    reason: nonEmptyString,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.action === "expand" && value.unit_id === undefined) add("action=expand requires unit_id");
+    if (value.action !== "expand" && value.unit_id !== undefined) add(`action=${value.action} must not carry unit_id`);
+  });
+
+export const tutorPolicyDecisionV2Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_policy_decision/v2"),
+    session_id: sessionId,
+    decision_id: decisionIdPattern,
+    policy_version: nonEmptyString,
+    protocol_id: teachingProtocolId,
+    beat_id: beatIdPattern,
+    decision_kind: z.enum([
+      "execute_beat",
+      "complete_beat",
+      "transition_beat",
+      "open_inquiry",
+      "open_scaffold",
+      "continue_inquiry",
+      "return_to_mainline",
+      "revisit_beat",
+      "accept_alternate_path",
+      "change_stance",
+      "request_clarification",
+      "pause",
+      "safe_fallback",
+      "refine_resolution",
+      "collapse_resolution",
+    ]),
+    to_beat_id: beatIdPattern.optional(),
+    transition_basis: v5PolicyDecisionBody.shape.transition_basis,
+    inquiry: inquiryBlock.optional(),
+    local_inquiry_protocol: v5LocalInquiryProtocol.optional(),
+    resolution: resolutionDecisionSchema.optional(),
+    interpretation_summary: z.string().optional(),
+    source_event_sequence: z.number().int().min(1),
+    source_state_revision: z.number().int().min(0),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    policyDecisionCommonRules(value, add);
+    if (["refine_resolution", "collapse_resolution"].includes(value.decision_kind) && !value.resolution) {
+      add(`decision_kind=${value.decision_kind} requires resolution`);
+    }
+    if (value.resolution && !["refine_resolution", "collapse_resolution"].includes(value.decision_kind)) {
+      add(`resolution is only allowed with refine_resolution/collapse_resolution (got ${value.decision_kind})`);
+    }
+    if (value.decision_kind === "refine_resolution" && value.resolution) {
+      if (value.resolution.action !== "expand") add("refine_resolution requires resolution.action=expand");
+      if (value.resolution.new_frontier_unit_ids === undefined) add("refine_resolution requires resolution.new_frontier_unit_ids");
+    }
+  });
+
+// runtime/v7/presentation-plan（marker v3）：TeachingScopeRef + generation provenance + basis_refs。
+const presentationOrderedActionV3 = z
+  .object({
+    ordinal: z.number().int().min(0),
+    kind: z.enum(["voice", "workspace"]),
+    basis_refs: z.array(nonEmptyString).optional(),
+    voice_action: presentationVoiceItem.optional(),
+    workspace_action: presentationSurfaceItem.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    if (value.kind === "voice") {
+      if (value.voice_action === undefined) add("kind=voice requires voice_action");
+      if (value.workspace_action !== undefined) add("kind=voice must not carry workspace_action");
+    } else {
+      if (value.workspace_action === undefined) add("kind=workspace requires workspace_action");
+      if (value.voice_action !== undefined) add("kind=workspace must not carry voice_action");
+    }
+  });
+
+const planGenerationProvenanceSchema = z
+  .object({
+    request_id: generationRequestIdPattern,
+    attempt: z.number().int().min(1),
+    input_digest: sha256,
+    presenter_pin: presenterGenerationPinSchema.optional(),
+  })
+  .strict();
+
+export const presentationPlanV3Schema = z
+  .object({
+    schema: z.literal("ai_teaching_presentation_plan/v3"),
+    session_id: sessionId,
+    sequence_id: presentationSequenceIdPattern,
+    decision_id: decisionIdPattern,
+    scope: teachingScopeRefSchema,
+    generation: planGenerationProvenanceSchema.optional(),
+    resolution_frame_id: resolutionFrameIdPattern.optional(),
+    actions: z.array(presentationOrderedActionV3).min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    checkPresentationOrdinals(value.actions, ctx);
+    const modelGenerated = value.actions.some((action) => action.voice_action?.source === "model-generated");
+    if (modelGenerated && value.generation === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "sequences containing model-generated voice actions require generation provenance",
+      });
+    }
+  });
+
+// generation/v1/presentation-draft（不可信模型输出）
+export const presentationDraftV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_presentation_draft/v1"),
+    request_id: generationRequestIdPattern,
+    items: z
+      .array(
+        z
+          .object({
+            type: z.enum(["speech", "tool_intent"]),
+            text: nonEmptyString.optional(),
+            basis_refs: z.array(nonEmptyString).optional(),
+            tool: z.string().regex(/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/).optional(),
+            args: z
+              .object({
+                binding_ref: resourceBindingIdPattern,
+                params: z.record(z.unknown()).optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .superRefine((value, ctx) => {
+            const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+            if (value.type === "speech") {
+              if (value.text === undefined) add("type=speech requires text");
+              if (value.tool !== undefined) add("type=speech must not carry tool");
+              if (value.args !== undefined) add("type=speech must not carry args");
+            } else {
+              if (value.text !== undefined) add("type=tool_intent must not carry text");
+              if (value.tool === undefined) add("type=tool_intent requires tool");
+              if (value.args === undefined) add("type=tool_intent requires args");
+            }
+          }),
+      )
+      .min(1),
+  })
+  .strict();
+
+// generation/v1/presentation-tool-spec（公开工具目录条目）
+export const presentationToolSpecV1Schema = z
+  .object({
+    schema: z.literal("ai_teaching_presentation_tool_spec/v1"),
+    tool_id: z.string().regex(/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/),
+    version: versionTag,
+    description: nonEmptyString,
+    capability: nonEmptyString,
+    surface: z.enum(["geometry", "solution_board"]),
+    effect_class: z.enum(["construct", "highlight", "annotate", "explain_fragment", "reveal"]),
+    reveal_scope_ceiling: z.enum(["none", "target_highlight", "step_narration", "intermediate_result", "final_result"]),
+    requires_binding: z.boolean(),
+    teaching_mode_only: z.boolean().optional(),
+    parameters: z.array(
+      z
+        .object({
+          name: z.string().regex(/^[a-z][a-z0-9_]*$/),
+          value_type: z.enum(["string", "number", "boolean", "enum"]),
+          required: z.boolean(),
+          allowed_values: z.array(nonEmptyString).min(1).optional(),
+          description: z.string().optional(),
+        })
+        .strict()
+        .superRefine((value, ctx) => {
+          if (value.value_type === "enum" && value.allowed_values === undefined) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "value_type=enum requires allowed_values" });
+          }
+          if (value.value_type !== "enum" && value.allowed_values !== undefined) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: `value_type=${value.value_type} must not carry allowed_values` });
+          }
+        }),
+    ),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.effect_class === "reveal" && value.reveal_scope_ceiling === "none") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "effect_class=reveal requires reveal_scope_ceiling above none" });
+    }
+  });
+
+// state/v2/workspace-runtime-state（marker v2）：v1 + explanation_fragments。
+const explanationFragmentStateSchema = z
+  .object({
+    fragment_id: explanationFragmentIdPattern,
+    kind: z.enum(["approved_math_note", "relation_note", "explanation_text"]),
+    content: nonEmptyString,
+    basis_refs: z.array(nonEmptyString).min(1),
+    origin_generation: generationRequestIdPattern.optional(),
+    attach_to_entry: z.string().regex(/^BE-[0-9]{1,3}$/).optional(),
+    visible: z.boolean(),
+  })
+  .strict();
+
+export const workspaceRuntimeStateV2Schema = workspaceRuntimeStateV1Schema
+  .omit({ schema: true })
+  .extend({
+    schema: z.literal("ai_teaching_workspace_runtime_state/v2"),
+    solution_board: workspaceRuntimeStateV1Schema.shape.solution_board.extend({
+      explanation_fragments: z.array(explanationFragmentStateSchema).optional(),
+    }),
+  })
+  .strict();
+
+// view/v2/student-workspace-view（marker v2）：v1 + fragments（student-safe 投影）。
+export const studentWorkspaceViewV2Schema = studentWorkspaceViewV1Schema
+  .omit({ schema: true })
+  .extend({
+    schema: z.literal("ai_teaching_student_workspace_view/v2"),
+    solution_board: studentWorkspaceViewV1Schema.shape.solution_board.extend({
+      fragments: z
+        .array(
+          z
+            .object({
+              fragment_id: explanationFragmentIdPattern,
+              kind: z.enum(["approved_math_note", "relation_note", "explanation_text"]),
+              content: nonEmptyString,
+              basis_refs: z.array(nonEmptyString).min(1),
+              attach_to_entry: z.string().regex(/^BE-[0-9]{1,3}$/).optional(),
+            })
+            .strict(),
+        )
+        .optional(),
+    }),
+  })
+  .strict();
+
+// runtime/v8/tutor-session-event（marker v8）：生成事件族 + resolution_frame_changed +
+// planned 升版（scope/generation）+ decision v2 payload + session_started presenter pin。
+const v8PolicyDecisionPayload = v5PolicyDecisionBody
+  .extend({
+    decision_kind: z.enum([
+      "execute_beat",
+      "complete_beat",
+      "transition_beat",
+      "open_inquiry",
+      "open_scaffold",
+      "continue_inquiry",
+      "return_to_mainline",
+      "revisit_beat",
+      "accept_alternate_path",
+      "change_stance",
+      "request_clarification",
+      "pause",
+      "safe_fallback",
+      "refine_resolution",
+      "collapse_resolution",
+    ]),
+    resolution: resolutionDecisionSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    policyDecisionCommonRules(value, add);
+    if (["refine_resolution", "collapse_resolution"].includes(value.decision_kind) && !value.resolution) {
+      add(`decision_kind=${value.decision_kind} requires resolution`);
+    }
+    if (value.resolution && !["refine_resolution", "collapse_resolution"].includes(value.decision_kind)) {
+      add(`resolution is only allowed with refine_resolution/collapse_resolution (got ${value.decision_kind})`);
+    }
+    if (value.decision_kind === "refine_resolution" && value.resolution) {
+      if (value.resolution.action !== "expand") add("refine_resolution requires resolution.action=expand");
+      if (value.resolution.new_frontier_unit_ids === undefined) add("refine_resolution requires resolution.new_frontier_unit_ids");
+    }
+  });
+
+const v8SequencePlannedPayload = z
+  .object({
+    sequence_id: presentationSequenceIdPattern,
+    decision_id: decisionIdPattern,
+    scope: teachingScopeRefSchema,
+    generation: planGenerationProvenanceSchema.optional(),
+    resolution_frame_id: resolutionFrameIdPattern.optional(),
+    actions: z.array(presentationOrderedActionV3).min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    checkPresentationOrdinals(value.actions, ctx);
+    const modelGenerated = value.actions.some((action) => action.voice_action?.source === "model-generated");
+    if (modelGenerated && value.generation === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sequences containing model-generated voice actions require generation provenance" });
+    }
+  });
+
+const v8GenerationRequestedPayload = z
+  .object({
+    request_id: generationRequestIdPattern,
+    decision_id: decisionIdPattern,
+    scope: teachingScopeRefSchema,
+    input_digest: sha256,
+    epoch: z.number().int().min(1),
+    reservation_revision: z.number().int().min(0).optional(),
+    presenter_pin: presenterGenerationPinSchema.optional(),
+  })
+  .strict();
+
+const v8GenerationInvalidatedPayload = z
+  .object({
+    request_id: generationRequestIdPattern,
+    epoch: z.number().int().min(1),
+    reason: z.enum(["cancelled", "superseded_by_new_input", "revision_changed", "session_closing"]),
+  })
+  .strict();
+
+const v8GenerationFailedPayload = z
+  .object({
+    request_id: generationRequestIdPattern,
+    error_class: generationErrorClassEnum,
+    message: z.string().optional(),
+  })
+  .strict();
+
+const v8ResolutionFrameChangedPayload = z
+  .object({
+    change: z.enum(["pushed", "frontier_replaced", "popped"]),
+    frame: resolutionFrameSchema,
+    decision_id: decisionIdPattern.optional(),
+  })
+  .strict();
+
+const v8SessionStartedPayload = v7SessionStartedPayload.extend({
+  presenter_generation_pin: presenterGenerationPinSchema.optional(),
+});
+
+const v8EventPayloadSchemas = {
+  ...v7EventPayloadSchemas,
+  session_started: v8SessionStartedPayload,
+  policy_decision_made: v8PolicyDecisionPayload,
+  presentation_sequence_planned: v8SequencePlannedPayload,
+  presentation_generation_requested: v8GenerationRequestedPayload,
+  presentation_generation_invalidated: v8GenerationInvalidatedPayload,
+  presentation_generation_failed: v8GenerationFailedPayload,
+  resolution_frame_changed: v8ResolutionFrameChangedPayload,
+} as const;
+
+const V8_CAUSATION_REQUIRED = new Set([
+  ...V6_CAUSATION_REQUIRED,
+  "presentation_generation_requested",
+  "presentation_generation_invalidated",
+  "presentation_generation_failed",
+  "resolution_frame_changed",
+]);
+
+export const tutorSessionEventV8Schema = z
+  .object({
+    schema: z.literal("ai_teaching_tutor_session_event/v8"),
+    session_id: sessionId,
+    sequence: z.number().int().min(1),
+    state_revision: z.number().int().min(0),
+    occurred_at: isoDateTime,
+    event_type: z.enum([
+      "session_started",
+      "student_input_recorded",
+      "student_workspace_command_recorded",
+      "student_intent_recorded",
+      "semantic_interpretation_recorded",
+      "policy_decision_made",
+      "gate_evaluated",
+      "presentation_generation_requested",
+      "presentation_generation_invalidated",
+      "presentation_generation_failed",
+      "resolution_frame_changed",
+      "presentation_sequence_planned",
+      "presentation_action_validated",
+      "presentation_action_applied",
+      "presentation_action_delivered",
+      "presentation_action_outcome_recorded",
+      "presentation_sequence_superseded",
+      "action_outcome_recorded",
+      "external_support_recorded",
+      "inquiry_opened",
+      "inquiry_returned",
+      "student_progressed",
+      "policy_failed",
+      "runtime_failure",
+      "session_completed",
+    ]),
+    payload: z.record(z.unknown()),
+    causation_sequence: z.number().int().min(1).optional(),
+    idempotency_key: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const payloadSchema = v8EventPayloadSchemas[value.event_type as keyof typeof v8EventPayloadSchemas];
+    if (payloadSchema) {
+      const result = payloadSchema.safeParse(value.payload);
+      if (!result.success) {
+        for (const issue of result.error.issues) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+    } else {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `unknown event_type: ${value.event_type}`,
+      });
+    }
+    if (V8_CAUSATION_REQUIRED.has(value.event_type) && value.causation_sequence === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `event_type=${value.event_type} requires causation_sequence`,
+      });
+    }
+  });

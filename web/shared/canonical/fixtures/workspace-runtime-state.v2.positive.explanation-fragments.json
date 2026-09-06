@@ -1,0 +1,64 @@
+{
+  "schema": "ai_teaching_workspace_runtime_state/v2",
+  "session_id": "TS-4242",
+  "revision": 6,
+  "geometry": {
+    "committed_element_ids": [
+      "seg-AD",
+      "seg-BC"
+    ],
+    "draft_element_ids": [
+      "seg-DE"
+    ],
+    "interaction_mode": "construction"
+  },
+  "solution_board": {
+    "entries": [
+      {
+        "entry_id": "BE-01",
+        "visibility": "visible",
+        "attempt_state": "confirmed",
+        "presentation_group": "PG-01"
+      },
+      {
+        "entry_id": "BE-02",
+        "visibility": "active",
+        "attempt_state": "attempted",
+        "presentation_group": "PG-01"
+      },
+      {
+        "entry_id": "BE-05",
+        "visibility": "hidden",
+        "attempt_state": "none"
+      }
+    ],
+    "canonical_path_entry_ids": [
+      "BE-01",
+      "BE-02",
+      "BE-05"
+    ],
+    "explanation_fragments": [
+      {
+        "fragment_id": "EF-TS4242-0001",
+        "kind": "approved_math_note",
+        "content": "AO/DO = BO/OE（蝶形相似对应边）",
+        "basis_refs": [
+          "FN-20",
+          "VB-03"
+        ],
+        "origin_generation": "GR-TS4242-0001",
+        "attach_to_entry": "BE-02",
+        "visible": true
+      },
+      {
+        "fragment_id": "EF-TS4242-0002",
+        "kind": "explanation_text",
+        "content": "先记下这组对应方向，再看下一条。",
+        "basis_refs": [
+          "RES1"
+        ],
+        "visible": false
+      }
+    ]
+  }
+}

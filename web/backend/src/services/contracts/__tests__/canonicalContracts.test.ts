@@ -106,8 +106,11 @@ async function main(): Promise<void> {
     // presentation_delivery、presentation_outcome、tutor_session_event/v6）、
     // +state/v2 tutor_runtime_state；F7 Step 4 runtime/v7 合同波（ADR-011 修订，
     // 2026-09-04，两轮独立复核后定稿——只开 tutor-session-event/v7）起 49：
-    // +tutor_session_event/v7）。
-    assert.equal(bySchema.size, 49);
+    // +tutor_session_event/v7；F7 RT0 集中合同波（2026-09-07，f7-rt0-baseline-freeze 清单 2）起 58：
+    // +tutor_plan_bundle/v6、tutor_runtime_state/v3、tutor_session_event/v8、tutor_policy_decision/v2、
+    // presentation_plan/v3、presentation_draft/v1、presentation_tool_spec/v1、workspace_runtime_state/v2、
+    // student_workspace_view/v2。
+    assert.equal(bySchema.size, 58);
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -266,6 +269,16 @@ async function main(): Promise<void> {
       "studentWorkspaceViewV1Schema",
       "coachPanelViewV1Schema",
       "mainlineParticipationV1Schema",
+      // F7 RT0 集中合同波（2026-09-07，f7-rt0-baseline-freeze 清单 2）：9 份新 schema 导出
+      "tutorPlanBundleV6Schema",
+      "tutorRuntimeStateV3Schema",
+      "tutorSessionEventV8Schema",
+      "tutorPolicyDecisionV2Schema",
+      "presentationPlanV3Schema",
+      "presentationDraftV1Schema",
+      "presentationToolSpecV1Schema",
+      "workspaceRuntimeStateV2Schema",
+      "studentWorkspaceViewV2Schema",
       "tutorSessionEventTypeEnum",
       "skillHypothesisSchema",
       "interventionSchema",
