@@ -184,7 +184,7 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal }: St
           ) : null}
         </div>
       )}
-      board={<SolutionBoardViewSurface board={view.solution_board} revision={view.revision} onSettled={boardOnSettled} />}
+      board={<SolutionBoardViewSurface board={view.solution_board} revision={view.revision} sessionId={view.session_id} onSettled={boardOnSettled} />}
     />
   );
 }

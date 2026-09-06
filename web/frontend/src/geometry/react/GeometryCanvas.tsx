@@ -74,9 +74,11 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   onClickEntityRef.current = onClickEntity;
   void 0;
 
-  // F7 Step 7 返工（复验 P1-1）：render-commit 信号只认「实际执行的渲染
-  // 通道」——挂载/重绘 effect 内调度、组件卸载取消；新通道重置未发出的旧
-  // 信号（迟到丢弃）。rAF 一帧 = 该通道 DOM 更新后的 paint 代理。
+  // F7 Step 7 返工（复验 P1-1；二次复验收窄表述）：render-commit 信号只认
+  // 「实际执行的渲染通道」——挂载/重绘 effect 内调度、组件卸载取消；新通道
+  // 重置未发出的旧信号（迟到丢弃）。一帧 rAF 证明的是 renderer 更新后已
+  // 调度通知（DOM 已更新、浏览器 paint 由下一帧承载）——「真实绘制完成」
+  // 的浏览器证据属 Step 8 e2e，不以本回调冒充。
   const onRenderCommitRef = useRef(onRenderCommit);
   onRenderCommitRef.current = onRenderCommit;
   const renderCommitTimerRef = useRef<number | undefined>(undefined);

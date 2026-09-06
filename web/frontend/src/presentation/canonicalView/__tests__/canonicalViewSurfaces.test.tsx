@@ -349,19 +349,20 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       }));
       act(() => root!.render(<StudentWorkspaceViewSurface view={nextView} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
       act(() => { vi.advanceTimersByTime(100); });
-      // 动画被取消（finished reject）→ revision 7 永不结算（fail closed）。
+      // 动画被取消（finished reject）→ revision 7 永不结算（失败执行不误报）。
       await act(async () => { handles[0].reject(); });
       act(() => { vi.advanceTimersByTime(500); });
       expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
       expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
-      // 再来一个 revision 8：失败后本挂载实例不再结算（sticky fail closed）。
+      // 二次复验 P1 语义修正：失败绑定呈现执行（revision 7），不锁定挂载
+      // 实例——后续 revision 8（新执行）经 paint 正常结算。
       const thirdView = parsedWorkspaceVariant((base) => ({ ...base, revision: 8 }));
       act(() => root!.render(<StudentWorkspaceViewSurface view={thirdView} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
       act(() => { vi.advanceTimersByTime(200); });
-      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
-      // 卸载：在跑句柄被取消。
-      const pending = handles.length;
-      expect(pending).toBeGreaterThanOrEqual(1);
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 8 });
+      // 失败的 revision 7 从未单独结算。
+      expect(harness.notifyRealCommitted.mock.calls.some((call) => call[0]?.revision === 7)).toBe(false);
       act(() => root!.unmount());
       expect(harness.unregister).toHaveBeenCalled();
     } finally {
@@ -414,6 +415,82 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       // 完成后以最新 revision 8 结算一次（revision 7 被替换，不回补）。
       expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
       expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 8 });
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      vi.useRealTimers();
+    }
+  });
+
+  it("二次复验 P1：retry_recovery 新执行可完成——失败 revision 之后的新条目动画成功即结算", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    try {
+      const { animate, handles } = controllableAnimate();
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const view = parsedWorkspaceVariant();
+      const harness = commitSignalHarness();
+      render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
+      // rev 7 新条目动画失败。
+      const view7 = parsedWorkspaceVariant((base) => ({
+        ...base,
+        revision: 7,
+        solution_board: { mode: "building", groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [{ entry_id: "BE-03", kind: "conclusion", content: "c", state: "visible" }] }] },
+      }));
+      act(() => root!.render(<StudentWorkspaceViewSurface view={view7} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      act(() => { vi.advanceTimersByTime(50); });
+      await act(async () => { handles[0].reject(); });
+      act(() => { vi.advanceTimersByTime(100); });
+      expect(harness.notifyRealCommitted.mock.calls.some((call) => call[0]?.revision === 7)).toBe(false);
+      // rev 8（恢复序列）新增条目动画成功 → 结算 8；失败条目 BE-03 不重播。
+      const view8 = parsedWorkspaceVariant((base) => ({
+        ...base,
+        revision: 8,
+        solution_board: { mode: "building", groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [
+          { entry_id: "BE-03", kind: "conclusion", content: "c", state: "visible" },
+          { entry_id: "BE-04", kind: "conclusion", content: "d", state: "visible" },
+        ] }] },
+      }));
+      act(() => root!.render(<StudentWorkspaceViewSurface view={view8} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      act(() => { vi.advanceTimersByTime(50); });
+      expect(animate).toHaveBeenCalledTimes(2); // 只 BE-04 新动画
+      await act(async () => { handles[1].resolve(); });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 8 });
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      vi.useRealTimers();
+    }
+  });
+
+  it("二次复验 P1（组件级复现）：动画失败后新会话首份板书可结算——失败不跨会话继承", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    try {
+      const { animate, handles } = controllableAnimate();
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const onSettled = vi.fn();
+      const boardA = (extra: string[]) => ({
+        mode: "building" as const,
+        groups: [{ group_id: "PG-01", title: "板书", entries: [
+          { entry_id: "BE-01", kind: "statement" as const, content: "a", state: "visible" as const },
+          ...extra.map((id) => ({ entry_id: id, kind: "conclusion" as const, content: "c", state: "visible" as const })),
+        ] }],
+      });
+      render(<SolutionBoardViewSurface board={boardA([])} revision={1} sessionId="TS-A" onSettled={onSettled} />);
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(onSettled).toHaveBeenCalledWith(1); // 会话 A 首份板书（restore）结算
+      // rev 2 新条目动画失败。
+      act(() => root!.render(<SolutionBoardViewSurface board={boardA(["BE-03"])} revision={2} sessionId="TS-A" onSettled={onSettled} />));
+      act(() => { vi.advanceTimersByTime(50); });
+      await act(async () => { handles[0].reject(); });
+      act(() => { vi.advanceTimersByTime(100); });
+      expect(onSettled.mock.calls.some((call) => call[0] === 2)).toBe(false);
+      // 新会话 TS-B 首份板书（同一挂载实例）：生命周期重置，正常结算。
+      const boardB = { mode: "building" as const, groups: [{ group_id: "PG-01", title: "板书", entries: [{ entry_id: "BE-99", kind: "statement" as const, content: "b", state: "visible" as const }] }] };
+      act(() => root!.render(<SolutionBoardViewSurface board={boardB} revision={1} sessionId="TS-B" onSettled={onSettled} />));
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(onSettled).toHaveBeenLastCalledWith(1);
+      expect(onSettled.mock.calls.filter((call) => call[0] === 1).length).toBe(2); // A 与 B 各一次
+      expect(animate).toHaveBeenCalledTimes(1); // 新会话首份 = restore，不播动画
     } finally {
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
       vi.useRealTimers();

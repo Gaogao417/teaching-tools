@@ -504,7 +504,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
             transport={frame.transport}
             onEvaluation={frame.onEvaluation}
             boardView={frame.boardView}
-            boardSurface={frame.board ? <SolutionBoardViewSurface board={frame.board} /> : undefined}
+            boardSurface={frame.board ? <SolutionBoardViewSurface board={frame.board} sessionId={tutor.sessionId} /> : undefined}
             viewRevision={frame.viewRevision}
             legacyMediaDisabled={frame.legacyMediaDisabled}
             questionPrompt={learnPrompt}
