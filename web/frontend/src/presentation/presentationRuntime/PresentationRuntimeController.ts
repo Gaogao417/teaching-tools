@@ -31,9 +31,8 @@ import type {
 } from "./types";
 
 /** 去重键（绑 session：跨会话同名键视为不同交付）。 */
-export function presentationKeyOf(delivery: PendingPresentationDelivery): string {
-  return `${delivery.session_id}:${delivery.sequence_id}:${delivery.ordinal}:${delivery.action_id}`;
-}
+import { presentationKeyOf } from "./types";
+export { presentationKeyOf } from "./types";
 
 function keyOfRequest(request: PendingPresentationOutcomeRequest): string {
   return `${request.sessionId}:${request.sequenceId}:${request.ordinal}:${request.actionId}`;

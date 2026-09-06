@@ -40,10 +40,11 @@ export interface GeometryCanvasSurfaceProps {
    * 通道会取消未发出的旧信号（迟到结果被丢弃）。
    */
   onRenderCommit?: () => void;
+  renderExecutionKey?: string;
 }
 
 /** Renderer-only entry used by the page Action Runtime. */
-export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion, onRenderCommit }: GeometryCanvasSurfaceProps) {
+export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion, onRenderCommit, renderExecutionKey }: GeometryCanvasSurfaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const handlesRef = useRef<BoardHandles | null>(null);
   // Runtime acknowledgment removes emphasis on the next animation frame. Keep
@@ -79,8 +80,6 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   // 重置未发出的旧信号（迟到丢弃）。一帧 rAF 证明的是 renderer 更新后已
   // 调度通知（DOM 已更新、浏览器 paint 由下一帧承载）——「真实绘制完成」
   // 的浏览器证据属 Step 8 e2e，不以本回调冒充。
-  const onRenderCommitRef = useRef(onRenderCommit);
-  onRenderCommitRef.current = onRenderCommit;
   const renderCommitTimerRef = useRef<number | undefined>(undefined);
   const scheduleRenderCommit = (): void => {
     if (renderCommitTimerRef.current !== undefined) {
@@ -89,7 +88,7 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
     }
     const fire = (): void => {
       renderCommitTimerRef.current = undefined;
-      onRenderCommitRef.current?.();
+      onRenderCommit?.();
     };
     renderCommitTimerRef.current = typeof requestAnimationFrame === "function"
       ? (requestAnimationFrame(fire) as unknown as number)
@@ -153,7 +152,7 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   useEffect(() => {
     handlesRef.current?.render();
     scheduleRenderCommit();
-  }, [model, modelVersion, entityRenderKey, emphasisRenderKey]);
+  }, [model, modelVersion, entityRenderKey, emphasisRenderKey, renderExecutionKey]);
 
   // Size contract (plan feedback): the host (.artifact-diagram-stage) provides
   // available space; GeometryCanvas derives its own width + aspect-ratio from the

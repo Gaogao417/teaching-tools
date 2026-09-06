@@ -8,10 +8,12 @@
  *   commit、Solution Board reveal 动画完成）。测试经 notifyRealCommitted
  *   注入同一通道证明 adapter 状态机，不作为生产验收证据。
  *
- * 通知携带 session+revision；等待方绑定 (sessionId, minRevision)——旧会话的
+ * 通知携带 executionKey+session+revision；等待方绑定相同执行身份和最小 revision——旧会话的
  * 大 revision 不放行新会话，会话切换 reset 时全部等待者按 aborted 结算。
  */
 export interface WorkspaceCommitNote {
+  /** 身份必须匹配；同 revision 的其他执行不能作为完成证据。 */
+  executionKey: string;
   sessionId: string;
   revision: number;
 }
@@ -32,6 +34,7 @@ export interface WorkspaceCommitSignal {
 }
 
 export interface CommitWaitOptions {
+  executionKey: string;
   abort?: AbortSignal;
   timeoutMs?: number;
 }
@@ -39,6 +42,7 @@ export interface CommitWaitOptions {
 export type CommitWaitResult = "committed" | "aborted" | "timeout";
 
 interface CommitWaiter {
+  executionKey: string;
   sessionId: string;
   minRevision: number;
   resolve: (result: CommitWaitResult) => void;
@@ -48,17 +52,17 @@ interface CommitWaiter {
 
 export interface WorkspaceCommitPort {
   /** 过渡呈现面的 commit 通知（诊断/开发；不满足 adapter）。 */
-  notifyTransitionalCommitted(note: WorkspaceCommitNote): void;
+  notifyTransitionalCommitted(note: Omit<WorkspaceCommitNote, "executionKey">): void;
   /** 注册真实完成信号源（Step 7 生产接线/测试注入）；返回注销函数。 */
   registerRealCommitSource(): () => void;
-  /** 真实 commit 通知（同 session 且 revision ≥ 等待者的 minRevision 才放行）。 */
+  /** 真实 commit 通知（同执行身份、同 session 且 revision ≥ 等待者的 minRevision 才放行）。 */
   notifyRealCommitted(note: WorkspaceCommitNote): void;
   /** 是否已有真实信号源（未注册时 workspace adapter 一律 awaiting-real-signal 暂停）。 */
   hasRealCommitSource(): boolean;
-  waitForCommit(sessionId: string, minRevision: number, options?: CommitWaitOptions): Promise<CommitWaitResult>;
+  waitForCommit(sessionId: string, minRevision: number, options: CommitWaitOptions): Promise<CommitWaitResult>;
   /** 会话切换：清缓冲并把所有等待者结算为 aborted。 */
   reset(): void;
-  lastTransitionalNote(): WorkspaceCommitNote | undefined;
+  lastTransitionalNote(): Omit<WorkspaceCommitNote, "executionKey"> | undefined;
   lastRealNote(): WorkspaceCommitNote | undefined;
 }
 
@@ -67,7 +71,7 @@ const DEFAULT_COMMIT_TIMEOUT_MS = 10_000;
 export function createWorkspaceCommitPort(): WorkspaceCommitPort {
   let realSourceCount = 0;
   let realNote: WorkspaceCommitNote | undefined;
-  let transitionalNote: WorkspaceCommitNote | undefined;
+  let transitionalNote: Omit<WorkspaceCommitNote, "executionKey"> | undefined;
   const waiters = new Set<CommitWaiter>();
 
   const settle = (waiter: CommitWaiter, result: CommitWaitResult): void => {
@@ -79,7 +83,7 @@ export function createWorkspaceCommitPort(): WorkspaceCommitPort {
 
   const notify = (note: WorkspaceCommitNote): void => {
     for (const waiter of [...waiters]) {
-      if (waiter.sessionId === note.sessionId && note.revision >= waiter.minRevision) settle(waiter, "committed");
+      if (waiter.executionKey === note.executionKey && waiter.sessionId === note.sessionId && note.revision >= waiter.minRevision) settle(waiter, "committed");
     }
   };
 
@@ -103,13 +107,14 @@ export function createWorkspaceCommitPort(): WorkspaceCommitPort {
     hasRealCommitSource() {
       return realSourceCount > 0;
     },
-    waitForCommit(sessionId, minRevision, options = {}) {
+    waitForCommit(sessionId, minRevision, options) {
+      if (options.abort?.aborted) return Promise.resolve("aborted");
       const buffered = realNote;
-      if (buffered && buffered.sessionId === sessionId && buffered.revision >= minRevision) {
+      if (buffered && buffered.executionKey === options.executionKey && buffered.sessionId === sessionId && buffered.revision >= minRevision) {
         return Promise.resolve("committed");
       }
       return new Promise<CommitWaitResult>((resolve) => {
-        const waiter: CommitWaiter = { sessionId, minRevision, resolve };
+        const waiter: CommitWaiter = { executionKey: options.executionKey, sessionId, minRevision, resolve };
         waiter.timer = window.setTimeout(() => settle(waiter, "timeout"), options.timeoutMs ?? DEFAULT_COMMIT_TIMEOUT_MS);
         if (options.abort) {
           if (options.abort.aborted) {

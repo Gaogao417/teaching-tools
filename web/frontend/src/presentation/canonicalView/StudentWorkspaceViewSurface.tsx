@@ -13,15 +13,9 @@
  *   列表已删除，不得再以摘要冒充画布（2026-09-06 用户裁定彻底删除）。
  * - Board：共享 canonical `SolutionBoardViewSurface`（操作拍
  *   ActionRuntimeFrame boardSurface 槽同一渲染面，禁第二份 Board）。
- * - 真实完成信号（F7 Step 7 解除 Step 6 生产暂停；返工 P1-1/P1-2/P2-5）：
- *   mount 注册 registerRealCommitSource 后 notifyRealSourceActive（唤醒可能
- *   已 paused 的 awaiting-real-signal 执行）；canvas 通道 = **renderer 发出的
- *   渲染通道完成信号**（GeometryCanvasSurface.onRenderCommit——非父组件双
- *   rAF 猜时序；无图示任务的占位面以 post-paint 结算；session 切换经 key
- *   remount 保证新会话获得信号）；board 通道 = reveal 稳定回调。两通道在
- *   **同一 sessionId+workspace revision** 双结算后 notifyRealCommitted（每
- *   键至多一次）——Geometry/Board adapter 共用（见
- *   presentationRuntime/workspaceCommitPort）。
+ * - 完成信号绑定 pending workspace 执行身份与 workspace revision。
+ *   Canvas 更新通知和 Board reveal 结算必须属于同一执行；无 pending
+ *   的视图通知使用独立身份，不能放行恢复 delivery。
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
@@ -43,6 +37,7 @@ export interface StudentWorkspaceViewSurfaceProps {
   commitSignal?: WorkspaceCommitSignal;
   /** 当前 pending board delivery 的执行身份（三次复验 P1：失败封禁/重呈现
    *  绑定执行身份而非 workspace revision）。 */
+  workspaceExecutionKey?: string;
   boardPresentation?: { key: string; targets: readonly string[] };
 }
 
@@ -53,7 +48,7 @@ function visualStateFor(element: { highlighted?: boolean; annotated?: boolean } 
   return "idle";
 }
 
-export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boardPresentation }: StudentWorkspaceViewSurfaceProps) {
+export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boardPresentation, workspaceExecutionKey }: StudentWorkspaceViewSurfaceProps) {
   const { elements, interaction_enabled: interactionEnabled } = view.canvas;
 
   // ---- 真实 commit 信号：注册（+唤醒可能已暂停的执行）+ 同键双结算 ----
@@ -65,38 +60,28 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boar
     return unregister;
   }, [commitSignal]);
 
-  const settleRecordRef = useRef<{ canvas?: string; board?: string; notified?: string }>({});
-  const commitSignalRef = useRef(commitSignal);
-  commitSignalRef.current = commitSignal;
-  const viewMetaRef = useRef(view);
-  viewMetaRef.current = view;
-
-  /** 结算键绑 session+revision：跨会话同号 revision 不得互相抑制/误放行。 */
-  const settleKey = (sessionId: string, revision: number): string => `${sessionId}:${revision}`;
-
-  const tryNotify = (sessionId: string, revision: number): void => {
-    const record = settleRecordRef.current;
-    const key = settleKey(sessionId, revision);
-    if (record.canvas !== key || record.board !== key || record.notified === key) return;
-    record.notified = key;
-    const signal = commitSignalRef.current;
-    if (signal) signal.notifyRealCommitted({ sessionId, revision });
-  };
-  // 最新结算回调经 ref 透传（effect/子组件拿稳定入口、读到最新闭包）。
-  const canvasSettledRef = useRef<(revision: number) => void>(() => undefined);
-  canvasSettledRef.current = (revision) => {
-    const sessionId = view.session_id;
-    settleRecordRef.current.canvas = settleKey(sessionId, revision);
-    tryNotify(sessionId, revision);
-  };
-  const boardSettledStable = useCallback((revision: number) => {
-    // 稳定回调：session 读最新 render 的 view（board 结算总发生在其对应
-    // render commit 之后）。
-    const sessionId = viewMetaRef.current.session_id;
-    settleRecordRef.current.board = settleKey(sessionId, revision);
-    tryNotify(sessionId, revision);
-  }, []);
-  const boardOnSettled = commitSignal ? boardSettledStable : undefined;
+  const executionKey = workspaceExecutionKey ?? boardPresentation?.key;
+  const join = useMemo(() => ({
+    sessionId: view.session_id, revision: view.revision, executionKey,
+    canvas: false, board: false, notified: false,
+  }), [view.session_id, view.revision, executionKey]);
+  const currentJoinRef = useRef(join);
+  currentJoinRef.current = join;
+  const settle = useCallback((surface: "canvas" | "board", revision: number, key: string | undefined) => {
+    if (currentJoinRef.current !== join || revision !== join.revision || key !== join.executionKey) return;
+    join[surface] = true;
+    if (!join.canvas || !join.board || join.notified || !commitSignal) return;
+    join.notified = true;
+    // 无 pending 的视图结算只作独立身份记录，永不满足某个 delivery 的等待。
+    commitSignal.notifyRealCommitted({ sessionId: join.sessionId, revision,
+      executionKey: key ?? `view:${join.sessionId}@${revision}` });
+  }, [join, commitSignal]);
+  const canvasSettled = useCallback(() => settle("canvas", join.revision, join.executionKey), [settle, join]);
+  const boardSettled = useCallback((revision: number, key?: string) => settle("board", revision, key), [settle]);
+  const boardOnSettled = commitSignal ? boardSettled : undefined;
+  const boardExecution = useMemo(() => executionKey === undefined ? undefined : ({
+    key: executionKey, targets: boardPresentation?.targets ?? [],
+  }), [executionKey, boardPresentation?.targets]);
 
   // ---- production Canvas 投影（零本地教学状态；visualState 全部来自 View）----
   const model = useMemo(() => (geometry ? buildGeometryModel(geometry) : undefined), [geometry]);
@@ -140,7 +125,7 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boar
     let active = true;
     let inner = 0;
     const settleNow = (): void => {
-      if (active) canvasSettledRef.current(view.revision);
+      if (active) canvasSettled();
     };
     if (typeof requestAnimationFrame === "function") {
       const outer = requestAnimationFrame(() => {
@@ -157,7 +142,7 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boar
       active = false;
       window.clearTimeout(timer);
     };
-  }, [commitSignal, hasCanvasModel, view.session_id, view.revision]);
+  }, [commitSignal, hasCanvasModel, canvasSettled]);
 
     return (
     <StudentWorkspaceFrame
@@ -177,7 +162,8 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boar
               view={interactionView}
               onClickEntity={() => undefined}
               modelVersion={view.revision}
-              onRenderCommit={() => canvasSettledRef.current(view.revision)}
+              renderExecutionKey={executionKey}
+              onRenderCommit={canvasSettled}
             />
           ) : (
             <p className="student-workspace-empty-note">本题没有图示，跟随老师板书推理。</p>
@@ -187,7 +173,7 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boar
           ) : null}
         </div>
       )}
-      board={<SolutionBoardViewSurface board={view.solution_board} revision={view.revision} sessionId={view.session_id} execution={boardPresentation} onSettled={boardOnSettled} />}
+      board={<SolutionBoardViewSurface board={view.solution_board} revision={view.revision} sessionId={view.session_id} execution={boardExecution} onSettled={boardOnSettled} />}
     />
   );
 }

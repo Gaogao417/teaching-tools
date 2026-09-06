@@ -1,264 +1,140 @@
-/**
- * F7 Step 7：canonical Solution Board 唯一渲染面（自 fe-prep
- * StudentWorkspaceViewSurface 抽出——讲解/完成只读面与操作拍
- * ActionRuntimeFrame boardSurface 槽共用，禁第二份 Board renderer）。
- *
- * - 同一 View 的 building/review 两种阅读模式（review 不加载第二份 Board
- *   真相，ADR-009 不变量 7）；View 层无 hidden——未揭示条目整个不存在；
- *   空 groups 渲染明确 empty surface（不变量 6）。
- * - reveal 结算引擎（三次复验 P1 修正）：同一挂载实例持有**稳定动画
- *   句柄表**（entryId → Animation）+ 已完成集合；**失败绑定呈现执行身份
- *   （sessionId+sequence_id+ordinal+action_id，与 controller
- *   presentationKeyOf 同格式）而非 workspace revision**——presentation_only
- *   恢复不推进 revision，按 revision 封禁会锁死恢复执行；**会话切换整
- *   生命周期重置**；规则：
- *   · reveal 动画成功完成才把条目记为已呈现；完成前 effect 重跑（同
- *     revision 换对象/普通重渲染）不重复触发也不提前结算；
- *   · 动画取消/异常（finished reject）：**该次呈现执行（动画启动时的
- *     执行身份）永不结算**（不误报 presented；由 adapter 超时走 failed
- *     fail-closed），失败条目回到底层样式即视为可见；后续 revision /
- *     retry_recovery 新执行（新 sequence 身份）、新会话不受历史失败锁定；
- *     无执行上下文（无 pending）的动画失败按视图身份（session+revision）
- *     封禁——不跨执行；
- *   · 卸载取消全部句柄并忽略一切迟到结果；
- *   · 句柄表清空（本批新增条目全部成功完成，或本份投影无新增条目）→
- *     post-paint（双 rAF/setTimeout 回退）以**最新 revision** 结算一次
- *     （结算键 sessionId+revision 由父组件管理）；被替换 revision 不回补；
- *   · sessionId 变化：取消旧句柄、清空已完成/失败集合、重置首份投影
- *     语义（新会话首份板书 = restore，不播动画）；
- *   · 执行身份变化（新 sequence / 重投后重新出现）：其 targets 移出已完成
- *     集合——**重呈现条目重新播 reveal**（presentation_only 恢复路径，
- *     workspace revision 与条目不变）；
- *   · reduce-motion / 无 WAAPI 环境：跳过动画，条目即时视为已呈现（声明的
- *     回退面）；条目数据在而 DOM 节点缺失 = 该呈现执行失败（不静默回退）。
- */
+/** Canonical Board renderer. Animation handles and completion belong to one
+ * presentation execution. Revision only identifies the rendered projection. */
 import { useEffect, useRef } from "react";
-
 import { MathText } from "../../components/math/MathText";
 import type { StudentWorkspaceViewV1 } from "./canonicalViewTypes";
-
-const BOARD_ENTRY_KIND_TEXT = {
-  statement: "陈述",
-  derivation: "推导",
-  conclusion: "结论",
-  question: "问题",
-} as const;
-
-/** Reveal：淡入 + 轻微上移（仅新增条目一次性播放；reduced-motion 跳过）。 */
+const BOARD_ENTRY_KIND_TEXT = { statement: "陈述", derivation: "推导", conclusion: "结论", question: "问题" } as const;
 const REVEAL_KEYFRAMES: Keyframe[] = [
   { opacity: "0", transform: "translateY(8px)" },
   { opacity: "1", transform: "translateY(0)" },
 ];
-
-/** 仅依赖 WAAPI 的最小动画句柄面（jsdom 缺失时走无动画路径）。 */
-interface RevealAnimation {
-  finished: Promise<unknown>;
-  cancel(): void;
-}
-
 export interface SolutionBoardViewSurfaceProps {
   board: StudentWorkspaceViewV1["solution_board"];
-  /** 当前 workspace revision（reveal 结算携带；呈现链外可不传）。 */
   revision?: number;
-  /** 会话身份（二次复验 P1）：变化时重置整个板书呈现生命周期（取消旧
-   *  句柄、清空已完成/失败集合、新会话首份投影按 restore 处理）。 */
   sessionId?: string;
-  /** 当前呈现执行身份（三次复验 P1）：pending board delivery 的
-   *  `session:sequence:ordinal:action` + 重呈现目标条目。变化（新 sequence
-   *  / 重投）时 targets 重新播 reveal——presentation_only 恢复不推进
-   *  revision，失败封禁按执行身份而非 revision。 */
   execution?: { key: string; targets: readonly string[] };
-  /** 板书视觉稳定（在跑 reveal 全部成功完成 / 无动画 post-paint）回调——
-   *  携带结算时刻的最新 revision；失败执行/卸载/迟到结果不回调。 */
-  onSettled?: (revision: number) => void;
+  onSettled?: (revision: number, executionKey?: string) => void;
 }
-
-interface RevealHandle {
-  animation: RevealAnimation;
-  /** 本句柄已完成（成功或失败都已离开在跑集合前标记）。 */
-  finished: boolean;
-  /** 启动该动画时的失败封禁键（执行身份；无执行上下文时为视图身份）。 */
-  failureKey: string;
+interface RevealHandle { cancel(): void }
+interface RevealRun {
+  sessionId?: string;
+  key?: string;
+  handles: Map<string, RevealHandle>;
+  revealed: Set<string>;
+  failed: Set<string>;
+  revision?: number;
+  onSettled?: SolutionBoardViewSurfaceProps["onSettled"];
 }
-
-/** 失败封禁键：有执行上下文按执行身份；否则按视图身份（session+revision）。
- *  presentation_only 恢复 = 新执行身份 + 同 revision → 不被旧失败封禁。 */
-function failureKeyOf(execution: string | undefined, sessionId: string | undefined, revision: number | undefined): string {
-  return execution ?? `view:${sessionId ?? "-"}@${revision ?? "-"}`;
-}
-
+const failureKey = (run: RevealRun) => run.key ?? `view:${run.sessionId}@${run.revision}`;
 export function SolutionBoardViewSurface({ board, revision, sessionId, execution, onSettled }: SolutionBoardViewSurfaceProps) {
   const { groups, mode } = board;
   const review = mode === "review";
   const entryCount = groups.reduce((total, group) => total + group.entries.length, 0);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  /** 结算时刻的最新 revision/回调/执行身份经 ref 读（动画完成晚于触发它的渲染）。 */
-  const latestRef = useRef({ revision, onSettled, sessionId, execution });
-  latestRef.current = { revision, onSettled, sessionId, execution };
-  /** 挂载存活标记：动画完成处理器只认卸载失效——普通重渲染（effect 重跑）
-   *  不作废仍在跑的 reveal（否则句柄泄漏且永不结算）。 */
-  const mountedRef = useRef(true);
-  /** 进行中的 reveal（动画句柄）；终结（成功/失败）→ 移入 revealedIds。 */
-  const revealHandlesRef = useRef(new Map<string, RevealHandle>());
-  /** reveal 已完成（成功或失败后回底层样式）的条目——不重复动画。 */
-  const revealedIdsRef = useRef(new Set<string>());
-  /** 结算失败的呈现执行（身份键）集合（会话作用域）：失败执行永不经
-   *  paint 路径补结算（不误报 presented）；新执行身份/后续 revision 不受锁定。 */
-  const failedExecutionsRef = useRef(new Set<string>());
-  /** 最近一次执行身份（变化时重呈现 targets）。 */
-  const lastExecutionKeyRef = useRef<string | undefined>(undefined);
-  /** 本批在跑动画中是否出现过失败（批次终结时消费——污染批不结算）。 */
-  const batchFailedRef = useRef(false);
-  /** 初始挂载/新会话首份投影：既有条目视为已呈现，不播 reveal。 */
-  const firstRunRef = useRef(true);
-  /** 会话身份（变化时重置整个生命周期）。 */
-  const sessionIdRef = useRef<string | undefined>(sessionId);
+  const runRef = useRef<RevealRun | undefined>(undefined);
+  // Successful/failed rendering history persists across StrictMode effect replay.
+  const historyRef = useRef<{ sessionId?: string; key?: string; revealed: Set<string>; failed: Set<string> } | undefined>(undefined);
+  const finishRef = useRef<{ run: RevealRun; schedule(): void } | undefined>(undefined);
+  const executionKey = execution?.key;
+  const targetsKey = JSON.stringify(execution?.targets ?? []);
 
   useEffect(() => {
-    // 会话切换（二次复验 P1）：重置整个板书呈现生命周期——旧句柄取消、
-    // 已完成/失败集合清空、首份投影按 restore 处理。
-    if (sessionIdRef.current !== sessionId) {
-      sessionIdRef.current = sessionId;
-      for (const handle of revealHandlesRef.current.values()) handle.animation.cancel();
-      revealHandlesRef.current.clear();
-      revealedIdsRef.current.clear();
-      failedExecutionsRef.current.clear();
-      lastExecutionKeyRef.current = undefined;
-      batchFailedRef.current = false;
-      firstRunRef.current = true;
+    let run = runRef.current;
+    if (!run || run.sessionId !== sessionId || run.key !== executionKey) {
+      const previous = run;
+      const freshSession = !historyRef.current || historyRef.current.sessionId !== sessionId;
+      if (freshSession) {
+        // First projection is restore; all existing entries are already visible.
+        historyRef.current = { sessionId, key: executionKey,
+          revealed: new Set(groups.flatMap(group => group.entries.map(entry => entry.entry_id))), failed: new Set() };
+      }
+      const history = historyRef.current!;
+      run = { sessionId, key: executionKey, handles: new Map(), revealed: history.revealed,
+        failed: history.failed, revision, onSettled };
+      // Invalidate callbacks BEFORE cancel(): rejection/late resolution belongs to previous run.
+      runRef.current = run;
+      if (previous) {
+        for (const handle of previous.handles.values()) handle.cancel();
+        previous.handles.clear();
+      }
+      if (previous?.key !== undefined && executionKey === undefined) {
+        for (const group of groups) for (const entry of group.entries) run.revealed.add(entry.entry_id);
+      }
+      if (!freshSession && executionKey !== undefined && history.key !== executionKey) {
+        for (const target of execution?.targets ?? []) run.revealed.delete(target);
+      }
+      history.key = executionKey;
     }
-
-    // 执行身份变化（三次复验 P1）：新 sequence / 重投后重新出现——targets
-    // 移出已完成集合，重呈现条目重新播 reveal（presentation_only 恢复：
-    // workspace revision 与条目不变，仅执行身份变化）。
-    if (execution === undefined) {
-      lastExecutionKeyRef.current = undefined;
-    } else if (execution.key !== lastExecutionKeyRef.current) {
-      lastExecutionKeyRef.current = execution.key;
-      for (const target of execution.targets) revealedIdsRef.current.delete(target);
-    }
-
-    const latest = latestRef.current;
-    if (!latest.onSettled || latest.revision === undefined) return;
-    const currentIds = new Set(groups.flatMap((group) => group.entries.map((entry) => entry.entry_id)));
-    const handles = revealHandlesRef.current;
-    const revealed = revealedIdsRef.current;
+    const current = run;
+    current.revision = revision;
+    current.onSettled = onSettled;
     let active = true;
-
-    // 1. 防御：条目从板书消失（append-only 合同外）→ 取消并摘除句柄。
-    for (const [id, handle] of [...handles.entries()]) {
-      if (!currentIds.has(id)) {
-        handle.animation.cancel();
-        handles.delete(id);
-      }
-    }
-
-    // 1.5 批次已终结（进入本 effect 时句柄表空）：消费污染标记——失败只
-    //     污染其所在批次的完成结算，不锁定后续执行。
-    if (handles.size === 0) batchFailedRef.current = false;
-
-    // 2. 新增条目：开 reveal 动画（首份投影的既有条目 = 已呈现，restore 语义）。
-    if (firstRunRef.current) {
-      firstRunRef.current = false;
-      for (const id of currentIds) revealed.add(id);
-    }
-    const reduce = typeof window !== "undefined" && typeof window.matchMedia === "function"
-      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      : false;
-    for (const id of currentIds) {
-      if (handles.has(id) || revealed.has(id)) continue;
-      const node = containerRef.current?.querySelector<HTMLElement>(`[data-entry-id="${id}"]`);
-      if (!node) {
-        // 完成度审计 P3：条目数据在而 DOM 节点缺失 = 渲染承诺被破坏——按
-        // 该呈现执行失败处理（不标记已呈现、该执行不结算；后续 effect
-        // 重跑若节点出现可重试动画）。不静默回退为「已呈现」。
-        failedExecutionsRef.current.add(failureKeyOf(latest.execution?.key, latest.sessionId, latest.revision));
-        continue;
-      }
-      // 声明的回退面：reduced-motion / 无 WAAPI 环境跳过动画，即时视为已呈现。
-      const animate = typeof node.animate === "function" && !reduce
-        ? node.animate(REVEAL_KEYFRAMES, { duration: 600, easing: "ease-out" })
-        : undefined;
-      if (animate === undefined) {
-        revealed.add(id);
-        continue;
-      }
-      const failureKey = failureKeyOf(latest.execution?.key, latest.sessionId, latest.revision);
-      const handle: RevealHandle = {
-        animation: { finished: animate.finished, cancel: () => animate.cancel() },
-        finished: false,
-        failureKey,
-      };
-      handles.set(id, handle);
-      const leave = (failed: boolean): void => {
-        if (!mountedRef.current || handles.get(id) !== handle || handle.finished) return;
-        handle.finished = true;
-        handles.delete(id);
-        revealed.add(id); // 成功完成或失败回底层样式——条目已可见，不再重复动画
-        if (!failed && handles.size === 0 && !batchFailedRef.current) {
-          // 最后一个在跑 reveal 成功完成且批次未被污染 → 以最新 revision 结算。
-          const settle = latestRef.current;
-          if (settle.onSettled && settle.revision !== undefined) settle.onSettled(settle.revision);
-        }
-        if (failed) {
-          // 失败绑定启动时的呈现执行身份（无执行上下文 = 视图身份）——该
-          // 执行永不被补结算（failedExecutions 持久记录，会话作用域）；
-          // batchFailed 只污染**本批次**的完成结算。
-          failedExecutionsRef.current.add(handle.failureKey);
-          batchFailedRef.current = true;
-        }
-        // 批次终结（句柄表空）：消费污染标记——后续 revision / retry_recovery
-        // 新执行不受历史失败锁定（不跨批次、不跨会话）。
-        if (handles.size === 0) batchFailedRef.current = false;
-      };
-      void handle.animation.finished.then(
-        () => leave(false),
-        () => leave(true),
-      );
-    }
-
-    // 3. 无在跑动画：post-paint 结算——失败的呈现执行（身份键）不补结算。
-    if (handles.size === 0 && !failedExecutionsRef.current.has(failureKeyOf(latest.execution?.key, latest.sessionId, latest.revision))) {
-      let inner = 0;
-      const settle = (): void => {
-        const now = latestRef.current;
-        if (active && now.onSettled && now.revision !== undefined
-          && !failedExecutionsRef.current.has(failureKeyOf(now.execution?.key, now.sessionId, now.revision))) {
-          now.onSettled(now.revision);
-        }
+    let cancelPaint = () => {};
+    const scheduleSettled = () => {
+      cancelPaint();
+      if (!active || runRef.current !== current || current.handles.size || current.failed.has(failureKey(current))) return;
+      const settledRevision = current.revision;
+      const settledKey = current.key;
+      const fire = () => {
+        if (!active || runRef.current !== current || current.handles.size
+          || current.revision !== settledRevision || current.failed.has(failureKey(current)) || settledRevision === undefined) return;
+        // Capture the execution that produced the result, never label it as a newer execution.
+        if (settledKey === undefined) current.onSettled?.(settledRevision);
+        else current.onSettled?.(settledRevision, settledKey);
       };
       if (typeof requestAnimationFrame === "function") {
-        const outer = requestAnimationFrame(() => {
-          inner = requestAnimationFrame(settle);
-        });
-        return () => {
-          active = false;
-          cancelAnimationFrame(outer);
-          if (inner) cancelAnimationFrame(inner);
-        };
+        let inner = 0;
+        const outer = requestAnimationFrame(() => { inner = requestAnimationFrame(fire); });
+        cancelPaint = () => { cancelAnimationFrame(outer); if (inner) cancelAnimationFrame(inner); };
+      } else {
+        const timer = window.setTimeout(fire, 0);
+        cancelPaint = () => window.clearTimeout(timer);
       }
-      const timer = window.setTimeout(settle, 0);
-      return () => {
-        active = false;
-        window.clearTimeout(timer);
-      };
+    };
+    // Ordinary rerenders keep handles, but their finish handlers must schedule via this effect.
+    finishRef.current = { run: current, schedule: scheduleSettled };
+    if (!onSettled || revision === undefined) return () => { active = false; cancelPaint(); };
+    const ids = new Set(groups.flatMap(group => group.entries.map(entry => entry.entry_id)));
+    for (const [id, handle] of current.handles) {
+      if (!ids.has(id)) { current.handles.delete(id); handle.cancel(); }
     }
-    // 4. 有动画在跑：本 effect 的清理只让 paint 结算路径失效；在跑句柄的
-    //    完成处理器绑挂载存活（普通重渲染继续等待），整体取消在卸载。
-    return () => {
-      active = false;
-    };
-  }, [groups, revision, sessionId, execution, onSettled]);
+    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (const id of ids) {
+      if (current.handles.has(id) || current.revealed.has(id)) continue;
+      // Avoid interpolating entry IDs into CSS selectors.
+      const node = Array.from(containerRef.current?.querySelectorAll<HTMLElement>("[data-entry-id]") ?? [])
+        .find(candidate => candidate.dataset.entryId === id);
+      if (!node) { current.failed.add(failureKey(current)); continue; }
+      if (reduce || typeof node.animate !== "function") { current.revealed.add(id); continue; }
+      const startedFailureKey = failureKey(current);
+      try {
+        const animation = node.animate(REVEAL_KEYFRAMES, { duration: 600, easing: "ease-out" });
+        const handle = { cancel: () => animation.cancel() };
+        current.handles.set(id, handle);
+        const finish = (failed: boolean) => {
+          if (runRef.current !== current || current.handles.get(id) !== handle) return;
+          current.handles.delete(id);
+          current.revealed.add(id);
+          if (failed) current.failed.add(startedFailureKey);
+          if (finishRef.current?.run === current) finishRef.current.schedule();
+        };
+        void animation.finished.then(() => finish(false), () => finish(true));
+      } catch {
+        current.failed.add(startedFailureKey);
+      }
+    }
+    scheduleSettled();
+    return () => { active = false; cancelPaint(); };
+  }, [groups, revision, sessionId, executionKey, targetsKey, onSettled]);
 
-  // 卸载：作废完成处理器、取消全部在跑动画并丢弃句柄（StrictMode 的
-  // setup→cleanup→setup 由 setup 重新武装 mountedRef）。
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      for (const handle of revealHandlesRef.current.values()) handle.animation.cancel();
-      revealHandlesRef.current.clear();
-    };
+  useEffect(() => () => {
+    const previous = runRef.current;
+    runRef.current = undefined;
+    finishRef.current = undefined;
+    if (previous) {
+      for (const handle of previous.handles.values()) handle.cancel();
+      previous.handles.clear();
+    }
   }, []);
 
   return (

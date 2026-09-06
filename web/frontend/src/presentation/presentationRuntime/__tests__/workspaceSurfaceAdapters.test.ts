@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBoardPresentationAdapter, createGeometryPresentationAdapter } from "../adapters/workspaceSurfaceAdapters";
 import { createWorkspaceCommitPort } from "../workspaceCommitPort";
+import { presentationKeyOf } from "../types";
 import type { PendingPresentationDelivery } from "../types";
 import {
   pendingBoardPresentation,
@@ -55,7 +56,7 @@ describe("workspace surface adapters（真实完成信号源语义）", () => {
     const unregister = commitPort.registerRealCommitSource();
     const abort = new AbortController();
     const wait = adapter.present({ delivery, snapshot, abort: abort.signal });
-    commitPort.notifyRealCommitted({ sessionId: delivery.session_id, revision: delivery.workspace_revision! });
+    commitPort.notifyRealCommitted({ executionKey: presentationKeyOf(delivery), sessionId: delivery.session_id, revision: delivery.workspace_revision! });
     await expect(wait).resolves.toEqual({ outcome: "presented" });
     unregister();
   });
@@ -120,7 +121,7 @@ describe("workspace surface adapters（真实完成信号源语义）", () => {
     const { commitPort, adapter, snapshot, delivery } = boardContext([{ entry_id: "BE-301", kind: "derivation", content: "△DAO∽△DBA" }]);
     const unregister = commitPort.registerRealCommitSource();
     const wait = adapter.present({ delivery, snapshot, abort: new AbortController().signal });
-    commitPort.notifyRealCommitted({ sessionId: delivery.session_id, revision: delivery.workspace_revision! });
+    commitPort.notifyRealCommitted({ executionKey: presentationKeyOf(delivery), sessionId: delivery.session_id, revision: delivery.workspace_revision! });
     await expect(wait).resolves.toEqual({ outcome: "presented" });
     unregister();
   });

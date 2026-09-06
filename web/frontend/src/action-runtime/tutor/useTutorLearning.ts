@@ -62,6 +62,7 @@ import { actionMachineRegistry } from "../registry";
 import type { SolutionBoardView } from "../types";
 import type { CoachPanelViewV1, StudentWorkspaceViewV1 } from "../../presentation/canonicalView/canonicalViewTypes";
 import { parseRenderGeometryV1 } from "../../presentation/canonicalView/renderGeometry";
+import { presentationKeyOf } from "../../presentation/presentationRuntime/types";
 import type { WorkspaceCommitSignal } from "../../presentation/presentationRuntime/workspaceCommitPort";
 import type { StudentWorkspaceView } from "../../../../shared/studentWorkspace";
 import type { TopicGeometryModel } from "../../../../shared/topicPractice";
@@ -200,6 +201,7 @@ export type WorkspaceSurfaceVm =
     commitSignal: WorkspaceCommitSignal | undefined;
     /** 当前 pending board delivery 的执行身份（非 board pending 时 undefined）。 */
     boardPresentation: BoardPresentationExecution | undefined;
+    workspaceExecutionKey: string | undefined;
   }
   | { source: "legacy"; workspaceView: StudentWorkspaceView | undefined; completed: boolean };
 
@@ -1366,7 +1368,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       return undefined;
     }
     return {
-      key: `${pending.session_id}:${pending.sequence_id}:${pending.ordinal}:${pending.action_id}`,
+      key: presentationKeyOf(pending),
       targets: workspaceAction.target_ids ?? [],
     };
   }, [runtimeSnapshot]);
@@ -1380,6 +1382,8 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         geometry: runtimeSnapshot ? parseRenderGeometryV1(runtimeSnapshot.render.geometry) : undefined,
         commitSignal: workspaceCommitSignal,
         boardPresentation,
+        workspaceExecutionKey: runtimeSnapshot?.pending_presentation?.action.kind === "workspace"
+          ? presentationKeyOf(runtimeSnapshot.pending_presentation) : undefined,
       }
       : { source: "legacy", workspaceView, completed: mergedCompleted }),
     [runtimeClient, runtimeSnapshot, workspaceCommitSignal, boardPresentation, workspaceView, mergedCompleted],

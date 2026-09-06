@@ -1,13 +1,14 @@
 /**
  * F7 Step 6 Geometry / Board adapter（ledger 增补 20 偏差 1/2）。
  *
- * 完成判据 = workspaceCommitPort 的**真实** commit 信号（同 session 且
+ * 完成判据 = workspaceCommitPort 的**真实** commit 信号（同 executionKey、同 session 且
  * revision ≥ delivery.workspace_revision——服务端在 delivery 前已应用语义，
  * workspace_revision 是应用回执）+ 快照数据级对账（target 存在/高亮）。
  * 真实信号源未注册（Step 7 接入前）→ awaiting-real-signal 暂停，不上报。
  * 过渡呈现面（文字列表）的 rAF 通知永不满足本等待（见 workspaceCommitPort）。
  */
 import type { PendingPresentationDelivery, PresentationAdapterResult, PresentationToolAdapter } from "../types";
+import { presentationKeyOf } from "../types";
 import type { WorkspaceCommitPort } from "../workspaceCommitPort";
 
 export interface WorkspaceSurfaceAdapterDependencies {
@@ -77,8 +78,9 @@ async function presentWorkspaceSurface(
   if (!check.ok) {
     return { outcome: "failed", failureClass: "illegal_target", message: check.message };
   }
-  // 3. 等待真实 commit（同 session + revision ≥ 应用回执）。
+  // 3. 同一执行的完成证据；其他执行/无 pending 视图的同 revision 通知不放行。
   const wait = await dependencies.commitPort.waitForCommit(delivery.session_id, delivery.workspace_revision ?? 0, {
+    executionKey: presentationKeyOf(delivery),
     abort,
     ...(dependencies.waitTimeoutMs !== undefined ? { timeoutMs: dependencies.waitTimeoutMs } : {}),
   });

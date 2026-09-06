@@ -536,6 +536,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
           view={tutor.workspaceSurface.view}
           geometry={tutor.workspaceSurface.geometry}
           commitSignal={tutor.workspaceSurface.commitSignal}
+          workspaceExecutionKey={tutor.workspaceSurface.workspaceExecutionKey}
           boardPresentation={tutor.workspaceSurface.boardPresentation}
         />
       )

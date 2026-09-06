@@ -96,3 +96,8 @@ export interface PresentationRuntimePorts {
   /** 4xx（含 payload drift）等确定性失败判定；网络/5xx/协议解析为非确定性。 */
   isDefinitiveFailure(failure: unknown): boolean;
 }
+
+/** Local presentation identity; shared by controller, surfaces and commit waiters. */
+export function presentationKeyOf(delivery: PendingPresentationDelivery): string {
+  return `${delivery.session_id}:${delivery.sequence_id}:${delivery.ordinal}:${delivery.action_id}`;
+}

@@ -299,7 +299,7 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       // 初始挂载：既有条目不动画（restore 语义）；canvas 信号 1 帧、board 双帧。
       act(() => { vi.advanceTimersByTime(34); });
       expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 6 }));
       // revision 7 + 新条目：动画挂起；canvas 信号照常到达 → 不得通知。
       const nextView = parsedWorkspaceVariant((base) => ({
         ...base,
@@ -312,8 +312,9 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1); // board 未稳定 → 仍只有 revision 6
       // 动画成功完成 → 以最新 revision 结算。
       await act(async () => { handles[0].resolve(); });
+      act(() => { vi.advanceTimersByTime(34); });
       expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 7 });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 7 }));
     } finally {
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
       vi.useRealTimers();
@@ -356,18 +357,58 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       await act(async () => { handles[0].reject(); });
       act(() => { vi.advanceTimersByTime(500); });
       expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 6 }));
       // 二次复验 P1 语义修正：失败绑定呈现执行（revision 7），不锁定挂载
       // 实例——后续 revision 8（新执行）经 paint 正常结算。
       const thirdView = parsedWorkspaceVariant((base) => ({ ...base, revision: 8 }));
       act(() => root!.render(<StudentWorkspaceViewSurface view={thirdView} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
       act(() => { vi.advanceTimersByTime(200); });
       expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 8 });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 8 }));
       // 失败的 revision 7 从未单独结算。
       expect(harness.notifyRealCommitted.mock.calls.some((call) => call[0]?.revision === 7)).toBe(false);
       act(() => root!.unmount());
       expect(harness.unregister).toHaveBeenCalled();
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      vi.useRealTimers();
+    }
+  });
+
+  it("执行直接替换：同 revision 旧动画取消，迟到完成不结算新执行", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    const { animate, handles } = controllableAnimate();
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+    try {
+      const view = parsedWorkspaceVariant();
+      const harness = commitSignalHarness();
+      render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
+      act(() => { vi.advanceTimersByTime(34); });
+      const updated = parsedWorkspaceVariant(base => ({ ...base, revision: 7,
+        solution_board: { mode: "building", groups: [...base.solution_board.groups,
+          { group_id: "PG-09", entries: [{ entry_id: "BE-09", kind: "statement", content: "x", state: "visible" }] }] },
+      }));
+      const show = (key: string) => act(() => root!.render(<StudentWorkspaceViewSurface
+        view={updated} geometry={fixtureGeometry()} commitSignal={harness.signal}
+        boardPresentation={{ key, targets: ["BE-09"] }} />));
+      show("K1");
+      act(() => { vi.advanceTimersByTime(34); });
+      show("K2");
+      expect(handles[0].cancel).toHaveBeenCalledTimes(1);
+      expect(animate).toHaveBeenCalledTimes(2);
+      await act(async () => { handles[0].resolve(); });
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+      await act(async () => { handles[1].resolve(); });
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: view.session_id, revision: 7, executionKey: "K2" });
+      // A third execution at the already-committed revision must emit its own result.
+      show("K3");
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
+      await act(async () => { handles[2].resolve(); });
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: view.session_id, revision: 7, executionKey: "K3" });
     } finally {
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
       vi.useRealTimers();
@@ -386,7 +427,7 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
     // 双结算键在 StrictMode 双 effect 下只通知一次）。
     await drainSettle();
     expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
-    expect(harness.notifyRealCommitted).toHaveBeenCalledWith({ sessionId: "TS-4242", revision: 6 });
+    expect(harness.notifyRealCommitted).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 6 }));
     act(() => strictRoot.unmount());
     expect(harness.unregister.mock.calls.length).toBe(harness.registerRealCommitSource.mock.calls.length);
     container.remove();
@@ -401,7 +442,7 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       const harness = commitSignalHarness();
       render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
       act(() => { vi.advanceTimersByTime(34); });
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 6 }));
       const view7 = parsedWorkspaceVariant((base) => ({
         ...base,
         revision: 7,
@@ -420,9 +461,10 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       // revision 8 无新增条目，但 BE-03 动画仍在跑 → 不结算 8。
       expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
       await act(async () => { handles[0].resolve(); });
+      act(() => { vi.advanceTimersByTime(34); });
       // 完成后以最新 revision 8 结算一次（revision 7 被替换，不回补）。
       expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 8 });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 8 }));
     } finally {
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
       vi.useRealTimers();
@@ -438,7 +480,7 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       const harness = commitSignalHarness();
       render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
       act(() => { vi.advanceTimersByTime(34); });
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 6 }));
       // 执行 K1（rev 7 新条目 BE-03）动画失败。
       const view7 = parsedWorkspaceVariant((base) => ({
         ...base,
@@ -462,7 +504,8 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       act(() => { vi.advanceTimersByTime(50); });
       expect(animate).toHaveBeenCalledTimes(2); // BE-03 重播
       await act(async () => { handles[1].resolve(); });
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 7 });
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 7 }));
     } finally {
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
       vi.useRealTimers();
@@ -492,7 +535,8 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       act(() => { vi.advanceTimersByTime(50); });
       expect(animate).toHaveBeenCalledTimes(2);
       await act(async () => { handles[1].resolve(); });
-      expect(onSettled).toHaveBeenLastCalledWith(7);
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(onSettled).toHaveBeenLastCalledWith(7, "TS-A:PS-0009:0:WSA-r-R");
       expect(onSettled).toHaveBeenCalledTimes(2);
     } finally {
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
@@ -572,7 +616,7 @@ describe("Workspace 真实 commit 信号（F7 Step 7：production Canvas + Board
     await drainSettle();
     expect(harness.registerRealCommitSource).toHaveBeenCalledTimes(1);
     expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
-    expect(harness.notifyRealCommitted).toHaveBeenCalledWith({ sessionId: "TS-4242", revision: 6 });
+    expect(harness.notifyRealCommitted).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 6 }));
     // 同 revision 重渲染（新对象同值）：不重复通知。
     const sameRevision = parsedWorkspaceVariant();
     act(() => root!.render(<StudentWorkspaceViewSurface view={sameRevision} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
@@ -590,12 +634,12 @@ describe("Workspace 真实 commit 信号（F7 Step 7：production Canvas + Board
     act(() => root!.render(<StudentWorkspaceViewSurface view={nextView} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
     await drainSettle();
     expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
-    expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 7 });
+    expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 7 }));
     // 跨会话同号 revision 不被去重键误抑制（结算键绑 session+revision）。
     const otherSession = parsedWorkspaceVariant((base) => ({ ...base, session_id: "TS-4243" }));
     act(() => root!.render(<StudentWorkspaceViewSurface view={otherSession} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
     await drainSettle();
-    expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4243", revision: 6 });
+    expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4243", revision: 6 }));
     expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(3);
   });
 
@@ -622,7 +666,7 @@ describe("Workspace 真实 commit 信号（F7 Step 7：production Canvas + Board
       // 只有新增条目 BE-03 播放 reveal；既有 BE-01/BE-02 不重复。
       expect(animateSpy).toHaveBeenCalledTimes(1);
       expect(animateSpy.mock.calls[0] && (animateSpy.mock.calls[0][0] as unknown)).toBeDefined();
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 7 });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: "TS-4242", revision: 7 }));
     } finally {
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
     }

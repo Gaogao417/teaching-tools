@@ -13,9 +13,9 @@ describe("workspaceCommitPort", () => {
   it("同 session 且 revision ≥ minRevision 的 real 通知放行等待者", async () => {
     const port = createWorkspaceCommitPort();
     const unregister = port.registerRealCommitSource();
-    const wait = port.waitForCommit("TS-1", 8);
-    port.notifyRealCommitted({ sessionId: "TS-1", revision: 7 });
-    port.notifyRealCommitted({ sessionId: "TS-1", revision: 8 });
+    const wait = port.waitForCommit("TS-1", 8, { executionKey: "K1" });
+    port.notifyRealCommitted({ executionKey: "K1", sessionId: "TS-1", revision: 7 });
+    port.notifyRealCommitted({ executionKey: "K1", sessionId: "TS-1", revision: 8 });
     await expect(wait).resolves.toBe("committed");
     unregister();
   });
@@ -23,15 +23,15 @@ describe("workspaceCommitPort", () => {
   it("旧会话的大 revision 不放行新会话的等待者", async () => {
     const port = createWorkspaceCommitPort();
     port.registerRealCommitSource();
-    const wait = port.waitForCommit("TS-2", 3, { timeoutMs: 20 });
-    port.notifyRealCommitted({ sessionId: "TS-1", revision: 99 });
+    const wait = port.waitForCommit("TS-2", 3, { executionKey: "K1", timeoutMs: 20 });
+    port.notifyRealCommitted({ executionKey: "K1", sessionId: "TS-1", revision: 99 });
     await expect(wait).resolves.toBe("timeout");
   });
 
   it("transitional 通知永不满足等待（只作诊断）", async () => {
     const port = createWorkspaceCommitPort();
     port.registerRealCommitSource();
-    const wait = port.waitForCommit("TS-1", 5, { timeoutMs: 20 });
+    const wait = port.waitForCommit("TS-1", 5, { executionKey: "K1", timeoutMs: 20 });
     port.notifyTransitionalCommitted({ sessionId: "TS-1", revision: 50 });
     await expect(wait).resolves.toBe("timeout");
     expect(port.lastTransitionalNote()).toEqual({ sessionId: "TS-1", revision: 50 });
@@ -49,15 +49,15 @@ describe("workspaceCommitPort", () => {
   it("缓冲的 real note 立即满足后续等待（无需新通知）", async () => {
     const port = createWorkspaceCommitPort();
     port.registerRealCommitSource();
-    port.notifyRealCommitted({ sessionId: "TS-1", revision: 12 });
-    await expect(port.waitForCommit("TS-1", 12)).resolves.toBe("committed");
-    await expect(port.waitForCommit("TS-1", 13, { timeoutMs: 10 })).resolves.toBe("timeout");
+    port.notifyRealCommitted({ executionKey: "K1", sessionId: "TS-1", revision: 12 });
+    await expect(port.waitForCommit("TS-1", 12, { executionKey: "K1" })).resolves.toBe("committed");
+    await expect(port.waitForCommit("TS-1", 13, { executionKey: "K1", timeoutMs: 10 })).resolves.toBe("timeout");
   });
 
   it("reset：等待者按 aborted 结算并清缓冲", async () => {
     const port = createWorkspaceCommitPort();
     port.registerRealCommitSource();
-    const wait = port.waitForCommit("TS-1", 4);
+    const wait = port.waitForCommit("TS-1", 4, { executionKey: "K1" });
     port.reset();
     await expect(wait).resolves.toBe("aborted");
     expect(port.lastRealNote()).toBeUndefined();
@@ -67,7 +67,7 @@ describe("workspaceCommitPort", () => {
     const port = createWorkspaceCommitPort();
     port.registerRealCommitSource();
     const controller = new AbortController();
-    const wait = port.waitForCommit("TS-1", 4, { abort: controller.signal });
+    const wait = port.waitForCommit("TS-1", 4, { executionKey: "K1", abort: controller.signal });
     controller.abort();
     await expect(wait).resolves.toBe("aborted");
   });
@@ -77,11 +77,36 @@ describe("workspaceCommitPort", () => {
     port.registerRealCommitSource();
     vi.useFakeTimers();
     try {
-      const wait = port.waitForCommit("TS-1", 4, { timeoutMs: 50 });
+      const wait = port.waitForCommit("TS-1", 4, { executionKey: "K1", timeoutMs: 50 });
       vi.advanceTimersByTime(60);
       await expect(wait).resolves.toBe("timeout");
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("execution identity isolation", () => {
+  it("old execution and view-only cache cannot satisfy recovery at the same revision", async () => {
+    vi.useFakeTimers();
+    try {
+      const port = createWorkspaceCommitPort();
+      for (const executionKey of ["K1", "view:TS-1@7"]) {
+        port.notifyRealCommitted({ sessionId: "TS-1", revision: 7, executionKey });
+        const wait = port.waitForCommit("TS-1", 7, { executionKey: "K2", timeoutMs: 10 });
+        vi.advanceTimersByTime(11);
+        await expect(wait).resolves.toBe("timeout");
+      }
+      const wait = port.waitForCommit("TS-1", 7, { executionKey: "K2" });
+      port.notifyRealCommitted({ sessionId: "TS-1", revision: 7, executionKey: "K1" });
+      port.notifyRealCommitted({ sessionId: "TS-1", revision: 7, executionKey: "K2" });
+      await expect(wait).resolves.toBe("committed");
+    } finally { vi.useRealTimers(); }
+  });
+  it("aborted execution cannot consume even its matching cached note", async () => {
+    const port = createWorkspaceCommitPort();
+    port.notifyRealCommitted({ sessionId: "TS-1", revision: 7, executionKey: "K1" });
+    const abort = new AbortController(); abort.abort();
+    await expect(port.waitForCommit("TS-1", 7, { executionKey: "K1", abort: abort.signal })).resolves.toBe("aborted");
   });
 });
