@@ -567,4 +567,38 @@ describe("PresentationRuntimeController（queue head / 去重 / outcome 幂等�
     expect(harness.requests).toHaveLength(0);
     controller.dispose();
   });
+  it("Step 8：committed 回执采用门禁拒绝，不允许后续 control，也不重报 ack", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    harness.ports.adoptOutcomeSnapshot = () => false;
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    const settling = controller.interruptCurrentSettled();
+    voice.resolvePresent(0, { outcome: "interrupted" });
+    expect(await settling).toEqual({ status: "failed" });
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.states.at(-1)).toBe("idle");
+    controller.dispose();
+  });
+
+  it("Step 8：outcome 在途时新快照释放 token，旧 ack 不允许继续 control", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    let resolve!: (snapshot: ValidatedSessionSnapshot) => void;
+    harness.ports.reportOutcome = (request) => {
+      harness.requests.push(request);
+      return new Promise((done) => { resolve = done; });
+    };
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    const settling = controller.interruptCurrentSettled();
+    voice.resolvePresent(0, { outcome: "interrupted" });
+    await vi.waitFor(() => expect(harness.requests).toHaveLength(1));
+    controller.adopt(snapshotWithoutPending());
+    resolve(snapshotWithoutPending());
+    expect(await settling).toEqual({ status: "failed" });
+    expect(harness.requests).toHaveLength(1);
+    controller.dispose();
+  });
+
 });

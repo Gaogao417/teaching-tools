@@ -1159,8 +1159,8 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   /** barge-in（canonical，Step 8 顺序固定，PLAN §3 Step 8）：
    *  ① 中断 Voice adapter（abort → 停播）；
    *  ② 上报 interrupted 并采用新 snapshot（interruptCurrentSettled 等待该
-   *     outcome 上报结算——服务端状态已知）；
-   *  ③ 再提交显式 control.barge_in（仅在 ② 结算成功后；网络失败/被丢弃时
+   *     outcome 被接受且响应快照成功采用）；
+   *  ③ 再提交显式 control.barge_in（仅在 ② 接受并采用后；拒绝/网络失败/被丢弃时
    *     不提交，避免 stale revision 的 control）；
    *  ④ Navigator 新 sequence 随 control 响应快照进入同一 adopt 流程。
    *  无活跃可中断交付（生成中无活跃 delivery）→ 零 outcome、零 control，

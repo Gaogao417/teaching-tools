@@ -57,7 +57,8 @@ interface Execution {
 /**
  * F7 Step 8：单次 outcome 上报的结算记录（barge-in 因果顺序——interrupted
  * outcome 先于 control.barge_in 提交）。result 语义：
- * - settled：服务端状态已知（200 committed ack / 200 内 turn 冲突 / 4xx 拒绝）；
+ * - accepted：回执被接受，且当前执行的响应通过快照采用门禁；
+ * - rejected：200 内 turn 冲突或 4xx 拒绝，仅结束重试，不允许继续 control；
  * - network-failed：网络/5xx（token 保留重试，服务端状态未知）；
  * - stale：请求未发出（在途被挡）或迟到被 epoch 守卫丢弃。
  */
@@ -65,7 +66,7 @@ interface OutcomeDispatchRecord {
   readonly key: string;
   readonly outcome: PendingPresentationOutcomeRequest["outcome"];
   promise: Promise<void>;
-  result: "settled" | "network-failed" | "stale";
+  result: "accepted" | "rejected" | "network-failed" | "stale";
 }
 
 /** interruptCurrentSettled 的结算结果（Step 8 barge-in ①②步）。 */
@@ -208,9 +209,9 @@ export class PresentationRuntimeController {
    *
    * - "no-active-delivery"：无活跃可中断交付（idle/paused/outcome 在途/生成中
    *   无活跃 delivery）——不伪造 interrupted outcome（本阶段生成取消语义未冻结）；
-   * - "reported"：outcome 已上报且服务端状态已知（含 aborted 竞态下自然播完的
+   * - "reported"：当前 outcome 已被接受且响应快照成功采用（含 aborted 竞态下自然播完的
    *   presented——服务端游标同样已知推进，由调用方决定是否继续 ③）；
-   * - "failed"：上报网络失败/被丢弃（服务端状态未知）——调用方不得提交 ③。
+   * - "failed"：回执拒绝、网络失败、采用失败或迟到被丢弃——调用方不得提交 ③。
    */
   async interruptCurrentSettled(): Promise<InterruptSettleResult> {
     if (this.disposed || !this.canInterrupt()) return { status: "no-active-delivery" };
@@ -229,7 +230,7 @@ export class PresentationRuntimeController {
     const dispatch = this.lastDispatch;
     if (dispatch === undefined || dispatch.key !== key) return { status: "failed" };
     await dispatch.promise;
-    return dispatch.result === "settled"
+    return dispatch.result === "accepted"
       ? { status: "reported", outcome: dispatch.outcome }
       : { status: "failed" };
   }
@@ -421,7 +422,7 @@ export class PresentationRuntimeController {
       const turn = snapshot.turn;
       if (turn !== undefined && turn.status !== "committed") {
         // 应用层确定性失败（200 内 revision-conflict 等）：释放 token，不盲重试。
-        record.result = "settled"; // 服务端已明确拒绝：状态已知
+        record.result = "rejected"; // 确定性拒绝可释放 token，但不允许继续 control
         if (isLiveOutcome()) {
           this.ports.onNotice(`呈现回执未被接受（${turn.status}），服务端已推进；请重新同步。`);
           this.clearOutcomePending();
@@ -431,8 +432,13 @@ export class PresentationRuntimeController {
       }
       // 200 committed：服务端已接受该 outcome——acked 按服务端真源记录
       //（与本地采用门禁是否放行无关）；本地采用仍走同一 hook 门禁。
-      record.result = "settled";
-      void this.ports.adoptOutcomeSnapshot(snapshot, request.sessionId);
+      const wasLive = isLiveOutcome();
+      const adopted = this.ports.adoptOutcomeSnapshot(snapshot, request.sessionId);
+      if (wasLive && adopted && !this.disposed && epoch === this.epoch) {
+        record.result = "accepted";
+      }
+      // 采用门禁拒绝或 token 已被替换时保持 stale；服务端 ack 仍按事实记录，
+      // 不能因本地采用失败而重报已经接受的 outcome。
       this.acked = { key: keyOfRequest(request), outcome: request.outcome };
       if (!isLiveOutcome()) return; // token 已被换键释放：不改写当前执行状态
       this.clearOutcomePending();
@@ -450,7 +456,7 @@ export class PresentationRuntimeController {
     } catch (failure) {
       if (this.disposed || epoch !== this.epoch) return; // 迟到异常（"stale"）
       if (this.ports.isDefinitiveFailure(failure)) {
-        record.result = "settled"; // 4xx 确定性拒绝：服务端状态已知
+        record.result = "rejected"; // 确定性拒绝不等于已接受 outcome
         if (isLiveOutcome()) {
           this.ports.onNotice(`呈现回执被拒绝（${failure instanceof Error ? failure.message : String(failure)}）；已停止重试。`);
           this.clearOutcomePending();

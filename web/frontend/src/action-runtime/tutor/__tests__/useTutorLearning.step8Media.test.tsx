@@ -422,4 +422,35 @@ describe("useTutorLearning Step 8：barge-in ①②③④ 因果链", () => {
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
     expect(harness.tutor().runtimeFailureNotice).toContain("网络失败");
   });
+  it.each([403, 409])("interrupted 回执被 %i 拒绝：不提交 control，不自动重试", async (status) => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    mocks.reportPresentationOutcome.mockRejectedValueOnce(new TutorRuntimeHttpError(status, "REVISION_CONFLICT", "rejected"));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "presenting");
+    });
+    await act(async () => { await harness.tutor().bargeIn(); });
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    expect(harness.tutor().runtimeFailureNotice).toContain("被拒绝");
+  });
+  it("200 内 revision-conflict：不提交 control，不自动重试", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    mocks.reportPresentationOutcome.mockResolvedValueOnce(validFromRaw(runtimeSnapshotRaw({
+      revision: 13,
+      turn: { status: "revision-conflict", failure: { category: "presentation", failure_class: "STALE_REVISION", retryable: true } },
+    })));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "presenting");
+    });
+    await act(async () => { await harness.tutor().bargeIn(); });
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    expect(harness.tutor().runtimeFailureNotice).toContain("未被接受");
+  });
 });
