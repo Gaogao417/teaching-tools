@@ -429,7 +429,7 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
     }
   });
 
-  it("二次复验 P1：retry_recovery 新执行可完成——失败 revision 之后的新条目动画成功即结算", async () => {
+  it("三次复验 P1（真实恢复场景）：presentation_only 重呈现同 revision/同条目/新 sequence——失败执行不补报、新执行重播并结算", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
     try {
       const { animate, handles } = controllableAnimate();
@@ -439,31 +439,61 @@ describe("Workspace 真实 commit 信号——非对称结算/动画失败/Stric
       render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
       act(() => { vi.advanceTimersByTime(34); });
       expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
-      // rev 7 新条目动画失败。
+      // 执行 K1（rev 7 新条目 BE-03）动画失败。
       const view7 = parsedWorkspaceVariant((base) => ({
         ...base,
         revision: 7,
         solution_board: { mode: "building", groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [{ entry_id: "BE-03", kind: "conclusion", content: "c", state: "visible" }] }] },
       }));
-      act(() => root!.render(<StudentWorkspaceViewSurface view={view7} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      act(() => root!.render(
+        <StudentWorkspaceViewSurface view={view7} geometry={fixtureGeometry()} commitSignal={harness.signal}
+          boardPresentation={{ key: "TS-4242:PS-0003:2:WSA-bt03-reveal", targets: ["BE-03"] }} />,
+      ));
       act(() => { vi.advanceTimersByTime(50); });
       await act(async () => { handles[0].reject(); });
       act(() => { vi.advanceTimersByTime(100); });
-      expect(harness.notifyRealCommitted.mock.calls.some((call) => call[0]?.revision === 7)).toBe(false);
-      // rev 8（恢复序列）新增条目动画成功 → 结算 8；失败条目 BE-03 不重播。
-      const view8 = parsedWorkspaceVariant((base) => ({
-        ...base,
-        revision: 8,
-        solution_board: { mode: "building", groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [
-          { entry_id: "BE-03", kind: "conclusion", content: "c", state: "visible" },
-          { entry_id: "BE-04", kind: "conclusion", content: "d", state: "visible" },
-        ] }] },
-      }));
-      act(() => root!.render(<StudentWorkspaceViewSurface view={view8} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      expect(harness.notifyRealCommitted.mock.calls.some((call) => call[0]?.revision === 7)).toBe(false); // K1 不补报
+      // retry_recovery 新 sequence：同 rev 7、同条目、执行身份 K2——BE-03
+      // 重新播 reveal（presentation_only 恢复不推进 workspace revision）。
+      act(() => root!.render(
+        <StudentWorkspaceViewSurface view={view7} geometry={fixtureGeometry()} commitSignal={harness.signal}
+          boardPresentation={{ key: "TS-4242:PS-0009:0:WSA-bt03-reveal-R", targets: ["BE-03"] }} />,
+      ));
       act(() => { vi.advanceTimersByTime(50); });
-      expect(animate).toHaveBeenCalledTimes(2); // 只 BE-04 新动画
+      expect(animate).toHaveBeenCalledTimes(2); // BE-03 重播
       await act(async () => { handles[1].resolve(); });
-      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 8 });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 7 });
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      vi.useRealTimers();
+    }
+  });
+
+  it("三次复验 P1（组件级复现）：失败后同会话同 revision 重呈现可结算（onSettled(rev) 到达）", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    try {
+      const { animate, handles } = controllableAnimate();
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const onSettled = vi.fn();
+      const groupsOf = (ids: string[]) => [{ group_id: "PG-01", title: "板书", entries: ids.map((id) => ({ entry_id: id, kind: "statement" as const, content: "a", state: "visible" as const })) }];
+      // 初始板书（无执行上下文；BE-01 按首份投影 restore 语义不播动画）。
+      render(<SolutionBoardViewSurface board={{ mode: "building", groups: groupsOf(["BE-01"]) }} revision={7} sessionId="TS-A" onSettled={onSettled} />);
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(onSettled).toHaveBeenCalledWith(7);
+      // 执行 K1 交付新条目 BE-301 → 动画失败 → 该执行零结算。
+      const boardK1 = { mode: "building" as const, groups: groupsOf(["BE-01", "BE-301"]) };
+      act(() => root!.render(<SolutionBoardViewSurface board={boardK1} revision={7} sessionId="TS-A" execution={{ key: "TS-A:PS-0003:2:WSA-r", targets: ["BE-301"] }} onSettled={onSettled} />));
+      act(() => { vi.advanceTimersByTime(50); });
+      await act(async () => { handles[0].reject(); });
+      act(() => { vi.advanceTimersByTime(100); });
+      expect(onSettled).toHaveBeenCalledTimes(1); // 仍只有初始结算——K1 不补报
+      // 新 sequence、同 revision、同条目：重播并结算（presentation_only 恢复）。
+      act(() => root!.render(<SolutionBoardViewSurface board={boardK1} revision={7} sessionId="TS-A" execution={{ key: "TS-A:PS-0009:0:WSA-r-R", targets: ["BE-301"] }} onSettled={onSettled} />));
+      act(() => { vi.advanceTimersByTime(50); });
+      expect(animate).toHaveBeenCalledTimes(2);
+      await act(async () => { handles[1].resolve(); });
+      expect(onSettled).toHaveBeenLastCalledWith(7);
+      expect(onSettled).toHaveBeenCalledTimes(2);
     } finally {
       delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
       vi.useRealTimers();

@@ -536,6 +536,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
           view={tutor.workspaceSurface.view}
           geometry={tutor.workspaceSurface.geometry}
           commitSignal={tutor.workspaceSurface.commitSignal}
+          boardPresentation={tutor.workspaceSurface.boardPresentation}
         />
       )
       : <section className="topic-answer-panel solution-board-panel is-empty" aria-label="学习工作区（加载中）" data-testid="region-workspace" />)

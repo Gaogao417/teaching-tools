@@ -163,6 +163,7 @@ function mountWorkspaceHarness(client: TutorRuntimeClient): {
           view={surface.view}
           geometry={surface.geometry}
           commitSignal={surface.commitSignal}
+          boardPresentation={surface.boardPresentation}
         />
       );
     }
@@ -191,7 +192,7 @@ function mountToggleHarness(client: TutorRuntimeClient): {
     latest = tutor;
     const surface = tutor.workspaceSurface;
     if (withSurface && surface.source === "canonical" && surface.view) {
-      return <StudentWorkspaceViewSurface view={surface.view} geometry={surface.geometry} commitSignal={surface.commitSignal} />;
+      return <StudentWorkspaceViewSurface view={surface.view} geometry={surface.geometry} commitSignal={surface.commitSignal} boardPresentation={surface.boardPresentation} />;
     }
     return <div data-testid="no-workspace-surface" />;
   }
@@ -441,6 +442,94 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
       },
     );
     expect(harness.tutor().runtimeSnapshot?.revision).toBe(21);
+  });
+
+  it("三次复验 P1（真实 Runtime 集成）：board 动画失败 → failed outcome → retry_recovery 新 sequence（同 workspace revision/条目）→ 重播并 presented；旧执行不补报", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    const animateHandles: { finished: Promise<void>; resolve: () => void; reject: () => void }[] = [];
+    const animate = vi.fn((_keyframes: Keyframe[], _options: unknown) => {
+      let resolve!: () => void;
+      let reject!: (reason?: unknown) => void;
+      const finished = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+      animateHandles.push({ finished, resolve, reject });
+      return { finished, cancel: () => undefined };
+    });
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+    try {
+      const { client, mocks } = makeClient();
+      // S0：无 pending、空板书（surface 首挂 = restore，结算 rev 6）。
+      mocks.start.mockResolvedValue(validRuntimeSnapshot({
+        participationKind: "confirm_input",
+        revision: 10,
+        workspaceRevision: 6,
+        boardEntries: [],
+        overrides: { render: { workspace_revision: 6, geometry: runtimeGeometry() } },
+      }));
+      // 学生 confirm → 服务端进入 board reveal 拍：S1（pending D1，BE-301 applied）。
+      mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({
+        participationKind: "confirm_input",
+        pendingPresentation: pendingBoardPresentation(20, 7, ["BE-301"]),
+        boardEntries: [{ entry_id: "BE-301", kind: "derivation", content: "\\triangle AOB \\sim \\triangle DOC" }],
+        revision: 20,
+        workspaceRevision: 7,
+        overrides: { render: { workspace_revision: 7, geometry: runtimeGeometry() } },
+      }));
+      // failed outcome（D1 超时）→ 服务端 retry_recovery 新 sequence（presentation_only：
+      // 同 workspace revision 7、同条目；session revision 推进）。
+      const recoveryRaw = JSON.parse(JSON.stringify(pendingBoardPresentation(21, 7, ["BE-301"]))) as {
+        sequence_id: string; ordinal: number; action_id: string;
+        action: { workspace_action: { action_id: string } };
+      };
+      recoveryRaw.sequence_id = "PS-0009";
+      recoveryRaw.ordinal = 0;
+      recoveryRaw.action_id = "WSA-bt03-reveal-R";
+      recoveryRaw.action.workspace_action.action_id = "WSA-bt03-reveal-R";
+      mocks.reportPresentationOutcome.mockResolvedValueOnce(validRuntimeSnapshot({
+        participationKind: "confirm_input",
+        pendingPresentation: recoveryRaw,
+        boardEntries: [{ entry_id: "BE-301", kind: "derivation", content: "\\triangle AOB \\sim \\triangle DOC" }],
+        revision: 21,
+        workspaceRevision: 7,
+        overrides: { render: { workspace_revision: 7, geometry: runtimeGeometry() } },
+      }));
+      // D2 presented → S3 收尾。
+      mocks.reportPresentationOutcome.mockResolvedValueOnce(validRuntimeSnapshot({
+        participationKind: "confirm_input",
+        revision: 22,
+        workspaceRevision: 7,
+        overrides: { render: { workspace_revision: 7, geometry: runtimeGeometry() } },
+      }));
+      harness = mountWorkspaceHarness(client);
+      await act(async () => { await harness.tutor().start(); });
+      await act(async () => { vi.advanceTimersByTime(60); });
+      await act(async () => { await harness.tutor().submitControl("confirm"); });
+      await act(async () => { vi.advanceTimersByTime(60); });
+      // S1：D1 presenting(board)，BE-301 reveal 动画在跑。
+      expect(harness.tutor().runtimePresentationPhase).toMatchObject({ phase: "presenting", kind: "board" });
+      expect(animate).toHaveBeenCalledTimes(1);
+      // 动画失败 → 无 settle → adapter 10s 超时 → failed outcome（旧执行不补报 presented）。
+      await act(async () => { animateHandles[0].reject(); });
+      await act(async () => { vi.advanceTimersByTime(10_600); });
+      expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+      expect(mocks.reportPresentationOutcome).toHaveBeenCalledWith(
+        RUNTIME_SESSION_ID,
+        "WSA-bt03-reveal",
+        expect.objectContaining({ outcome: "failed", clientRequestId: "pres-outcome:TS-99000801:PS-0003:2:WSA-bt03-reveal:failed", expectedRevision: 20 }),
+      );
+      // S2 采纳：新执行 D2（同 rev 7/同条目）重播 BE-301。
+      expect(animate).toHaveBeenCalledTimes(2);
+      await act(async () => { animateHandles[1].resolve(); });
+      await act(async () => { vi.advanceTimersByTime(120); });
+      expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(2);
+      const secondCall = mocks.reportPresentationOutcome.mock.calls[1];
+      expect(secondCall[1]).toBe("WSA-bt03-reveal-R");
+      expect(secondCall[2]).toMatchObject({ outcome: "presented", clientRequestId: "pres-outcome:TS-99000801:PS-0009:0:WSA-bt03-reveal-R:presented", expectedRevision: 21 });
+      expect(harness.tutor().runtimeSnapshot?.revision).toBe(22);
+      expect(harness.tutor().runtimePresentationPhase.phase).toBe("idle");
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      vi.useRealTimers();
+    }
   });
 
   it("REVIEW 回归：播放期间卸载不得上报 interrupted（先失效执行、再停媒体）", async () => {

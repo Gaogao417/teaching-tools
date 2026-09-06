@@ -41,6 +41,9 @@ export interface StudentWorkspaceViewSurfaceProps {
   geometry?: TopicGeometryModel;
   /** 提供时接入真实完成信号源（讲解/完成面挂载期注册）。 */
   commitSignal?: WorkspaceCommitSignal;
+  /** 当前 pending board delivery 的执行身份（三次复验 P1：失败封禁/重呈现
+   *  绑定执行身份而非 workspace revision）。 */
+  boardPresentation?: { key: string; targets: readonly string[] };
 }
 
 /** 高亮/批注 → display-only visualState（renderer 只消费 affordance 颜色）。 */
@@ -50,7 +53,7 @@ function visualStateFor(element: { highlighted?: boolean; annotated?: boolean } 
   return "idle";
 }
 
-export function StudentWorkspaceViewSurface({ view, geometry, commitSignal }: StudentWorkspaceViewSurfaceProps) {
+export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boardPresentation }: StudentWorkspaceViewSurfaceProps) {
   const { elements, interaction_enabled: interactionEnabled } = view.canvas;
 
   // ---- 真实 commit 信号：注册（+唤醒可能已暂停的执行）+ 同键双结算 ----
@@ -184,7 +187,7 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal }: St
           ) : null}
         </div>
       )}
-      board={<SolutionBoardViewSurface board={view.solution_board} revision={view.revision} sessionId={view.session_id} onSettled={boardOnSettled} />}
+      board={<SolutionBoardViewSurface board={view.solution_board} revision={view.revision} sessionId={view.session_id} execution={boardPresentation} onSettled={boardOnSettled} />}
     />
   );
 }

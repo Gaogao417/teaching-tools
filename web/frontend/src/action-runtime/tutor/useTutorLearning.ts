@@ -179,8 +179,17 @@ export type PlaybackControlsVm =
     replay: () => void;
   };
 
+/** pending board delivery 的呈现执行身份（与 controller presentationKeyOf
+ *  同格式）+ 重呈现目标——三次复验 P1：presentation_only 恢复不推进
+ *  workspace revision，Board 失败封禁/重呈现按执行身份绑定。 */
+export interface BoardPresentationExecution {
+  key: string;
+  targets: readonly string[];
+}
+
 /** Workspace 呈现面（canonical=快照 student_workspace_view + render.geometry
- *  解析产物 + 真实 commit 信号注入面；legacy=统一 View）。 */
+ *  解析产物 + 真实 commit 信号注入面 + pending board 执行身份；legacy=统一
+ *  View）。 */
 export type WorkspaceSurfaceVm =
   | {
     source: "canonical";
@@ -189,6 +198,8 @@ export type WorkspaceSurfaceVm =
     geometry: TopicGeometryModel | undefined;
     /** 真实完成信号（production Canvas commit ∧ Board reveal 稳定双结算）。 */
     commitSignal: WorkspaceCommitSignal | undefined;
+    /** 当前 pending board delivery 的执行身份（非 board pending 时 undefined）。 */
+    boardPresentation: BoardPresentationExecution | undefined;
   }
   | { source: "legacy"; workspaceView: StudentWorkspaceView | undefined; completed: boolean };
 
@@ -1346,6 +1357,20 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     };
   }, [runtimeClient, runtimeSnapshot, presentationRuntime, presentationPhase, mergedCompleted, operateActive, presentation, advancePresentation, replayNarration, reviewPreviousNarration, reviewFirstNarration]);
 
+  /** 当前 pending board delivery 的执行身份（F7 三次复验 P1：恢复重呈现按
+   *  sequence 身份，不按 workspace revision）。 */
+  const boardPresentation = useMemo<BoardPresentationExecution | undefined>(() => {
+    const pending = runtimeSnapshot?.pending_presentation;
+    const workspaceAction = pending?.action.workspace_action;
+    if (!runtimeSnapshot || !pending || !workspaceAction || workspaceAction.surface !== "solution_board") {
+      return undefined;
+    }
+    return {
+      key: `${pending.session_id}:${pending.sequence_id}:${pending.ordinal}:${pending.action_id}`,
+      targets: workspaceAction.target_ids ?? [],
+    };
+  }, [runtimeSnapshot]);
+
   /** Workspace 呈现面。 */
   const workspaceSurface: WorkspaceSurfaceVm = useMemo(
     () => (runtimeClient
@@ -1354,9 +1379,10 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         view: runtimeSnapshot?.views.student_workspace_view,
         geometry: runtimeSnapshot ? parseRenderGeometryV1(runtimeSnapshot.render.geometry) : undefined,
         commitSignal: workspaceCommitSignal,
+        boardPresentation,
       }
       : { source: "legacy", workspaceView, completed: mergedCompleted }),
-    [runtimeClient, runtimeSnapshot, workspaceCommitSignal, workspaceView, mergedCompleted],
+    [runtimeClient, runtimeSnapshot, workspaceCommitSignal, boardPresentation, workspaceView, mergedCompleted],
   );
 
   /** Coach composer：提问通道（canonical=utterance(assistance)；legacy=question_asked）

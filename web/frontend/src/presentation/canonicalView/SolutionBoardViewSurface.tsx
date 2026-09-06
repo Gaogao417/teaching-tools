@@ -6,21 +6,29 @@
  * - 同一 View 的 building/review 两种阅读模式（review 不加载第二份 Board
  *   真相，ADR-009 不变量 7）；View 层无 hidden——未揭示条目整个不存在；
  *   空 groups 渲染明确 empty surface（不变量 6）。
- * - reveal 结算引擎（二次复验 P1 修正）：同一挂载实例持有**稳定动画
- *   句柄表**（entryId → Animation）+ 已完成集合；**失败绑定呈现执行
- *   （revision）而非挂载实例**，**会话切换整生命周期重置**；规则：
+ * - reveal 结算引擎（三次复验 P1 修正）：同一挂载实例持有**稳定动画
+ *   句柄表**（entryId → Animation）+ 已完成集合；**失败绑定呈现执行身份
+ *   （sessionId+sequence_id+ordinal+action_id，与 controller
+ *   presentationKeyOf 同格式）而非 workspace revision**——presentation_only
+ *   恢复不推进 revision，按 revision 封禁会锁死恢复执行；**会话切换整
+ *   生命周期重置**；规则：
  *   · reveal 动画成功完成才把条目记为已呈现；完成前 effect 重跑（同
  *     revision 换对象/普通重渲染）不重复触发也不提前结算；
  *   · 动画取消/异常（finished reject）：**该次呈现执行（动画启动时的
- *     revision）永不结算**（不误报 presented；由 adapter 超时走 failed
+ *     执行身份）永不结算**（不误报 presented；由 adapter 超时走 failed
  *     fail-closed），失败条目回到底层样式即视为可见；后续 revision /
- *     retry_recovery 新执行、新会话不受历史失败锁定；
+ *     retry_recovery 新执行（新 sequence 身份）、新会话不受历史失败锁定；
+ *     无执行上下文（无 pending）的动画失败按视图身份（session+revision）
+ *     封禁——不跨执行；
  *   · 卸载取消全部句柄并忽略一切迟到结果；
  *   · 句柄表清空（本批新增条目全部成功完成，或本份投影无新增条目）→
  *     post-paint（双 rAF/setTimeout 回退）以**最新 revision** 结算一次
  *     （结算键 sessionId+revision 由父组件管理）；被替换 revision 不回补；
  *   · sessionId 变化：取消旧句柄、清空已完成/失败集合、重置首份投影
  *     语义（新会话首份板书 = restore，不播动画）；
+ *   · 执行身份变化（新 sequence / 重投后重新出现）：其 targets 移出已完成
+ *     集合——**重呈现条目重新播 reveal**（presentation_only 恢复路径，
+ *     workspace revision 与条目不变）；
  *   · reduce-motion / 无 WAAPI 环境：跳过动画，条目即时视为已呈现（声明的
  *     回退面）；条目数据在而 DOM 节点缺失 = 该呈现执行失败（不静默回退）。
  */
@@ -55,6 +63,11 @@ export interface SolutionBoardViewSurfaceProps {
   /** 会话身份（二次复验 P1）：变化时重置整个板书呈现生命周期（取消旧
    *  句柄、清空已完成/失败集合、新会话首份投影按 restore 处理）。 */
   sessionId?: string;
+  /** 当前呈现执行身份（三次复验 P1）：pending board delivery 的
+   *  `session:sequence:ordinal:action` + 重呈现目标条目。变化（新 sequence
+   *  / 重投）时 targets 重新播 reveal——presentation_only 恢复不推进
+   *  revision，失败封禁按执行身份而非 revision。 */
+  execution?: { key: string; targets: readonly string[] };
   /** 板书视觉稳定（在跑 reveal 全部成功完成 / 无动画 post-paint）回调——
    *  携带结算时刻的最新 revision；失败执行/卸载/迟到结果不回调。 */
   onSettled?: (revision: number) => void;
@@ -64,18 +77,24 @@ interface RevealHandle {
   animation: RevealAnimation;
   /** 本句柄已完成（成功或失败都已离开在跑集合前标记）。 */
   finished: boolean;
-  /** 启动该动画时的呈现执行 revision（失败记入 failedRevisions）。 */
-  startedRevision: number;
+  /** 启动该动画时的失败封禁键（执行身份；无执行上下文时为视图身份）。 */
+  failureKey: string;
 }
 
-export function SolutionBoardViewSurface({ board, revision, sessionId, onSettled }: SolutionBoardViewSurfaceProps) {
+/** 失败封禁键：有执行上下文按执行身份；否则按视图身份（session+revision）。
+ *  presentation_only 恢复 = 新执行身份 + 同 revision → 不被旧失败封禁。 */
+function failureKeyOf(execution: string | undefined, sessionId: string | undefined, revision: number | undefined): string {
+  return execution ?? `view:${sessionId ?? "-"}@${revision ?? "-"}`;
+}
+
+export function SolutionBoardViewSurface({ board, revision, sessionId, execution, onSettled }: SolutionBoardViewSurfaceProps) {
   const { groups, mode } = board;
   const review = mode === "review";
   const entryCount = groups.reduce((total, group) => total + group.entries.length, 0);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  /** 结算时刻的最新 revision/回调经 ref 读（动画完成晚于触发它的渲染）。 */
-  const latestRef = useRef({ revision, onSettled });
-  latestRef.current = { revision, onSettled };
+  /** 结算时刻的最新 revision/回调/执行身份经 ref 读（动画完成晚于触发它的渲染）。 */
+  const latestRef = useRef({ revision, onSettled, sessionId, execution });
+  latestRef.current = { revision, onSettled, sessionId, execution };
   /** 挂载存活标记：动画完成处理器只认卸载失效——普通重渲染（effect 重跑）
    *  不作废仍在跑的 reveal（否则句柄泄漏且永不结算）。 */
   const mountedRef = useRef(true);
@@ -83,9 +102,11 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, onSettled
   const revealHandlesRef = useRef(new Map<string, RevealHandle>());
   /** reveal 已完成（成功或失败后回底层样式）的条目——不重复动画。 */
   const revealedIdsRef = useRef(new Set<string>());
-  /** 结算失败的呈现执行（revision）集合（会话作用域）：这些 revision 永不
-   *  经 paint 路径补结算（不误报 presented）；后续 revision 不受锁定。 */
-  const failedRevisionsRef = useRef(new Set<number>());
+  /** 结算失败的呈现执行（身份键）集合（会话作用域）：失败执行永不经
+   *  paint 路径补结算（不误报 presented）；新执行身份/后续 revision 不受锁定。 */
+  const failedExecutionsRef = useRef(new Set<string>());
+  /** 最近一次执行身份（变化时重呈现 targets）。 */
+  const lastExecutionKeyRef = useRef<string | undefined>(undefined);
   /** 本批在跑动画中是否出现过失败（批次终结时消费——污染批不结算）。 */
   const batchFailedRef = useRef(false);
   /** 初始挂载/新会话首份投影：既有条目视为已呈现，不播 reveal。 */
@@ -101,9 +122,20 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, onSettled
       for (const handle of revealHandlesRef.current.values()) handle.animation.cancel();
       revealHandlesRef.current.clear();
       revealedIdsRef.current.clear();
-      failedRevisionsRef.current.clear();
+      failedExecutionsRef.current.clear();
+      lastExecutionKeyRef.current = undefined;
       batchFailedRef.current = false;
       firstRunRef.current = true;
+    }
+
+    // 执行身份变化（三次复验 P1）：新 sequence / 重投后重新出现——targets
+    // 移出已完成集合，重呈现条目重新播 reveal（presentation_only 恢复：
+    // workspace revision 与条目不变，仅执行身份变化）。
+    if (execution === undefined) {
+      lastExecutionKeyRef.current = undefined;
+    } else if (execution.key !== lastExecutionKeyRef.current) {
+      lastExecutionKeyRef.current = execution.key;
+      for (const target of execution.targets) revealedIdsRef.current.delete(target);
     }
 
     const latest = latestRef.current;
@@ -138,9 +170,9 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, onSettled
       const node = containerRef.current?.querySelector<HTMLElement>(`[data-entry-id="${id}"]`);
       if (!node) {
         // 完成度审计 P3：条目数据在而 DOM 节点缺失 = 渲染承诺被破坏——按
-        // 该呈现执行失败处理（不标记已呈现、该 revision 不结算；后续 effect
+        // 该呈现执行失败处理（不标记已呈现、该执行不结算；后续 effect
         // 重跑若节点出现可重试动画）。不静默回退为「已呈现」。
-        failedRevisionsRef.current.add(latest.revision);
+        failedExecutionsRef.current.add(failureKeyOf(latest.execution?.key, latest.sessionId, latest.revision));
         continue;
       }
       // 声明的回退面：reduced-motion / 无 WAAPI 环境跳过动画，即时视为已呈现。
@@ -151,11 +183,11 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, onSettled
         revealed.add(id);
         continue;
       }
-      const startedRevision = latest.revision;
+      const failureKey = failureKeyOf(latest.execution?.key, latest.sessionId, latest.revision);
       const handle: RevealHandle = {
         animation: { finished: animate.finished, cancel: () => animate.cancel() },
         finished: false,
-        startedRevision,
+        failureKey,
       };
       handles.set(id, handle);
       const leave = (failed: boolean): void => {
@@ -169,9 +201,10 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, onSettled
           if (settle.onSettled && settle.revision !== undefined) settle.onSettled(settle.revision);
         }
         if (failed) {
-          // 失败绑定启动时的呈现执行：该 revision 永不结算（failedRevisions
-          // 持久记录）；batchFailed 只污染**本批次**的完成结算。
-          failedRevisionsRef.current.add(handle.startedRevision);
+          // 失败绑定启动时的呈现执行身份（无执行上下文 = 视图身份）——该
+          // 执行永不被补结算（failedExecutions 持久记录，会话作用域）；
+          // batchFailed 只污染**本批次**的完成结算。
+          failedExecutionsRef.current.add(handle.failureKey);
           batchFailedRef.current = true;
         }
         // 批次终结（句柄表空）：消费污染标记——后续 revision / retry_recovery
@@ -184,12 +217,13 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, onSettled
       );
     }
 
-    // 3. 无在跑动画：post-paint 结算——失败的呈现执行不补结算。
-    if (handles.size === 0 && !failedRevisionsRef.current.has(latest.revision)) {
+    // 3. 无在跑动画：post-paint 结算——失败的呈现执行（身份键）不补结算。
+    if (handles.size === 0 && !failedExecutionsRef.current.has(failureKeyOf(latest.execution?.key, latest.sessionId, latest.revision))) {
       let inner = 0;
       const settle = (): void => {
         const now = latestRef.current;
-        if (active && now.onSettled && now.revision !== undefined && !failedRevisionsRef.current.has(now.revision)) {
+        if (active && now.onSettled && now.revision !== undefined
+          && !failedExecutionsRef.current.has(failureKeyOf(now.execution?.key, now.sessionId, now.revision))) {
           now.onSettled(now.revision);
         }
       };
@@ -214,7 +248,7 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, onSettled
     return () => {
       active = false;
     };
-  }, [groups, revision, sessionId, onSettled]);
+  }, [groups, revision, sessionId, execution, onSettled]);
 
   // 卸载：作废完成处理器、取消全部在跑动画并丢弃句柄（StrictMode 的
   // setup→cleanup→setup 由 setup 重新武装 mountedRef）。
