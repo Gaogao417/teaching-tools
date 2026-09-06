@@ -492,4 +492,79 @@ describe("PresentationRuntimeController（queue head / 去重 / outcome 幂等�
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(harness.requests).toHaveLength(0);
   });
+
+  // ------------------------------------------------------------------ //
+  // F7 Step 8：interruptCurrentSettled（barge-in ①② 的可等待结算——
+  // interrupted outcome 必须先于 control.barge_in 提交）。
+  // ------------------------------------------------------------------ //
+
+  it("Step 8 interruptCurrentSettled：①abort 执行 → ②interrupted 上报结算 + 采用新 snapshot 后才 resolve（reported）", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    const settlePromise = controller.interruptCurrentSettled();
+    // ① 同步中断当前 adapter。
+    expect(voice.presentCalls[0]!.abort.aborted).toBe(true);
+    voice.resolvePresent(0, { outcome: "interrupted" });
+    const settle = await settlePromise;
+    // ② 上报已结算（服务端状态已知）+ 新 snapshot 已进入采用入口。
+    expect(settle).toEqual({ status: "reported", outcome: "interrupted" });
+    expect(harness.requests[0]).toMatchObject({ outcome: "interrupted", expectedRevision: 12 });
+    expect(harness.adoptResults).toEqual(["TS-99000801"]);
+    controller.dispose();
+  });
+
+  it("Step 8 interruptCurrentSettled：outcome 网络失败 → failed（服务端状态未知，不得继续 ③）", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    harness.responses.push(NETWORK());
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    const settlePromise = controller.interruptCurrentSettled();
+    voice.resolvePresent(0, { outcome: "interrupted" });
+    const settle = await settlePromise;
+    expect(settle).toEqual({ status: "failed" });
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.notices.some((message) => message.includes("网络失败"))).toBe(true);
+    controller.dispose();
+  });
+
+  it("Step 8 interruptCurrentSettled：无活跃可中断交付（idle）→ no-active-delivery，零上报（不伪造 interrupted）", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    const controller = makeController([voice], harness);
+    const settle = await controller.interruptCurrentSettled();
+    expect(settle).toEqual({ status: "no-active-delivery" });
+    expect(harness.requests).toHaveLength(0);
+    controller.dispose();
+  });
+
+  it("Step 8 interruptCurrentSettled：awaiting-gesture（autoplay 暂停）打断 → reported(interrupted)", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    voice.resolvePresent(0, { outcome: "blocked-by-autoplay" });
+    await vi.waitFor(() => expect(harness.states).toContain("awaiting-gesture"));
+    const settle = await controller.interruptCurrentSettled();
+    expect(settle).toEqual({ status: "reported", outcome: "interrupted" });
+    expect(harness.requests[0]).toMatchObject({ outcome: "interrupted" });
+    controller.dispose();
+  });
+
+  it("Step 8 interruptCurrentSettled：中断期间服务端已推进（执行被丢弃、零上报）→ failed（key 不匹配）", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    const settlePromise = controller.interruptCurrentSettled();
+    // abort 之后、adapter 结算之前：服务端快照已无 pending → 陈旧执行被丢弃。
+    controller.adopt(snapshotWithoutPending());
+    voice.resolvePresent(0, { outcome: "interrupted" });
+    const settle = await settlePromise;
+    expect(settle).toEqual({ status: "failed" });
+    expect(harness.requests).toHaveLength(0);
+    controller.dispose();
+  });
 });

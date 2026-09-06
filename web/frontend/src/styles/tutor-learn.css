@@ -72,6 +72,14 @@
   cursor: default;
 }
 
+/* F7 Step 8：mainline answer mic——复用 topic-coach-mic 圆形图标按钮形态
+   （answer_input 的独立语音 affordance）；抵消 .tutor-participation button
+   的文本按钮内边距（高特异性覆写，保持 38px 圆形）。 */
+.tutor-participation .topic-coach-mic {
+  padding: 0;
+  flex: none;
+}
+
 .tutor-participation-row {
   display: flex;
   align-items: center;

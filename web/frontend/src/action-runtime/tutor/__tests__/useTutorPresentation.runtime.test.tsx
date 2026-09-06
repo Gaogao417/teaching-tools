@@ -295,10 +295,12 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
     expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
   });
 
-  it("barge-in（InterruptCurrent）：abort 本次播放 → interrupted 上报 → 采用返回快照", async () => {
+  it("barge-in：①abort 本次播放 → ②interrupted 上报并采用返回快照 → ③显式 control.barge_in（Step 8 完整链）", async () => {
     const { client, mocks } = makeClient();
     mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
     mocks.reportPresentationOutcome.mockResolvedValue(validRuntimeSnapshot({ revision: 14 }));
+    // ③ control.barge_in 响应（无新 pending：由后续快照交付）。
+    mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({ revision: 15 }));
     harness = mountHarness(client);
     await act(async () => { await harness.tutor().start(); });
     await act(async () => {
@@ -313,7 +315,15 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
       "VA-bt01-narrate",
       expect.objectContaining({ outcome: "interrupted", expectedRevision: 12 }),
     );
-    expect(harness.tutor().runtimeSnapshot?.revision).toBe(14);
+    // ②（interrupted outcome 采用后的 revision 14）先于 ③（control.barge_in）。
+    expect(mocks.reportPresentationOutcome.mock.invocationCallOrder[0]).toBeLessThan(mocks.submitStudentInput.mock.invocationCallOrder[0]);
+    expect(mocks.submitStudentInput).toHaveBeenCalledWith(
+      RUNTIME_SESSION_ID,
+      { kind: "control", command: "barge_in" },
+      14,
+      expect.any(String),
+    );
+    expect(harness.tutor().runtimeSnapshot?.revision).toBe(15);
   });
 
   it("geometry 交付（呈现面未挂载=无真实信号源，F7 Step 7 语义保留）：paused(real-signal-unavailable)、零上报", async () => {

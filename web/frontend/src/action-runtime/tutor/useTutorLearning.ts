@@ -128,6 +128,36 @@ const INITIAL_PRESENTATION: TutorPresentation = {
 export const CONFUSED_MESSAGE = "我没听懂这一步，请换一种说法，并说明为什么这样做。";
 
 // --------------------------------------------------------------------------- //
+// F7 Step 8：录音 + 通道锁定 + ASR stale 防护（spec §2.9/§4.8；S1 交叉规则）
+// --------------------------------------------------------------------------- //
+
+/** 录音开始时锁定的通道与快照身份（不可变捕获——录音开始后 outcome/control
+ *  导致的 revision 变化不得悄悄更新捕获值；ASR 结果按此核对后才可自动提交）。 */
+export interface RecordingChannelCapture {
+  readonly channel: "mainline" | "assistance";
+  readonly sessionId: string;
+  readonly revision: number;
+}
+
+/** stale transcript 草稿（不自动提交；组件填入对应通道草稿并提示用户确认）。 */
+export interface SpeechPendingTranscript {
+  channel: "mainline" | "assistance";
+  text: string;
+}
+
+/** 录音通道在当前快照下是否合法：
+ *  - mainline：answer_input 的独立 affordance（spec §4.8「不能共用一个 mic
+ *    后猜意图」）——participation 离开 answer_input 即不再合法；
+ *  - assistance：Coach 通道按合同可用（listen_only 仍开放，US-03）；
+ *  - 完成态一律关闭。 */
+function recordingChannelLegal(channel: "mainline" | "assistance", snapshot: ValidatedSessionSnapshot): boolean {
+  if (snapshot.completed || snapshot.views.participation.kind === "read_only_completed") return false;
+  return channel === "mainline"
+    ? snapshot.views.participation.kind === "answer_input"
+    : snapshot.views.coach_panel_view.assistance_available !== false;
+}
+
+// --------------------------------------------------------------------------- //
 // 统一 UI view-model（复核裁定：数据源分派只发生在 controller 边界；
 // Participation/Workspace/播放控件由单一 view-model 驱动，组件不得按
 // Boolean(runtimeClient) 分两套 UI）
@@ -913,6 +943,99 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     [submitRuntimeInput],
   );
 
+  // ---- F7 Step 8：录音 + 通道锁定 + ASR（canonical 链；spec §2.9/§4.8）----
+  const [speechAsrBusy, setSpeechAsrBusy] = useState(false);
+  const [speechPendingTranscript, setSpeechPendingTranscript] = useState<SpeechPendingTranscript | undefined>();
+  const [speechNotice, setSpeechNotice] = useState<string | undefined>();
+
+  /** 录音真正开始时锁定通道并捕获 {sessionId, revision}（不可变捕获——录音
+   *  开始后 outcome/control 导致的 revision 变化不得悄悄更新捕获值）。
+   *  通道在当前快照下不合法（mainline≠answer_input / assistance 关闭 / 完成
+   *  态）或无快照时返回 undefined——该录音不得进入提交链。 */
+  const lockRecordingChannel = useCallback(
+    (channel: "mainline" | "assistance"): RecordingChannelCapture | undefined => {
+      if (!runtimeClient) return undefined;
+      const current = runtimeSnapshotRef.current;
+      if (!current || !recordingChannelLegal(channel, current)) return undefined;
+      return { channel, sessionId: current.session_id, revision: current.revision };
+    },
+    [runtimeClient],
+  );
+
+  const clearSpeechPendingTranscript = useCallback(() => { setSpeechPendingTranscript(undefined); }, []);
+  const clearSpeechNotice = useCallback(() => { setSpeechNotice(undefined); }, []);
+
+  /** ASR（observe-only，不产 intent）：经当前 client 的 POST /asr。非空
+   *  transcript 自动提交前按录音开始时的捕获核对——session 未变、revision
+   *  未变、原通道仍合法、ASR observed_revision 与捕获一致；任一不一致只把
+   *  transcript 放入对应通道草稿（speechPendingTranscript，组件提示用户确认，
+   *  不自动提交——S1 交叉规则）。权限/系统失败是可见提示，不记为学生错误。 */
+  const transcribeRecording = useCallback(
+    async (capture: RecordingChannelCapture, audio: { dataUrl: string; mimeType?: string; durationMs?: number }): Promise<void> => {
+      if (!runtimeClient) return;
+      setSpeechAsrBusy(true);
+      setSpeechNotice(undefined);
+      try {
+        const asr = await runtimeClient.transcribe(capture.sessionId, {
+          audio: {
+            dataUrl: audio.dataUrl,
+            mimeType: audio.mimeType ?? "audio/webm",
+            ...(audio.durationMs !== undefined ? { durationMs: audio.durationMs } : {}),
+          },
+          clientRequestId: newRuntimeRequestId(),
+        });
+        const transcript = asr.transcript.trim();
+        if (!transcript) {
+          setSpeechNotice("没有听到内容，请再试一次或改用文字输入。");
+          return;
+        }
+        // stale 防护：三重核对（当前快照 vs 捕获；ASR 观察身份 vs 捕获）。
+        const current = runtimeSnapshotRef.current;
+        const stale = current === undefined
+          || current.session_id !== capture.sessionId
+          || current.revision !== capture.revision
+          || asr.sessionId !== capture.sessionId
+          || asr.observedRevision !== capture.revision
+          || !recordingChannelLegal(capture.channel, current);
+        if (stale) {
+          setSpeechPendingTranscript({ channel: capture.channel, text: transcript });
+          return;
+        }
+        await submitRuntimeInput({ kind: "utterance", channel: capture.channel, text: transcript });
+      } catch (failure) {
+        if (failure instanceof ProtocolParseError) {
+          // ASR 响应协议非法：recoverable protocol error（保留最后合法快照）。
+          setProtocolError(failure.message);
+          return;
+        }
+        // spec §2.1 错误表：ASR/音频/模型失败 = 系统失败，可见处理、不映射学生
+        // 错误、不回落 legacy session API。
+        if (failure instanceof TutorRuntimeHttpError) {
+          switch (failure.code) {
+            case "EMPTY_TRANSCRIPT":
+              setSpeechNotice("没有听到内容，请再试一次或改用文字输入。"); return;
+            case "AUDIO_TOO_LARGE":
+              setSpeechNotice("录音太长了，请缩短后重试或改用文字输入。"); return;
+            case "AUDIO_FORMAT_UNSUPPORTED":
+              setSpeechNotice("当前浏览器录音格式不支持，请改用文字输入。"); return;
+            case "ASR_UNAVAILABLE":
+            case "MODEL_UNAVAILABLE":
+              setSpeechNotice("语音识别暂不可用，请改用文字输入。"); return;
+            case "ASR_TIMEOUT":
+            case "MODEL_TIMEOUT":
+              setSpeechNotice("语音识别超时，请重试或改用文字输入。"); return;
+            default:
+              setSpeechNotice("语音识别出现问题，请改用文字输入。"); return;
+          }
+        }
+        setSpeechNotice("语音识别出现问题，请改用文字输入。");
+      } finally {
+        setSpeechAsrBusy(false);
+      }
+    },
+    [runtimeClient, submitRuntimeInput],
+  );
+
   const submitStudentInput = useCallback(
     async (input: TutorStudentInput): Promise<void> => {
       if (runtimeClient) return;
@@ -1033,14 +1156,23 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     [consumeTurn, runtimeClient, taskId],
   );
 
-  /** barge-in：立即停播并上报 interrupted（目标 <150ms 停止播放）。
-   *  interrupted 是保留的显式 UI 事件状态（见 useState 声明处注释）；
-   *  speechActive 是播放事实更新（停播即不再播放），不是 phase 赋值。
-   *  remediation-2：门上等待的呈现队列一并 abandon（interrupted 态 CTA
-   *  禁用，不再静默放行）。 */
+  /** barge-in（canonical，Step 8 顺序固定，PLAN §3 Step 8）：
+   *  ① 中断 Voice adapter（abort → 停播）；
+   *  ② 上报 interrupted 并采用新 snapshot（interruptCurrentSettled 等待该
+   *     outcome 上报结算——服务端状态已知）；
+   *  ③ 再提交显式 control.barge_in（仅在 ② 结算成功后；网络失败/被丢弃时
+   *     不提交，避免 stale revision 的 control）；
+   *  ④ Navigator 新 sequence 随 control 响应快照进入同一 adopt 流程。
+   *  无活跃可中断交付（生成中无活跃 delivery）→ 零 outcome、零 control，
+   *  不伪造 interrupted（生成取消语义未冻结，本阶段不做）。 */
   const bargeIn = useCallback(async () => {
     if (runtimeClient) {
-      presentationRuntime?.controller.interruptCurrent();
+      const controller = presentationRuntime?.controller;
+      if (!controller) return;
+      const settle = await controller.interruptCurrentSettled();
+      if (settle.status === "reported" && (settle.outcome === "interrupted" || settle.outcome === "presented")) {
+        await submitControl("barge_in");
+      }
       return;
     }
     const activeSession = sessionIdRef.current;
@@ -1060,7 +1192,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     if (activeSession && pending) {
       await api.completeTutorVoice(activeSession, pending.action_id, "interrupted").catch(() => null);
     }
-  }, [media, narration, runtimeClient, presentationRuntime]);
+  }, [media, narration, runtimeClient, presentationRuntime, submitControl]);
 
   const resumeFromInterrupt = useCallback(() => setInterrupted(false), []);
 
@@ -1390,11 +1522,11 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   );
 
   /** Coach composer：提问通道（canonical=utterance(assistance)；legacy=question_asked）
-   *  与可用性（canonical 由服务端 assistance_available 投影；legacy 恒开）；
-   *  micSuppressed：canonical 录音 Step 8 接线前禁用（禁调 legacy ASR）。 */
+   *  与可用性（canonical 由服务端 assistance_available 投影；legacy 恒开）。
+   *  F7 Step 8：canonical 录音接通（coach mic=assistance 通道锁定；ASR 经当前
+   *  client 的 /asr），mic 不再整体禁用（Step 5 迁移期 micSuppressed 退场）。 */
   const coachControls = useMemo(() => ({
     canHelp: !mergedCompleted && Boolean(sessionId) && (!runtimeClient || runtimeSnapshot?.views.coach_panel_view.assistance_available !== false),
-    micSuppressed: Boolean(runtimeClient),
     ask: (text: string): void => {
       const trimmed = text.trim();
       if (!trimmed) return;
@@ -1421,8 +1553,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const restartOnMissing = !runtimeClient;
   /** legacy 换讲法入口（canonical 无此形态）。 */
   const switchApproachAvailable = !runtimeClient && alternatesAvailable && Boolean(sessionId) && !mergedCompleted;
-  /** legacy 打断入口；canonical=PresentationRuntime InterruptCurrent（barge-in
-   *  第 1/2 步——abort adapter → 上报 interrupted；control.barge_in 自动提交属 Step 8）。 */
+  /** legacy 打断入口；canonical=bargeIn 的 ①②③④ 链（Step 8：中断 adapter →
+   *  interrupted outcome 结算并采用新 snapshot → 显式 control.barge_in → 等
+   *  Navigator 新 sequence）。 */
   const bargeInAvailable = runtimeClient
     ? playbackControls?.source === "canonical" && playbackControls.canInterrupt
     : phase === "speaking" && !presentation.awaitingContinue && !presentation.reviewing;
@@ -1446,6 +1579,18 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     restartOnMissing,
     switchApproachAvailable,
     bargeInAvailable,
+    /** F7 Step 8：外层 PresentationRuntime 媒体 session 唯一实例（Narration/
+     *  MediaSessionController 属主）——recorder 共享同一 session（录音打断播放
+     *  的互斥经 capture lease + stop("narration")），不新建第二媒体状态机。 */
+    mediaSession: media,
+    /** F7 Step 8：录音 + ASR + stale 防护（canonical 链；legacy 链保持零改动）。 */
+    lockRecordingChannel,
+    transcribeRecording,
+    speechAsrBusy,
+    speechPendingTranscript,
+    clearSpeechPendingTranscript,
+    speechNotice,
+    clearSpeechNotice,
     /** canonical Runtime 数据源（runtimeClient 缺省时 undefined——legacy 链不消费）。 */
     runtimeSnapshot,
     runtimeParticipation: runtimeSnapshot?.views.participation,

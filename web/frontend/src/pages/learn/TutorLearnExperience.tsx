@@ -26,7 +26,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { ActionRuntimeFrame } from "../../presentation/runtime/ActionRuntimeFrame";
-import { useTutorLearning } from "../../action-runtime/tutor/useTutorLearning";
+import { useTutorLearning, type RecordingChannelCapture } from "../../action-runtime/tutor/useTutorLearning";
+import type { MediaSessionController } from "../../presentation/audio/MediaSessionController";
 import { LearnQuestionPrompt } from "../../presentation/workspace/LearnQuestionPrompt";
 import { ReadOnlyGeometrySurface, StudentBoardSurface, StudentWorkspaceFrame } from "../../presentation/workspace/StudentWorkspaceFrame";
 import { StudentWorkspaceViewSurface } from "../../presentation/canonicalView/StudentWorkspaceViewSurface";
@@ -141,11 +142,34 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     [tutor],
   );
 
+  /** F7 Step 8：双 mic 各自锁定通道——Coach mic=assistance（Panel composer 恒为
+   *  提问通道，spec §2.9）；mainline answer mic=mainline（answer_input 的独立
+   *  affordance，不共用一个 mic 后猜意图，spec §4.8）。两路 recorder 共享外层
+   *  PresentationRuntime 的同一 MediaSessionController（录音互斥 + 录音打断
+   *  播放）；录音真正开始时捕获 {sessionId, revision, channel}，ASR 后按捕获做
+   *  stale 防护（捕获值不随后续 revision 变化更新）。 */
+  const coachCaptureRef = useRef<RecordingChannelCapture | undefined>(undefined);
   const recorder = useCoachRecorder({
-    disabled: asrBusy || !tutor.sessionId || tutor.coachControls.micSuppressed,
-    media: undefined,
+    owner: "coach",
+    disabled: asrBusy || tutor.speechAsrBusy || !tutor.sessionId || !tutor.coachControls.canHelp,
+    media: tutor.mediaSession,
+    interruptPlaybackOnStart: runtimeClient ? true : undefined,
+    captureBusyMessage: runtimeClient ? "已有录音进行中，请先停止当前录音。" : undefined,
+    onRecordingStart: () => { coachCaptureRef.current = tutor.lockRecordingChannel("assistance"); },
     onAudio: (audio) => {
-      if (tutor.coachControls.micSuppressed || !tutor.sessionId) return;
+      const capture = coachCaptureRef.current;
+      coachCaptureRef.current = undefined; // consume-once：下一次录音必须重新捕获
+      if (runtimeClient) {
+        // canonical：ASR 经当前 client 的 /asr（observe-only）→ stale 核对 →
+        // 自动提交 utterance(assistance) 或落草稿（禁调 legacy session API）。
+        if (!capture || !tutor.sessionId) {
+          setNotice("当前不能使用语音提问，请改用文字输入。");
+          return;
+        }
+        void tutor.transcribeRecording(capture, audio);
+        return;
+      }
+      if (!tutor.sessionId) return;
       setAsrBusy(true);
       setNotice("正在识别你的话…");
       api
@@ -161,6 +185,22 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     },
     onError: (message) => setNotice(message),
   });
+
+  /** mainline answer mic（canonical answer_input 独立入口）：提取为
+   *  MainlineAnswerComposer 子组件——仅 canonical answer 拍挂载（legacy 无此
+   *  形态）；录音开始即锁定 mainline 通道（spec §4.8，与 Coach mic 分离，
+   *  不共用一个 mic 后猜意图）。 */
+
+  /** stale transcript（S1 交叉规则）：只填入录音开始时锁定的对应通道草稿并
+   *  提示用户确认——不自动提交、不移花接木到其他通道。 */
+  useEffect(() => {
+    const pending = tutor.speechPendingTranscript;
+    if (!pending) return;
+    if (pending.channel === "mainline") setAnswerDraft(pending.text);
+    else setQuestionDraft(pending.text);
+    setNotice("会话已更新，语音内容已按录音时的通道填入草稿，请确认后再发送。");
+    tutor.clearSpeechPendingTranscript();
+  }, [tutor.speechPendingTranscript, tutor.clearSpeechPendingTranscript]);
 
   const checkpoint = tutor.currentCheckpoint;
   const pres = tutor.presentation;
@@ -230,8 +270,9 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
         </p>
       ) : null}
       {notice ? <p className="tutor-learn-notice" role="status">{notice}</p> : null}
+      {tutor.speechNotice ? <p className="tutor-learn-notice" role="status" data-testid="tutor-speech-notice">{tutor.speechNotice}</p> : null}
       {pres.reviewing ? <p className="topic-coach-recording" role="status"><span />正在回看上一段讲解…</p> : null}
-      {asrBusy ? <p className="topic-coach-recording" role="status"><span />正在识别你的话…</p> : null}
+      {asrBusy || tutor.speechAsrBusy ? <p className="topic-coach-recording" role="status"><span />正在识别你的话…</p> : null}
     </>
   );
   const extraHeaderControls = (
@@ -271,8 +312,8 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
       message={questionDraft}
       onMessageChange={setQuestionDraft}
       onAsk={() => submitQuestion(questionDraft)}
-      inputDisabled={busy || asrBusy}
-      micDisabled={busy || asrBusy || tutor.coachControls.micSuppressed}
+      inputDisabled={busy || asrBusy || tutor.speechAsrBusy}
+      micDisabled={busy || asrBusy || tutor.speechAsrBusy || !tutor.coachControls.canHelp}
       recording={recorder.recording}
       onToggleRecorder={() => void recorder.toggle()}
       busy={busy}
@@ -393,26 +434,16 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
         );
       case "answer":
         return (
-          <form
-            className="tutor-participation"
-            data-testid="tutor-participation"
-            aria-label="回答老师"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const trimmed = answerDraft.trim();
-              if (!trimmed) return;
-              setAnswerDraft("");
-              controls.onSubmit(trimmed);
-            }}
-          >
-            <input
-              value={answerDraft}
-              placeholder="说说这一步你是怎么想的"
-              aria-label="回答输入"
-              onChange={(event) => setAnswerDraft(event.target.value)}
-            />
-            <button type="submit" data-testid="tutor-submit-answer" disabled={!answerDraft.trim() || busy}>回答</button>
-          </form>
+          <MainlineAnswerComposer
+            draft={answerDraft}
+            onDraftChange={setAnswerDraft}
+            onSubmit={controls.onSubmit}
+            busy={busy}
+            media={tutor.mediaSession}
+            lockChannel={() => tutor.lockRecordingChannel("mainline")}
+            transcribe={(capture, audio) => tutor.transcribeRecording(capture, audio)}
+            onNotice={setNotice}
+          />
         );
       case "inquiry":
         return (
@@ -577,4 +608,80 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
 
 function studentNameSafe(studentId: string): string {
   return studentId.trim() || "browser-student";
+}
+
+/**
+ * F7 Step 8：mainline answer composer（canonical answer_input 的独立入口）。
+ *
+ * - 文字与语音共用同一 mainline 通道（utterance(channel=mainline)）；
+ * - answer mic 是独立 affordance（spec §4.8：不与 Coach mic 共用一个 mic 后
+ *   猜意图）——录音真正开始时锁定 mainline 并捕获 {sessionId, revision}；
+ * - 与 Voice 播放共享外层 PresentationRuntime 的同一 MediaSessionController
+ *   （录音互斥 + 录音打断播放）；
+ * - 仅 canonical participation=answer 时挂载（legacy 链无此形态）。
+ */
+function MainlineAnswerComposer({ draft, onDraftChange, onSubmit, busy, media, lockChannel, transcribe, onNotice }: {
+  draft: string;
+  onDraftChange: (value: string) => void;
+  onSubmit: (text: string) => void;
+  busy: boolean;
+  media: MediaSessionController;
+  lockChannel: () => RecordingChannelCapture | undefined;
+  transcribe: (capture: RecordingChannelCapture, audio: { dataUrl: string; mimeType?: string; durationMs?: number }) => Promise<void>;
+  onNotice: (message: string) => void;
+}) {
+  const captureRef = useRef<RecordingChannelCapture | undefined>(undefined);
+  const recorder = useCoachRecorder({
+    owner: "answer",
+    disabled: busy,
+    media,
+    interruptPlaybackOnStart: true,
+    captureBusyMessage: "已有录音进行中，请先停止当前录音。",
+    onRecordingStart: () => { captureRef.current = lockChannel(); },
+    onAudio: (audio) => {
+      const capture = captureRef.current;
+      captureRef.current = undefined; // consume-once：下一次录音必须重新捕获
+      if (!capture) {
+        onNotice("当前不能用语音回答，请用文字输入。");
+        return;
+      }
+      void transcribe(capture, audio);
+    },
+    onError: onNotice,
+  });
+  return (
+    <form
+      className="tutor-participation"
+      data-testid="tutor-participation"
+      aria-label="回答老师"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const trimmed = draft.trim();
+        if (!trimmed) return;
+        onDraftChange("");
+        onSubmit(trimmed);
+      }}
+    >
+      <input
+        value={draft}
+        placeholder="说说这一步你是怎么想的"
+        aria-label="回答输入"
+        onChange={(event) => onDraftChange(event.target.value)}
+      />
+      <button
+        type="button"
+        className={`topic-coach-mic${recorder.recording ? " is-recording" : ""}`}
+        data-testid="tutor-answer-mic"
+        aria-label={recorder.recording ? "结束录音回答" : "语音回答"}
+        disabled={busy}
+        onClick={() => { void recorder.toggle(); }}
+      >
+        <span className="material-symbols-outlined">{recorder.recording ? "stop_circle" : "mic"}</span>
+      </button>
+      <button type="submit" data-testid="tutor-submit-answer" disabled={!draft.trim() || busy}>回答</button>
+      {recorder.recording ? (
+        <p className="topic-coach-recording" role="status" data-testid="tutor-answer-recording"><span />正在录音回答，点停止后发送（最长 45 秒）</p>
+      ) : null}
+    </form>
+  );
 }

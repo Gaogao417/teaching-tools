@@ -49,7 +49,30 @@ interface Execution {
   readonly snapshot: ValidatedSessionSnapshot;
   readonly adapter: PresentationToolAdapter;
   abort: AbortController;
+  /** 本次执行的 present/resume promise 链（含 handleAdapterResult）——
+   *  F7 Step 8：interruptCurrentSettled 等待它以确认 report 已注册。 */
+  chain?: Promise<void>;
 }
+
+/**
+ * F7 Step 8：单次 outcome 上报的结算记录（barge-in 因果顺序——interrupted
+ * outcome 先于 control.barge_in 提交）。result 语义：
+ * - settled：服务端状态已知（200 committed ack / 200 内 turn 冲突 / 4xx 拒绝）；
+ * - network-failed：网络/5xx（token 保留重试，服务端状态未知）；
+ * - stale：请求未发出（在途被挡）或迟到被 epoch 守卫丢弃。
+ */
+interface OutcomeDispatchRecord {
+  readonly key: string;
+  readonly outcome: PendingPresentationOutcomeRequest["outcome"];
+  promise: Promise<void>;
+  result: "settled" | "network-failed" | "stale";
+}
+
+/** interruptCurrentSettled 的结算结果（Step 8 barge-in ①②步）。 */
+export type InterruptSettleResult =
+  | { status: "no-active-delivery" }
+  | { status: "reported"; outcome: "presented" | "interrupted" | "failed" }
+  | { status: "failed" };
 
 type RuntimeState =
   | { kind: "idle" }
@@ -78,6 +101,8 @@ export class PresentationRuntimeController {
   /** 当前 token 曾被在途请求挡下、尚未发出过——旧请求结束后补发（二次复验
    *  P1-4）。网络失败保留的 token 不置此标记：不自动循环重试。 */
   private outcomeDispatchQueued = false;
+  /** 最近一次 outcome 上报的结算记录（F7 Step 8：可等待版打断）。 */
+  private lastDispatch: OutcomeDispatchRecord | undefined;
 
   constructor(
     private readonly registry: CapabilityRegistry,
@@ -161,8 +186,8 @@ export class PresentationRuntimeController {
     return delivery.action.kind === "voice" && delivery.action.voice_action?.interruptible !== false;
   }
 
-  /** InterruptCurrent：abort 当前 adapter → interrupted 上报（barge-in 第 1/2 步，
-   *  control.barge_in 自动提交属 Step 8）。 */
+  /** InterruptCurrent：abort 当前 adapter → interrupted 上报（barge-in 第 1/2 步；
+   *  control.barge_in 提交由 useTutorLearning.bargeIn 在结算后完成——Step 8）。 */
   interruptCurrent(): void {
     if (this.disposed) return;
     if (this.state.kind === "executing") {
@@ -176,6 +201,39 @@ export class PresentationRuntimeController {
     }
   }
 
+  /**
+   * F7 Step 8 barge-in 第 ①② 步（可等待版）：中断当前可中断执行并等待其
+   * outcome 上报**结算**（PLAN §3 Step 8：先上报 interrupted 并采用新
+   * snapshot，再提交显式 control.barge_in）。
+   *
+   * - "no-active-delivery"：无活跃可中断交付（idle/paused/outcome 在途/生成中
+   *   无活跃 delivery）——不伪造 interrupted outcome（本阶段生成取消语义未冻结）；
+   * - "reported"：outcome 已上报且服务端状态已知（含 aborted 竞态下自然播完的
+   *   presented——服务端游标同样已知推进，由调用方决定是否继续 ③）；
+   * - "failed"：上报网络失败/被丢弃（服务端状态未知）——调用方不得提交 ③。
+   */
+  async interruptCurrentSettled(): Promise<InterruptSettleResult> {
+    if (this.disposed || !this.canInterrupt()) return { status: "no-active-delivery" };
+    let key: string;
+    if (this.state.kind === "awaiting-gesture") {
+      key = this.state.execution.key;
+      this.interruptCurrent(); // 同步路径：discard + report（dispatchOutcome 已注册）
+    } else if (this.state.kind === "executing") {
+      const execution = this.state.execution;
+      key = execution.key;
+      execution.abort.abort();
+      await execution.chain; // adapter interrupted → handleAdapterResult → report
+    } else {
+      return { status: "no-active-delivery" };
+    }
+    const dispatch = this.lastDispatch;
+    if (dispatch === undefined || dispatch.key !== key) return { status: "failed" };
+    await dispatch.promise;
+    return dispatch.result === "settled"
+      ? { status: "reported", outcome: dispatch.outcome }
+      : { status: "failed" };
+  }
+
   /** autoplay 解锁（用户手势）后的续播。 */
   async resumeAfterGesture(): Promise<void> {
     if (this.disposed || this.state.kind !== "awaiting-gesture") return;
@@ -184,8 +242,16 @@ export class PresentationRuntimeController {
     execution.abort = new AbortController();
     this.state = { kind: "executing", execution };
     this.publish();
-    const result = await execution.adapter.resume(execution.abort.signal);
-    this.handleAdapterResult(execution, result);
+    execution.chain = execution.adapter.resume(execution.abort.signal)
+      .then((result) => this.handleAdapterResult(execution, result))
+      .catch((failure: unknown) => {
+        this.handleAdapterResult(execution, {
+          outcome: "failed",
+          failureClass: "internal_error",
+          message: `presentation adapter threw: ${failure instanceof Error ? failure.message : String(failure)}`,
+        });
+      });
+    await execution.chain;
   }
 
   /** F7 Step 7 返工（复验 P1-2）：真实完成信号源**后于** adapter 暂停接入的
@@ -198,7 +264,7 @@ export class PresentationRuntimeController {
     execution.abort = new AbortController();
     this.state = { kind: "executing", execution };
     this.publish();
-    void execution.adapter.present({ delivery: execution.delivery, snapshot: execution.snapshot, abort: execution.abort.signal })
+    execution.chain = execution.adapter.present({ delivery: execution.delivery, snapshot: execution.snapshot, abort: execution.abort.signal })
       .then((result) => this.handleAdapterResult(execution, result))
       .catch((failure: unknown) => {
         this.handleAdapterResult(execution, {
@@ -256,7 +322,7 @@ export class PresentationRuntimeController {
     };
     this.state = { kind: "executing", execution };
     this.publish();
-    void execution.adapter.present({ delivery: pending, snapshot, abort: execution.abort.signal })
+    execution.chain = execution.adapter.present({ delivery: pending, snapshot, abort: execution.abort.signal })
       .then((result) => this.handleAdapterResult(execution, result))
       .catch((failure: unknown) => {
         this.handleAdapterResult(execution, {
@@ -316,7 +382,21 @@ export class PresentationRuntimeController {
     void this.dispatchOutcome(request);
   }
 
-  private async dispatchOutcome(request: PendingPresentationOutcomeRequest): Promise<void> {
+  /** 启动一次 outcome 上报并登记结算记录（F7 Step 8：interruptCurrentSettled
+   *  按 key 匹配等待——因果顺序：interrupted outcome 先于 control.barge_in）。 */
+  private dispatchOutcome(request: PendingPresentationOutcomeRequest): Promise<void> {
+    const record: OutcomeDispatchRecord = {
+      key: keyOfRequest(request),
+      outcome: request.outcome,
+      promise: Promise.resolve(),
+      result: "stale", // 保守默认：未明确落定前不视为已结算
+    };
+    record.promise = this.runDispatchOutcome(request, record);
+    this.lastDispatch = record;
+    return record.promise;
+  }
+
+  private async runDispatchOutcome(request: PendingPresentationOutcomeRequest, record: OutcomeDispatchRecord): Promise<void> {
     if (this.disposed) return;
     if (this.outcomeInFlight) {
       // 另一请求在途：只有「不同身份的新 token」记待补发（同一请求重入不
@@ -326,7 +406,7 @@ export class PresentationRuntimeController {
         && this.state.request === request) {
         this.outcomeDispatchQueued = true;
       }
-      return;
+      return; // 本次未发出（结果未知）→ record.result 维持 "stale"
     }
     this.outcomeInFlight = true;
     this.inFlightRequest = request;
@@ -337,10 +417,11 @@ export class PresentationRuntimeController {
     const isLiveOutcome = (): boolean => this.state.kind === "outcome-pending" && this.state.request === request;
     try {
       const snapshot = await this.ports.reportOutcome(request);
-      if (this.disposed || epoch !== this.epoch) return; // 迟到响应：保持 token，由新代数重驱动
+      if (this.disposed || epoch !== this.epoch) return; // 迟到响应：保持 token，由新代数重驱动（"stale"）
       const turn = snapshot.turn;
       if (turn !== undefined && turn.status !== "committed") {
         // 应用层确定性失败（200 内 revision-conflict 等）：释放 token，不盲重试。
+        record.result = "settled"; // 服务端已明确拒绝：状态已知
         if (isLiveOutcome()) {
           this.ports.onNotice(`呈现回执未被接受（${turn.status}），服务端已推进；请重新同步。`);
           this.clearOutcomePending();
@@ -350,6 +431,7 @@ export class PresentationRuntimeController {
       }
       // 200 committed：服务端已接受该 outcome——acked 按服务端真源记录
       //（与本地采用门禁是否放行无关）；本地采用仍走同一 hook 门禁。
+      record.result = "settled";
       void this.ports.adoptOutcomeSnapshot(snapshot, request.sessionId);
       this.acked = { key: keyOfRequest(request), outcome: request.outcome };
       if (!isLiveOutcome()) return; // token 已被换键释放：不改写当前执行状态
@@ -366,8 +448,9 @@ export class PresentationRuntimeController {
       }
       return;
     } catch (failure) {
-      if (this.disposed || epoch !== this.epoch) return;
+      if (this.disposed || epoch !== this.epoch) return; // 迟到异常（"stale"）
       if (this.ports.isDefinitiveFailure(failure)) {
+        record.result = "settled"; // 4xx 确定性拒绝：服务端状态已知
         if (isLiveOutcome()) {
           this.ports.onNotice(`呈现回执被拒绝（${failure instanceof Error ? failure.message : String(failure)}）；已停止重试。`);
           this.clearOutcomePending();
@@ -376,6 +459,7 @@ export class PresentationRuntimeController {
         return;
       }
       // 网络/5xx：保留完整请求，同 key 同 payload 待重发（restore 重同步后）。
+      record.result = "network-failed"; // 服务端状态未知
       if (isLiveOutcome()) {
         this.ports.onNotice("呈现回执网络失败；重新同步后将用同一幂等键重试。");
         this.publish();

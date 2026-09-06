@@ -125,3 +125,146 @@ describe("useCoachRecorder capture lease (ADR-005 §Exclusive media session)", (
     media.dispose();
   });
 });
+
+/** F7 Step 8：录音开始回调 / MIME 载荷 / 播放互斥 / 双 mic capture busy 文案。 */
+describe("useCoachRecorder Step 8 media wiring", () => {
+  const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+  let originalMediaRecorder: typeof globalThis.MediaRecorder | undefined;
+
+  interface Recording {
+    onRecordingStart: (() => void) | undefined;
+    onAudio: (audio: { dataUrl: string; durationMs?: number; mimeType?: string }) => void;
+    onError: (message: string) => void;
+  }
+
+  function installWorkingRecorder(recording: Recording): void {
+    const tracks = [{ stop: vi.fn() }];
+    const stream = { getTracks: () => tracks } as unknown as MediaStream;
+    stubGetUserMedia(() => Promise.resolve(stream));
+    globalThis.MediaRecorder = class {
+      state = "inactive";
+      mimeType = "audio/webm;codecs=opus";
+      ondataavailable: ((event: { data: { size: number } & Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() { this.state = "recording"; }
+      stop() {
+        this.state = "inactive";
+        queueMicrotask(() => {
+          this.ondataavailable?.({ data: { size: 4 } as unknown as Blob });
+          this.onstop?.();
+        });
+      }
+      static isTypeSupported() { return true; }
+    } as unknown as typeof MediaRecorder;
+    void recording;
+  }
+
+  beforeEach(() => {
+    originalMediaRecorder = globalThis.MediaRecorder;
+    globalThis.MediaRecorder = class DummyMediaRecorder { static isTypeSupported() { return false; } } as unknown as typeof MediaRecorder;
+  });
+
+  afterEach(() => {
+    if (originalMediaDevices) Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
+    else delete (navigator as { mediaDevices?: unknown }).mediaDevices;
+    if (originalMediaRecorder === undefined) delete (globalThis as { MediaRecorder?: typeof MediaRecorder }).MediaRecorder;
+    else globalThis.MediaRecorder = originalMediaRecorder;
+  });
+
+  function stubGetUserMedia(fn: () => Promise<MediaStream>): void {
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn(fn) } });
+  }
+
+  async function renderOptionsHarness(options: {
+    disabled: boolean;
+    media: MediaSessionController;
+    interruptPlaybackOnStart?: boolean;
+    captureBusyMessage?: string;
+    onRecordingStart?: () => void;
+    onAudio: (audio: { dataUrl: string; durationMs?: number; mimeType?: string }) => void;
+    onError: (message: string) => void;
+  }): Promise<{ click: () => Promise<void>; unmount: () => Promise<void> }> {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    function Harness() {
+      const { recording, toggle } = useCoachRecorder(options);
+      return <button type="button" data-testid="toggle" data-recording={recording} onClick={() => { void toggle(); }} />;
+    }
+    await act(async () => root.render(<Harness />));
+    return {
+      click: async () => { await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="toggle"]')!.click(); }); },
+      unmount: async () => { await act(async () => root.unmount()); document.body.removeChild(container); },
+    };
+  }
+
+  it("录音真正开始时触发 onRecordingStart（权限拒绝不触发）；onAudio 携带 mimeType", async () => {
+    const media = new MediaSessionController();
+    const started = vi.fn();
+    const onAudio = vi.fn();
+    installWorkingRecorder({ onRecordingStart: started, onAudio, onError: vi.fn() });
+    const harness = await renderOptionsHarness({ disabled: false, media, onRecordingStart: started, onAudio, onError: vi.fn() });
+    await harness.click();
+    expect(started).toHaveBeenCalledTimes(1);
+    // 停止 → onstop（微任务）→ onAudio 携带 recorder 封装 MIME。
+    await harness.click();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(onAudio).toHaveBeenCalledTimes(1);
+    expect(onAudio.mock.calls[0][0]).toMatchObject({ mimeType: "audio/webm;codecs=opus" });
+    expect(typeof onAudio.mock.calls[0][0].dataUrl).toBe("string");
+    await harness.unmount();
+    media.dispose();
+  });
+
+  it("权限拒绝：onRecordingStart 不触发、无 onAudio（不进入提交链）", async () => {
+    const media = new MediaSessionController();
+    const started = vi.fn();
+    const onAudio = vi.fn();
+    const onError = vi.fn();
+    stubGetUserMedia(() => Promise.reject(new Error("NotAllowedError")));
+    const harness = await renderOptionsHarness({ disabled: false, media, onRecordingStart: started, onAudio, onError });
+    await harness.click();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(started).not.toHaveBeenCalled();
+    expect(onAudio).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith("没有获得麦克风权限，请允许录音或改用文字提问。");
+    await harness.unmount();
+    media.dispose();
+  });
+
+  it("interruptPlaybackOnStart：录音开始即停止当前 narration 播放（共享媒体 session 的互斥）；未开启时不停止", async () => {
+    const stopSpyMedia = new MediaSessionController();
+    const stopSpy = vi.spyOn(stopSpyMedia, "stop");
+    installWorkingRecorder({ onRecordingStart: undefined, onAudio: vi.fn(), onError: vi.fn() });
+    const harness = await renderOptionsHarness({ disabled: false, media: stopSpyMedia, interruptPlaybackOnStart: true, onAudio: vi.fn(), onError: vi.fn() });
+    await harness.click();
+    expect(stopSpy).toHaveBeenCalledWith("narration");
+    await harness.unmount();
+    stopSpyMedia.dispose();
+
+    const quietMedia = new MediaSessionController();
+    const quietSpy = vi.spyOn(quietMedia, "stop");
+    const quietHarness = await renderOptionsHarness({ disabled: false, media: quietMedia, onAudio: vi.fn(), onError: vi.fn() });
+    await quietHarness.click();
+    // 互斥只由显式 opt-in（canonical）；默认（legacy）不停止播放。
+    expect(quietSpy).not.toHaveBeenCalledWith("narration");
+    await quietHarness.unmount();
+    quietMedia.dispose();
+  });
+
+  it("双 mic 互斥：另一 recorder 持有 capture 时使用 captureBusyMessage 文案", async () => {
+    const media = new MediaSessionController();
+    const coachLease = media.acquireCapture("coach-turn");
+    expect(coachLease).not.toBeNull();
+    const getUserMedia = vi.fn(() => Promise.resolve(new MediaStream()));
+    stubGetUserMedia(getUserMedia);
+    const onError = vi.fn();
+    const harness = await renderOptionsHarness({ disabled: false, media, captureBusyMessage: "已有录音进行中，请先停止当前录音。", onAudio: vi.fn(), onError });
+    await harness.click();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith("已有录音进行中，请先停止当前录音。");
+    expect(media.getCaptureOwner()).toBe("coach-turn"); // 未抢走/未误释放
+    await harness.unmount();
+    media.dispose();
+  });
+});
