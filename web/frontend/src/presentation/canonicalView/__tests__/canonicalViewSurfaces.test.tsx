@@ -4,7 +4,7 @@
  * 加载，与 harness 页同机制）+ 由正例派生的 schema-valid 变体（覆盖 7 个
  * participation kind、只读 review、inquiry return point 等 contract 分支）。
  */
-import { act } from "react";
+import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -49,11 +49,13 @@ vi.mock("../../../geometry/react/jsxgraph-board", () => ({
 function commitSignalHarness() {
   const unregister = vi.fn();
   const notifyRealCommitted = vi.fn();
+  const notifyRealSourceActive = vi.fn();
   const registerRealCommitSource = vi.fn(() => unregister);
   return {
-    signal: { registerRealCommitSource, notifyRealCommitted },
+    signal: { registerRealCommitSource, notifyRealCommitted, notifyRealSourceActive },
     registerRealCommitSource,
     notifyRealCommitted,
+    notifyRealSourceActive,
     unregister,
   };
 }
@@ -134,6 +136,48 @@ afterEach(() => {
   container?.remove();
   container = null;
   root = null;
+});
+
+describe("parseRenderGeometryV1 返工负例（P1-4：统一组装/已知字段非法/引用完整/重复 id）", () => {
+  const base = () => ({
+    viewBox: { width: 100, height: 100 },
+    points: [{ id: "A", x: 0, y: 0 }, { id: "B", x: 10, y: 10 }],
+    segments: [{ id: "seg-AB", from: "A", to: "B" }],
+  });
+
+  it("derivedLines 与 teachingMarks 同时存在：两段都解析并保留（不互相遮蔽）", () => {
+    const parsed = parseRenderGeometryV1({
+      ...base(),
+      derivedLines: [{ id: "dl-1", kind: "parallel-line", through: "A", parallelTo: "seg-AB", derived: true }],
+      teachingMarks: [{ id: "m-1", kind: "segment-label", segmentId: "seg-AB", valueLatex: "5", labelKind: "length" }],
+    } as unknown as Record<string, unknown>);
+    expect(parsed?.derivedLines?.length).toBe(1);
+    expect(parsed?.teachingMarks?.length).toBe(1);
+  });
+
+  it("derivedLines: [] 不遮蔽 teachingMarks（空段照常组装）", () => {
+    const parsed = parseRenderGeometryV1({
+      ...base(),
+      derivedLines: [],
+      teachingMarks: [{ id: "m-1", kind: "emphasis", entityIds: ["A", "seg-AB"] }],
+    } as unknown as Record<string, unknown>);
+    expect(parsed).toBeDefined();
+    expect(parsed?.teachingMarks?.length).toBe(1);
+  });
+
+  it("已知字段非法即拒绝：kind 伪造/labelKind 越界/tickCount 非数/derived 非布尔", () => {
+    expect(parseRenderGeometryV1({ ...base(), derivedLines: [{ id: "dl", through: "A", parallelTo: "seg-AB" }] } as unknown as Record<string, unknown>)).toBeUndefined();
+    expect(parseRenderGeometryV1({ ...base(), teachingMarks: [{ id: "m", kind: "segment-label", segmentId: "seg-AB", valueLatex: "5", labelKind: "wrong" }] } as unknown as Record<string, unknown>)).toBeUndefined();
+    expect(parseRenderGeometryV1({ ...base(), teachingMarks: [{ id: "m", kind: "correspondence", segmentIds: ["seg-AB", "seg-AB"], tickCount: "2" }] } as unknown as Record<string, unknown>)).toBeUndefined();
+    expect(parseRenderGeometryV1({ ...base(), points: [{ id: "A", x: 0, y: 0, derived: "yes" }] } as unknown as Record<string, unknown>)).toBeUndefined();
+  });
+
+  it("重复实体 id / 悬空引用（through/segmentId/entityIds）拒绝", () => {
+    expect(parseRenderGeometryV1({ ...base(), segments: [{ id: "seg-AB", from: "A", to: "B" }, { id: "seg-AB", from: "A", to: "B" }] } as unknown as Record<string, unknown>)).toBeUndefined();
+    expect(parseRenderGeometryV1({ ...base(), derivedLines: [{ id: "dl", kind: "parallel-line", through: "MISSING", parallelTo: "seg-AB", derived: true }] } as unknown as Record<string, unknown>)).toBeUndefined();
+    expect(parseRenderGeometryV1({ ...base(), teachingMarks: [{ id: "m", kind: "segment-label", segmentId: "seg-MISSING", valueLatex: "5", labelKind: "length" }] } as unknown as Record<string, unknown>)).toBeUndefined();
+    expect(parseRenderGeometryV1({ ...base(), teachingMarks: [{ id: "m", kind: "emphasis", entityIds: ["MISSING"] }] } as unknown as Record<string, unknown>)).toBeUndefined();
+  });
 });
 
 describe("canonical StudentWorkspaceView renderer（view/v1 + F7 Step 7 production Canvas）", () => {
@@ -222,6 +266,161 @@ describe("SolutionBoardViewSurface（共享 canonical Board 渲染面）", () =>
   });
 });
 
+describe("Workspace 真实 commit 信号——非对称结算/动画失败/StrictMode/快速连改（复验 P1-1/3、P2-5/6）", () => {
+  /** 可控 WAAPI 动画：手动 resolve/reject/cancel。 */
+  function controllableAnimate() {
+    const handles: { finished: Promise<unknown>; cancel: ReturnType<typeof vi.fn>; resolve: () => void; reject: (reason?: unknown) => void }[] = [];
+    const animate = vi.fn((_keyframes: Keyframe[], _options: unknown) => {
+      let resolve!: () => void;
+      let reject!: (reason?: unknown) => void;
+      const finished = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+      const cancel = vi.fn(() => { reject(new DOMException("aborted", "AbortError")); });
+      handles.push({ finished, cancel, resolve, reject });
+      return { finished, cancel };
+    });
+    return { animate, handles };
+  }
+
+  beforeEach(() => {
+    boardHarness.reset();
+  });
+
+  it("AND 门：canvas 渲染信号已到而 board 动画未完——不通知；动画完成才通知（非对称不误报）", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    try {
+      const { animate, handles } = controllableAnimate();
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const view = parsedWorkspaceVariant();
+      const harness = commitSignalHarness();
+      render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
+      // 初始挂载：既有条目不动画（restore 语义）；canvas 信号 1 帧、board 双帧。
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
+      // revision 7 + 新条目：动画挂起；canvas 信号照常到达 → 不得通知。
+      const nextView = parsedWorkspaceVariant((base) => ({
+        ...base,
+        revision: 7,
+        solution_board: { mode: "building", groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [{ entry_id: "BE-03", kind: "conclusion", content: "c", state: "visible" }] }] },
+      }));
+      act(() => root!.render(<StudentWorkspaceViewSurface view={nextView} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(animate).toHaveBeenCalledTimes(1);
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1); // board 未稳定 → 仍只有 revision 6
+      // 动画成功完成 → 以最新 revision 结算。
+      await act(async () => { handles[0].resolve(); });
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 7 });
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      vi.useRealTimers();
+    }
+  });
+
+  it("board 双帧 paint 结算前不通知（canvas 单帧先到也不放行）", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    try {
+      const view = parsedWorkspaceVariant();
+      const harness = commitSignalHarness();
+      render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
+      act(() => { vi.advanceTimersByTime(17); }); // 恰一帧：canvas 到、board 内帧未触发
+      expect(harness.notifyRealCommitted).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(17); });
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("动画取消/失败不结算（不误报 presented）；卸载取消句柄且迟到结果被忽略", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    try {
+      const { animate, handles } = controllableAnimate();
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const view = parsedWorkspaceVariant();
+      const harness = commitSignalHarness();
+      render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+      const nextView = parsedWorkspaceVariant((base) => ({
+        ...base,
+        revision: 7,
+        solution_board: { mode: "building", groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [{ entry_id: "BE-03", kind: "conclusion", content: "c", state: "visible" }] }] },
+      }));
+      act(() => root!.render(<StudentWorkspaceViewSurface view={nextView} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      act(() => { vi.advanceTimersByTime(100); });
+      // 动画被取消（finished reject）→ revision 7 永不结算（fail closed）。
+      await act(async () => { handles[0].reject(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
+      // 再来一个 revision 8：失败后本挂载实例不再结算（sticky fail closed）。
+      const thirdView = parsedWorkspaceVariant((base) => ({ ...base, revision: 8 }));
+      act(() => root!.render(<StudentWorkspaceViewSurface view={thirdView} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+      // 卸载：在跑句柄被取消。
+      const pending = handles.length;
+      expect(pending).toBeGreaterThanOrEqual(1);
+      act(() => root!.unmount());
+      expect(harness.unregister).toHaveBeenCalled();
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      vi.useRealTimers();
+    }
+  });
+
+  it("StrictMode 重挂载：注册/注销配对，结算仍每键一次", () => {
+    const view = parsedWorkspaceVariant();
+    const harness = commitSignalHarness();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const strictRoot = createRoot(container);
+    act(() => strictRoot.render(<StrictMode><StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} /></StrictMode>));
+    expect(harness.registerRealCommitSource.mock.calls.length).toBeGreaterThanOrEqual(1);
+    act(() => strictRoot.unmount());
+    expect(harness.unregister.mock.calls.length).toBe(harness.registerRealCommitSource.mock.calls.length);
+    container.remove();
+  });
+
+  it("快速连续更新：动画在跑时 revision 被替换——完成后只以最新 revision 结算，不回补中间 revision", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"] });
+    try {
+      const { animate, handles } = controllableAnimate();
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const view = parsedWorkspaceVariant();
+      const harness = commitSignalHarness();
+      render(<StudentWorkspaceViewSurface view={view} geometry={fixtureGeometry()} commitSignal={harness.signal} />);
+      act(() => { vi.advanceTimersByTime(34); });
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 6 });
+      const view7 = parsedWorkspaceVariant((base) => ({
+        ...base,
+        revision: 7,
+        solution_board: { mode: "building", groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [{ entry_id: "BE-03", kind: "conclusion", content: "c", state: "visible" }] }] },
+      }));
+      act(() => root!.render(<StudentWorkspaceViewSurface view={view7} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      act(() => { vi.advanceTimersByTime(50); });
+      expect(animate).toHaveBeenCalledTimes(1); // BE-03 动画在跑
+      const view8 = parsedWorkspaceVariant((base) => ({
+        ...base,
+        revision: 8,
+        solution_board: { mode: "building", groups: [...base.solution_board.groups, { group_id: "PG-02", title: "续", entries: [{ entry_id: "BE-03", kind: "conclusion", content: "c", state: "visible" }] }] },
+      }));
+      act(() => root!.render(<StudentWorkspaceViewSurface view={view8} geometry={fixtureGeometry()} commitSignal={harness.signal} />));
+      act(() => { vi.advanceTimersByTime(50); });
+      // revision 8 无新增条目，但 BE-03 动画仍在跑 → 不结算 8。
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(1);
+      await act(async () => { handles[0].resolve(); });
+      // 完成后以最新 revision 8 结算一次（revision 7 被替换，不回补）。
+      expect(harness.notifyRealCommitted).toHaveBeenCalledTimes(2);
+      expect(harness.notifyRealCommitted).toHaveBeenLastCalledWith({ sessionId: "TS-4242", revision: 8 });
+    } finally {
+      delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("parseRenderGeometryV1（render.geometry → production Canvas 输入，零 cast）", () => {
   it("null → undefined；合法 record → TopicGeometryModel；结构非法 → undefined", () => {
     expect(parseRenderGeometryV1(null)).toBeUndefined();
@@ -231,7 +430,8 @@ describe("parseRenderGeometryV1（render.geometry → production Canvas 输入�
     expect(valid!.segments.length).toBe(2);
     expect(parseRenderGeometryV1({ points: [], segments: [] })).toBeUndefined();
     expect(parseRenderGeometryV1({ viewBox: { width: 100, height: 100 }, points: [{ id: "A", x: 1, y: "bad" }], segments: [] })).toBeUndefined();
-    expect(parseRenderGeometryV1({ viewBox: { width: 100, height: 100 }, points: [{ id: "A", x: 1, y: 2 }], segments: [{ id: "s", from: "A", to: "MISSING" }] })).toBeDefined();
+    // 引用完整性：段端点悬空 → 拒绝（返工 P1-4：已知字段非法不静默修正）。
+    expect(parseRenderGeometryV1({ viewBox: { width: 100, height: 100 }, points: [{ id: "A", x: 1, y: 2 }], segments: [{ id: "s", from: "A", to: "MISSING" }] })).toBeUndefined();
   });
 });
 

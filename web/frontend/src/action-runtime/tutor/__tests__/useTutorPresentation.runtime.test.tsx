@@ -175,6 +175,37 @@ function mountWorkspaceHarness(client: TutorRuntimeClient): {
   };
 }
 
+/** 复验 P1-2 场景 harness：surface 挂载可切换（同一 hook 实例跨重渲染保留）。 */
+function mountToggleHarness(client: TutorRuntimeClient): {
+  tutor: () => Tutor;
+  setSurface: (withSurface: boolean) => void;
+  unmount: () => void;
+} {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  let latest: Tutor | undefined;
+  let withSurface = false;
+  function Harness() {
+    const tutor = useTutorLearning({ taskId: RUNTIME_TASK_ID as TaskId, studentId: "runtime-test-student", runtimeClient: client });
+    latest = tutor;
+    const surface = tutor.workspaceSurface;
+    if (withSurface && surface.source === "canonical" && surface.view) {
+      return <StudentWorkspaceViewSurface view={surface.view} geometry={surface.geometry} commitSignal={surface.commitSignal} />;
+    }
+    return <div data-testid="no-workspace-surface" />;
+  }
+  void act(() => root.render(<Harness />));
+  return {
+    tutor: () => latest!,
+    setSurface: (next: boolean) => {
+      withSurface = next;
+      void act(() => root.render(<Harness />));
+    },
+    unmount: () => { void act(() => root.unmount()); container.remove(); },
+  };
+}
+
 /** 事件发射 + 微任务排空：独立 act（act 环境下微任务链里的 setState 只在
  *  act 回调自身的 await 边界冲刷——与轮询同 act 会互相等待）。 */
 async function emitAndDrain(emit: () => void): Promise<void> {
@@ -338,6 +369,44 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
         clientRequestId: "pres-outcome:TS-99000801:PS-0003:0:WSA-bt03-construct-0:presented",
         expectedRevision: 20,
       },
+    );
+    expect(harness.tutor().runtimeSnapshot?.revision).toBe(21);
+  });
+
+  it("复验 P1-2：先暂停（呈现面未挂载）→ surface 后挂载 → 同一 pending 自动恢复并 presented（不换键不重投）", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({
+      participationKind: "confirm_input",
+      pendingPresentation: pendingGeometryPresentation(20, 7),
+      canvasElements: [{ element_id: "seg-CO", kind: "segment" }],
+      revision: 20,
+      workspaceRevision: 7,
+      overrides: { render: { workspace_revision: 7, geometry: runtimeGeometry() } },
+    }));
+    mocks.reportPresentationOutcome.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 21 }));
+    harness = mountToggleHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "paused");
+    });
+    // paused(real-signal-unavailable)：注册计数不唤醒——保持零上报。
+    expect(harness.tutor().runtimePresentationPhase).toMatchObject({ phase: "paused", reason: "real-signal-unavailable" });
+    expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
+    // surface 后挂载：注册 + notifyRealSourceActive → 同一 delivery 重执行 →
+    // 双结算 → presented（同一快照对象，无新 adopt、无重复执行）。
+    (harness as ReturnType<typeof mountToggleHarness>).setSurface(true);
+    // 结算计时器（renderer 信号/board paint）在 act 内排空后再断言终态。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "idle");
+    });
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledWith(
+      RUNTIME_SESSION_ID,
+      "WSA-bt03-construct-0",
+      expect.objectContaining({ outcome: "presented", expectedRevision: 20 }),
     );
     expect(harness.tutor().runtimeSnapshot?.revision).toBe(21);
   });

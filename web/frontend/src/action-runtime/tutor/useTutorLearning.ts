@@ -612,13 +612,16 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   }, [narration, media]);
 
   /** F7 Step 7：真实 commit 信号注入面（production Canvas + Board reveal 双
-   *  结算经 workspaceSurface VM 下发；port 方法为闭包实现，无 this 绑定）。 */
+   *  结算经 workspaceSurface VM 下发；port 方法为闭包实现，无 this 绑定；
+   *  onRealSourceActive → controller.retryAwaitingRealSignal——「先暂停、
+   *  surface 后挂载」的恢复路径，复验 P1-2）。 */
   const workspaceCommitSignal = useMemo<WorkspaceCommitSignal | undefined>(() => {
     if (!presentationRuntime) return undefined;
     const port = presentationRuntime.commitPort;
     return {
       registerRealCommitSource: port.registerRealCommitSource,
       notifyRealCommitted: port.notifyRealCommitted,
+      notifyRealSourceActive: () => presentationRuntime.controller.retryAwaitingRealSignal(),
     };
   }, [presentationRuntime]);
 

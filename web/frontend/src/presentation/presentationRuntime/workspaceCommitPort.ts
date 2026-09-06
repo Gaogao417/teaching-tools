@@ -18,12 +18,17 @@ export interface WorkspaceCommitNote {
 
 /**
  * F7 Step 7：生产呈现面（StudentWorkspaceViewSurface）接入 commitPort 的
- * 注入面——useTutorLearning 经 view-model 下发；真实信号源 = production
- * Canvas post-paint ∧ Board reveal 稳定的同 revision 双结算。
+ * 注入面——useTutorLearning 经 view-model 下发。真实信号源 = production
+ * Canvas 渲染通道完成 ∧ Board reveal 稳定的同 revision 双结算。
+ *
+ * `notifyRealSourceActive`（返工 P1-2）：呈现面注册信号源后调用——PresentationRuntime
+ * 对处于 awaiting-real-signal 的执行发起重试（「先暂停、surface 后挂载」的
+ * 恢复路径；注册计数本身不唤醒等待者）。
  */
 export interface WorkspaceCommitSignal {
   registerRealCommitSource(): () => void;
   notifyRealCommitted(note: WorkspaceCommitNote): void;
+  notifyRealSourceActive(): void;
 }
 
 export interface CommitWaitOptions {

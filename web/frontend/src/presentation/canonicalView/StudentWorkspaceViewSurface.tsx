@@ -13,11 +13,14 @@
  *   列表已删除，不得再以摘要冒充画布（2026-09-06 用户裁定彻底删除）。
  * - Board：共享 canonical `SolutionBoardViewSurface`（操作拍
  *   ActionRuntimeFrame boardSurface 槽同一渲染面，禁第二份 Board）。
- * - 真实完成信号（F7 Step 7 解除 Step 6 生产暂停）：mount 注册
- *   registerRealCommitSource；canvas post-paint 与 board reveal 稳定在
- *   **同一 workspace revision** 双结算后 notifyRealCommitted（每 revision
- *   至多一次）——单一 commitPort 通知代表「本 revision 的 workspace 已在
- *   浏览器可见」，Geometry/Board adapter 共用（见
+ * - 真实完成信号（F7 Step 7 解除 Step 6 生产暂停；返工 P1-1/P1-2/P2-5）：
+ *   mount 注册 registerRealCommitSource 后 notifyRealSourceActive（唤醒可能
+ *   已 paused 的 awaiting-real-signal 执行）；canvas 通道 = **renderer 发出的
+ *   渲染通道完成信号**（GeometryCanvasSurface.onRenderCommit——非父组件双
+ *   rAF 猜时序；无图示任务的占位面以 post-paint 结算；session 切换经 key
+ *   remount 保证新会话获得信号）；board 通道 = reveal 稳定回调。两通道在
+ *   **同一 sessionId+workspace revision** 双结算后 notifyRealCommitted（每
+ *   键至多一次）——Geometry/Board adapter 共用（见
  *   presentationRuntime/workspaceCommitPort）。
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -50,10 +53,13 @@ function visualStateFor(element: { highlighted?: boolean; annotated?: boolean } 
 export function StudentWorkspaceViewSurface({ view, geometry, commitSignal }: StudentWorkspaceViewSurfaceProps) {
   const { elements, interaction_enabled: interactionEnabled } = view.canvas;
 
-  // ---- 真实 commit 信号：注册 + 同 revision 双结算 ----
+  // ---- 真实 commit 信号：注册（+唤醒可能已暂停的执行）+ 同键双结算 ----
   useEffect(() => {
     if (!commitSignal) return;
-    return commitSignal.registerRealCommitSource();
+    const unregister = commitSignal.registerRealCommitSource();
+    // 先注册（计数 ≥1）再唤醒：重试的 adapter 立即可观察到真实信号源。
+    commitSignal.notifyRealSourceActive();
+    return unregister;
   }, [commitSignal]);
 
   const settleRecordRef = useRef<{ canvas?: string; board?: string; notified?: string }>({});
@@ -89,31 +95,6 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal }: St
   }, []);
   const boardOnSettled = commitSignal ? boardSettledStable : undefined;
 
-  // canvas 结算：本 revision 的 React commit（含 JSXGraph 同步 render）paint 后。
-  useEffect(() => {
-    if (!commitSignal) return;
-    let active = true;
-    let inner = 0;
-    const settleNow = (): void => {
-      if (active) canvasSettledRef.current(view.revision);
-    };
-    if (typeof requestAnimationFrame === "function") {
-      const outer = requestAnimationFrame(() => {
-        inner = requestAnimationFrame(settleNow);
-      });
-      return () => {
-        active = false;
-        cancelAnimationFrame(outer);
-        if (inner) cancelAnimationFrame(inner);
-      };
-    }
-    const timer = window.setTimeout(settleNow, 0);
-    return () => {
-      active = false;
-      window.clearTimeout(timer);
-    };
-  }, [commitSignal, view.session_id, view.revision]);
-
   // ---- production Canvas 投影（零本地教学状态；visualState 全部来自 View）----
   const model = useMemo(() => (geometry ? buildGeometryModel(geometry) : undefined), [geometry]);
   const interactionView = useMemo<InteractionView>(() => {
@@ -147,7 +128,35 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal }: St
     };
   }, [geometry, elements]);
 
-  return (
+  // canvas 结算（无图示任务的占位面）：占位即本 revision 的既定视觉——
+  // post-paint 结算。有图示时 canvas 通道由 renderer 的 onRenderCommit 驱动
+  //（见下 JSX），不经本 effect。
+  const hasCanvasModel = model !== undefined;
+  useEffect(() => {
+    if (!commitSignal || hasCanvasModel) return;
+    let active = true;
+    let inner = 0;
+    const settleNow = (): void => {
+      if (active) canvasSettledRef.current(view.revision);
+    };
+    if (typeof requestAnimationFrame === "function") {
+      const outer = requestAnimationFrame(() => {
+        inner = requestAnimationFrame(settleNow);
+      });
+      return () => {
+        active = false;
+        cancelAnimationFrame(outer);
+        if (inner) cancelAnimationFrame(inner);
+      };
+    }
+    const timer = window.setTimeout(settleNow, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [commitSignal, hasCanvasModel, view.session_id, view.revision]);
+
+    return (
     <StudentWorkspaceFrame
       frameTestId="canonical-student-workspace"
       viewRevision={view.revision}
@@ -159,7 +168,14 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal }: St
           data-interaction-enabled={interactionEnabled}
         >
           {model ? (
-            <GeometryCanvasSurface model={model} view={interactionView} onClickEntity={() => undefined} modelVersion={view.revision} />
+            <GeometryCanvasSurface
+              key={view.session_id}
+              model={model}
+              view={interactionView}
+              onClickEntity={() => undefined}
+              modelVersion={view.revision}
+              onRenderCommit={() => canvasSettledRef.current(view.revision)}
+            />
           ) : (
             <p className="student-workspace-empty-note">本题没有图示，跟随老师板书推理。</p>
           )}

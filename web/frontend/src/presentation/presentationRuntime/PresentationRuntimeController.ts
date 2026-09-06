@@ -47,6 +47,7 @@ interface Execution {
   readonly id: number;
   readonly key: string;
   readonly delivery: PendingPresentationDelivery;
+  readonly snapshot: ValidatedSessionSnapshot;
   readonly adapter: PresentationToolAdapter;
   abort: AbortController;
 }
@@ -188,6 +189,27 @@ export class PresentationRuntimeController {
     this.handleAdapterResult(execution, result);
   }
 
+  /** F7 Step 7 返工（复验 P1-2）：真实完成信号源**后于** adapter 暂停接入的
+   *  恢复路径——presentation surface 挂载注册信号源时通知本 runtime；处于
+   *  awaiting-real-signal 的执行以原 delivery+snapshot 重新执行（workspace
+   *  adapter 无副作用，重入安全）。非该状态时为 no-op。 */
+  retryAwaitingRealSignal(): void {
+    if (this.disposed || this.state.kind !== "awaiting-real-signal") return;
+    const execution = this.state.execution;
+    execution.abort = new AbortController();
+    this.state = { kind: "executing", execution };
+    this.publish();
+    void execution.adapter.present({ delivery: execution.delivery, snapshot: execution.snapshot, abort: execution.abort.signal })
+      .then((result) => this.handleAdapterResult(execution, result))
+      .catch((failure: unknown) => {
+        this.handleAdapterResult(execution, {
+          outcome: "failed",
+          failureClass: "internal_error",
+          message: `presentation adapter threw: ${failure instanceof Error ? failure.message : String(failure)}`,
+        });
+      });
+  }
+
   /** 纯回放（零上报）：actionId + 缓存 + 播放互斥由 voice adapter 核对。 */
   replayVoice(actionId: string): boolean {
     if (this.disposed) return false;
@@ -229,6 +251,7 @@ export class PresentationRuntimeController {
       id: ++this.execSerial,
       key: presentationKeyOf(pending),
       delivery: pending,
+      snapshot,
       adapter,
       abort: new AbortController(),
     };

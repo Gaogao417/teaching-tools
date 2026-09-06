@@ -32,10 +32,18 @@ export interface GeometryCanvasSurfaceProps {
   view: InteractionView;
   onClickEntity: (hit: EntityRef) => void;
   modelVersion: number;
+  /**
+   * F7 Step 7 返工（复验 P1-1）：由 renderer 自身报告「本渲染通道已应用且
+   * 已 paint」的完成信号——在挂载/重绘 effect 实际执行之后经一帧 rAF 发出
+   * （不是父组件凭双 rAF 猜时序）。父组件（canonical workspace surface）
+   * 以此驱动 workspace commit 结算；同一时刻只有一个在途信号，新的渲染
+   * 通道会取消未发出的旧信号（迟到结果被丢弃）。
+   */
+  onRenderCommit?: () => void;
 }
 
 /** Renderer-only entry used by the page Action Runtime. */
-export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion }: GeometryCanvasSurfaceProps) {
+export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion, onRenderCommit }: GeometryCanvasSurfaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const handlesRef = useRef<BoardHandles | null>(null);
   // Runtime acknowledgment removes emphasis on the next animation frame. Keep
@@ -66,6 +74,26 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   onClickEntityRef.current = onClickEntity;
   void 0;
 
+  // F7 Step 7 返工（复验 P1-1）：render-commit 信号只认「实际执行的渲染
+  // 通道」——挂载/重绘 effect 内调度、组件卸载取消；新通道重置未发出的旧
+  // 信号（迟到丢弃）。rAF 一帧 = 该通道 DOM 更新后的 paint 代理。
+  const onRenderCommitRef = useRef(onRenderCommit);
+  onRenderCommitRef.current = onRenderCommit;
+  const renderCommitTimerRef = useRef<number | undefined>(undefined);
+  const scheduleRenderCommit = (): void => {
+    if (renderCommitTimerRef.current !== undefined) {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(renderCommitTimerRef.current);
+      else window.clearTimeout(renderCommitTimerRef.current);
+    }
+    const fire = (): void => {
+      renderCommitTimerRef.current = undefined;
+      onRenderCommitRef.current?.();
+    };
+    renderCommitTimerRef.current = typeof requestAnimationFrame === "function"
+      ? (requestAnimationFrame(fire) as unknown as number)
+      : window.setTimeout(fire, 0);
+  };
+
   // Mount for the current immutable model; Action Runtime replaces the model
   // after a DomainCommand, so remounting here guarantees production Canvas
   // consumes the new draft objects rather than a stale constructor closure.
@@ -93,11 +121,20 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
       onPointerMove: (pos) => setPointer(pos),
     });
     handlesRef.current = handles;
+    scheduleRenderCommit();
     return () => {
       handles.destroy();
       handlesRef.current = null;
     };
   }, [model]);
+  // 模型/销毁路径上的信号随通道取消（迟到结果不结算）。
+  useEffect(() => () => {
+    if (renderCommitTimerRef.current !== undefined) {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(renderCommitTimerRef.current);
+      else window.clearTimeout(renderCommitTimerRef.current);
+      renderCommitTimerRef.current = undefined;
+    }
+  }, []);
 
   // Clear the invalid hint as soon as the step changes (the machine advanced).
   useEffect(() => {
@@ -113,6 +150,7 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   }).join("|");
   useEffect(() => {
     handlesRef.current?.render();
+    scheduleRenderCommit();
   }, [model, modelVersion, entityRenderKey, emphasisRenderKey]);
 
   // Size contract (plan feedback): the host (.artifact-diagram-stage) provides
