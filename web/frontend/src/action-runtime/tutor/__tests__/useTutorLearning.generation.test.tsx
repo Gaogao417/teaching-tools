@@ -355,4 +355,65 @@ describe("useTutorLearning P2：generation view-model 与只读轮询", () => {
     const forged = { ...raw, ...pendingRunning() };
     expect(() => validFromRaw(forged as Record<string, unknown>)).toThrowError(/generation-pending/);
   });
+  it("acknowledged presentation failure survives restore with generation idle; recovery sends control only", async () => {
+    const { client, mocks } = makeClient();
+    const raw = runtimeSnapshotRaw({ participationKind: "listen_only", revision: 12 });
+    const views = raw.views as { status: Record<string, unknown> };
+    views.status.last_failure = { category: "presentation_action_failure", event_type: "presentation_failed", sequence: 11, failure_class: "provider_failure" };
+    mocks.start.mockResolvedValue(validFromRaw({ ...raw, ...idleProjection() }));
+    mocks.submitStudentInput.mockResolvedValue(withGeneration({ participationKind: "listen_only", revision: 13 }, pendingRunning()));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    expect(harness.tutor().runtimeGeneration.kind).toBe("idle");
+    expect(harness.tutor().runtimePresentationFailure).toEqual({ failureClass: "provider_failure" });
+    await act(async () => { harness.tutor().retryPresentation(); });
+    expect(mocks.submitStudentInput).toHaveBeenCalledWith(RUNTIME_SESSION_ID, { kind: "control", command: "retry_recovery" }, 12, expect.any(String));
+    expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
+    expect(harness.tutor().runtimePresentationFailure).toBeUndefined();
+  });
+
+  it("restore requires an explicit persisted failure projection, then permits control recovery without replaying outcomes", async () => {
+    const { client, mocks } = makeClient();
+    const raw = runtimeSnapshotRaw({ participationKind: "listen_only", revision: 7 });
+    const status = (raw.views as { status: Record<string, unknown> }).status;
+    delete status.last_failure;
+    mocks.start.mockResolvedValue(validFromRaw({ ...raw, ...idleProjection() }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    expect(harness.tutor().runtimeGeneration.kind).toBe("idle");
+    expect(harness.tutor().runtimePresentationFailure).toBeUndefined();
+    await act(async () => { harness.tutor().retryPresentation(); });
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+
+    // A projection fix can expose the committed outcome without a new event/revision.
+    status.last_failure = {
+      category: "presentation_action_failure",
+      event_type: "presentation_action_outcome_recorded",
+      sequence: 8,
+      failure_class: "provider_failure",
+    };
+    mocks.restore.mockResolvedValue(validFromRaw({ ...raw, ...idleProjection() }));
+    await act(async () => { await harness.tutor().retrySync(); });
+    expect(harness.tutor().runtimePresentationFailure).toEqual({ failureClass: "provider_failure" });
+    mocks.submitStudentInput.mockResolvedValue(withGeneration({ participationKind: "listen_only", revision: 8 }, pendingRunning()));
+    await act(async () => { harness.tutor().retryPresentation(); });
+    expect(mocks.submitStudentInput).toHaveBeenCalledExactlyOnceWith(
+      RUNTIME_SESSION_ID, { kind: "control", command: "retry_recovery" }, 7, expect.any(String),
+    );
+    expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
+    expect(harness.tutor().runtimePresentationFailure).toBeUndefined();
+  });
+
+  it("historical presentation failure cannot cover an already awaiting-confirmation lesson", async () => {
+    const { client, mocks } = makeClient();
+    const raw = runtimeSnapshotRaw({ participationKind: "confirm_input", revision: 15 });
+    (raw.views as { status: Record<string, unknown> }).status.last_failure = { category: "presentation_action_failure", failure_class: "provider_failure", sequence: 11 };
+    mocks.start.mockResolvedValue(validFromRaw({ ...raw, ...idleProjection() }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    expect(harness.tutor().runtimePresentationFailure).toBeUndefined();
+    await act(async () => { harness.tutor().retryPresentation(); });
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+  });
+
 });

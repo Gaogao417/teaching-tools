@@ -539,4 +539,25 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
     harness.tutor().adoptPendingEvaluationSnapshot();
     expect(harness.tutor().runtimeSnapshot?.revision).toBe(32);
   });
+  it("confirmed late input releases its token without rolling back a newer restore", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ revision: 12 }));
+    let resolveInput!: (snapshot: ReturnType<typeof validRuntimeSnapshot>) => void;
+    mocks.submitStudentInput.mockReturnValueOnce(new Promise(resolve => { resolveInput = resolve; }));
+    mocks.restore.mockResolvedValue(validRuntimeSnapshot({ revision: 16 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    let pending!: Promise<boolean>;
+    await act(async () => { pending = harness.tutor().submitUtterance("assistance", "翻折后C和E什么关系？"); });
+    await act(async () => { await harness.tutor().retrySync(); });
+    let confirmed = false;
+    await act(async () => { resolveInput(validRuntimeSnapshot({ revision: 15 })); confirmed = await pending; });
+    expect(confirmed).toBe(true);
+    expect(harness.tutor().runtimeSnapshot?.revision).toBe(16);
+    mocks.submitStudentInput.mockResolvedValueOnce(validRuntimeSnapshot({ revision: 17 }));
+    await act(async () => { await harness.tutor().submitControl("retry_recovery"); });
+    expect(mocks.submitStudentInput).toHaveBeenLastCalledWith(RUNTIME_SESSION_ID, { kind: "control", command: "retry_recovery" }, 16, expect.any(String));
+    expect(harness.tutor().protocolError).toBeUndefined();
+  });
+
 });

@@ -98,6 +98,33 @@ describe("voicePresentationAdapter（generation 绑定的真实 ended）", () =>
     await expect(resume).resolves.toEqual({ outcome: "presented" });
   });
 
+  it("autoplay recovery keeps a one-shot MediaSource attached until real ended", async () => {
+    let source = "";
+    let attachments = 0;
+    Object.defineProperty(audio, "src", { configurable: true, get: () => source, set: (value: string) => {
+      source = value;
+      if (value.startsWith("blob:")) attachments += 1;
+    } });
+    synthesize.mockResolvedValue({ audioUrl: "blob:one-shot-media-source" });
+    audio.play.mockImplementation(async () => {
+      if (attachments > 1) { audio.onerror?.(); throw new Error("detached MediaSource"); }
+    }).mockRejectedValueOnce(new DOMException("gesture required", "NotAllowedError"));
+    const adapter = createVoicePresentationAdapter({ narration, media });
+    const { snapshot, delivery } = pendingSnapshot();
+    await expect(adapter.present({ delivery, snapshot, abort: new AbortController().signal })).resolves.toEqual({ outcome: "blocked-by-autoplay" });
+    const resumed = adapter.resume!(new AbortController().signal);
+    await vi.waitFor(() => expect(audio.play).toHaveBeenCalledTimes(2));
+    expect(attachments).toBe(1);
+    expect(synthesize).toHaveBeenCalledTimes(1);
+    audio.onended?.();
+    await expect(resumed).resolves.toEqual({ outcome: "presented" });
+    expect(adapter.canReplay?.(delivery.action_id)).toBe(true);
+    expect(adapter.replay?.(delivery.action_id)).toBe(true);
+    await vi.waitFor(() => expect(audio.play).toHaveBeenCalledTimes(3));
+    expect(attachments).toBe(1);
+    audio.onended?.();
+  });
+
   it("REVIEW 回归：resume 后打断仍生效（abort → narration.stop → stopped → interrupted；媒体回 idle）", async () => {
     audio.play.mockRejectedValueOnce(new Error("blocked"));
     const adapter = createVoicePresentationAdapter({ narration, media });

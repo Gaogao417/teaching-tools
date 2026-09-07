@@ -74,6 +74,7 @@ const ERROR_STATUS: Record<string, number> = {
   NO_EXECUTABLE_DECISION: 409,
   PRESENTATION_CURSOR_MISMATCH: 409,
   PRESENTATION_FAILED_PENDING_RECOVERY: 409,
+  PRESENTATION_AWAITING_BROWSER: 409,
   WORKSPACE_APPLY_REJECTED: 409,
   RETRY_RECOVERY_WITHOUT_FAILURE: 409,
   SESSION_VERSION_UNSUPPORTED: 409,
@@ -174,12 +175,15 @@ const ASR_MAX_DATA_URL_CHARS = Number(process.env.TUTOR_VNEXT_ASR_MAX_BYTES ?? 6
 const ASR_ALLOWED_MIME = new Set(["audio/wav", "audio/webm", "audio/mpeg", "audio/mp4", "audio/ogg"]);
 
 export interface VNextTutorRoutesOptions {
+  /** Local review server injects its composition; no request can select an importer. */
+  applicationFactory?: () => TutorRuntimeApplicationV7;
   /** 测试注入 ASR transcriber（生产 = tutorSession/asrService，ADR-005 层边界）。 */
   transcriber?: (input: { dataUrl: string; durationMs?: number }) => Promise<{ transcript: string; model: string }>;
 }
 
 export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): Router {
   const router = Router();
+  const applicationFactory = options.applicationFactory ?? createApplication;
   const transcribe = options.transcriber ?? transcribeForTutor;
 
   router.get("/availability/:taskId", (req, res) => {
@@ -195,7 +199,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
   router.post("/tutor-sessions", async (req, res) => {
     try {
       const body = startRequestHttpV1Schema.parse(req.body);
-      const application = createApplication();
+      const application = applicationFactory();
       const outcome = application.start({
         task_id: body.task_id,
         student_id: body.student_id,
@@ -222,7 +226,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
   router.get("/tutor-sessions/:sessionId", (req, res) => {
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
-      const orchestrator = createApplication().restore(sessionId);
+      const orchestrator = applicationFactory().restore(sessionId);
       res.json(projectHttpSnapshotV1({ orchestrator }));
     } catch (error) {
       toHttpError(error, res);
@@ -233,7 +237,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = studentInputRequestHttpV1Schema.parse(req.body);
-      const application = createApplication();
+      const application = applicationFactory();
       const orchestrator = application.restore(sessionId);
       const result = await application.submitStudentInput(orchestrator, {
         input: body.input,
@@ -250,7 +254,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = actionEvidenceRequestHttpV1Schema.parse(req.body);
-      const application = createApplication();
+      const application = applicationFactory();
       const orchestrator = application.restore(sessionId);
       const submission = application.submitActionEvidence(orchestrator, body.evidence, {
         expectedRevision: body.expected_revision,
@@ -286,7 +290,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         return;
       }
       const command = body.command;
-      const application = createApplication();
+      const application = applicationFactory();
       const orchestrator = application.restore(sessionId);
       const result = application.submitWorkspaceCommand(orchestrator, command, {
         expectedRevision: body.expected_revision,
@@ -303,7 +307,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const actionId = actionIdParam.parse(req.params.actionId);
       const body = presentationOutcomeRequestHttpV1Schema.parse(req.body);
-      const application = createApplication();
+      const application = applicationFactory();
       const orchestrator = application.restore(sessionId);
       application.reportPresentationOutcome(orchestrator, {
         sequence_id: body.sequence_id,
@@ -334,7 +338,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         return;
       }
       // observe-only：restore 零模型调用取 observed_revision；ASR 只转写，零教学事实。
-      const application = createApplication();
+      const application = applicationFactory();
       const orchestrator = application.restore(sessionId);
       const transcript = await transcribe({
         dataUrl: body.audio.data_url,

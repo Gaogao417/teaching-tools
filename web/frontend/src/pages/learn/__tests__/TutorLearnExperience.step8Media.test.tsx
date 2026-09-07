@@ -58,7 +58,7 @@ vi.mock("../../../api/client", () => ({
 const { TutorLearnExperience } = await import("../TutorLearnExperience");
 const { TutorRuntimeHttpError } = await import("../../../api/tutorRuntimeClient");
 import type { TutorRuntimeClient } from "../../../api/tutorRuntimeClient";
-const { RUNTIME_SESSION_ID, RUNTIME_TASK_ID, validRuntimeSnapshot } = await import("../../../action-runtime/tutor/__tests__/runtimeSnapshotFixture");
+const { RUNTIME_SESSION_ID, RUNTIME_TASK_ID, validRuntimeSnapshot, runtimeSnapshotRaw, validFromRaw } = await import("../../../action-runtime/tutor/__tests__/runtimeSnapshotFixture");
 import type { TaskId } from "../../../../../shared/contracts";
 
 const asrResult = (transcript: string, observedRevision: number) => ({
@@ -243,6 +243,32 @@ describe("TutorLearnExperience Step 8：canonical 双 mic 接线", () => {
     unmount();
   });
 
+  it("text failure preserves the composer; confirmed same-key retry clears it", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 12 }));
+    mocks.submitStudentInput.mockRejectedValueOnce(new TypeError("fetch failed"));
+    mocks.submitStudentInput.mockResolvedValueOnce(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 13 }));
+    const { container, unmount } = mountExperience(client);
+    try {
+      await waitForSession(container);
+      const input = container.querySelector<HTMLInputElement>(".topic-coach-question input")!;
+      const text = "翻折后C和E之间是什么关系？";
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, text);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => { container.querySelector<HTMLButtonElement>(".topic-coach-send")!.click(); });
+      expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+      expect(input.value).toBe(text);
+      await act(async () => { container.querySelector<HTMLButtonElement>(".topic-coach-send")!.click(); });
+      expect(mocks.submitStudentInput).toHaveBeenCalledTimes(2);
+      expect(mocks.submitStudentInput.mock.calls[1]).toEqual(mocks.submitStudentInput.mock.calls[0]);
+      expect(input.value).toBe("");
+    } finally {
+      unmount();
+    }
+  });
+
   it("ASR unavailable：可见系统提示（tutor-speech-notice），不映射学生错误、零提交", async () => {
     const { client, mocks } = makeClient();
     mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 12 }));
@@ -285,4 +311,39 @@ describe("C3 Teach 语音理解反馈", () => {
       expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
     } finally { unmount(); }
   });
+  it("TTS failure ack exposes recovery even with generation idle, without replaying outcome or faking presented", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "listen_only", revision: 12, pendingPresentation: true }));
+    const raw = runtimeSnapshotRaw({ participationKind: "listen_only", revision: 13 });
+    (raw.views as { status: Record<string, unknown> }).status.last_failure = {
+      category: "presentation_action_failure", event_type: "presentation_failed", sequence: 12, failure_class: "provider_failure",
+    };
+    const acknowledged = validFromRaw({ ...raw, generation: { status: "idle" }, scope: null });
+    let acknowledge!: (value: typeof acknowledged) => void;
+    mocks.reportPresentationOutcome.mockReturnValue(new Promise(resolve => { acknowledge = resolve; }));
+    let recovered!: (value: typeof acknowledged) => void;
+    mocks.submitStudentInput.mockReturnValue(new Promise(resolve => { recovered = resolve; }));
+    const { container, unmount } = mountExperience(client);
+    try {
+      await waitForDom(container, () => mocks.reportPresentationOutcome.mock.calls.length === 1);
+      expect(container.querySelector('[data-testid="tutor-presentation-retry"]')).toBeNull();
+      expect(JSON.stringify(mocks.reportPresentationOutcome.mock.calls[0])).toContain('"failed"');
+      expect(JSON.stringify(mocks.reportPresentationOutcome.mock.calls[0])).toContain('provider_failure');
+      await act(async () => { acknowledge(acknowledged); });
+      await waitForDom(container, () => container.querySelector('[data-testid="tutor-presentation-retry"]') !== null);
+      expect(container.querySelector('[data-testid="tutor-presentation-failure"]')!.textContent).toContain("服务暂时失败");
+      expect(container.textContent).not.toContain("老师讲解中");
+      const retry = container.querySelector<HTMLButtonElement>('[data-testid="tutor-presentation-retry"]')!;
+      await act(async () => { retry.click(); });
+      expect(mocks.submitStudentInput).toHaveBeenCalledWith(RUNTIME_SESSION_ID, { kind: "control", command: "retry_recovery" }, 13, expect.any(String));
+      expect(retry.disabled).toBe(true);
+      await act(async () => { retry.click(); });
+      expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+      await act(async () => { recovered(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 14 })); });
+      await waitForDom(container, () => container.querySelector('[data-testid="tutor-presentation-retry"]') === null);
+      expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(mocks.reportPresentationOutcome.mock.calls)).not.toContain('"presented"');
+    } finally { unmount(); }
+  });
+
 });

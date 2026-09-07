@@ -401,6 +401,13 @@ test("B4 retry_recovery without any failure stays refused (fail closed)", async 
   const presenter = new ScriptedPresenterPort();
   const orchestrator = startV9(sessionId, presenter);
   await orchestrator.drivePendingGeneration();
+  // Finish delivery first: awaiting_browser has its own zero-event admission refusal.
+  const cursor = orchestrator.rebuildRuntimeState().presentation_cursor;
+  assert.equal(cursor.status, "awaiting_browser");
+  if (cursor.status === "awaiting_browser") orchestrator.reportPresentationOutcome({
+    sequence_id: cursor.sequence_id, ordinal: cursor.ordinal, action_id: cursor.action_id,
+    outcome: "presented", client_request_id: "cr-b4-neg-settle",
+  });
   // 无 failed cursor / 无 failed slot ⇒ 显式拒绝。
   await assert.rejects(
     () => orchestrator.submitStudentInput(

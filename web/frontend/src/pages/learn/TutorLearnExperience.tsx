@@ -137,7 +137,9 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
    *  question_asked。分派在 controller（coachControls.ask）。 */
   const submitQuestion = useCallback(
     (text: string) => {
-      tutor.coachControls.ask(text);
+      void tutor.coachControls.ask(text).then((confirmed) => {
+        if (confirmed) setQuestionDraft(current => current.trim() === text.trim() ? "" : current);
+      });
     },
     [tutor],
   );
@@ -255,10 +257,19 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   const progress = checkpoint ? { label: "教学拍点", current: checkpoint.index, total: checkpoint.total } : undefined;
   const panelTitle = completed
     ? "本题讲解完成"
+    : tutor.runtimePresentationFailure ? "讲解呈现失败，已暂停"
     : checkpoint?.title ?? (checkpoint ? `第${checkpoint.part_id}小问` : "老师讲解中");
 
   const statusNotes = (
     <>
+      {tutor.runtimePresentationFailure ? (
+        <div className="tutor-learn-error" role="alert" data-testid="tutor-presentation-failure">
+          <p>{tutor.runtimePresentationFailure.failureClass === "provider_failure"
+            ? "语音或呈现服务暂时失败，讲解已暂停。请重试恢复讲解。"
+            : "讲解呈现失败，已暂停。请重试恢复讲解。"}</p>
+          <button type="button" className="btn btn-primary" data-testid="tutor-presentation-retry" disabled={busy} onClick={tutor.retryPresentation}>重试讲解</button>
+        </div>
+      ) : null}
       {tutor.error ? <p className="tutor-learn-error" role="alert" data-testid="tutor-error">{tutor.error}</p> : null}
       {tutor.protocolError ? (
         <p className="tutor-learn-error" role="alert" data-testid="tutor-protocol-error">
@@ -408,6 +419,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
 
   /** 参与区（统一 view-model 驱动；spec §4.4 七 kind + legacy 相位投影）。 */
   const participationArea = (() => {
+    if (tutor.runtimePresentationFailure) return null;
     const controls = tutor.participationControls;
     switch (controls.kind) {
       case "completed":
@@ -513,6 +525,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   /** 讲解播放组（统一 view-model：legacy=本地呈现管线；canonical=
    *  PresentationRuntime 执行状态——F7 Step 6，呈现由服务端 pending 驱动）。 */
   const teachingPlayback = (() => {
+    if (tutor.runtimePresentationFailure) return null;
     const controls = tutor.playbackControls;
     if (!controls) return null;
     if (controls.source === "canonical") {

@@ -64,7 +64,7 @@ import { NavigatorSessionV5, type StudentIntentInput, type TurnResult } from "..
 import type { GateAdjudicationProvider } from "../tutorNavigator/ModelGateAdjudicatorV5";
 import type { NavigatorDecision } from "../tutorNavigator/TutorNavigatorV5";
 import type { V5ModelGatePin } from "./StructuredModelGateProvider";
-import { buildGoldenWorkspaceCatalogV5, GOLDEN_CATALOG_TASK_ID, type GoldenWorkspaceCatalog } from "./GoldenWorkspaceCatalog";
+import { buildGoldenWorkspaceCatalogV5, goldenWorkspaceCatalogForPin, GOLDEN_CATALOG_TASK_ID, type GoldenWorkspaceCatalog } from "./GoldenWorkspaceCatalog";
 import {
   adjudicateActionEvidence,
   adjudicateCommandPayload,
@@ -278,7 +278,6 @@ export class TutorSessionOrchestratorV5 {
     if (!imported.ok) {
       throw new OrchestratorError("PLAN_IMPORT_FAILED", `approved plan import failed (fail closed): ${imported.errors.join("; ")}`);
     }
-    const golden = buildGoldenWorkspaceCatalogV5(imported.imported);
     const events = readTutorSessionEventsV5(input.sessionId);
     if (events.length === 0) {
       throw new OrchestratorError("PLAN_IMPORT_FAILED", `session ${input.sessionId} has no committed stream`);
@@ -289,6 +288,7 @@ export class TutorSessionOrchestratorV5 {
       model_gate_pin?: V5ModelGatePin;
       workspace_catalog_pin?: { content_hash?: string };
     };
+    const golden = goldenWorkspaceCatalogForPin(imported.imported, started.workspace_catalog_pin);
     // model pin 对账（实现级边界：不符即拒，与 catalog pin 对账同型）。
     const expected = input.model.pin;
     const actual = started.model_gate_pin;
@@ -305,7 +305,7 @@ export class TutorSessionOrchestratorV5 {
     const constructionHash = workspaceCatalogPin(golden.catalog).content_hash;
     const assessmentHash = workspaceCatalogPin(assessmentCatalog).content_hash;
     const streamCatalogHash = started.workspace_catalog_pin?.content_hash;
-    const assessment = streamCatalogHash !== undefined && streamCatalogHash === assessmentHash && assessmentHash !== constructionHash;
+    const assessment = golden.catalog.initialInteractionMode === "locked" || (streamCatalogHash !== undefined && streamCatalogHash === assessmentHash && assessmentHash !== constructionHash);
     const catalog = assessment ? assessmentCatalog : golden.catalog;
     const navigator = NavigatorSessionV5.resume({
       sessionId: input.sessionId,

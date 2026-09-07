@@ -5,7 +5,12 @@ import { MathText } from "../../components/math/MathText";
 import type { SolutionBoardFragment, SolutionBoardSurface } from "./canonicalViewTypes";
 const BOARD_ENTRY_KIND_TEXT = { statement: "陈述", derivation: "推导", conclusion: "结论", question: "问题" } as const;
 /** F7 P2（view/v2）：临场解释片段的 kind 标签（EF- student-safe 投影）。 */
-const FRAGMENT_KIND_TEXT = { approved_math_note: "批注", relation_note: "关系", explanation_text: "解释" } as const;
+const FRAGMENT_KIND_TEXT = { approved_math_note: "推导", relation_note: "推导", explanation_text: "说明" } as const;
+/** Read-only display compatibility for previously committed compiler annotations.
+ * Do not rewrite old events or hide mathematical expressions. */
+export function studentBoardText(content: string): string {
+  return content.replace(/[（(](?:FN-\d+|IF-\d+)(?:[、,，\s⇒→-]+(?:FN-\d+|IF-\d+))*[）)]/g, "");
+}
 const REVEAL_KEYFRAMES: Keyframe[] = [
   { opacity: "0", transform: "translateY(8px)" },
   { opacity: "1", transform: "translateY(0)" },
@@ -154,12 +159,13 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, execution
 
   return (
     <section
-      className={`topic-answer-panel solution-board-panel${entryCount === 0 ? " is-empty" : ""}${review ? " is-review" : ""}`}
+      className={`topic-answer-panel solution-board-panel${entryCount === 0 && fragmentCount === 0 ? " is-empty" : ""}${review ? " is-review" : ""}`}
       aria-label={review ? "解题板书（回顾）" : "解题板书"}
       data-testid="region-solution-board"
       data-board-mode={mode}
     >
       <div className="solution-board-document" ref={containerRef}>
+        {entryCount + fragmentCount > 0 ? <h3 className="solution-board-group-title">解题步骤</h3> : null}
         {entryCount === 0 && fragmentCount === 0 ? (
           <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
         ) : (
@@ -175,7 +181,7 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, execution
                     data-entry-state={entry.state}
                   >
                     <span className="sr-only">{BOARD_ENTRY_KIND_TEXT[entry.kind]}：</span>
-                    <MathText value={entry.content} block />
+                    <MathText value={studentBoardText(entry.content)} block />
                     {entry.attempt_summary ? (
                       <small className="solution-board-attempt" data-attempt-summary={entry.attempt_summary}>
                         你的尝试：{entry.attempt_summary}
@@ -192,7 +198,7 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, execution
                       data-attach-to-entry={fragment.attach_to_entry}
                     >
                       <span className="sr-only">{FRAGMENT_KIND_TEXT[fragment.kind]}：</span>
-                      <MathText value={fragment.content} block />
+                      <MathText value={studentBoardText(fragment.content)} block />
                     </div>
                   ))}
                 </div>
@@ -211,7 +217,7 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, execution
                 data-fragment-kind={fragment.kind}
               >
                 <span className="sr-only">{FRAGMENT_KIND_TEXT[fragment.kind]}：</span>
-                <MathText value={fragment.content} block />
+                <MathText value={studentBoardText(fragment.content)} block />
               </div>
             ))}
           </div>

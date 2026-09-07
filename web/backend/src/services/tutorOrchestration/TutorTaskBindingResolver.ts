@@ -18,7 +18,7 @@
  */
 import { importApprovedPlanV5, type ImportedApprovedPlanV5 } from "../planBuild/v5/ImportApprovedPlanV5";
 import { buildNavigatorPlan, type NavigatorPlanV5 } from "../tutorNavigator/NavigatorPlanV5";
-import { buildGoldenWorkspaceCatalogV5, type GoldenWorkspaceCatalog } from "./GoldenWorkspaceCatalog";
+import { buildGoldenWorkspaceCatalogV5, goldenWorkspaceCatalogForPin, type GoldenWorkspaceCatalog } from "./GoldenWorkspaceCatalog";
 import { constructionOutputId, resolveBeatConstructions } from "./WorkspaceActionAdjudication";
 import { workspaceCatalogPin } from "../tutorSession/WorkspacePresentationCatalogV5";
 import {
@@ -88,7 +88,7 @@ function declaredConstructionOutputIds(imported: ImportedApprovedPlanV5): string
 }
 
 /** 唯一绑定解析（start 与 restore 共用；unknown task fail closed）。 */
-function resolveBinding(canonicalRoot: string, taskId: string): TutorTaskBinding {
+function resolveBinding(canonicalRoot: string, taskId: string, importer: typeof importApprovedPlanV5, pinnedCatalog?: unknown, mode?: "teaching" | "assessment"): TutorTaskBinding {
   const entry = TASK_BINDINGS.get(taskId);
   if (!entry) {
     throw new TutorTaskBindingError(
@@ -96,7 +96,7 @@ function resolveBinding(canonicalRoot: string, taskId: string): TutorTaskBinding
       `task ${taskId} has no pinned task binding (F7 supports the golden task only; no allowlist/default fallback)`,
     );
   }
-  const imported = importApprovedPlanV5({ canonicalRoot, anchored: true }, entry.tpId);
+  const imported = importer({ canonicalRoot, anchored: true }, entry.tpId);
   if (!imported.ok) {
     throw new TutorTaskBindingError(
       "PLAN_IMPORT_FAILED",
@@ -104,7 +104,13 @@ function resolveBinding(canonicalRoot: string, taskId: string): TutorTaskBinding
     );
   }
   const plan = buildNavigatorPlan(imported.imported);
-  const golden = buildGoldenWorkspaceCatalogV5(imported.imported);
+  let golden: GoldenWorkspaceCatalog;
+  try {
+    golden = pinnedCatalog === undefined ? buildGoldenWorkspaceCatalogV5(imported.imported)
+      : goldenWorkspaceCatalogForPin(imported.imported, pinnedCatalog, mode);
+  } catch (error) {
+    throw new TutorTaskBindingError("CATALOG_PIN_MISMATCH", `CATALOG_PIN_MISMATCH: ${error instanceof Error ? error.message : "unsupported catalog pin"}`);
+  }
   const registry = buildSessionPinnedCapabilityRegistry(golden, declaredConstructionOutputIds(imported.imported));
   return {
     taskId,
@@ -123,19 +129,23 @@ function resolveBinding(canonicalRoot: string, taskId: string): TutorTaskBinding
 }
 
 export class TutorTaskBindingResolver {
-  constructor(private readonly canonicalRoot: string) {}
+  /** Explicit composition injection for local author review; production remains Approved-only. */
+  constructor(private readonly canonicalRoot: string, private readonly importer: typeof importApprovedPlanV5 = importApprovedPlanV5) {}
 
   /** start 路径：显式 task_id（无默认值；unknown → fail closed）。 */
   resolveForStart(taskId: string): TutorTaskBinding {
-    return resolveBinding(this.canonicalRoot, taskId);
+    return resolveBinding(this.canonicalRoot, taskId, this.importer);
   }
 
   /**
    * restore 路径：只读已 pin 的 `session_started.task_id`（禁止 allowlist
    * 第一项/默认题；task A 会话不加载 task B）。
    */
-  resolveForRestore(pinnedTaskId: string): TutorTaskBinding {
-    return resolveBinding(this.canonicalRoot, pinnedTaskId);
+  resolveForRestore(pinnedTaskId: string, sessionStartedPayload?: Record<string, unknown>): TutorTaskBinding {
+    if (sessionStartedPayload && (sessionStartedPayload.task_id !== pinnedTaskId || !sessionStartedPayload.workspace_catalog_pin))
+      throw new TutorTaskBindingError("PIN_MISMATCH", "restore requires the committed task and workspace_catalog_pin");
+    return resolveBinding(this.canonicalRoot, pinnedTaskId, this.importer, sessionStartedPayload?.workspace_catalog_pin,
+      sessionStartedPayload?.session_mode === "assessment" ? "assessment" : "teaching");
   }
 
   /**
@@ -157,7 +167,7 @@ export class TutorTaskBindingResolver {
         "session_started payload carries no pinned task_id; cannot resolve the task binding (fail closed)",
       );
     }
-    const binding = resolveBinding(this.canonicalRoot, taskId);
+    const binding = resolveBinding(this.canonicalRoot, taskId, this.importer, sessionStartedPayload.workspace_catalog_pin, "teaching");
     assertPinnedRefMatches("tutor_plan_ref", sessionStartedPayload.tutor_plan_ref, binding.plan.tutor_plan_ref);
     assertPinnedRefMatches("question_ref", sessionStartedPayload.question_ref, binding.plan.question_ref);
     if (sessionStartedPayload.scenario_id !== binding.scenarioId) {
@@ -206,7 +216,7 @@ export class TutorTaskBindingResolver {
         `session_started session_mode=${String(mode)} is missing or illegal (v7 requires teaching|assessment; fail closed; zero events, zero state change)`,
       );
     }
-    const binding = resolveBinding(this.canonicalRoot, taskId);
+    const binding = resolveBinding(this.canonicalRoot, taskId, this.importer, sessionStartedPayload.workspace_catalog_pin, mode);
     assertPinnedRefMatches("tutor_plan_ref", sessionStartedPayload.tutor_plan_ref, binding.plan.tutor_plan_ref);
     assertPinnedRefMatches("question_ref", sessionStartedPayload.question_ref, binding.plan.question_ref);
     if (sessionStartedPayload.scenario_id !== binding.scenarioId) {

@@ -242,7 +242,7 @@ export class TutorSessionOrchestratorV6 {
     if (typeof started.task_id !== "string" || started.task_id === "") {
       throw new OrchestratorV6Error("UNKNOWN_TASK", `session ${input.sessionId} carries no pinned task_id (fail closed)`);
     }
-    const binding = resolveBindingOrThrow(resolver, started.task_id);
+    const binding = resolveBindingOrThrow(resolver, started.task_id, verified.sessionStartedPayload);
     // model pin 对账（实现级边界：不符即拒，与 catalog pin 对账同型；零事件追加）。
     const expected = input.model.pin;
     const actual = started.model_gate_pin;
@@ -928,9 +928,9 @@ export class TutorSessionOrchestratorV6 {
 // committed 流只读扫描（呈现编排的解析面；不信任调用方载荷的任何 id）
 // ------------------------------------------------------------------ //
 
-function resolveBindingOrThrow(resolver: TutorTaskBindingResolver, taskId: string): TutorTaskBinding {
+function resolveBindingOrThrow(resolver: TutorTaskBindingResolver, taskId: string, started?: Record<string, unknown>): TutorTaskBinding {
   try {
-    return resolver.resolveForStart(taskId);
+    return started ? resolver.resolveForRestore(taskId, started) : resolver.resolveForStart(taskId);
   } catch (error) {
     if (error instanceof Error && "code" in error) {
       throw new OrchestratorV6Error(

@@ -143,3 +143,66 @@
     filter: drop-shadow(0 0 0 rgba(24, 183, 183, 0));
   }
 }
+
+/* Canonical teaching adds a wrapper between the centered grid cell and canvas.
+   Give it an explicit allocation: percentage-sized/absolute JSXGraph children
+   otherwise have no intrinsic width, leaving only labels in a collapsed SVG. */
+.canonical-workspace-canvas {
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+}
+
+/* Fit the diagram and its note inside the actual canonical geometry slot.
+   Override the generic topic absolute-fill rule, which would skip the note row. */
+.canonical-workspace-canvas .geometry-canvas,
+.topic-runtime-frame .artifact-diagram-stage .canonical-workspace-canvas .geometry-canvas {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: auto !important;
+}
+
+.canonical-canvas-readonly-note {
+  margin: 0;
+}
+
+/* The canonical lesson also has a coach rail. A fixed 340px board minimum
+   squeezed the diagram to a sliver at laptop widths; share the actual slot. */
+.student-workspace-frame[data-testid="canonical-student-workspace"] {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+
+/* Canonical geometry gets its height from the allocated workbench row, never
+   from SVG intrinsic dimensions or a percentage-height/auto-row cycle. */
+.tutor-learn-page .ks-focus-canvas {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.student-workspace-frame[data-testid="canonical-student-workspace"] {
+  height: auto;
+  align-self: stretch;
+}
+
+.student-workspace-frame[data-testid="canonical-student-workspace"] > .artifact-math-object {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  grid-template-rows: minmax(0, 1fr);
+  contain: size;
+}
+
+.student-workspace-frame[data-testid="canonical-student-workspace"] .artifact-diagram-stage {
+  min-height: 0;
+  height: auto;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+  overflow: hidden;
+}

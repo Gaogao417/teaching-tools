@@ -15,7 +15,9 @@ import type { VisibleToolInstance } from "./PresentationToolCatalog";
 
 export const STUCK_POINT_PROMPT_VERSION = "stuck-point-locator/v1";
 export const LEGACY_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v1";
-export const PRESENTER_PROMPT_VERSION = "presenter-interleaved/v2-follow-along";
+export const PREVIOUS_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v2-follow-along";
+export const TOOL_INVOCATION_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v3-tool-invocation";
+export const PRESENTER_PROMPT_VERSION = "presenter-interleaved/v4-board-proof";
 
 /** 卡点定位 system prompt（版本 STUCK_POINT_PROMPT_VERSION）。 */
 export const STUCK_POINT_SYSTEM_PROMPT = [
@@ -51,12 +53,34 @@ export const LEGACY_PRESENTER_SYSTEM_PROMPT = [
   "8. 若依据不足以完成讲解，输出 items 为空数组之外的最小合法段并在 speech 中说明需要教师补充——不得编造依据。",
 ].join("\n");
 
-export const PRESENTER_SYSTEM_PROMPT = LEGACY_PRESENTER_SYSTEM_PROMPT + "\n" + [
+export const PREVIOUS_PRESENTER_SYSTEM_PROMPT = LEGACY_PRESENTER_SYSTEM_PROMPT + "\n" + [
   "9. student_stuck_point 是最近的学生原话，可能是确认或问题，不代表学生一定卡住；先结合 instructional_goal 与 already_presented 理解。",
   "10. 仅当 completion_target=follow_along：目标是把当前关系讲明白、让学生跟得上。学生请求老师演算时，用批准依据演示计算及 tools 中允许的图形/板书动作，不把填数、自己算对或点击控件设为听课前提。",
   "11. 理解衔接允许学生自述听懂或陈述自己的理解；不要要求标准答案。若当前原话已充分表达理解，不重复同义盘问；若有具体问题或误解，先解释该断点，再用简短自然的问题确认是否接上。",
   "12. 你不能自行宣布学生掌握、写 Gate verdict 或推进 Beat。未标记的练习/验证任务仍遵守其原有作答目标；工具权限和答案边界不因理解衔接而扩大。",
 ].join("\n");
+
+/** v3 removes the contradictory stuck assumption and describes the existing compiler,
+ * without expanding tool parameters, mathematical permissions, or canonical schemas. */
+export const TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT = PREVIOUS_PRESENTER_SYSTEM_PROMPT.replace(
+  "7. 学生已卡在该任务的推理上（见 student_stuck_point）：讲解必须正面回应卡点，不重复 already_presented 中已讲过的整句。",
+  "7. 先按 instructional_goal 主动讲解；student_stuck_point 为 null 时是新讲解，不要假设学生已经卡住。有具体问题才针对问题补讲，不重复 already_presented 中已讲过的整句。",
+) + "\n" + [
+  "13. args.params 是封闭参数表，只能使用该工具 parameters 列出的字段；不能添加 text、content、basis_refs、target 或其他字段。",
+  '14. board.explain 的 params 只有 note_kind，例如 {"type":"tool_intent","tool":"board.explain","args":{"binding_ref":"从 binding_refs 选择","params":{"note_kind":"approved_math_note"}}}。approved_math_note/relation_note 由服务器用该 binding 的批准依据生成板书，不接收模型正文；explanation_text 使用紧邻前一条 speech 的文字，因此必须先输出有依据的 speech 再调用。',
+  "15. geometry.construct 的 template_id 必须精确复制对应 binding.allowed_template_ids；按照资源中声明的依赖顺序构造，不造坐标或参数。一次短段内必要的工具动作要留出 max_items 预算，不能只口头声称已经画完。",
+  "16. 讲完当前内容可简短询问是否跟上；不要在尚未讲解时先盘问学生卡在哪里。",
+].join("\n");
+
+/** v4 requires visible approved proof notes; v1/v2/v3 bytes remain frozen above. */
+export const PRESENTER_SYSTEM_PROMPT = TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT + "\n" + [
+  "17. required_board_bindings 是当前可见批准依据中尚未真正呈现的必要板书。每个 binding_ref 必须输出一次 board.explain，note_kind 用 approved_math_note（relation_note 也可）；仅语音或 explanation_text 不能代替数学推导板书。先给必要几何和板书留足 output_budget，再安排语音。",
+  "18. presented_board 仅记录截止本次请求冻结时浏览器已确认呈现的板书正文。already_presented 是语音，不是板书。没有实际板书记录，不能声称已经写过、板书已有或让学生看未写出的推导；本段计划写的内容只能说接下来整理。",
+  "19. 历史板书用于判断已呈现内容，不能扩张当前 tools/allowed_knowledge 权限；不得为补旧内容调用当前不可见 binding。数值作为其他推导的前提出现，不等于这个数值的计算过程已经板书。",
+].join("\n");
+
+export interface PresentedBoardNote { readonly kind: string; readonly content: string }
+export interface RequiredBoardBinding { readonly binding_ref: string; readonly note_kind: "approved_math_note" }
 
 /** Presenter user payload（服务端组装；工具可见性交集已由目录计算）。 */
 export interface PresenterUserPayload {
@@ -65,6 +89,8 @@ export interface PresenterUserPayload {
   readonly allowed_knowledge: readonly { readonly ref: string; readonly kind: "fact" | "inference" | "resource"; readonly text: string }[];
   readonly current_granularity: string;
   readonly already_presented: readonly string[];
+  readonly presented_board?: readonly PresentedBoardNote[];
+  readonly required_board_bindings?: readonly RequiredBoardBinding[];
   readonly student_stuck_point: { readonly text: string; readonly located_refs: readonly string[] } | null;
   readonly tools: readonly {
     readonly tool: string;
@@ -83,6 +109,8 @@ export interface PresenterPromptInput {
   readonly promptVersion?: string;
   readonly currentGranularity: string;
   readonly alreadyPresented: readonly string[];
+  readonly presentedBoard?: readonly PresentedBoardNote[];
+  readonly requiredBoardBindings?: readonly RequiredBoardBinding[];
   readonly stuckPoint: { readonly text: string; readonly locatedRefs: readonly string[] } | null;
   readonly visibleTools: readonly VisibleToolInstance[];
   readonly maxItems: number;
@@ -101,6 +129,10 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
     allowed_knowledge: input.context.basis.map((item) => ({ ref: item.ref, kind: item.kind, text: item.text })),
     current_granularity: input.currentGranularity,
     already_presented: [...input.alreadyPresented],
+    ...(!input.promptVersion || input.promptVersion === PRESENTER_PROMPT_VERSION ? {
+      presented_board: [...(input.presentedBoard ?? [])],
+      required_board_bindings: [...(input.requiredBoardBindings ?? [])],
+    } : {}),
     student_stuck_point: input.stuckPoint === null
       ? null
       : { text: input.stuckPoint.text, located_refs: [...input.stuckPoint.locatedRefs] },
@@ -123,10 +155,12 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
     output_budget: { max_items: input.maxItems, max_speech_chars: input.maxSpeechChars },
   };
   const legacy = input.promptVersion === LEGACY_PRESENTER_PROMPT_VERSION;
-  if (input.promptVersion && !legacy && input.promptVersion !== PRESENTER_PROMPT_VERSION) {
+  const previous = input.promptVersion === PREVIOUS_PRESENTER_PROMPT_VERSION;
+  const toolInvocation = input.promptVersion === TOOL_INVOCATION_PRESENTER_PROMPT_VERSION;
+  if (input.promptVersion && !legacy && !previous && !toolInvocation && input.promptVersion !== PRESENTER_PROMPT_VERSION) {
     throw new Error(`unsupported Presenter prompt version: ${input.promptVersion}`);
   }
   if (legacy && input.completionTarget) throw new Error("follow_along requires the current Presenter prompt");
-  return { systemPrompt: legacy ? LEGACY_PRESENTER_SYSTEM_PROMPT : PRESENTER_SYSTEM_PROMPT,
-    promptVersion: legacy ? LEGACY_PRESENTER_PROMPT_VERSION : PRESENTER_PROMPT_VERSION, userPayload: payload };
+  return { systemPrompt: legacy ? LEGACY_PRESENTER_SYSTEM_PROMPT : previous ? PREVIOUS_PRESENTER_SYSTEM_PROMPT : toolInvocation ? TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT : PRESENTER_SYSTEM_PROMPT,
+    promptVersion: legacy ? LEGACY_PRESENTER_PROMPT_VERSION : previous ? PREVIOUS_PRESENTER_PROMPT_VERSION : toolInvocation ? TOOL_INVOCATION_PRESENTER_PROMPT_VERSION : PRESENTER_PROMPT_VERSION, userPayload: payload };
 }

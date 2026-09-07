@@ -86,7 +86,7 @@ function explanationBinding(): PresentationResourceBinding {
     binding_id: "VB-02",
     binding_kind: "explanation",
     purpose: "第二组相似解释依据",
-    basis_refs: { fact_ids: ["FN-14"], inference_ids: ["IF-12"] },
+    basis_refs: { fact_ids: ["FN-03", "FN-04", "FN-14"], inference_ids: ["IF-12"] },
     presentation_resource: "RES3",
   } as PresentationResourceBinding;
 }
@@ -166,7 +166,7 @@ function draftOf(items: unknown[]): { schema: "ai_teaching_presentation_draft/v2
 
 test("prompt versions are frozen and presenter payload carries tools/basis/budget", () => {
   assert.equal(STUCK_POINT_PROMPT_VERSION, "stuck-point-locator/v1");
-  assert.equal(PRESENTER_PROMPT_VERSION, "presenter-interleaved/v2-follow-along");
+  assert.equal(PRESENTER_PROMPT_VERSION, "presenter-interleaved/v4-board-proof");
   const prompt = buildPresenterPrompt({
     context: builtContext(),
     instructionalGoal: "讲解第二组子母型相似",
@@ -360,7 +360,7 @@ test("compiler emits interleaved voice + board.explain fragment sequence (canoni
   assert.match(fragment.fragment_id, /^EF-TS-8102-/);
   assert.equal(fragment.origin_generation, `GR-${SESSION}-0001`);
   assert.equal(plan.actions[1].workspace_action?.command_payload, fragment.fragment_id);
-  assert.deepEqual(fragment.basis_refs, ["FN-14", "IF-12"]);
+  assert.deepEqual(fragment.basis_refs, ["FN-03", "FN-04", "FN-14", "IF-12"]);
   assert.equal(plan.generation?.request_id, `GR-${SESSION}-0001`);
   assert.deepEqual(plan.scope, { kind: "approved", protocol_id: "PR-SMV-001", beat_id: "BT-04" });
 });

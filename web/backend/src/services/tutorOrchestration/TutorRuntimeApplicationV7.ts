@@ -26,6 +26,7 @@ import { resolvableTaskIds, TutorTaskBindingResolver } from "./TutorTaskBindingR
 
 export interface TutorRuntimeApplicationV7Deps {
   readonly canonicalRoot: string;
+  readonly bindingResolver?: TutorTaskBindingResolver;
   readonly model: OrchestratorV7ModelInput;
   readonly modelTimeoutMs?: number;
   /**
@@ -110,6 +111,7 @@ export class TutorRuntimeApplicationV7 {
           studentId: input.student_id,
           taskId: input.task_id,
           canonicalRoot: this.deps.canonicalRoot,
+          bindingResolver: this.deps.bindingResolver,
           model: this.deps.model,
           ...(this.deps.modelTimeoutMs !== undefined ? { modelTimeoutMs: this.deps.modelTimeoutMs } : {}),
           ...(input.assessment !== undefined ? { assessment: input.assessment } : {}),
@@ -136,6 +138,7 @@ export class TutorRuntimeApplicationV7 {
     return TutorSessionOrchestratorV7.resume({
       sessionId,
       canonicalRoot: this.deps.canonicalRoot,
+      bindingResolver: this.deps.bindingResolver,
       model: this.deps.model,
       ...(this.deps.modelTimeoutMs !== undefined ? { modelTimeoutMs: this.deps.modelTimeoutMs } : {}),
       ...(this.deps.presenter !== undefined ? { presenter: this.deps.presenter } : {}),

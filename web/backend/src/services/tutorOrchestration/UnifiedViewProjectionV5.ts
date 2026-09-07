@@ -139,6 +139,12 @@ function classifyFailures(events: readonly StoredV5Event[]): FailureFact | undef
     } else if (event.event_type === "policy_failed") {
       const payload = event.payload as { failure_class: string; fallback_beat_id?: string };
       latest = { sequence: event.sequence, category: "policy_failure", event_type: event.event_type, failure_class: payload.failure_class };
+    } else if (String(event.event_type) === "presentation_action_outcome_recorded") {
+      const payload = event.payload as { outcome?: string; failure_class?: string; message?: string };
+      if (payload.outcome === "failed") {
+        latest = { sequence: event.sequence, category: "presentation_action_failure", event_type: event.event_type,
+          failure_class: payload.failure_class ?? "presentation_action_failed", ...(payload.message ? { message: payload.message } : {}) };
+      }
     } else if (event.event_type === "presentation_failed") {
       const payload = event.payload as { failure_class: string; message?: string };
       latest = { sequence: event.sequence, category: "presentation_action_failure", event_type: event.event_type, failure_class: payload.failure_class, message: payload.message };
@@ -298,49 +304,8 @@ export function projectUnifiedViews(input: UnifiedProjectionInput): UnifiedProje
     inquiry = { kind: "no_inquiry" };
   }
 
-  // ---- transcript（学生安全轮；不含模型私有推理）----
-  // turn_id = DT- 对话轮命名空间（≠ TD- 决策 id）：确定性派生自承载事件的
-  // sequence（student=intent sequence、tutor=voice issued sequence）。
-  const transcript: CoachPanelViewV5["transcript"] = [];
-  for (const event of input.events) {
-    if (event.event_type === "student_intent_recorded") {
-      const payload = event.payload as { intent_kind: string; text?: string };
-      if (payload.text) {
-        transcript.push({
-          turn_id: dialogueTurnId(input.sessionId, event.sequence),
-          role: "student",
-          content: payload.text,
-        });
-      }
-      continue;
-    }
-    if (event.event_type === "voice_action_issued") {
-      const payload = event.payload as { action_id: string; decision_id: string; text: string; beat_id?: string };
-      transcript.push({
-        turn_id: dialogueTurnId(input.sessionId, event.sequence),
-        role: "tutor",
-        content: payload.text,
-        ...(payload.beat_id !== undefined ? { beat_id: payload.beat_id } : {}),
-      });
-      continue;
-    }
-    // F7 Step 3（additive）：v6 tutor 转录 = presentation_action_delivered(voice)
-    //（v5 流不含该事件类型，行为不变；文本回查 planned 序列）。
-    if (isDeliveredVoice(event)) {
-      const planned = indexPlannedVoiceActions(input.events).get(
-        `${(event.payload as { sequence_id: string }).sequence_id}`,
-      );
-      const voice = planned?.voices.get((event.payload as { ordinal: number }).ordinal);
-      if (voice) {
-        transcript.push({
-          turn_id: dialogueTurnId(input.sessionId, event.sequence),
-          role: "tutor",
-          content: voice.text,
-          ...(planned?.beatId !== undefined ? { beat_id: planned.beatId } : {}),
-        });
-      }
-    }
-  }
+  // Raw input is a dialogue fact even when interpretation emits no intent.
+  const transcript = projectDialogueTurns(input.sessionId, input.events);
 
   const waitingFor =
     state.completed ? undefined
@@ -422,6 +387,7 @@ function hasOutcome(events: readonly StoredV5Event[], actionId: string): boolean
 // --------------------------------------------------------------------------- //
 
 interface AnyStoredEventShape {
+  causation_sequence?: number;
   event_type: string;
   sequence: number;
   payload: Record<string, unknown>;
@@ -473,6 +439,54 @@ function lastTutorVoiceText(events: readonly StoredV5Event[], event: AnyStoredEv
   if (event.event_type === "voice_action_issued") return (event.payload as { text: string }).text;
   const ref = deliveredRefOf(event);
   return indexPlannedVoiceActions(events).get(ref.sequence_id)?.voices.get(ref.ordinal)?.text;
+}
+
+/** Dialogue projection uses input identity, never Gate outcome or text equality.
+ * v7/v9: raw utterance is authoritative; linked derived intents cannot duplicate
+ * or paraphrase it. v5/v6: intent text remains a read-only historical fallback. */
+export function projectDialogueTurns(sessionId: string, events: readonly AnyStoredEventShape[]): CoachPanelViewV5["transcript"] {
+  const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
+  const rawSequences = new Set(ordered.filter(e => e.event_type === "student_input_recorded").map(e => e.sequence));
+  const rawRequests = new Set(ordered.filter(e => e.event_type === "student_input_recorded")
+    .map(e => e.payload.client_request_id).filter((id): id is string => typeof id === "string"));
+  const seenSequences = new Set<number>();
+  const seenStudentRequests = new Set<string>();
+  const plannedVoices = indexPlannedVoiceActions(ordered);
+  const transcript: CoachPanelViewV5["transcript"] = [];
+  for (const event of ordered) {
+    if (seenSequences.has(event.sequence)) continue;
+    seenSequences.add(event.sequence);
+    const requestId = typeof event.payload.client_request_id === "string" ? event.payload.client_request_id : undefined;
+    if (event.event_type === "student_input_recorded" || event.event_type === "student_intent_recorded") {
+      let text: unknown;
+      if (event.event_type === "student_input_recorded") {
+        const input = event.payload.input as { kind?: string; text?: string } | undefined;
+        // A control click has no authored utterance, even if a derived intent has text.
+        if (input?.kind !== "utterance") continue;
+        text = input.text;
+      } else {
+        if (rawSequences.has(event.causation_sequence ?? -1) || (requestId !== undefined && rawRequests.has(requestId))) continue;
+        text = event.payload.text;
+      }
+      if (typeof text !== "string" || text.length === 0 || (requestId !== undefined && seenStudentRequests.has(requestId))) continue;
+      if (requestId !== undefined) seenStudentRequests.add(requestId);
+      transcript.push({ turn_id: dialogueTurnId(sessionId, event.sequence), role: "student", content: text });
+      continue;
+    }
+    if (event.event_type === "voice_action_issued") {
+      const payload = event.payload as { text: string; beat_id?: string };
+      transcript.push({ turn_id: dialogueTurnId(sessionId, event.sequence), role: "tutor", content: payload.text,
+        ...(payload.beat_id !== undefined ? { beat_id: payload.beat_id } : {}) });
+      continue;
+    }
+    if (isDeliveredVoice(event)) {
+      const planned = plannedVoices.get((event.payload as { sequence_id: string }).sequence_id);
+      const voice = planned?.voices.get((event.payload as { ordinal: number }).ordinal);
+      if (voice) transcript.push({ turn_id: dialogueTurnId(sessionId, event.sequence), role: "tutor", content: voice.text,
+        ...(planned?.beatId !== undefined ? { beat_id: planned.beatId } : {}) });
+    }
+  }
+  return transcript;
 }
 
 /** 对话轮 id（view/v1 transcript turn_id 的 DT- 命名空间；确定性派生）。 */

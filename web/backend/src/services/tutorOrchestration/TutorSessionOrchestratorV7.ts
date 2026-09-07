@@ -49,7 +49,8 @@ import { buildPresentationContext, DEFAULT_CONTEXT_POLICY, PresentationContextEr
 import { PresenterGenerationError, type PresenterGeneratorPort } from "./presentationGeneration/GeneratorPort";
 import { cancelGeneration, driveGeneration, reserveGeneration, type DriveOutcome, type GenerationKernelAccess } from "./presentationGeneration/GenerationCoordinator";
 import { IntentCompilerError, compilePresentationIntents, type CompiledPresentationPlanV4 } from "./presentationGeneration/IntentCompiler";
-import { buildPresenterPrompt } from "./presentationGeneration/PresenterPrompts";
+import { buildPresenterPrompt, PRESENTER_PROMPT_VERSION, type PresentedBoardNote } from "./presentationGeneration/PresenterPrompts";
+import { requiredBoardBindings, assertRequiredBoardBindings } from "./presentationGeneration/BoardProofCompleteness";
 import { visiblePresentationTools, type PresentationResourceBinding } from "./presentationGeneration/PresentationToolCatalog";
 import { SequencePreflightError, preflightPresentationSequence } from "./presentationGeneration/SequencePreflight";
 import { projectPendingPresentation, projectV6Views, type V6PendingPresentation, type V6SessionSnapshot } from "./V6SessionSnapshot";
@@ -80,6 +81,8 @@ export interface OrchestratorV7StartInput {
   readonly studentId: string;
   readonly taskId: string;
   readonly canonicalRoot: string;
+  /** Explicit local review composition; omitted in the production entry. */
+  readonly bindingResolver?: TutorTaskBindingResolver;
   readonly model: OrchestratorV7ModelInput;
   readonly modelTimeoutMs?: number;
   /** v7：会话模式显式（teaching|assessment；assessment ⇒ locked catalog 变体 pin）。 */
@@ -95,6 +98,8 @@ export interface OrchestratorV7StartInput {
 export interface OrchestratorV7ResumeInput {
   readonly sessionId: string;
   readonly canonicalRoot: string;
+  /** Explicit local review composition; omitted in the production entry. */
+  readonly bindingResolver?: TutorTaskBindingResolver;
   readonly model: OrchestratorV7ModelInput;
   readonly modelTimeoutMs?: number;
   /** F7 RT4：v9 会话恢复所需的 Presenter 端口（v7 行忽略；驱动 pending 生成必需）。 */
@@ -191,6 +196,7 @@ export type OrchestratorV7ErrorCode =
   | "NO_EXECUTABLE_DECISION"
   | "PRESENTATION_CURSOR_MISMATCH"
   | "PRESENTATION_FAILED_PENDING_RECOVERY"
+  | "PRESENTATION_AWAITING_BROWSER"
   | "WORKSPACE_APPLY_REJECTED"
   | "RETRY_RECOVERY_WITHOUT_FAILURE"
   | "ASSESSMENT_INTENT_FORBIDDEN"
@@ -374,7 +380,7 @@ export class TutorSessionOrchestratorV7 {
    * 单确定性指示 voice、零 workspace action）。
    */
   static start(input: OrchestratorV7StartInput): TutorSessionOrchestratorV7 {
-    const resolver = new TutorTaskBindingResolver(input.canonicalRoot);
+    const resolver = input.bindingResolver ?? new TutorTaskBindingResolver(input.canonicalRoot);
     const binding = resolveBindingOrThrow(resolver, input.taskId);
     const sessionMode: "teaching" | "assessment" = input.assessment === true ? "assessment" : "teaching";
     const catalog = sessionMode === "assessment" ? assessmentCatalogVariant(binding) : binding.golden.catalog;
@@ -420,7 +426,7 @@ export class TutorSessionOrchestratorV7 {
    * 续投（恰好一次）。v5/v6 会话行 → SESSION_VERSION_UNSUPPORTED（不迁移）。
    */
   static resume(input: OrchestratorV7ResumeInput): TutorSessionOrchestratorV7 {
-    const resolver = new TutorTaskBindingResolver(input.canonicalRoot);
+    const resolver = input.bindingResolver ?? new TutorTaskBindingResolver(input.canonicalRoot);
     // F7 RT4：按会话行 event_schema 选择 rebuilder（v9 行经 v9 codec verify；
     // v7 行走既有链——半升级组合在 reader 边界显式拒绝）。
     const rowSchema = readSessionEventSchema(input.sessionId);
@@ -438,7 +444,7 @@ export class TutorSessionOrchestratorV7 {
     // session_mode 合法性已由 v7RegistryProvider 强制（canonical 必填 + 双重对账）；
     // 此处只读取以选择会话 pin 的 catalog 形态（teaching=construction；assessment=locked 变体）。
     const sessionMode = started.session_mode === "assessment" ? "assessment" : "teaching";
-    const binding = resolveBindingOrThrow(resolver, started.task_id);
+    const binding = resolveBindingOrThrow(resolver, started.task_id, verified.sessionStartedPayload);
     // model pin 对账（实现级边界：不符即拒，与 catalog pin 对账同型；零事件追加）。
     const expected = input.model.pin;
     const actual = started.model_gate_pin;
@@ -575,13 +581,44 @@ export class TutorSessionOrchestratorV7 {
     if (prior && !isDeepStrictEqual((prior.payload as { input: unknown }).input, input.input)) {
       throw new OrchestratorV7Error("REQUEST_PAYLOAD_DRIFT", "student input retry changed payload for the same client_request_id");
     }
+    if (prior && input.input.kind === "control" && input.input.command === "retry_recovery") {
+      const later = this.events.filter(event => event.sequence > prior.sequence);
+      const generationAtInput = [...this.events].reverse().find(event => event.sequence < prior.sequence
+        && (String(event.event_type).startsWith("presentation_generation_")
+          || (event.event_type === "presentation_sequence_planned" && (event.payload as { generation?: unknown }).generation)));
+      const resumedPendingBudget = (generationAtInput?.payload as { status?: string } | undefined)?.status === "pending";
+      // Recovery controls intentionally have no Navigator decision. Their completed
+      // reservation/delivery still makes a lost-response retry a read, not new input.
+      if (resumedPendingBudget || later.some(event => String(event.event_type) === "presentation_generation_requested"
+        || event.event_type === "presentation_sequence_planned"
+        || event.event_type === "student_input_recorded"
+        || event.event_type === "policy_decision_made")) {
+        return { revision: this.navigator.revision,
+          turn: { revision: this.navigator.revision, inputSequence: prior.sequence }, presentations: [], snapshot: this.snapshot() };
+      }
+      // Crash after retry_recovery superseded the failed sequence, before reservation.
+      // Complete just that missing presentation; no Navigator/Gate is re-entered.
+      const superseded = later.find(event => event.event_type === "presentation_sequence_superseded"
+        && (event.payload as { reason?: string }).reason === "retry_recovery");
+      if (superseded && this.navigator.state.presentation_cursor.status === "idle" && !this.hasPendingGeneration()) {
+        const presentations = [this.presentCurrentBeat()];
+        return { revision: this.navigator.revision,
+          turn: { revision: this.navigator.revision, inputSequence: prior.sequence }, presentations, snapshot: this.snapshot() };
+      }
+    }
     const committed = findCommittedV7Turn(this.events, input.client_request_id);
     if (committed?.decisionSequence !== undefined || committed?.failure !== undefined) {
-      // A completed request is a read, even if its original revision is stale.
-      // Never re-enter interruption/presentation effects or invoke the model.
+      // Replay never reinterprets evidence. Repair only a still-current decision
+      // whose presentation was never reserved (e.g. a crash between the commits).
       const { intentSequence, ...turn } = committed;
       void intentSequence;
-      return { revision: this.navigator.revision, turn, presentations: [], snapshot: this.snapshot() };
+      const presentations = this.recoverUnreservedPresentation(turn);
+      return { revision: this.navigator.revision, turn, presentations, snapshot: this.snapshot() };
+    }
+    // Admission precedes even revision-failure recording and generation cancellation.
+    // An unacknowledged delivery is not permission to interpret another input.
+    if (!(input.input.kind === "control" && input.input.command === "barge_in")) {
+      this.assertDeliverySettled();
     }
     const conflict = this.checkExpectedRevision(options.expectedRevision);
     if (conflict) {
@@ -1086,6 +1123,57 @@ export class TutorSessionOrchestratorV7 {
   // ------------------------------------------------------------------ //
   // 内部：决策后呈现 / 交付 / 恢复（v6 同款）
   // ------------------------------------------------------------------ //
+
+  private assertDeliverySettled(): void {
+    if (this.navigator.state.presentation_cursor.status === "awaiting_browser") {
+      throw new OrchestratorV7Error(
+        "PRESENTATION_AWAITING_BROWSER",
+        "presentation is awaiting_browser; settle the delivered action or explicitly barge_in before submitting input (zero events)",
+      );
+    }
+  }
+
+  /** Rebuild the commit/reservation gap from facts, never from a second retry ledger. */
+  private recoverUnreservedPresentation(turn: V7TurnResult): V7PresentationReport[] {
+    if (this.navigator.eventSchema !== "v9" || this.presenterGenerator === undefined
+      || this.assessmentMode || turn.failure || !turn.decision || turn.decisionSequence === undefined) return [];
+    const kind = turn.decision.decision_kind;
+    if (!["execute_beat", "request_clarification", "return_to_mainline", "transition_beat", "open_inquiry", "open_scaffold"].includes(kind)) return [];
+    const later = this.events.filter(event => event.sequence > turn.decisionSequence!);
+    // Any existing reservation (including failed/cancelled) is owned by the
+    // generation/retry_recovery protocol. Never manufacture another budget.
+    if (later.some(event => String(event.event_type) === "presentation_generation_requested"
+      || event.event_type === "presentation_sequence_planned"
+      || event.event_type === "student_input_recorded"
+      || event.event_type === "student_workspace_command_recorded")) return [];
+    const decisions = later.filter(event => event.event_type === "policy_decision_made");
+    // A follow-up execution anchor may already have committed before the crash.
+    // Only the direct causal child belongs to this turn; newer decisions supersede it.
+    const anchor = decisions.length === 1
+      && decisions[0].causation_sequence === turn.decisionSequence
+      && (decisions[0].payload as unknown as NavigatorDecision).decision_kind === "execute_beat"
+      ? decisions[0] : undefined;
+    if (decisions.length && !anchor) return [];
+    this.assertDeliverySettled();
+    if (this.navigator.state.presentation_cursor.status === "failed"
+      || this.navigator.state.generation_slot?.status === "failed") {
+      throw new OrchestratorV7Error("PRESENTATION_FAILED_PENDING_RECOVERY", "failed presentation requires control.retry_recovery before repairing a missing reservation");
+    }
+    if (this.hasPendingGeneration()) return [];
+    if (anchor) {
+      const decision = anchor.payload as unknown as NavigatorDecision;
+      if (decision.protocol_id !== this.navigator.currentBeat.protocol_id || decision.beat_id !== this.navigator.currentBeat.beat_id) return [];
+      return [this.reserveGenerationForDecision(decision, anchor.sequence)];
+    }
+    if (kind === "transition_beat" || kind === "open_inquiry" || kind === "open_scaffold") {
+      // No execution anchor exists yet. This creates only that missing anchor;
+      // it does not submit student evidence, call the adjudicator, or evaluate a gate.
+      return this.presentAfterDecision(turn);
+    }
+    if (turn.decision.protocol_id !== this.navigator.currentBeat.protocol_id
+      || turn.decision.beat_id !== this.navigator.currentBeat.beat_id) return [];
+    return [this.reserveGenerationForDecision(turn.decision, turn.decisionSequence)];
+  }
 
   /** 决策后呈现策略：transition→executeCurrentBeat；execute/return/clarification→
    * presentCurrentBeat；open_inquiry/open_scaffold→锚定 inquiry entry beat 呈现。 */
@@ -1660,6 +1748,9 @@ export class TutorSessionOrchestratorV7 {
     const cutoff = request.context.event_cutoff;
     let stuckPoint: { readonly text: string; readonly locatedRefs: readonly string[] } | null = null;
     const alreadyPresented: string[] = [];
+    const alreadyPresentedBoardContent: string[] = [];
+    const generatedBoardContents = new Map<string, PresentedBoardNote>();
+    const presentedBoard: PresentedBoardNote[] = [];
     const plannedActionsBySequence = new Map<string, V7PresentationOrderedAction[]>();
     for (const event of this.events) {
       if (event.state_revision > cutoff) break; // committed 流按序；cutoff 后的事件不属于本冻结视图
@@ -1673,16 +1764,35 @@ export class TutorSessionOrchestratorV7 {
       } else if (event.event_type === "presentation_sequence_planned") {
         const payload = event.payload as unknown as { sequence_id: string; actions: V7PresentationOrderedAction[] };
         plannedActionsBySequence.set(payload.sequence_id, payload.actions);
+        const fragments = (event.payload as { explanation_fragments?: { fragment_id: string; content: string; kind: string }[] }).explanation_fragments ?? [];
+        for (const fragment of fragments) generatedBoardContents.set(fragment.fragment_id, { kind: fragment.kind, content: fragment.content });
       } else if (event.event_type === "presentation_action_outcome_recorded" && (event.payload as {outcome:string}).outcome === "presented") {
         // alreadyPresented=已呈现内容（浏览器确认 presented 的 voice 正文——committed presentation
         // 序列派生；不重复已讲过的整句是 prompt 硬性规则 7 的输入面）。
-        const payload = event.payload as { sequence_id: string; ordinal: number };
+        const payload = event.payload as { sequence_id: string; ordinal: number; action_id?: string; kind?: string };
         const actions = plannedActionsBySequence.get(payload.sequence_id);
         const action = actions?.find((candidate) => candidate.ordinal === payload.ordinal);
+        if (request.presenter_pin.prompt_version === PRESENTER_PROMPT_VERSION
+          && (!action || payload.kind !== action.kind
+            || payload.action_id !== (action.kind === "voice" ? action.voice_action?.action_id : action.workspace_action?.action_id))) continue;
         const text = action?.kind === "voice" ? action.voice_action?.text : undefined;
         if (typeof text === "string" && text.trim() !== "") alreadyPresented.push(text);
+        const workspaceAction = action?.kind === "workspace" ? action.workspace_action : undefined;
+        if (workspaceAction?.capability === "board.explain" && typeof workspaceAction.command_payload === "string") {
+          const content = generatedBoardContents.get(workspaceAction.command_payload);
+          if (content) {
+            presentedBoard.push(content);
+            if (content.kind === "approved_math_note" || content.kind === "relation_note") alreadyPresentedBoardContent.push(content.content);
+          }
+        }
       }
     }
+    const approvedConstructions = resolveBeatConstructions(this.binding.imported.plan.resources, this.navigator.currentBeat) ?? [];
+    const visibleTools = this.visibleGenerationTools(request.context);
+    const requireBoardProof = request.presenter_pin.prompt_version === PRESENTER_PROMPT_VERSION;
+    const boardRequirements = requireBoardProof ? requiredBoardBindings({
+      visibleTools, graph: { facts: factById, inferences: inferenceById }, alreadyPresentedBoardContent,
+    }) : [];
     const prompt = buildPresenterPrompt({
       context,
       instructionalGoal: this.navigator.currentBeat.purpose,
@@ -1690,9 +1800,12 @@ export class TutorSessionOrchestratorV7 {
       promptVersion: request.presenter_pin.prompt_version,
       currentGranularity: "beat",
       alreadyPresented,
+      ...(requireBoardProof ? { presentedBoard, requiredBoardBindings: boardRequirements } : {}),
       stuckPoint,
-      visibleTools: this.visibleGenerationTools(request.context),
-      maxItems: 6,
+      visibleTools,
+      // Five dependent geometry commands need room for speech and a proof note;
+      // stay within the existing compiler/canonical 12-action bound.
+      maxItems: Math.min(12, Math.max(6, approvedConstructions.length + 6)),
       maxSpeechChars: 400,
     });
     const { draft } = await this.presenterGenerator.generatePresentationDraft({
@@ -1702,7 +1815,7 @@ export class TutorSessionOrchestratorV7 {
       userPayload: prompt.userPayload,
       timeoutMs: request.timeout_ms,
     });
-    const beat = this.navigator.currentBeat;
+    if (requireBoardProof) assertRequiredBoardBindings(draft, boardRequirements);
     const compiled = compilePresentationIntents({
       sessionId: this.sessionId,
       sequenceSerial: this.countPlanned() + 1,
@@ -1717,10 +1830,11 @@ export class TutorSessionOrchestratorV7 {
       },
       draft,
       context,
-      visibleTools: this.visibleGenerationTools(request.context),
+      visibleTools,
       resources: new Map(this.binding.imported.plan.resources.map((resource) => [resource.resource_id, resource])),
       graph: { facts: factById, inferences: inferenceById },
-      approvedConstructions: resolveBeatConstructions(this.binding.imported.plan.resources, beat) ?? [],
+      alreadyPresentedBoardContent,
+      approvedConstructions,
       revealAuthorized: (binding) => {
         if (binding.binding_kind !== "board" || !binding.reveal_after_gate) return false;
         const { protocol_id, gate_id } = binding.reveal_after_gate;
@@ -1886,9 +2000,9 @@ export class TutorSessionOrchestratorV7 {
 // committed 流只读扫描（呈现/命令编排的解析面；不信任调用方载荷的任何 id）
 // ------------------------------------------------------------------ //
 
-function resolveBindingOrThrow(resolver: TutorTaskBindingResolver, taskId: string): TutorTaskBinding {
+function resolveBindingOrThrow(resolver: TutorTaskBindingResolver, taskId: string, started?: Record<string, unknown>): TutorTaskBinding {
   try {
-    return resolver.resolveForStart(taskId);
+    return started ? resolver.resolveForRestore(taskId, started) : resolver.resolveForStart(taskId);
   } catch (error) {
     if (error instanceof Error && "code" in error) {
       throw new OrchestratorV7Error(

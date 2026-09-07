@@ -115,7 +115,7 @@ const CIRCLE_ATTRS: Partial<JXG.CircleAttributes> = {
  */
 export function resolveCanvasEmphasis(input: {
   emphasis?: TransientCanvasEmphasis;
-  teachingMarks: readonly { id: string; kind: string; entityIds?: readonly string[] }[];
+  teachingMarks: readonly { id: string; kind: string; entityIds?: readonly string[]; segmentIds?: readonly string[] }[];
   lastKey?: string;
 }): { fresh: boolean; pulseEntities: Set<string>; pulseMarks: Set<string> } {
   const { emphasis, teachingMarks, lastKey } = input;
@@ -127,7 +127,10 @@ export function resolveCanvasEmphasis(input: {
     for (const markId of emphasis.markIds) {
       const mark = teachingMarks.find((candidate) => candidate.id === markId);
       if (mark?.kind === "emphasis") mark.entityIds?.forEach((id) => pulseEntities.add(id));
-      else pulseMarks.add(markId);
+      else {
+        pulseMarks.add(markId);
+        if (mark?.kind === "correspondence") mark.segmentIds?.forEach(id => pulseEntities.add(id));
+      }
     }
   }
   return { fresh, pulseEntities, pulseMarks };
@@ -142,6 +145,26 @@ function tagGeometryId(element: { rendNode?: HTMLElement }, id: string): void {
   element.rendNode?.setAttribute("data-geometry-id", id);
 }
 
+/** Contain all model points with pixel margins at one uniform world→pixel scale.
+ * JSXGraph bbox order: left, top, right, bottom. Expand, never stretch/crop.
+ */
+export function fitBBoxToViewport(
+  pointsBBox: readonly [number, number, number, number],
+  width: number, height: number, pixelMargin = 24,
+): [number, number, number, number] {
+  if (![...pointsBBox, width, height, pixelMargin].every(Number.isFinite) || width <= 0 || height <= 0 || pixelMargin < 0)
+    throw new Error("Geometry viewport requires finite bounds and positive dimensions");
+  const [left, top, right, bottom] = pointsBBox;
+  if (right < left || top < bottom) throw new Error("Invalid geometry bounds");
+  const margin = Math.min(pixelMargin, Math.min(width, height) / 4);
+  // A single point / collinear diagram still needs a nonzero world interval.
+  const scale = Math.min((width - 2 * margin) / Math.max(right - left, 1),
+    (height - 2 * margin) / Math.max(top - bottom, 1));
+  const centerX = (left + right) / 2, centerY = (top + bottom) / 2;
+  return [centerX - width / scale / 2, centerY + height / scale / 2,
+    centerX + width / scale / 2, centerY - height / scale / 2];
+}
+
 /**
  * Mount a JSXGraph board inside `container`, backed by `model`. Returns handles
  * the React layer uses to render, read the pointer, and tear down.
@@ -151,14 +174,50 @@ export function mountGeometryBoard(
   model: GeometryModel,
   callbacks: BoardCallbacks,
 ): BoardHandles {
-  const bbox = model.boundingBox();
+  const initialWidth = container.clientWidth;
+  const initialHeight = container.clientHeight;
+  // Hidden hosts have no meaningful projection yet; the observer refits once
+  // visible. A visible host must use the expanded viewport from its first draw.
+  const bbox = fitBBoxToViewport(model.boundingBox(0), initialWidth > 0 ? initialWidth : 1,
+    initialHeight > 0 ? initialHeight : 1);
   const board = JXG.JSXGraph.initBoard(container, {
     boundingbox: bbox,
     showCopyright: false,
     showNavigation: false,
-    keepaspectratio: true,
+    keepaspectratio: false,
+    // Own sizing below: JSXGraph's default resize preserves its current box,
+    // which can be invalid or excessively expanded after a zero-size mount.
+    resize: { enabled: false, throttle: 0 },
     axis: false,
   }) as unknown as JXG.Board;
+
+  let destroyed = false;
+  let lastWidth = 0;
+  let lastHeight = 0;
+  const fitToContainer = (): void => {
+    if (destroyed) return;
+    // Layout pixels, not getBoundingClientRect(): a CSS transform must not be
+    // counted twice. The board has no padding; client size excludes its border.
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    if (width <= 0 || height <= 0) {
+      lastWidth = 0; lastHeight = 0;
+      return; // Hidden/unlaid-out host: wait for a positive measurement.
+    }
+    if (width === lastWidth && height === lastHeight) return;
+    lastWidth = width; lastHeight = height;
+    // Preserve responsive CSS. Refit the model, never the previous viewport:
+    // repeated narrow/wide resizing must not accumulate bounding-box expansion.
+    board.resizeContainer(width, height, true, true);
+    // The explicit bbox aspect makes unitX == unitY. Passing true would let
+    // JSXGraph guess the dominant interval again and crop narrow/tall boards.
+    board.setBoundingBox(fitBBoxToViewport(model.boundingBox(0), width, height), false);
+    board.fullUpdate();
+  };
+  const resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(fitToContainer) : undefined;
+  resizeObserver?.observe(container);
+  if (!resizeObserver) window.addEventListener("resize", fitToContainer);
+  fitToContainer();
 
   let pointer: { x: number; y: number } | null = null;
 
@@ -210,6 +269,17 @@ export function mountGeometryBoard(
     const entities = callbacks.getEntities();
     const teachingMarks = model.teachingMarksList();
     const emphasizedIds = new Set(teachingMarks.filter((mark) => mark.kind === "emphasis").flatMap((mark) => mark.entityIds));
+    // Correspondence expresses a pairing, not equal length. Use shared color,
+    // never equality ticks; existing selection/error affordances retain priority.
+    const correspondenceColors = new Map<string, string>();
+    const pairPalette = ["#a16207", "#7c3aed", "#0369a1", "#be185d"];
+    teachingMarks.filter(mark => mark.kind === "correspondence")
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .forEach((mark, index) => {
+        for (const id of mark.segmentIds) {
+          if (!correspondenceColors.has(id)) correspondenceColors.set(id, pairPalette[index % pairPalette.length]);
+        }
+      });
 
     // Resolve the transient highlight for this render (pure — extracted so the
     // one-key-per-play rule and the emphasis-mark fallback are unit-testable
@@ -235,7 +305,9 @@ export function mountGeometryBoard(
           ...entityStyle(entities[point.id]),
           ...(freshEmphasis && pulseEntities.has(point.id) ? { cssClass: EMPHASIS_PULSE_CLASS } : {}),
           layer: 9,
-          name: point.id,
+          // Canonical construction IDs retain their namespace in the model and DOM;
+          // the diagram uses the mathematical point name.
+          name: point.id.replace(/^pt-([A-Z](?:[0-9]+|['′])?)$/, "$1"),
         },
       ) as JXG.Point;
       tagGeometryId(el, point.id);
@@ -252,6 +324,7 @@ export function mountGeometryBoard(
         const segment = board.create("line", [from, to], {
           ...(line.derived ? LINE_ATTRS_DERIVED : LINE_ATTRS),
           ...(emphasizedIds.has(line.id) ? { strokeColor: "#0f766e", strokeWidth: 4 } : {}),
+          ...(correspondenceColors.has(line.id) ? { strokeColor: correspondenceColors.get(line.id), strokeWidth: 4 } : {}),
           ...entityStyle(entities[line.id]),
           ...(freshEmphasis && pulseEntities.has(line.id) ? { cssClass: EMPHASIS_PULSE_CLASS } : {}),
           layer: 7,
@@ -275,6 +348,7 @@ export function mountGeometryBoard(
         const parallelLine = board.create("line", [through, helper], {
           ...LINE_ATTRS_DERIVED,
           ...(emphasizedIds.has(line.id) ? { strokeColor: "#0f766e", strokeWidth: 4 } : {}),
+          ...(correspondenceColors.has(line.id) ? { strokeColor: correspondenceColors.get(line.id), strokeWidth: 4 } : {}),
           ...entityStyle(entities[line.id]),
           ...(freshEmphasis && pulseEntities.has(line.id) ? { cssClass: EMPHASIS_PULSE_CLASS } : {}),
           layer: 7,
@@ -323,37 +397,7 @@ export function mountGeometryBoard(
         }) as JXG.Text;
         continue;
       }
-      if (mark.kind === "correspondence") {
-        const markPulsed = freshEmphasis && pulseMarks.has(mark.id);
-        for (const segmentId of mark.segmentIds) {
-          const endpoints = displayLineEndpoints(model, segmentId);
-          if (!endpoints) continue;
-          const dx = endpoints.to.x - endpoints.from.x;
-          const dy = endpoints.to.y - endpoints.from.y;
-          const length = Math.hypot(dx, dy) || 1;
-          const ux = dx / length;
-          const uy = dy / length;
-          const nx = -uy;
-          const ny = ux;
-          const midX = (endpoints.from.x + endpoints.to.x) / 2;
-          const midY = (endpoints.from.y + endpoints.to.y) / 2;
-          for (let tick = 0; tick < Math.max(1, mark.tickCount); tick += 1) {
-            const along = (tick - (mark.tickCount - 1) / 2) * markScale * 0.012;
-            const half = markScale * 0.012;
-            board.create("segment", [
-              [midX + ux * along - nx * half, midY + uy * along - ny * half],
-              [midX + ux * along + nx * half, midY + uy * along + ny * half],
-            ], {
-              strokeColor: "#a16207",
-              strokeWidth: 2,
-              fixed: true,
-              highlight: false,
-              layer: 10,
-              ...(markPulsed ? { cssClass: EMPHASIS_PULSE_CLASS } : {}),
-            }) as JXG.Line;
-          }
-        }
-      }
+
     }
 
     board.unsuspendUpdate();
@@ -364,6 +408,9 @@ export function mountGeometryBoard(
     getPointer: () => pointer,
     render: renderModel,
     destroy: () => {
+      destroyed = true;
+      resizeObserver?.disconnect();
+      if (!resizeObserver) window.removeEventListener("resize", fitToContainer);
       container.removeEventListener("pointerdown", onPointerDown);
       try {
         JXG.JSXGraph.freeBoard(board as unknown as Parameters<typeof JXG.JSXGraph.freeBoard>[0]);

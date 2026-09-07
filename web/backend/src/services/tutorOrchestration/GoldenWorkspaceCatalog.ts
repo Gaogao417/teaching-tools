@@ -29,6 +29,7 @@ import type { ImportedApprovedPlanV5 } from "../planBuild/v5/ImportApprovedPlanV
 import type { TopicGeometryModel } from "../../../../shared/topicPractice";
 import {
   buildWorkspacePresentationCatalog,
+  workspaceCatalogPin,
   type WorkspacePresentationCatalogV5,
 } from "../tutorSession/WorkspacePresentationCatalogV5";
 
@@ -36,14 +37,14 @@ export const GOLDEN_CATALOG_TASK_ID = "goldenMinhangFold2020";
 
 /**
  * golden 题图（等腰 △ABC：AB=AC=4、BC=6；D 在 BC 上且 ∠DAC=∠ACD）。
- * 坐标按 AB=AC=4、BC=6、A=(3,√7) 解析布点。E/AE/DE/BE 属题面 authored 图
+ * 以下函数冻结历史错误坐标，仅用于按旧 pin 恢复；新图由数学模型生成。E/AE/DE/BE 属题面 authored 图
  * （F7 Step 2 定稿：golden-similarity-mvp-001 题库 promptGeometry 逐点核对
  * derived:false——翻折落点 E 在考题图中即画出，位于 BC 下方）；O 及
  * AO/DO/BO/OE 是 RG 辅助构造（FN-12），不入 authored 基座——由 BT-04 呈现
  * 时 Presenter 经 approved 构造资源 committed（因果链 1，防提前泄露解法）。
  * segment-* id 与 F3 测试/View kind 前缀纪律对齐。
  */
-function goldenBaseGeometry(): TopicGeometryModel {
+function legacyGoldenBaseGeometry(): TopicGeometryModel {
   const h = Math.sqrt(7); // AB=AC=4, BC=6 → 高 = √(16−9)
   const d = 10 / 3; // △CAD∽△CBA ⇒ BD=10/3、DC=AD=8/3
   return {
@@ -69,6 +70,21 @@ function goldenBaseGeometry(): TopicGeometryModel {
       { id: "segment-BE", from: "B", to: "E", derived: false },
     ],
   };
+}
+
+/** Euclidean model first; a single similarity transform preserves lengths/angles.
+ * E is computed from C's reflection in AD, never copied from a rendered sketch. */
+function goldenBaseGeometry(): TopicGeometryModel {
+  const a = { x: 3, y: Math.sqrt(7) };
+  const b = { x: 0, y: 0 };
+  const c = { x: 6, y: 0 };
+  const d = { x: 10 / 3, y: 0 };
+  const ux = d.x - a.x, uy = d.y - a.y;
+  const t = ((c.x - a.x) * ux + (c.y - a.y) * uy) / (ux * ux + uy * uy);
+  const e = { x: 2 * (a.x + t * ux) - c.x, y: 2 * (a.y + t * uy) - c.y };
+  const points = Object.entries({ A: a, B: b, C: c, D: d, E: e }).map(([id, p]) =>
+    ({ id, x: 20 + 60 * p.x, y: 280 - 60 * p.y, derived: false }));
+  return { ...legacyGoldenBaseGeometry(), points };
 }
 
 function goldenAuthoredKinds(): Record<string, "point" | "segment"> {
@@ -108,7 +124,7 @@ export class GoldenCatalogError extends Error {
  * catalog → 同 catalog pin）。final 条目必须找到唯一 gate 绑定，否则 fail
  * closed（不得产出可被任意 gate reveal 的 catalog——R2 五级绑定纪律）。
  */
-export function buildGoldenWorkspaceCatalogV5(imported: ImportedApprovedPlanV4 | ImportedApprovedPlanV5): GoldenWorkspaceCatalog {
+function buildGoldenCatalog(imported: ImportedApprovedPlanV4 | ImportedApprovedPlanV5, baseGeometry: TopicGeometryModel): GoldenWorkspaceCatalog {
   // mainline 协议（importer/buildNavigatorPlan 保证恰一个；此处独立复核）。
   const mainlines = [...imported.protocols.values()].filter(
     (protocol) => protocol.protocol_kind === "mainline",
@@ -207,11 +223,42 @@ export function buildGoldenWorkspaceCatalogV5(imported: ImportedApprovedPlanV4 |
   const catalog = buildWorkspacePresentationCatalog({
     schemaVersion: 1,
     taskId: GOLDEN_CATALOG_TASK_ID,
-    baseGeometry: goldenBaseGeometry(),
+    baseGeometry,
     authoredElementKinds: goldenAuthoredKinds(),
     boardEntries: entries,
     canonicalPathEntryIds,
     initialInteractionMode: "construction",
   });
   return { catalog, factEntryIds };
+}
+
+/** New sessions always use the metrically correct geometry. */
+export function buildGoldenWorkspaceCatalogV5(imported: ImportedApprovedPlanV4 | ImportedApprovedPlanV5): GoldenWorkspaceCatalog {
+  return buildGoldenCatalog(imported, goldenBaseGeometry());
+}
+
+/** Frozen historical geometry: restore only, not a new-session choice. */
+export function buildLegacyGoldenWorkspaceCatalogV5(imported: ImportedApprovedPlanV4 | ImportedApprovedPlanV5): GoldenWorkspaceCatalog {
+  return buildGoldenCatalog(imported, legacyGoldenBaseGeometry());
+}
+
+/** Read-only catalog lookup by exact committed content pin. Unknown pins fail closed;
+ * choosing legacy geometry never relaxes plan/model/capability or mode checks. */
+export function goldenWorkspaceCatalogForPin(
+  imported: ImportedApprovedPlanV4 | ImportedApprovedPlanV5,
+  pinned: unknown,
+  mode?: "teaching" | "assessment",
+): GoldenWorkspaceCatalog {
+  const pin = pinned as { content_hash?: unknown; catalog_schema_version?: unknown; entry_count?: unknown } | undefined;
+  for (const golden of [buildGoldenWorkspaceCatalogV5(imported), buildLegacyGoldenWorkspaceCatalogV5(imported)]) {
+    for (const selectedMode of mode ? [mode] : ["teaching", "assessment"] as const) {
+      const candidate = selectedMode === "assessment"
+        ? { ...golden, catalog: { ...golden.catalog, initialInteractionMode: "locked" as const } } : golden;
+      const expected = workspaceCatalogPin(candidate.catalog);
+      if (pin?.content_hash === expected.content_hash
+        && (pin.catalog_schema_version === undefined || pin.catalog_schema_version === expected.catalog_schema_version)
+        && (pin.entry_count === undefined || pin.entry_count === expected.entry_count)) return candidate;
+    }
+  }
+  throw new GoldenCatalogError(["workspace_catalog_pin does not match a supported historical/current catalog for the pinned mode"]);
 }

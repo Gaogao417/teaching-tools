@@ -543,6 +543,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  包装（失败提示已在内部呈现，无需读结果）。 */
   type RuntimeInputSettlement =
     | "adopted" // 回执 2xx 且响应快照通过采用门禁——唯一放行语义
+    | "confirmed" // committed input confirmed, but a newer snapshot is already adopted; never opens the recording gate
     | "rejected" // 4xx 确定性拒绝（token 已释放；确定拒绝不盲重试）
     | "network-failed" // 网络/5xx（token 保留，同键幂等重试）
     | "adoption-failed" // 回执快照未过采用门禁（protocol error 已呈现）
@@ -568,9 +569,18 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     setTurnPending(true);
     try {
       const response = await runtimeClient.submitStudentInput(operation.sessionId, operation.input, operation.revision, clientRequestId);
-      if (adoptRuntimeSnapshot(response, operation.sessionId, epoch) && pendingInputRef.current === operation) {
+      if (!runtimeMountedRef.current || epoch !== runtimeEpochRef.current) return "stale";
+      const latest = runtimeSnapshotRef.current;
+      const confirmedOlder = response.session_id === operation.sessionId && response.task_id === taskId
+        && latest?.session_id === response.session_id && response.revision < latest.revision;
+      const adopted = adoptRuntimeSnapshot(response, operation.sessionId, epoch);
+      // Transport settlement and snapshot adoption are distinct. A valid late
+      // response must release its logical input token without rolling back state.
+      if ((adopted || confirmedOlder) && pendingInputRef.current === operation) {
         pendingInputRef.current = undefined;
-        return "adopted";
+        setProtocolError(current => current === "上一输入结果尚未确认，请重试原输入并恢复同步" ? undefined : current);
+        if (response.turn && response.turn.status !== "committed") return "rejected";
+        return adopted ? "adopted" : "confirmed";
       }
       return "adoption-failed";
     } catch (turnError) {
@@ -581,7 +591,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     } finally {
       if (runtimeMountedRef.current && epoch === runtimeEpochRef.current) setTurnPending(false);
     }
-  }, [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError]);
+  }, [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError, taskId]);
 
   const submitRuntimeInput = useCallback(async (input: StudentBrowserInput): Promise<void> => {
     await submitRuntimeInputSettled(input);
@@ -677,6 +687,10 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const presentationRuntimeRef = useRef<TutorPresentationRuntime | undefined>(undefined);
   presentationRuntimeRef.current = presentationRuntime;
   const lastPresentationAdoptedRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
+  // Text handshake adopts revisions normally, but must not start the delivery
+  // returned by an old outcome while barge-in/text is still using that revision.
+  const textHandshakeRef = useRef(false);
+  const [textHandshakeRelease, setTextHandshakeRelease] = useState(0);
 
   useEffect(() => {
     if (!runtimeClient) return;
@@ -731,11 +745,11 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   // 快照对象（StrictMode effect 重放）不重复 adopt；新对象由状态机按去重键
   // 分派（单次执行 / 幂等重发 / 暂停规则见 PresentationRuntimeController）。
   useEffect(() => {
-    if (!runtimeClient || !presentationRuntime || !runtimeSnapshot) return;
+    if (!runtimeClient || !presentationRuntime || !runtimeSnapshot || textHandshakeRef.current) return;
     if (lastPresentationAdoptedRef.current === runtimeSnapshot) return;
     lastPresentationAdoptedRef.current = runtimeSnapshot;
     presentationRuntime.controller.adopt(runtimeSnapshot);
-  }, [runtimeClient, presentationRuntime, runtimeSnapshot]);
+  }, [runtimeClient, presentationRuntime, runtimeSnapshot, textHandshakeRelease]);
 
   // ---- F7 P2（S1 R8 + s1-http-media-handshake 规格 Interfaces）：generation
   // pending 只读轮询。snapshot GET 只读（verified rebuild、零模型调用）；仅
@@ -1049,12 +1063,42 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  channel 是用户选择的交互入口：Coach assistance composer=assistance、
    *  mainline answer composer=mainline。幂等 token 见 submitRuntimeInput。 */
   const submitUtterance = useCallback(
-    async (channel: "mainline" | "assistance", text: string): Promise<void> => {
+    async (channel: "mainline" | "assistance", text: string): Promise<boolean> => {
       const trimmed = text.trim();
-      if (!trimmed) return;
-      await submitRuntimeInput({ kind: "utterance", channel, text: trimmed });
+      if (!trimmed) return false;
+      if (textHandshakeRef.current) return false;
+      textHandshakeRef.current = true;
+      try {
+        const input: StudentBrowserInput = { kind: "utterance", channel, text: trimmed };
+        const pending = pendingInputRef.current;
+        const retryingInput = pending && sameBrowserInput(pending.input, input);
+        // An uncertain utterance reuses its original key/revision directly. A
+        // repeated barge-in here would collide with that input's pending token.
+        if (!retryingInput) {
+          const retryingBargeIn = pending?.input.kind === "control" && pending.input.command === "barge_in";
+          if (pending && !retryingBargeIn) {
+            await submitRuntimeInputSettled(input); // existing busy notice, no new request
+            return false;
+          }
+          const settled = retryingBargeIn ? undefined : await presentationRuntimeRef.current?.controller.interruptCurrentSettled();
+          if (settled?.status === "failed") {
+            setRuntimeFailureNotice("呈现结果尚未确认，问题未发送；请先重新同步后重试。");
+            return false;
+          }
+          if (retryingBargeIn || (settled?.status === "reported" && (settled.outcome === "interrupted" || settled.outcome === "presented"))) {
+            // Only accepted-and-adopted opens the next step, as with the mic gate.
+            const control = await submitRuntimeInputSettled({ kind: "control", command: "barge_in" });
+            if (control !== "adopted") return false;
+          }
+        }
+        const result = await submitRuntimeInputSettled({ kind: "utterance", channel, text: trimmed });
+        return result === "adopted" || result === "confirmed";
+      } finally {
+        textHandshakeRef.current = false;
+        if (runtimeMountedRef.current) setTextHandshakeRelease(value => value + 1);
+      }
     },
-    [submitRuntimeInput],
+    [submitRuntimeInputSettled],
   );
 
   /** canonical 显式控制（confirm/continue/barge_in/return_to_mainline/retry_recovery/
@@ -1596,6 +1640,31 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     [runtimeSnapshot],
   );
 
+  /** An acknowledged presentation failure is separate from generation failure.
+   * last_failure is historical: only recover it on restore while the lesson is
+   * still presenting with no new delivery. Never cover a new generation/delivery
+   * or mistake an unacknowledged outcome (outcome-pending) for a recovery request.
+   */
+  const runtimePresentationFailure = useMemo(() => {
+    if (!runtimeClient || !runtimeSnapshot || runtimeSnapshot.completed
+      || runtimeGeneration.kind === "pending" || runtimeGeneration.kind === "failed"
+      || presentationPhase.phase === "outcome-pending") return undefined;
+    if (presentationPhase.phase === "paused" && presentationPhase.reason === "failure") {
+      return { failureClass: presentationPhase.failureClass ?? "internal_error" };
+    }
+    const failure = runtimeSnapshot.views.status.last_failure;
+    if (!runtimeSnapshot.pending_presentation
+      && runtimeSnapshot.views.coach_panel_view.mainline.kind === "presenting"
+      && runtimeSnapshot.views.participation.kind === "listen_only"
+      && failure?.category === "presentation_action_failure") {
+      return { failureClass: failure.failure_class };
+    }
+    return undefined;
+  }, [runtimeClient, runtimeSnapshot, runtimeGeneration, presentationPhase]);
+  const retryPresentation = useCallback(() => {
+    if (runtimePresentationFailure) void submitControl("retry_recovery");
+  }, [runtimePresentationFailure, submitControl]);
+
   /** failed 后的显式重新尝试（生成生命周期规格）：走既有 control.retry_recovery
    *  ——服务端以当前合法状态和新预算创建新任务，不修改旧失败记录。 */
   const retryGeneration = useCallback(() => { void submitControl("retry_recovery"); }, [submitControl]);
@@ -1720,14 +1789,12 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  client 的 /asr），mic 不再整体禁用（Step 5 迁移期 micSuppressed 退场）。 */
   const coachControls = useMemo(() => ({
     canHelp: !mergedCompleted && Boolean(sessionId) && (!runtimeClient || runtimeSnapshot?.views.coach_panel_view.assistance_available !== false),
-    ask: (text: string): void => {
+    ask: async (text: string): Promise<boolean> => {
       const trimmed = text.trim();
-      if (!trimmed) return;
-      if (runtimeClient) {
-        void submitUtterance("assistance", trimmed);
-        return;
-      }
-      void submitStudentInput({ input_kind: "question_asked", text: trimmed });
+      if (!trimmed) return false;
+      if (runtimeClient) return submitUtterance("assistance", trimmed);
+      await submitStudentInput({ input_kind: "question_asked", text: trimmed });
+      return false; // Preserve legacy composer behavior; only canonical gives an explicit confirmation.
     },
   }), [mergedCompleted, sessionId, runtimeClient, runtimeSnapshot, submitUtterance, submitStudentInput]);
 
@@ -1792,6 +1859,8 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     runtimePendingPresentation: runtimeSnapshot?.pending_presentation,
     /** F7 Step 6：PresentationRuntime 执行状态投影（瞬时；恢复真源是服务端快照）。 */
     runtimePresentationPhase: presentationPhase,
+    runtimePresentationFailure,
+    retryPresentation,
     runtimeCompleted: runtimeSnapshot?.completed ?? false,
     runtimeTurnFailure,
     runtimeFailureNotice,

@@ -270,6 +270,23 @@ describe("SolutionBoardViewSurface（共享 canonical Board 渲染面）", () =>
 });
 
 describe("F7 P2 SolutionBoardViewSurface：view/v2 解释片段（EF-）渲染", () => {
+  it("renders proof lines and hides old internal-reference annotations without mutating evidence", () => {
+    const fragment = { fragment_id: "EF-0001", kind: "approved_math_note" as const,
+      content: "∵ $AB=AC$\n由等腰底角相等。（FN-01、FN-02 ⇒ FN-05）\n∴ 两对角分别相等。",
+      basis_refs: ["FN-01", "FN-02", "FN-05", "IF-01"] };
+    const original = JSON.stringify(fragment);
+    const host = render(<SolutionBoardViewSurface board={{ mode: "building", groups: [], fragments: [fragment] }} />);
+    const board = host.querySelector('[data-testid="region-solution-board"]')!;
+    expect(board.className).not.toContain("is-empty");
+    expect(board.textContent).toContain("解题步骤");
+    expect(board.textContent).toContain("由等腰底角相等");
+    expect(board.textContent).not.toMatch(/FN-|IF-/);
+    expect(board.querySelectorAll("br").length).toBeGreaterThanOrEqual(2);
+    expect(board.querySelector(".katex")).toBeTruthy();
+    expect(board.querySelector('[data-entry-id="EF-0001"]')).toBeTruthy();
+    expect(JSON.stringify(fragment)).toBe(original);
+  });
+
   it("attached 片段渲染在对应条目下方、standalone 渲染在文档尾部；data-entry-id=fragment_id（reveal 动画链消费）", () => {
     const host = render(
       <SolutionBoardViewSurface

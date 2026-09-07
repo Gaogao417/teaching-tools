@@ -18,6 +18,7 @@
  * 提交仍由 kernel 事务（RT4 coordinator）唯一落库。
  */
 import type { z } from "zod";
+import { PRESENTER_PROMPT_VERSION } from "./PresenterPrompts";
 
 import { presentationPlanV4Schema } from "../../../../../shared/canonical";
 import type { DomainCommand } from "../../../../../shared/actionWorld";
@@ -85,6 +86,8 @@ export interface IntentCompilerInput {
    * 构造（架构 §6.3：临场选择受绑定与批准模板约束）。
    */
   readonly approvedConstructions: readonly DomainCommand[];
+  /** Board contents with real presented outcomes before this request cutoff. */
+  readonly alreadyPresentedBoardContent?: readonly string[];
   /** reveal 授权查询（Board final 条目等；未授权 ⇒ ILLEGAL_REVEAL）。 */
   readonly revealAuthorized: (binding: PresentationResourceBinding) => boolean;
 }
@@ -176,23 +179,63 @@ function validateParams(
 }
 
 /** 批准依据 → fragment 正文（确定性渲染；数学表达第一版只引用批准文本）。 */
-function renderFragmentContent(
+export function renderFragmentContent(
   kind: CompiledFragment["kind"],
   binding: PresentationResourceBinding,
   graph: IntentCompilerInput["graph"],
+  alreadyPresented: readonly string[],
+  requirePresentedDerivation = false,
 ): string | undefined {
-  if (kind === "explanation_text") return undefined; // 由调用侧（紧邻 speech）提供。
-  if (binding.binding_kind !== "explanation") return undefined;
-  const factIds = binding.basis_refs.fact_ids;
-  const inferenceIds = binding.basis_refs.inference_ids;
-  const parts: string[] = [];
-  for (const factId of factIds) parts.push(graph.facts.get(factId)?.statement ?? "");
-  for (const inferenceId of inferenceIds) {
-    const inference = graph.inferences.get(inferenceId);
-    if (inference) parts.push(`${inference.derivation}（${inference.premises.join("、")} ⇒ ${inference.conclusion}）`);
+  if (kind === "explanation_text" || binding.binding_kind !== "explanation") return undefined;
+  const factIds = new Set(binding.basis_refs.fact_ids);
+  const inferenceIds = new Set(binding.basis_refs.inference_ids);
+  const historyLines = new Set(alreadyPresented.flatMap(content => content.split("\n").map(line => line.trim())));
+  const lines: string[] = [];
+  const shown = new Set<string>();
+  const fact = (id: string) => factIds.has(id) ? graph.facts.get(id) : undefined;
+  for (const id of factIds) if (!graph.facts.has(id)) throw new IntentCompilerError("ILLEGAL_SOURCE_REF", "unknown bound board fact");
+  for (const id of inferenceIds) {
+    const inference = graph.inferences.get(id);
+    if (!inference || !factIds.has(inference.conclusion) || inference.premises.some(id => !factIds.has(id))) {
+      throw new IntentCompilerError("ILLEGAL_SOURCE_REF", "board derivation is not closed within the bound facts");
+    }
   }
-  const text = parts.filter((part) => part.length > 0).join("；");
-  return text.length > 0 ? text : undefined;
+  const known = (id: string) => shown.has(id) || Boolean(fact(id)
+    && (historyLines.has(`∵ ${fact(id)!.statement}`) || historyLines.has(`∴ ${fact(id)!.statement}`)));
+  const appendFact = (id: string, prefix: string) => {
+    const value = fact(id);
+    if (!value || known(id)) return;
+    lines.push(`${prefix}${value.statement}`);
+    shown.add(id);
+  };
+  // Topological proof order, rather than a dump of all facts followed by all
+  // inference metadata. Every displayed mathematical statement is copied from
+  // this binding's approved facts; reference IDs stay only in basis_refs.
+  const producers = new Map([...inferenceIds].map(id => graph.inferences.get(id)).filter((v): v is GraphInferenceNode => Boolean(v)).map(v => [v.conclusion, v]));
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const emitInference = (inference: GraphInferenceNode) => {
+    if (visited.has(inference.inference_id)) return;
+    if (visiting.has(inference.inference_id)) throw new IntentCompilerError("ILLEGAL_SOURCE_REF", "cyclic board derivation");
+    visiting.add(inference.inference_id);
+    for (const id of inference.premises) { const producer = producers.get(id); if (producer) emitInference(producer); }
+    visiting.delete(inference.inference_id); visited.add(inference.inference_id);
+    const proofLines = `${inference.derivation}\n∴ ${fact(inference.conclusion)!.statement}`.split("\n").map(line => line.trim());
+    const derivationPresented = alreadyPresented.some(content => {
+      const history = content.split("\n").map(line => line.trim());
+      return history.some((_, index) => proofLines.every((line, offset) => history[index + offset] === line));
+    });
+    if (requirePresentedDerivation ? shown.has(inference.conclusion) || derivationPresented : known(inference.conclusion)) return;
+    for (const id of inference.premises) appendFact(id, "∵ ");
+    const conclusion = fact(inference.conclusion);
+    if (!conclusion) throw new IntentCompilerError("ILLEGAL_SOURCE_REF", "board conclusion is outside the bound facts");
+    lines.push(inference.derivation, `∴ ${conclusion.statement}`, "");
+    shown.add(inference.conclusion);
+  };
+  for (const id of inferenceIds) { const inference = graph.inferences.get(id); if (inference) emitInference(inference); }
+  if (inferenceIds.size === 0) for (const id of factIds) appendFact(id, fact(id)?.role === "given" ? "∵ " : "∴ ");
+  if (!factIds.size && !inferenceIds.size) return undefined;
+  return lines.join("\n").trim();
 }
 
 /**
@@ -291,7 +334,10 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
       }
       const content = noteKind === "explanation_text"
         ? lastSpeechText
-        : renderFragmentContent(noteKind, explainBinding, input.graph);
+        : renderFragmentContent(noteKind, explainBinding, input.graph, [...(input.alreadyPresentedBoardContent ?? []), ...fragments.filter(fragment => fragment.kind !== "explanation_text").map(fragment => fragment.content)], input.request.presenter_pin.prompt_version === PRESENTER_PROMPT_VERSION);
+      // The exact approved proof is already visible: do not append another copy
+      // merely because the teacher answered a follow-up. Speech remains in order.
+      if (content === "" && noteKind !== "explanation_text") continue;
       if (content === undefined || content.length === 0) {
         throw new IntentCompilerError(
           "ILLEGAL_PARAM",

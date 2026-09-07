@@ -26,7 +26,8 @@ class Presenter implements PresenterGeneratorPort {
   if(geometry?.bindings?.length) for(const b of geometry.bindings){
     assert.ok(b.allowed_template_ids?.length);items.push({type:'tool_intent',tool:geometry.tool,args:{binding_ref:b.binding_ref,params:{template_id:b.allowed_template_ids[0]}}});
   }
-  else if(board?.binding_refs[0]) items.push({type:'tool_intent',tool:board.tool,args:{binding_ref:board.binding_refs[0],params:{note_kind:'explanation_text'}}});
+  for(const requirement of p.required_board_bindings??[]) items.push({type:'tool_intent',tool:'board.explain',args:{binding_ref:requirement.binding_ref,params:{note_kind:requirement.note_kind}}});
+  if(!geometry?.bindings?.length && !p.required_board_bindings?.length && board?.binding_refs[0]) items.push({type:'tool_intent',tool:board.tool,args:{binding_ref:board.binding_refs[0],params:{note_kind:'explanation_text'}}});
   return {latencyMs:1,draft:{schema:'ai_teaching_presentation_draft/v2' as const,request_id:r.request_id,items}};
  }
 }
@@ -46,6 +47,14 @@ test('six Teach Beats finish through natural feedback, with replay and idempoten
  const {session:s,provider,presenter}=start([response('GT-01'),response('GT-02','restatement','pass',['FN-06']),...[3,4,5,6].map(n=>response(`GT-0${n}`))]);
  for(let i=1;i<=6;i++){
   assert.equal(s.rebuildRuntimeState().teaching_cursor.beat_id,`BT-0${i}`);await finish(s);assert.equal(s.rebuildRuntimeState().teaching_cursor.beat_id,`BT-0${i}`,'ended is not understanding');
+  if(i===4 || i===5){
+    const payload=presenter.payloads.at(-1)!;const expectedBinding=i===4?'VB-09':'VB-10';
+    assert.ok(payload.required_board_bindings?.some(b=>b.binding_ref===expectedBinding),`BT-0${i} requires ${expectedBinding}`);
+    const planned=s.events.filter(e=>e.event_type==='presentation_sequence_planned').at(-1)!.payload as any;
+    const binding=payload.tools.find(t=>t.tool==='board.explain')!.bindings!.find(b=>b.binding_ref===expectedBinding)!;
+    assert.ok(planned.explanation_fragments?.some((f:any)=>f.kind==='approved_math_note' && binding.basis_refs!.inference_ids.every(id=>f.basis_refs.includes(id))),`BT-0${i} compiles its exact approved proof binding`);
+    if(i===4)assert.equal(planned.actions.filter((a:any)=>a.workspace_action?.capability==='geometry.construct').length,5);
+  }
   const text=i===2?'两组对应角相等，所以这两个三角形相似；这个关系我接上了':'这一步听懂了，继续';const id=`six-beat-${i}`;const channel=i===4?'assistance':'mainline';
   await say(s,text,id,channel);const count=s.events.length,calls=provider.callCount;await say(s,text,id,channel);assert.equal(s.events.length,count);assert.equal(provider.callCount,calls);
   const restored=TutorSessionOrchestratorV7.resume({sessionId:s.sessionId,canonicalRoot:candidate.root,model:f6Model(provider,'C4-follow-along'),presenter});assert.deepEqual(restored.rebuildRuntimeState(),s.rebuildRuntimeState());

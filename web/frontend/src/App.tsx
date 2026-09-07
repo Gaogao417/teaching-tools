@@ -13,6 +13,13 @@ import { CanonicalViewHarnessPage } from "./pages/dev/CanonicalViewHarnessPage";
 
 export default function App() {
   return (
+    <>
+    {import.meta.env.VITE_TEACH_REVIEW === "1" && (
+      <div role="status" style={{ position: "fixed", top: "64px", left: 0, right: 0, zIndex: 100, padding: "8px 20px", fontSize: "13px", background: "#fff3cd", color: "#664d03", textAlign: "center" }}>
+        教研试讲 · 待审核草稿 · 可直接说出理解或疑问，无需逐步答题
+      </div>
+    )}
+    {import.meta.env.VITE_TEACH_REVIEW === "1" && <div aria-hidden="true" style={{ height: "38px", flexShrink: 0 }} />}
     <Routes>
       <Route path="/" element={<WorkspaceShell />}>
         <Route index element={<TaskOverviewPanel />} />
@@ -25,5 +32,6 @@ export default function App() {
       <Route path="/tasks" element={<Navigate to="/" replace />} />
       <Route path="/__fe-prep__/canonical-view" element={<CanonicalViewHarnessPage />} />
     </Routes>
+    </>
   );
 }

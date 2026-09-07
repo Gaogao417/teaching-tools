@@ -93,8 +93,10 @@ export function createVoicePresentationAdapter(deps: VoicePresentationAdapterDep
         return { outcome: "interrupted" };
       case "blocked":
         return { outcome: "blocked-by-autoplay" };
-      case "error":
-        return { outcome: "failed", failureClass: "provider_failure", message: "voice playback ended in media error" };
+      case "error": {
+        const state = deps.media.getState();
+        return { outcome: "failed", failureClass: "provider_failure", message: state.status === "error" ? state.message : "voice playback ended in media error" };
+      }
       case "timeout":
         deps.narration.stop();
         return { outcome: "failed", failureClass: "timeout", message: "voice playback did not end within the timeout" };
@@ -138,14 +140,14 @@ export function createVoicePresentationAdapter(deps: VoicePresentationAdapterDep
       }
     },
     async resume(abort: AbortSignal) {
-      // 用户手势触发（autoplay 解锁）；只回放缓存，不重新合成。订阅先于
+      // 用户手势触发（autoplay 解锁）；恢复已挂载流，不重置 MediaSource。订阅先于
       // replay 发起——blocked/started 可能在 playUrl 内部就已发射。abort 与
       // present 同语义（打断/销毁 → narration.stop → stopped 事件）。
       const waiter = new GenerationPlaybackWaiter(deps.media, VOICE_WAIT_TIMEOUT_MS);
       const onAbort = () => deps.narration.stop();
       abort.addEventListener("abort", onAbort);
       try {
-        const generation = await deps.narration.replay();
+        const generation = await deps.media.resumeBlockedPlayback();
         if (generation === undefined) {
           return { outcome: "failed", failureClass: "provider_failure", message: "no cached narration available to resume" };
         }

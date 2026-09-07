@@ -358,9 +358,46 @@ export class MediaSessionController {
     handle?.abort();
   }
 
-  replay(replayKey: string): Promise<number | undefined> {
+  /** A user gesture resumes the attached stream. Reassigning a MediaSource URL
+   * detaches/closes it, so autoplay recovery must keep the source and generation. */
+  async resumeBlockedPlayback(): Promise<number | undefined> {
+    const handle = this.active;
+    const generation = this.activeGeneration;
+    if (!handle || generation === undefined || this.state.status !== "blocked-by-autoplay") return undefined;
+    const audio = this.ensureAudio();
+    try {
+      await audio.play();
+      if (generation === this.generation) this.notifyAudioStarted(handle.owner);
+    } catch {
+      if (generation === this.generation) this.emitPlayback({ type: "blocked", owner: handle.owner, generation });
+    }
+    return generation;
+  }
+
+  async replay(replayKey: string): Promise<number | undefined> {
     const handle = this.replayHandles.get(replayKey);
-    return handle ? this.playUrl(handle.owner, handle.url, { autoplay: true, replayKey }) : Promise.resolve(undefined);
+    if (!handle) return undefined;
+    // A completed MediaSource is seekable while attached, but cannot be attached
+    // again through its old blob URL. Preserve that attachment for local replay.
+    if (handle.url.startsWith("blob:") && this.audio?.src === handle.url
+      && this.state.status === "idle" && this.captureOwner === undefined) {
+      const generation = ++this.generation;
+      this.active = handle;
+      this.activeGeneration = generation;
+      this.audio.currentTime = 0;
+      this.setState({ status: "loading", owner: handle.owner, replayKey });
+      try {
+        await this.audio.play();
+        if (generation === this.generation) this.notifyAudioStarted(handle.owner);
+      } catch {
+        if (generation === this.generation) {
+          this.setState({ status: "blocked-by-autoplay", owner: handle.owner, replayKey });
+          this.emitPlayback({ type: "blocked", owner: handle.owner, generation });
+        }
+      }
+      return generation;
+    }
+    return this.playUrl(handle.owner, handle.url, { autoplay: true, replayKey });
   }
 
   enqueueUrl(owner: MediaOwner, url: string, replayKey?: string, correlationId?: string): void {
@@ -458,9 +495,11 @@ export class MediaSessionController {
         if (this.active) {
           const owner = this.active.owner;
           const generation = this.activeGeneration;
-          this.setState({ status: "error", owner, message: "media playback failed" });
+          const mediaError = this.audio?.error;
+          const message = mediaError ? `media playback failed (code ${mediaError.code}): ${mediaError.message}` : "media playback failed";
+          this.setState({ status: "error", owner, message });
           this.mark(this.active, "error");
-          this.emitPlayback({ type: "error", owner, generation, message: "media playback failed" });
+          this.emitPlayback({ type: "error", owner, generation, message });
         }
       };
     }

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 
 import { MathText } from "../../components/math/MathText";
 
@@ -88,6 +88,15 @@ export function TopicCoachPanel({
   extraHeaderControls,
   statusNotes,
 }: TopicCoachPanelProps) {
+  const threadRef = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
+  const firstTurnId = thread[0]?.id;
+  const lastTurn = thread[thread.length - 1];
+  useLayoutEffect(() => { followLatest.current = true; }, [firstTurnId]);
+  useLayoutEffect(() => {
+    const node = threadRef.current;
+    if (node && followLatest.current) node.scrollTop = node.scrollHeight;
+  }, [firstTurnId, lastTurn?.id, lastTurn?.text, thread.length]);
   return (
     <aside className={`topic-coach-panel tone-${tone}`} aria-label="陪练老师" aria-live="polite">
       <div className="topic-coach-header" data-testid="region-status" aria-label="学习状态">
@@ -112,7 +121,10 @@ export function TopicCoachPanel({
       ) : null}
       {autoplayBlocked ? <p className="topic-coach-recording" role="status">浏览器已阻止自动播放，请点右上角扬声器开始朗读。</p> : null}
       {statusNotes}
-      {thread.length ? <div className="topic-coach-thread" aria-label="答疑对话">{thread.map((turn) => (
+      {thread.length ? <div className="topic-coach-thread" aria-label="答疑对话" ref={threadRef} onScroll={(event) => {
+        const node = event.currentTarget;
+        followLatest.current = node.scrollHeight - node.clientHeight - node.scrollTop < 40;
+      }}>{thread.map((turn) => (
         <div key={turn.id} className={`topic-coach-turn is-${turn.role}${turn.pending ? " is-pending" : ""}${turn.error ? " is-error" : ""}`}>
           <small>{turn.role === "student" ? "学生" : "老师"}</small>
           {turn.role === "coach" ? <MathText value={turn.text} /> : <p>{turn.text}</p>}

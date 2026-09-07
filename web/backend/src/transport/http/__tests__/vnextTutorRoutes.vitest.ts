@@ -416,10 +416,13 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
     expect((asked.body as Snapshot).views.participation.kind).toBe("temporarily_paused_for_inquiry");
     expect((asked.body as Snapshot).views.coach_panel_view.inquiry.kind).not.toBe("no_inquiry");
     expect((asked.body as Snapshot).views.coach_panel_view.inquiry.return_checkpoint_id).toBe("BT-01");
+    // Settle the Inquiry presentation before admitting its answer.
+    await presentAll(sessionId);
+    const branchReady = await getSnapshot(sessionId);
     // 分支内作答（inquiry 语境 mainline utterance；脚本 Gate pass）→ 分支推进。
     const branchAnswer = await call("POST", `/api/vnext/tutor-sessions/${sessionId}/student-inputs`, {
       input: { kind: "utterance", channel: "mainline", text: "我卡在第一组子母型" },
-      client_request_id: "rv7-iq-2", expected_revision: (asked.body as Snapshot).revision,
+      client_request_id: "rv7-iq-2", expected_revision: branchReady.revision,
     });
     expect(branchAnswer.status).toBe(200);
     expect((branchAnswer.body as Snapshot).views.participation.kind).toBe("temporarily_paused_for_inquiry");

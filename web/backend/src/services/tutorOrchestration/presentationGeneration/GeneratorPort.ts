@@ -22,7 +22,7 @@ import { presentationDraftV2Schema } from "../../../../../shared/canonical";
 import { DeepSeekStructuredModel } from "../../tutorIntelligence/adapters/deepseek/DeepSeekStructuredModel";
 import { StructuredModelError, type StructuredCompletionRequest, type StructuredCompletionResult, type StructuredModelPort } from "../../tutorIntelligence/structuredModelPort";
 import { CONTEXT_BUILDER_VERSION } from "./ContextBuilder";
-import { PRESENTER_PROMPT_VERSION } from "./PresenterPrompts";
+import { PRESENTER_PROMPT_VERSION, LEGACY_PRESENTER_PROMPT_VERSION, PREVIOUS_PRESENTER_PROMPT_VERSION, TOOL_INVOCATION_PRESENTER_PROMPT_VERSION } from "./PresenterPrompts";
 import { PRESENTATION_TOOL_CATALOG_VERSION } from "./PresentationToolCatalog";
 
 /** canonical generation/v2 draft（服务器包装后的可信形状）。 */
@@ -180,14 +180,18 @@ export function mapStructuredModelError(error: unknown): PresenterGenerationErro
 }
 
 /** StructuredModelPort → PresenterGeneratorPort 适配（draft 校验在这里收口）。 */
-export function structuredPresenterGenerator(port: StructuredModelPort): PresenterGeneratorPort {
+export function structuredPresenterGenerator(port: StructuredModelPort, options: { readonly promptVersion?: string } = {}): PresenterGeneratorPort {
+  const promptVersion = options.promptVersion ?? PRESENTER_PROMPT_VERSION;
+  if (![LEGACY_PRESENTER_PROMPT_VERSION, PREVIOUS_PRESENTER_PROMPT_VERSION, TOOL_INVOCATION_PRESENTER_PROMPT_VERSION, PRESENTER_PROMPT_VERSION].includes(promptVersion)) {
+    throw new Error(`unsupported Presenter prompt version: ${promptVersion}`);
+  }
   return {
     provider: port.provider,
     modelId: port.modelId,
     pin: {
       provider: port.provider,
       model_id: port.modelId,
-      prompt_version: PRESENTER_PROMPT_VERSION,
+      prompt_version: promptVersion,
       context_builder_version: CONTEXT_BUILDER_VERSION,
       tool_catalog_version: PRESENTATION_TOOL_CATALOG_VERSION,
     },
@@ -232,6 +236,6 @@ export function structuredPresenterGenerator(port: StructuredModelPort): Present
 }
 
 /** 生产组合（HTTP/Orchestrator 装配点）。 */
-export function createPresenterGenerator(): PresenterGeneratorPort {
-  return structuredPresenterGenerator(createPresenterModelPort());
+export function createPresenterGenerator(options: { readonly promptVersion?: string } = {}): PresenterGeneratorPort {
+  return structuredPresenterGenerator(createPresenterModelPort(), options);
 }

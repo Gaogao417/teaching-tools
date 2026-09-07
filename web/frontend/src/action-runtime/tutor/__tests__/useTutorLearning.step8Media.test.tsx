@@ -520,4 +520,92 @@ describe("useTutorLearning Step 8：barge-in ①②③④ 因果链", () => {
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
     expect(harness.tutor().runtimeFailureNotice).toContain("未被接受");
   });
+  it("text handshake settles outcome, adopts barge-in, then submits intact text; uncertain text retry does not barge-in twice", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    let ack!: (snapshot: ReturnType<typeof validRuntimeSnapshot>) => void;
+    mocks.reportPresentationOutcome.mockReturnValueOnce(new Promise(resolve => { ack = resolve; }));
+    mocks.submitStudentInput.mockResolvedValueOnce(validRuntimeSnapshot({ revision: 14 }));
+    mocks.submitStudentInput.mockRejectedValueOnce(new TypeError("fetch failed"));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => { await waitForTutor(harness, t => t.runtimePresentationPhase.phase === "presenting"); });
+    const text = "我没听懂，翻折后C和E之间是什么关系？";
+    let sending!: Promise<boolean>;
+    await act(async () => { sending = harness.tutor().submitUtterance("assistance", text); });
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    await act(async () => { ack(validRuntimeSnapshot({ revision: 13 })); await sending; });
+    expect(mocks.submitStudentInput.mock.calls[0]).toEqual([RUNTIME_SESSION_ID, { kind: "control", command: "barge_in" }, 13, expect.any(String)]);
+    expect(mocks.submitStudentInput.mock.calls[1]).toEqual([RUNTIME_SESSION_ID, { kind: "utterance", channel: "assistance", text }, 14, expect.any(String)]);
+    mocks.submitStudentInput.mockResolvedValueOnce(validRuntimeSnapshot({ revision: 15 }));
+    await act(async () => { expect(await harness.tutor().submitUtterance("assistance", text)).toBe(true); });
+    expect(mocks.submitStudentInput.mock.calls[2]).toEqual(mocks.submitStudentInput.mock.calls[1]);
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  it("text waits for naturally ended outcome, holding the next delivery through barge-in and text settlement", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    type Snapshot = ReturnType<typeof validRuntimeSnapshot>;
+    let ackOutcome!: (snapshot: Snapshot) => void;
+    let ackControl!: (snapshot: Snapshot) => void;
+    let ackText!: (snapshot: Snapshot) => void;
+    mocks.reportPresentationOutcome.mockReturnValueOnce(new Promise(resolve => { ackOutcome = resolve; }));
+    mocks.submitStudentInput.mockReturnValueOnce(new Promise(resolve => { ackControl = resolve; }));
+    mocks.submitStudentInput.mockReturnValueOnce(new Promise(resolve => { ackText = resolve; }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => { await waitForTutor(harness, t => t.runtimePresentationPhase.phase === "presenting"); });
+    const generation = mediaHarness.state.generation;
+    await act(async () => {
+      mediaHarness.emitPlayback({ type: "ended", owner: "narration", generation });
+      mediaHarness.markIdle();
+    });
+    expect(harness.tutor().runtimePresentationPhase.phase).toBe("outcome-pending");
+    const text = "我没听懂，翻折后C和E之间是什么关系？";
+    let sending!: Promise<boolean>;
+    await act(async () => { sending = harness.tutor().submitUtterance("assistance", text); });
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    await act(async () => {
+      ackOutcome(validRuntimeSnapshot({ pendingPresentation: pendingVoicePresentationSeq2(13), revision: 13 }));
+    });
+    expect(mocks.submitStudentInput.mock.calls[0]).toEqual([RUNTIME_SESSION_ID, { kind: "control", command: "barge_in" }, 13, expect.any(String)]);
+    // Flush React effects while the control is in flight: no next adapter may start.
+    expect(mediaHarness.state.generation).toBe(generation);
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+    expect(mocks.reportPresentationOutcome.mock.calls[0][2]).toMatchObject({ outcome: "presented" });
+    await act(async () => { ackControl(validRuntimeSnapshot({ revision: 14 })); });
+    expect(mocks.submitStudentInput.mock.calls[1]).toEqual([RUNTIME_SESSION_ID, { kind: "utterance", channel: "assistance", text }, 14, expect.any(String)]);
+    expect(mediaHarness.state.generation).toBe(generation);
+    await act(async () => {
+      ackText(validRuntimeSnapshot({ pendingPresentation: pendingVoicePresentationSeq2(15), revision: 15 }));
+      expect(await sending).toBe(true);
+    });
+    await act(async () => { await waitForTutor(harness, t => t.runtimePresentationPhase.phase === "presenting"); });
+    expect(mediaHarness.state.generation).toBe(generation + 1);
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  it("late confirmed barge-in releases token but does not open the recording gate", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    mocks.reportPresentationOutcome.mockResolvedValueOnce(validRuntimeSnapshot({ revision: 13 }));
+    let ackControl!: (snapshot: ReturnType<typeof validRuntimeSnapshot>) => void;
+    mocks.submitStudentInput.mockReturnValueOnce(new Promise(resolve => { ackControl = resolve; }));
+    mocks.restore.mockResolvedValue(validRuntimeSnapshot({ revision: 16 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => { await waitForTutor(harness, t => t.runtimePresentationPhase.phase === "presenting"); });
+    let preparing!: Promise<boolean>;
+    await act(async () => { preparing = harness.tutor().prepareRecordingStart(); });
+    expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+    await act(async () => { await harness.tutor().retrySync(); });
+    await act(async () => { ackControl(validRuntimeSnapshot({ revision: 14 })); expect(await preparing).toBe(false); });
+    expect(harness.tutor().runtimeSnapshot?.revision).toBe(16);
+    mocks.submitStudentInput.mockResolvedValueOnce(validRuntimeSnapshot({ revision: 17 }));
+    await act(async () => { await harness.tutor().submitControl("retry_recovery"); });
+    expect(mocks.submitStudentInput).toHaveBeenCalledTimes(2);
+  });
+
 });
