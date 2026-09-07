@@ -31,6 +31,7 @@ import {
   studentInputV1Schema,
   studentWorkspaceCommandV1Schema,
   studentWorkspaceViewV1Schema,
+  studentWorkspaceViewV2Schema,
 } from "./canonical/schemas";
 import { isActionEvaluationResponse } from "./actionRuntime";
 
@@ -67,7 +68,10 @@ const statusViewSchema = z
 
 const viewsSchema = z
   .object({
-    student_workspace_view: studentWorkspaceViewV1Schema,
+    // F7 P2（动态板书规格/view v2）：student_workspace_view 按 schema marker 判别
+    // v1|v2——v2 在 solution_board 上增可选 fragments（临场解释板书 EF- 的
+    // student-safe 投影）。两形状均过 canonical 镜像 schema（单一真源）。
+    student_workspace_view: z.union([studentWorkspaceViewV1Schema, studentWorkspaceViewV2Schema]),
     coach_panel_view: coachPanelViewV1Schema,
     participation: mainlineParticipationV1Schema,
     status: statusViewSchema,
@@ -131,6 +135,49 @@ const turnSchema = z
     }
   });
 
+// --------------------------------------------------------------------------- //
+// S1 冻结字段合同（F7 P2 组合接线；spec s1-http-media-handshake-execution-spec
+// + f7-s1-interface-package §1）——generation/scope 的唯一形状与跨字段规则。
+// 字段测试数据源 web/shared/fixtures/s1-http-field-cases.json（两工作树同步）。
+// --------------------------------------------------------------------------- //
+
+const adaptiveGenerationSlot = tutorRuntimeStateV3Schema.innerType().shape.generation_slot;
+const generationBudgetFields = {
+  attempt: z.number().int().min(1),
+  max_attempts: z.number().int().min(1),
+};
+const adaptivePresentationFieldsObject = z.object({
+  generation: z.discriminatedUnion("status", [
+    adaptiveGenerationSlot.options[0],
+    adaptiveGenerationSlot.options[1].pick({ status: true, request_id: true }).extend({
+      ...generationBudgetFields,
+      phase: z.enum(["running", "waiting_retry"]),
+      retry_at: z.string().datetime().optional(),
+    }),
+    adaptiveGenerationSlot.options[2].extend({
+      ...generationBudgetFields,
+      error_class: adaptiveGenerationSlot.options[2].shape.error_class.or(z.literal("RETRY_EXHAUSTED")),
+    }),
+  ]),
+  scope: adaptiveGenerationSlot.options[1].shape.scope.nullable(),
+}).strict();
+export const adaptivePresentationSnapshotFieldsSchema = adaptivePresentationFieldsObject.superRefine((value, ctx) => {
+  const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  const generation = value.generation;
+  if (generation.status === "idle") return;
+  if (value.scope === null) add("generation requires an active teaching scope");
+  if (generation.attempt > generation.max_attempts) add("generation attempt exceeds budget");
+  if (generation.status === "pending") {
+    if (generation.phase === "waiting_retry") {
+      if (!generation.retry_at || generation.attempt >= generation.max_attempts) add("retry requires remaining budget and retry_at");
+    } else if (generation.retry_at !== undefined) add("running generation cannot carry retry_at");
+  }
+});
+
+/** S1 generation 投影（快照可选携带；A 的 view-model/轮询与 B 的 projector 共用）。 */
+export type AdaptivePresentationFields = z.infer<typeof adaptivePresentationSnapshotFieldsSchema>;
+export type AdaptiveGenerationStatus = AdaptivePresentationFields["generation"];
+
 export const sessionSnapshotHttpV1Schema = z
   .object({
     profile: z.literal(TUTOR_RUNTIME_HTTP_PROFILE),
@@ -145,6 +192,13 @@ export const sessionSnapshotHttpV1Schema = z
     active_action: activeActionSchema.optional(),
     pending_presentation: presentationDeliveryV1Schema.optional(),
     turn: turnSchema.optional(),
+    // F7 P2（S1 §1 组合接线）：generation/scope 成对可选——服务端 projector 已
+    // 升级时逐快照投影（idle 也投影）；未携带 = 该服务端尚无自适应生成状态
+    //（行为与既有快照完全一致）。字段一旦出现即过 S1 冻结字段 schema 的全量
+    // 形状 + 跨字段规则（见 validateSessionSnapshotConsistency #14——单一裁决
+    // 点，不在 schema 层重复）。不加第二套 DTO/endpoint/runtime。
+    generation: z.optional(adaptivePresentationFieldsObject.shape.generation),
+    scope: z.optional(adaptivePresentationFieldsObject.shape.scope),
   })
   .strict();
 
@@ -418,6 +472,50 @@ export function validateSessionSnapshotConsistency(snapshot: SessionSnapshotHttp
   if (snapshot.pending_presentation !== undefined && snapshot.active_action !== undefined) {
     add("serial-presentation", "snapshot carries both a pending tutor presentation and a mounted active_action (default serial contract)");
   }
+  // #14/#15/#16（F7 P2 组合接线）：S1 generation/scope 投影对账——成对出现、
+  // 字段 schema 全量裁决、pending 期间零交付零挂载、active_action 挂载要求
+  // generation idle。字段缺席（服务端未升级 projector）时全部跳过。
+  for (const issue of validateAdaptiveGenerationConsistency(snapshot)) {
+    add(issue.check, issue.message);
+  }
+  return issues;
+}
+
+/**
+ * #14 generation/scope 成对投影 + S1 字段 schema 全量裁决；
+ * #15 pending generation ⇒ 无 pending_presentation、无 active_action
+ *    （state/v4 镜像规则 ⑤「pending generation slot 期间 presentation_cursor
+ *    必须 idle」的 HTTP 投影 + S1 R1 挂载门禁）；
+ * #16 active_action 挂载 ⇒ generation idle（S1 R1：active Action 仅在合法教学
+ *    phase、cursor idle、generation idle 时可挂载）。
+ */
+export function validateAdaptiveGenerationConsistency(snapshot: SessionSnapshotHttpV1): readonly SnapshotConsistencyIssue[] {
+  const issues: SnapshotConsistencyIssue[] = [];
+  const add = (check: string, message: string) => issues.push({ check, message });
+  const generation = snapshot.generation;
+  if ((generation !== undefined) !== (snapshot.scope !== undefined)) {
+    add("generation-projection", "generation and scope must be projected as a pair (or both absent)");
+    return issues;
+  }
+  if (generation === undefined || snapshot.scope === undefined) return issues;
+  const projection = adaptivePresentationSnapshotFieldsSchema.safeParse({ generation, scope: snapshot.scope });
+  if (!projection.success) {
+    for (const issue of projection.error.issues) {
+      add("generation-projection", `${issue.path.join(".") || "<root>"}: ${issue.message}`);
+    }
+    return issues;
+  }
+  if (generation.status === "pending") {
+    if (snapshot.pending_presentation !== undefined) {
+      add("generation-pending", "pending generation must not carry a pending delivery (presentation cursor must be idle)");
+    }
+    if (snapshot.active_action !== undefined) {
+      add("generation-pending", "pending generation must not mount an active action (S1 R1)");
+    }
+  }
+  if (generation.status !== "idle" && snapshot.active_action !== undefined) {
+    add("generation-mount", `active_action requires generation idle (got status=${generation.status})`);
+  }
   return issues;
 }
 
@@ -434,37 +532,3 @@ export function parseSessionSnapshotHttp(payload: unknown):
   }
   return { ok: true, snapshot: parsed.data };
 }
-
-// S1 field contract; P2 composes it atomically into the existing HTTP parser and
-// projector. No new endpoint, online profile, or navigation state is enabled.
-const adaptiveGenerationSlot = tutorRuntimeStateV3Schema.innerType().shape.generation_slot;
-const generationBudgetFields = {
-  attempt: z.number().int().min(1),
-  max_attempts: z.number().int().min(1),
-};
-export const adaptivePresentationSnapshotFieldsSchema = z.object({
-  generation: z.discriminatedUnion("status", [
-    adaptiveGenerationSlot.options[0],
-    adaptiveGenerationSlot.options[1].pick({ status: true, request_id: true }).extend({
-      ...generationBudgetFields,
-      phase: z.enum(["running", "waiting_retry"]),
-      retry_at: z.string().datetime().optional(),
-    }),
-    adaptiveGenerationSlot.options[2].extend({
-      ...generationBudgetFields,
-      error_class: adaptiveGenerationSlot.options[2].shape.error_class.or(z.literal("RETRY_EXHAUSTED")),
-    }),
-  ]),
-  scope: adaptiveGenerationSlot.options[1].shape.scope.nullable(),
-}).strict().superRefine((value, ctx) => {
-  const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
-  const generation = value.generation;
-  if (generation.status === "idle") return;
-  if (value.scope === null) add("generation requires an active teaching scope");
-  if (generation.attempt > generation.max_attempts) add("generation attempt exceeds budget");
-  if (generation.status === "pending") {
-    if (generation.phase === "waiting_retry") {
-      if (!generation.retry_at || generation.attempt >= generation.max_attempts) add("retry requires remaining budget and retry_at");
-    } else if (generation.retry_at !== undefined) add("running generation cannot carry retry_at");
-  }
-});
