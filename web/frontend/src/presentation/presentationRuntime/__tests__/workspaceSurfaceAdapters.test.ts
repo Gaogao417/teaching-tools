@@ -8,13 +8,14 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { createBoardExplainPresentationAdapter, createBoardPresentationAdapter, createGeometryPresentationAdapter } from "../adapters/workspaceSurfaceAdapters";
+import { createBoardExplainPresentationAdapter, createBoardPresentationAdapter, createGeometryEmphasizePresentationAdapter, createGeometryPresentationAdapter } from "../adapters/workspaceSurfaceAdapters";
 import { createWorkspaceCommitPort } from "../workspaceCommitPort";
 import { presentationKeyOf } from "../types";
 import type { PendingPresentationDelivery } from "../types";
 import {
   pendingBoardExplainPresentation,
   pendingBoardPresentation,
+  pendingGeometryEmphasizePresentation,
   pendingGeometryPresentation,
   runtimeSnapshotRaw,
   validFromRaw,
@@ -161,6 +162,93 @@ describe("workspace surface adapters（真实完成信号源语义）", () => {
     expect(board.supports({ kind: "workspace", workspace_action: { surface: "solution_board", capability: "board.reveal-entry" } } as never)).toBe(true);
     expect(board.supports({ kind: "workspace", workspace_action: { surface: "solution_board", capability: "board.activate-entry" } } as never)).toBe(false);
     expect(geometry.supports({ kind: "voice" } as never)).toBe(false);
+  });
+});
+
+/** F7 P3（A' 轨 T2）：geometry.emphasize（highlight 语义；reveal_scope=
+ *  target_highlight）。highlighted 位 = 服务端 view 投影。 */
+function geometryEmphasizeContext(highlighted: boolean, targets: string[] = ["seg-CO"]) {
+  const commitPort = createWorkspaceCommitPort();
+  const adapter = createGeometryEmphasizePresentationAdapter({ commitPort });
+  const snapshot: ValidatedSessionSnapshot = validFromRaw(runtimeSnapshotRaw({
+    pendingPresentation: pendingGeometryEmphasizePresentation(26, 10, targets),
+    canvasElements: targets.map((target) => ({ element_id: target, kind: "segment", ...(highlighted ? { highlighted: true } : {}) })),
+    revision: 26,
+    workspaceRevision: 10,
+  }));
+  return { commitPort, adapter, snapshot, delivery: snapshot.pending_presentation as PendingPresentationDelivery };
+}
+
+describe("F7 P3 geometry.emphasize adapter（既有实体高亮；目录冻结形状）", () => {
+  it("真实信号源未注册 → awaiting-real-signal 暂停（不上报 presented）", async () => {
+    const { adapter, snapshot, delivery } = geometryEmphasizeContext(true);
+    const result = await adapter.present({ delivery, snapshot, abort: new AbortController().signal });
+    expect(result).toEqual({ outcome: "awaiting-real-signal" });
+  });
+
+  it("target 在 view 且 highlighted=true + 同执行真实 commit → presented（realize→完成信号链）", async () => {
+    const { commitPort, adapter, snapshot, delivery } = geometryEmphasizeContext(true);
+    const unregister = commitPort.registerRealCommitSource();
+    const wait = adapter.present({ delivery, snapshot, abort: new AbortController().signal });
+    commitPort.notifyRealCommitted({ executionKey: presentationKeyOf(delivery), sessionId: delivery.session_id, revision: delivery.workspace_revision! });
+    await expect(wait).resolves.toEqual({ outcome: "presented" });
+    unregister();
+  });
+
+  it("reveal_scope=target_highlight 但 target 未高亮 → failed(illegal_target)（服务端投影缺失不误报 presented）", async () => {
+    const { commitPort, adapter, snapshot, delivery } = geometryEmphasizeContext(false);
+    commitPort.registerRealCommitSource();
+    const result = await adapter.present({ delivery, snapshot, abort: new AbortController().signal });
+    expect(result).toMatchObject({ outcome: "failed", failureClass: "illegal_target" });
+  });
+
+  it("target 不存在于 canvas view → failed(illegal_target)", async () => {
+    const commitPort = createWorkspaceCommitPort();
+    const adapter = createGeometryEmphasizePresentationAdapter({ commitPort });
+    commitPort.registerRealCommitSource();
+    const snapshot: ValidatedSessionSnapshot = validFromRaw(runtimeSnapshotRaw({
+      pendingPresentation: pendingGeometryEmphasizePresentation(26, 10, ["seg-UNKNOWN"]),
+      canvasElements: [{ element_id: "seg-CO", kind: "segment", highlighted: true }],
+      revision: 26,
+      workspaceRevision: 10,
+    }));
+    const delivery = snapshot.pending_presentation as PendingPresentationDelivery;
+    await expect(adapter.present({ delivery, snapshot, abort: new AbortController().signal }))
+      .resolves.toMatchObject({ outcome: "failed", failureClass: "illegal_target" });
+  });
+
+  it("空 target_ids（无高亮目标）→ failed(illegal_target) fail closed", async () => {
+    const commitPort = createWorkspaceCommitPort();
+    const adapter = createGeometryEmphasizePresentationAdapter({ commitPort });
+    commitPort.registerRealCommitSource();
+    const snapshot: ValidatedSessionSnapshot = validFromRaw(runtimeSnapshotRaw({
+      pendingPresentation: pendingGeometryEmphasizePresentation(26, 10, []),
+      canvasElements: [{ element_id: "seg-CO", kind: "segment", highlighted: true }],
+      revision: 26,
+      workspaceRevision: 10,
+    }));
+    const delivery = snapshot.pending_presentation as PendingPresentationDelivery;
+    await expect(adapter.present({ delivery, snapshot, abort: new AbortController().signal }))
+      .resolves.toMatchObject({ outcome: "failed", failureClass: "illegal_target" });
+  });
+
+  it("abort（服务端已推进/controller 打断）→ interrupted", async () => {
+    const { commitPort, adapter, snapshot, delivery } = geometryEmphasizeContext(true);
+    const unregister = commitPort.registerRealCommitSource();
+    const abort = new AbortController();
+    const wait = adapter.present({ delivery, snapshot, abort: abort.signal });
+    abort.abort();
+    await expect(wait).resolves.toEqual({ outcome: "interrupted" });
+    unregister();
+  });
+
+  it("supports：geometry:geometry.emphasize 三元组命中；construct/foreground-segment 不被吃", () => {
+    const emphasize = createGeometryEmphasizePresentationAdapter({ commitPort: createWorkspaceCommitPort() });
+    const construct = createGeometryPresentationAdapter({ commitPort: createWorkspaceCommitPort() });
+    expect(emphasize.supports({ kind: "workspace", workspace_action: { surface: "geometry", capability: "geometry.emphasize" } } as never)).toBe(true);
+    expect(emphasize.supports({ kind: "workspace", workspace_action: { surface: "solution_board", capability: "geometry.emphasize" } } as never)).toBe(false);
+    expect(construct.supports({ kind: "workspace", workspace_action: { surface: "geometry", capability: "geometry.emphasize" } } as never)).toBe(false);
+    expect(emphasize.supports({ kind: "voice" } as never)).toBe(false);
   });
 });
 

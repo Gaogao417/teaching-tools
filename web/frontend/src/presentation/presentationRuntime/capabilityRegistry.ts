@@ -11,10 +11,13 @@ import type { PendingPresentationDelivery, PresentationToolAdapter } from "./typ
 
 /** 当前受支持的三元组（测试与文档对齐用；真实判定在 adapter.supports）。
  *  F7 P2：board.explain 按B 的 generation/v1 presentation-tool-spec 目录登记
- *  （tool_id=board.explain；plan/v4 线上形状 capability="board.explain"）。 */
+ *  （tool_id=board.explain；plan/v4 线上形状 capability="board.explain"）。
+ *  F7 P3：geometry.emphasize 按目录冻结条目登记（A' 轨 adapter；服务端
+ *  capability 注册/投影归 B 轨——此前完成，见 workspaceSurfaceAdapters）。 */
 export const SUPPORTED_PRESENTATION_CAPABILITIES: readonly string[] = [
   "voice",
   "geometry:geometry.construct",
+  "geometry:geometry.emphasize",
   "solution_board:board.reveal-entry",
   "solution_board:board.explain",
 ];

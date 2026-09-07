@@ -12,7 +12,12 @@ import { TutorRuntimeHttpError, type TutorRuntimeClient, type ValidatedSessionSn
 import type { MediaSessionController } from "../audio/MediaSessionController";
 import type { NarrationController } from "../narration/NarrationController";
 import { createVoicePresentationAdapter } from "./adapters/voicePresentationAdapter";
-import { createBoardExplainPresentationAdapter, createBoardPresentationAdapter, createGeometryPresentationAdapter } from "./adapters/workspaceSurfaceAdapters";
+import {
+  createBoardExplainPresentationAdapter,
+  createBoardPresentationAdapter,
+  createGeometryEmphasizePresentationAdapter,
+  createGeometryPresentationAdapter,
+} from "./adapters/workspaceSurfaceAdapters";
 import { createCapabilityRegistry } from "./capabilityRegistry";
 import { PresentationRuntimeController } from "./PresentationRuntimeController";
 import type { PendingPresentationOutcomeRequest, PresentationRuntimePhase, PresentationRuntimePorts } from "./types";
@@ -49,7 +54,10 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
   // F7 P2（S1 R7）：动态板书解释（board.explain，EF- 内容链）——复用同一
   // commitPort/reveal 渲染链，不建第二 Board 状态机。
   const boardExplain = createBoardExplainPresentationAdapter({ commitPort });
-  const adapters = [voice, geometry, board, boardExplain];
+  // F7 P3（FM-7-5）：geometry.emphasize（既有实体高亮）——同一 commitPort/
+  // visualState 渲染链；服务端 capability 注册前不进模型可见集（B 轨前置）。
+  const geometryEmphasize = createGeometryEmphasizePresentationAdapter({ commitPort });
+  const adapters = [voice, geometry, board, boardExplain, geometryEmphasize];
   const registry = createCapabilityRegistry(adapters);
 
   const ports: PresentationRuntimePorts = {
