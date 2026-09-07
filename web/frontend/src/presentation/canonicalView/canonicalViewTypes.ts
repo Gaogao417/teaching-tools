@@ -8,6 +8,7 @@
  * `action-runtime/types.ts` 引入 View 类型。
  */
 import type { z } from "zod";
+import type { studentWorkspaceViewV3Schema } from "../../../../shared/canonical/visualSchemas";
 import type {
   coachPanelViewV1Schema,
   mainlineParticipationV1Schema,
@@ -22,7 +23,8 @@ export type StudentWorkspaceViewV1 = z.infer<typeof studentWorkspaceViewV1Schema
 export type StudentWorkspaceViewV2 = z.infer<typeof studentWorkspaceViewV2Schema>;
 
 /** F7 P2：HTTP 快照投影的 Workspace View（v1|v2 判别联合；消费面按 marker 收窄）。 */
-export type StudentWorkspaceViewHttp = StudentWorkspaceViewV1 | StudentWorkspaceViewV2;
+export type StudentWorkspaceViewV3 = z.infer<typeof studentWorkspaceViewV3Schema>;
+export type StudentWorkspaceViewHttp = StudentWorkspaceViewV1 | StudentWorkspaceViewV2 | StudentWorkspaceViewV3;
 
 /** view/v2 解释片段（EF- 临场板书的 student-safe 投影；内容/绑定引用只读）。 */
 export type SolutionBoardFragment = NonNullable<StudentWorkspaceViewV2["solution_board"]["fragments"]>[number];

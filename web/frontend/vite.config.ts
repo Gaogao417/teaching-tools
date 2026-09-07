@@ -1,5 +1,7 @@
 /// <reference types="vitest/config" />
 import * as nodePath from "node:path";
+import { realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -13,6 +15,13 @@ const backendZodDir = nodePath.resolve(
   "../backend/node_modules/zod",
 );
 
+// A shared node_modules symlink resolves fonts outside the worktree. Allow only
+// KaTeX's actual font directory, without granting access to its parent checkout.
+const katexFontsDir = realpathSync(nodePath.join(
+  nodePath.dirname(createRequire(import.meta.url).resolve("katex/package.json")),
+  "dist/fonts",
+));
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -23,7 +32,7 @@ export default defineConfig({
   server: {
     port: 5173,
     fs: {
-      allow: [".."],
+      allow: ["..", katexFontsDir],
     },
     // Playwright voice-benchmark runs write traces/screenshots into
     // benchmark-results/ inside this package; watching them made the dev

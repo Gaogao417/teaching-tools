@@ -28,6 +28,7 @@ import {
   type SessionSnapshotHttpV1,
 } from "../../../shared/tutorHttpProfile";
 import { studentWorkspaceCommandV1Schema } from "../../../shared/canonical/schemas";
+import type { VisualExecutionOwner } from "../../../shared/canonical/visualSchemas";
 
 /** 经 parseSessionSnapshotHttp（parse + §1.3 门禁）原子校验后的会话快照。 */
 export type ValidatedSessionSnapshot = SessionSnapshotHttpV1;
@@ -51,8 +52,9 @@ export type StudentControlCommand =
   | "request_rephrase"
   | "barge_in"
   | "return_to_mainline"
-  | "retry_recovery";
-export type StudentControlInput = { kind: "control"; command: StudentControlCommand };
+  | "retry_recovery"
+  | "claim_presentation";
+export type StudentControlInput = { kind: "control"; command: StudentControlCommand; not_started_delivery?: { sequence_id: string; ordinal: number; action_id: string } };
 export type StudentBrowserInput = StudentUtteranceInput | StudentControlInput;
 
 /** action-evidence 成功响应（snapshot + 判别式 ActionSubmission，spec §2.6）。 */
@@ -68,6 +70,7 @@ export interface AsrTranscription {
   transcript: string;
   model: string;
   language?: string;
+  executionOwner?: VisualExecutionOwner;
 }
 
 /** 服务端/HTTP 错误：code 原样保留（spec §2.1 错误表；4xx/5xx 不构造学生 correct/wrong）。 */
@@ -132,6 +135,7 @@ export interface TutorRuntimeClient {
     taskId: string;
     studentId: string;
     assessment?: boolean;
+    clientInstanceId?: string;
     clientRequestId: string;
   }): Promise<ValidatedSessionSnapshot>;
   restore(sessionId: string): Promise<ValidatedSessionSnapshot>;
@@ -140,12 +144,14 @@ export interface TutorRuntimeClient {
     input: StudentBrowserInput,
     expectedRevision: number,
     clientRequestId: string,
+    executionOwner?: VisualExecutionOwner,
   ): Promise<ValidatedSessionSnapshot>;
   submitActionEvidence(
     sessionId: string,
     request: {
       evidence: { actionId: string; sourceStepId: string; kind: string; version: number; values: Record<string, string> };
       expectedRevision: number;
+      executionOwner?: VisualExecutionOwner;
       clientRequestId: string;
     },
   ): Promise<ActionEvidenceResult>;
@@ -153,6 +159,7 @@ export interface TutorRuntimeClient {
     sessionId: string,
     command: unknown,
     expectedRevision: number,
+    executionOwner?: VisualExecutionOwner,
   ): Promise<ValidatedSessionSnapshot>;
   reportPresentationOutcome(
     sessionId: string,
@@ -161,6 +168,8 @@ export interface TutorRuntimeClient {
       sequenceId: string;
       ordinal: number;
       outcome: "presented" | "interrupted" | "failed";
+      executionOwner?: VisualExecutionOwner;
+      holdForControl?: { client_request_id: string };
       failureClass?: string;
       message?: string;
       clientRequestId: string;
@@ -171,6 +180,7 @@ export interface TutorRuntimeClient {
     sessionId: string,
     request: {
       audio: { dataUrl: string; mimeType: string; durationMs?: number };
+      executionOwner?: VisualExecutionOwner;
       clientRequestId: string;
     },
   ): Promise<AsrTranscription>;
@@ -191,6 +201,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
   private async request(path: string, init?: RequestInit): Promise<unknown> {
     const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${HttpTutorRuntimeClient.API_ROOT}${path}`, {
       ...init,
+      cache: "no-store",
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
     if (!response.ok) throw await readHttpError(response);
@@ -222,10 +233,12 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     taskId: string;
     studentId: string;
     assessment?: boolean;
+    clientInstanceId?: string;
     clientRequestId: string;
   }): Promise<ValidatedSessionSnapshot> {
     const body = buildBody(startRequestHttpV1Schema, {
       task_id: input.taskId,
+      ...(input.clientInstanceId ? { client_instance_id: input.clientInstanceId } : {}),
       student_id: input.studentId,
       ...(input.assessment !== undefined ? { assessment: input.assessment } : {}),
       client_request_id: input.clientRequestId,
@@ -244,9 +257,11 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     input: StudentBrowserInput,
     expectedRevision: number,
     clientRequestId: string,
+    executionOwner?: VisualExecutionOwner,
   ): Promise<ValidatedSessionSnapshot> {
     const body = buildBody(studentInputRequestHttpV1Schema, {
       input,
+      ...(executionOwner ? { execution_owner: executionOwner } : {}),
       client_request_id: clientRequestId,
       expected_revision: expectedRevision,
     });
@@ -261,11 +276,13 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     request: {
       evidence: { actionId: string; sourceStepId: string; kind: string; version: number; values: Record<string, string> };
       expectedRevision: number;
+      executionOwner?: VisualExecutionOwner;
       clientRequestId: string;
     },
   ): Promise<ActionEvidenceResult> {
     const body = buildBody(actionEvidenceRequestHttpV1Schema, {
       evidence: request.evidence,
+      ...(request.executionOwner ? { execution_owner: request.executionOwner } : {}),
       expected_revision: request.expectedRevision,
       client_request_id: request.clientRequestId,
     });
@@ -284,6 +301,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     sessionId: string,
     command: unknown,
     expectedRevision: number,
+    executionOwner?: VisualExecutionOwner,
   ): Promise<ValidatedSessionSnapshot> {
     // canonical student-workspace-command/v1 由共享 schema 全形状校验（含
     // session_id 与路径参数对账——服务端 parse 后强制，客户端同校）。
@@ -299,6 +317,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     }
     const body = buildBody(workspaceCommandRequestHttpV1Schema, {
       command: commandBody,
+      ...(executionOwner ? { execution_owner: executionOwner } : {}),
       expected_revision: expectedRevision,
     });
     return HttpTutorRuntimeClient.parseSnapshot(
@@ -314,6 +333,8 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
       sequenceId: string;
       ordinal: number;
       outcome: "presented" | "interrupted" | "failed";
+      executionOwner?: VisualExecutionOwner;
+      holdForControl?: { client_request_id: string };
       failureClass?: string;
       message?: string;
       clientRequestId: string;
@@ -322,6 +343,8 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
   ): Promise<ValidatedSessionSnapshot> {
     const body = buildBody(presentationOutcomeRequestHttpV1Schema, {
       sequence_id: request.sequenceId,
+      ...(request.executionOwner ? { execution_owner: request.executionOwner } : {}),
+      ...(request.holdForControl ? { hold_for_control: request.holdForControl } : {}),
       ordinal: request.ordinal,
       outcome: request.outcome,
       ...(request.failureClass !== undefined ? { failure_class: request.failureClass } : {}),
@@ -342,10 +365,12 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
     sessionId: string,
     request: {
       audio: { dataUrl: string; mimeType: string; durationMs?: number };
+      executionOwner?: VisualExecutionOwner;
       clientRequestId: string;
     },
   ): Promise<AsrTranscription> {
     const body = buildBody(asrRequestHttpV1Schema, {
+      ...(request.executionOwner ? { execution_owner: request.executionOwner } : {}),
       audio: {
         data_url: request.audio.dataUrl,
         mime_type: request.audio.mimeType,
@@ -363,6 +388,7 @@ export class HttpTutorRuntimeClient implements TutorRuntimeClient {
       sessionId: parsed.data.session_id,
       observedRevision: parsed.data.observed_revision,
       transcript: parsed.data.transcript,
+      ...(parsed.data.execution_owner ? { executionOwner: parsed.data.execution_owner } : {}),
       model: parsed.data.model,
       ...(parsed.data.language !== undefined ? { language: parsed.data.language } : {}),
     };

@@ -11,6 +11,9 @@
  * 通知携带 executionKey+session+revision；等待方绑定相同执行身份和最小 revision——旧会话的
  * 大 revision 不放行新会话，会话切换 reset 时全部等待者按 aborted 结算。
  */
+import { createVisualCommitPort, type VisualCommitPort } from "./visualCommitPort";
+import { createVisualRendererPort, type VisualRendererPort } from "./visualRendererPort";
+
 export interface WorkspaceCommitNote {
   /** 身份必须匹配；同 revision 的其他执行不能作为完成证据。 */
   executionKey: string;
@@ -28,6 +31,7 @@ export interface WorkspaceCommitNote {
  * 恢复路径；注册计数本身不唤醒等待者）。
  */
 export interface WorkspaceCommitSignal {
+  visualRenderer?: VisualRendererPort;
   registerRealCommitSource(): () => void;
   notifyRealCommitted(note: WorkspaceCommitNote): void;
   notifyRealSourceActive(): void;
@@ -51,6 +55,9 @@ interface CommitWaiter {
 }
 
 export interface WorkspaceCommitPort {
+  /** Exact operation-specific visual receipts; generic Board commits never satisfy these. */
+  readonly visual: VisualCommitPort;
+  readonly visualRenderer: VisualRendererPort;
   /** 过渡呈现面的 commit 通知（诊断/开发；不满足 adapter）。 */
   notifyTransitionalCommitted(note: Omit<WorkspaceCommitNote, "executionKey">): void;
   /** 注册真实完成信号源（Step 7 生产接线/测试注入）；返回注销函数。 */
@@ -69,6 +76,8 @@ export interface WorkspaceCommitPort {
 const DEFAULT_COMMIT_TIMEOUT_MS = 10_000;
 
 export function createWorkspaceCommitPort(): WorkspaceCommitPort {
+  const visual = createVisualCommitPort();
+  const visualRenderer = createVisualRendererPort(visual);
   let realSourceCount = 0;
   let realNote: WorkspaceCommitNote | undefined;
   let transitionalNote: Omit<WorkspaceCommitNote, "executionKey"> | undefined;
@@ -88,6 +97,8 @@ export function createWorkspaceCommitPort(): WorkspaceCommitPort {
   };
 
   return {
+    visual,
+    visualRenderer,
     notifyTransitionalCommitted(note) {
       transitionalNote = note;
     },
@@ -129,6 +140,8 @@ export function createWorkspaceCommitPort(): WorkspaceCommitPort {
       });
     },
     reset() {
+      visualRenderer.reset();
+      visual.reset();
       realNote = undefined;
       transitionalNote = undefined;
       for (const waiter of [...waiters]) settle(waiter, "aborted");

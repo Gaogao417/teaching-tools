@@ -20,6 +20,9 @@
  */
 import type { ValidatedSessionSnapshot } from "../../api/tutorRuntimeClient";
 import type { CapabilityRegistry } from "./capabilityRegistry";
+import { geometryVisualCommandSchema, visualExecutionOwnerSchema } from "../../../../shared/canonical/visualSchemas";
+import { visualRuntimeSnapshot } from "./visualRuntimeSnapshot";
+import { sameExecutionOwner } from "./PresentationExecutionOwner";
 import type {
   PendingPresentationDelivery,
   PendingPresentationOutcomeRequest,
@@ -108,6 +111,10 @@ interface AckedOutcome {
 }
 
 export class PresentationRuntimeController {
+  private latestSnapshot?: ValidatedSessionSnapshot;
+  private controlHold?: string;
+  private observedOwnerKey?: string;
+  private visualPreparation?: { key: string; abort: AbortController };
   private state: RuntimeState = { kind: "idle" };
   private acked: AckedOutcome | undefined;
   private disposed = false;
@@ -138,7 +145,74 @@ export class PresentationRuntimeController {
   /** 快照 adopt（唯一入口；hook 在每次新快照对象上调用）。 */
   adopt(snapshot: ValidatedSessionSnapshot): void {
     if (this.disposed) return;
+    const previousSnapshot = this.latestSnapshot;
+    this.latestSnapshot = snapshot;
     const pending = snapshot.pending_presentation;
+    let visual: ReturnType<typeof visualRuntimeSnapshot>;
+    try { visual = visualRuntimeSnapshot(snapshot); } catch (error) {
+      this.discardExecution();
+      this.ports.onProtocolAnomaly(`invalid visual snapshot: ${String(error)}`);
+      return;
+    }
+    if (visual) {
+      const ownerKey = `${snapshot.session_id}:${visual.owner.client_instance_id}:${visual.owner.epoch}`;
+      if (this.observedOwnerKey !== undefined && this.observedOwnerKey !== ownerKey) {
+        this.epoch += 1;
+        this.discardExecution(); this.clearOutcomePending(); this.acked = undefined;
+        this.visualPreparation?.abort.abort(); this.visualPreparation = undefined;
+        this.controlHold = undefined;
+        if (previousSnapshot) this.ports.suppressVisualSnapshot?.(previousSnapshot);
+      }
+      this.observedOwnerKey = ownerKey;
+      if (visual.owner.client_instance_id !== this.ports.clientInstanceId) {
+        this.discardExecution();
+        this.setState({ kind: "idle" });
+        return;
+      }
+      if (pending) {
+        const deliveryOwner = visualExecutionOwnerSchema.safeParse("execution_owner" in pending ? pending.execution_owner : undefined);
+        if (!deliveryOwner.success || !sameExecutionOwner(deliveryOwner.data, visual.owner)) {
+          this.ports.onProtocolAnomaly("delivery execution owner does not match current snapshot"); return;
+        }
+      }
+      const barrier = visual.barrier;
+      let cleanupAllowed = false;
+      if (barrier?.status === "awaiting-cleanup" && pending?.sequence_id === barrier.cleanup_sequence_id) {
+        try {
+          const action = pending.action.workspace_action;
+          const command = geometryVisualCommandSchema.parse(JSON.parse(action?.command_payload ?? ""));
+          cleanupAllowed = action?.capability === "geometry.visual.reconcile" && command.op === "reconcile"
+            && command.barrier_id === barrier.barrier_id && command.target_digest === barrier.target_digest
+            && command.target_visual_revision === barrier.target_visual_revision && sameExecutionOwner(barrier.execution_owner, visual.owner);
+        } catch { /* fail closed below */ }
+      }
+      if ((barrier || this.controlHold) && !cleanupAllowed) {
+        if (!barrier && this.state.kind === "outcome-pending" && pending && this.state.key === presentationKeyOf(pending)) {
+          void this.dispatchOutcome(this.state.request);
+        }
+        if (barrier?.status === "failed") this.setState({ kind: "paused-failure", key: barrier.barrier_id, failureClass: "internal_error", message: "visual cleanup failed" });
+        return;
+      }
+      // Visual actions render through their adapter. Before voice/ordinary actions
+      // (or an idle restore), rebuild the static baseline without replaying pulses.
+      if (!pending?.action.workspace_action?.capability.startsWith("geometry.visual.") && this.ports.visualSnapshotReady?.(snapshot) === false) {
+        const key = `${ownerKey}:${visual.view.digest}:${visual.view.visual_revision}`;
+        if (this.visualPreparation?.key === key) return;
+        this.visualPreparation?.abort.abort();
+        const preparation = { key, abort: new AbortController() }; this.visualPreparation = preparation;
+        void this.ports.prepareVisualSnapshot?.(snapshot, preparation.abort.signal).then(ready => {
+          if (this.disposed || this.visualPreparation !== preparation) return;
+          this.visualPreparation = undefined;
+          if (ready && this.latestSnapshot) this.adopt(this.latestSnapshot);
+          else if (!ready) this.ports.onNotice("几何标注尚未完成真实恢复，讲解已暂停。");
+        }).catch(error => {
+          if (this.visualPreparation !== preparation) return;
+          this.visualPreparation = undefined;
+          this.ports.onNotice(`几何恢复失败：${String(error)}`);
+        });
+        return;
+      }
+    }
     // 会话作用域按**每份** snapshot 更新（二次复验 P1-5）：切到无 pending 的
     // 新会话同样推进 epoch——旧会话在途 outcome 响应随即失配被丢弃，不能把
     // 采用面拉回旧会话。
@@ -206,7 +280,39 @@ export class PresentationRuntimeController {
     if (this.state.kind === "awaiting-gesture") return true;
     if (this.state.kind !== "executing") return false;
     const { delivery } = this.state.execution;
-    return delivery.action.kind === "voice" && delivery.action.voice_action?.interruptible !== false;
+    return delivery.action.kind === "voice" && delivery.action.voice_action?.interruptible !== false
+      || delivery.action.workspace_action?.capability.startsWith("geometry.visual.") === true
+        && delivery.action.workspace_action.capability !== "geometry.visual.reconcile";
+  }
+
+  holdForControl(requestId: string): void {
+    if (this.controlHold && this.controlHold !== requestId) throw new Error("another presentation control handshake is pending");
+    this.controlHold = requestId;
+    if (this.latestSnapshot) this.ports.suppressVisualSnapshot?.(this.latestSnapshot);
+  }
+
+  releaseControlHold(requestId: string): void {
+    if (this.controlHold !== requestId) return;
+    this.controlHold = undefined;
+    if (this.latestSnapshot) this.adopt(this.latestSnapshot);
+  }
+
+  revokeExecution(): void {
+    this.epoch += 1;
+    this.visualPreparation?.abort.abort(); this.visualPreparation = undefined;
+    if (this.latestSnapshot) this.ports.suppressVisualSnapshot?.(this.latestSnapshot);
+    this.discardExecution(); this.clearOutcomePending();
+    this.controlHold = undefined; this.latestSnapshot = undefined;
+    this.setState({ kind: "idle" });
+  }
+
+  notStartedDelivery(): { sequence_id: string; ordinal: number; action_id: string } | undefined {
+    const pending = this.latestSnapshot?.pending_presentation;
+    if (!pending || !this.controlHold) return undefined;
+    const key = presentationKeyOf(pending);
+    if (this.state.kind !== "idle" && !(this.state.kind === "outcome-pending" && this.state.key !== key)) return undefined;
+    if (this.acked?.key === key) return undefined;
+    return { sequence_id: pending.sequence_id, ordinal: pending.ordinal, action_id: pending.action_id };
   }
 
   /** InterruptCurrent：abort 当前 adapter → interrupted 上报（barge-in 第 1/2 步；
@@ -314,6 +420,9 @@ export class PresentationRuntimeController {
    *  awaiting-real-signal 的执行以原 delivery+snapshot 重新执行（workspace
    *  adapter 无副作用，重入安全）。非该状态时为 no-op。 */
   retryAwaitingRealSignal(): void {
+    if (this.latestSnapshot && visualRuntimeSnapshot(this.latestSnapshot) && this.state.kind === "idle") {
+      this.adopt(this.latestSnapshot); return;
+    }
     if (this.disposed || this.state.kind !== "awaiting-real-signal") return;
     const execution = this.state.execution;
     execution.abort = new AbortController();
@@ -330,15 +439,23 @@ export class PresentationRuntimeController {
       });
   }
 
+  private visualControlBlocked(): boolean {
+    if (this.controlHold) return true;
+    if (!this.observedOwnerKey) return false;
+    return !this.latestSnapshot || !!this.latestSnapshot.visual_barrier
+      || this.latestSnapshot.presentation_execution_owner?.client_instance_id !== this.ports.clientInstanceId;
+  }
+
   /** 纯回放（零上报）：actionId + 缓存 + 播放互斥由 voice adapter 核对。 */
   replayVoice(actionId: string): boolean {
-    if (this.disposed) return false;
+    if (this.disposed || this.visualControlBlocked()) return false;
     const voice = this.adapters.find((adapter) => adapter.canReplay?.(actionId) === true);
     return voice?.replay?.(actionId) ?? false;
   }
 
   /** 最近可回放的 voice actionId（UI replay 门控；无目标时 undefined）。 */
   replayTarget(): string | undefined {
+    if (this.visualControlBlocked()) return undefined;
     for (const adapter of this.adapters) {
       const target = adapter.lastReplayableActionId?.();
       if (target !== undefined) return target;
@@ -349,6 +466,8 @@ export class PresentationRuntimeController {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.visualPreparation?.abort.abort();
+    if (this.latestSnapshot) this.ports.suppressVisualSnapshot?.(this.latestSnapshot);
     this.epoch += 1;
     if (this.state.kind === "executing" || this.state.kind === "awaiting-gesture" || this.state.kind === "awaiting-real-signal") {
       this.state.execution.abort.abort();
@@ -430,6 +549,8 @@ export class PresentationRuntimeController {
       ...(failureClass !== undefined ? { failureClass } : {}),
       ...(message !== undefined ? { message } : {}),
       expectedRevision: delivery.session_revision,
+      ...("execution_owner" in delivery ? { executionOwner: visualExecutionOwnerSchema.parse(delivery.execution_owner) } : {}),
+      ...("execution_owner" in delivery && this.controlHold ? { holdForControl: { client_request_id: this.controlHold } } : {}),
     };
     const request: PendingPresentationOutcomeRequest = { ...base, clientRequestId: deterministicOutcomeRequestId(base) };
     this.state = { kind: "outcome-pending", key: presentationKeyOf(delivery), request };

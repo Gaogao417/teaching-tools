@@ -158,6 +158,8 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boar
         >
           {model ? (
             <GeometryCanvasSurface
+              visualRenderer={view.schema === "ai_teaching_student_workspace_view/v3" ? commitSignal?.visualRenderer : undefined}
+              onVisualSourceActive={commitSignal?.notifyRealSourceActive}
               key={view.session_id}
               model={model}
               view={interactionView}

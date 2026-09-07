@@ -262,7 +262,18 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
 
   const statusNotes = (
     <>
-      {tutor.runtimePresentationFailure ? (
+      {tutor.runtimeOwnerRequired ? (
+        <div className="tutor-learn-notice" role="status" data-testid="tutor-presentation-owner">
+          <p>此页面尚未接管讲解。接管并完成画面同步后才能继续。</p>
+          <button type="button" className="btn btn-primary" disabled={tutor.claimBusy} onClick={() => void tutor.claimPresentation()}>在此页面继续</button>
+        </div>
+      ) : tutor.runtimeVisualBarrier ? (
+        <div className="tutor-learn-notice" role="status" data-testid="tutor-visual-cleanup">
+          <p>{tutor.runtimeVisualBarrier.status === "failed" ? "画面清理失败，讲解和录音已暂停。" : "正在同步画面，请稍候。"}</p>
+          {tutor.runtimeVisualBarrier.status === "failed" ? <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void tutor.submitControl("retry_recovery")}>重试画面恢复</button> : null}
+        </div>
+      ) : null}
+      {tutor.runtimePresentationFailure && !tutor.runtimeOwnerRequired && !tutor.runtimeVisualBarrier ? (
         <div className="tutor-learn-error" role="alert" data-testid="tutor-presentation-failure">
           <p>{tutor.runtimePresentationFailure.failureClass === "provider_failure"
             ? "语音或呈现服务暂时失败，讲解已暂停。请重试恢复讲解。"
@@ -419,7 +430,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
 
   /** 参与区（统一 view-model 驱动；spec §4.4 七 kind + legacy 相位投影）。 */
   const participationArea = (() => {
-    if (tutor.runtimePresentationFailure) return null;
+    if (tutor.runtimePresentationFailure || tutor.runtimeOwnerRequired || tutor.runtimeVisualBarrier) return null;
     const controls = tutor.participationControls;
     switch (controls.kind) {
       case "completed":
