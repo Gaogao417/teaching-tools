@@ -179,6 +179,7 @@ export interface V7ActionEvidenceInput {
 
 export type OrchestratorV7ErrorCode =
   | "MODEL_PIN_MISMATCH"
+  | "PRESENTER_PIN_MISMATCH"
   | "PLAN_IMPORT_FAILED"
   | "UNKNOWN_TASK"
   | "NO_EXECUTABLE_DECISION"
@@ -451,6 +452,48 @@ export class TutorSessionOrchestratorV7 {
       gateProvider: input.model.provider,
       ...(input.modelTimeoutMs !== undefined ? { modelTimeoutMs: input.modelTimeoutMs } : {}),
     });
+    // F7 P2-B（B3）Presenter pin 校验（用户裁决：fail closed）——v9 会话恢复传入
+    // presenter 端口时，其 pin 必须与会话冻结 pin 及在途生成请求冻结 pin 全字段
+    // 一致（provider/model_id/prompt_version/context_builder_version/
+    // tool_catalog_version）。不一致 ⇒ 显式拒绝恢复（零事件、零模型调用；会话仍
+    // 可不带 presenter 只读加载）——否则替换模型生成的内容会以旧 pin 写入
+    // provenance（实测：换 provider/model 端口恢复后 committed 仍记旧 pin）。
+    if (input.presenter !== undefined && navigator.eventSchema === "v9") {
+      const presenterPinFields = ["provider", "model_id", "prompt_version", "context_builder_version", "tool_catalog_version"] as const;
+      const state = navigator.rebuildState() as unknown as {
+        pinned_plan?: { presenter_generation_pin?: Record<string, string> };
+        generation_slot?: { status?: string; request_id?: string };
+        generation_requests?: Array<{ request_id: string; presenter_pin: Record<string, string> }>;
+      };
+      const mismatches: string[] = [];
+      const sessionPin = state.pinned_plan?.presenter_generation_pin;
+      if (!sessionPin) {
+        mismatches.push("session presenter_generation_pin missing from authoritative state");
+      } else {
+        for (const field of presenterPinFields) {
+          if (sessionPin[field] !== input.presenter.pin[field]) {
+            mismatches.push(`session pin ${field}: stream=${JSON.stringify(sessionPin[field])} vs resumed=${JSON.stringify(input.presenter.pin[field])}`);
+          }
+        }
+      }
+      const slot = state.generation_slot;
+      const pendingRequest = slot?.status === "pending"
+        ? state.generation_requests?.find((record) => record.request_id === slot.request_id)
+        : undefined;
+      if (pendingRequest) {
+        for (const field of presenterPinFields) {
+          if (pendingRequest.presenter_pin[field] !== input.presenter.pin[field]) {
+            mismatches.push(`pending request ${pendingRequest.request_id} pin ${field}: frozen=${JSON.stringify(pendingRequest.presenter_pin[field])} vs resumed=${JSON.stringify(input.presenter.pin[field])}`);
+          }
+        }
+      }
+      if (mismatches.length > 0) {
+        throw new OrchestratorV7Error(
+          "PRESENTER_PIN_MISMATCH",
+          `session ${input.sessionId} presenter pin mismatch on resume (${mismatches.join("; ")}); fail closed, zero events, zero model calls — resume without a presenter port (read-only) or with the pinned presenter model`,
+        );
+      }
+    }
     const orchestrator = new TutorSessionOrchestratorV7({
       sessionId: input.sessionId,
       resolver,
@@ -1251,32 +1294,100 @@ export class TutorSessionOrchestratorV7 {
     this.appendViaKernel(this.navigator.revision, batch);
   }
 
-  /** retry_recovery：failed 停留的显式恢复——supersede 原序列 + 新恢复序列。 */
+  /**
+   * retry_recovery（F7 P2-B/B4 分流）：
+   * - presentation cursor=failed ⇒ 既有恢复链不变：supersede 原序列 + 新恢复序列；
+   * - generation slot=failed（cursor idle）⇒ 生成耗尽后的显式重试（生成生命周期
+   *   规格 :47「耗尽后可重新尝试」）：为原 decision/scope 预约**新生成请求**
+   *   （新 request_id、全新 attempt 预算、当前合法状态重新冻结上下文；旧失败
+   *   记录原样保留），随后由应用层正常 drive。
+   * 两者皆非 ⇒ RETRY_RECOVERY_WITHOUT_FAILURE（fail closed、零事件）。
+   */
   private retryRecovery(): { supersededSequence: number; report: V7PresentationReport } {
     const cursor = this.navigator.state.presentation_cursor;
-    if (cursor.status !== "failed") {
-      throw new OrchestratorV7Error(
-        "RETRY_RECOVERY_WITHOUT_FAILURE",
-        `control.retry_recovery requires a failed presentation cursor (at ${cursor.status}); fail closed, zero events`,
-      );
-    }
-    const failedOutcomeSequence = findOutcomeSequence(this.events, cursor) ?? 1;
-    const appended = this.appendViaKernel(this.navigator.revision, [
-      {
-        event_type: "presentation_sequence_superseded",
-        payload: {
-          sequence_id: cursor.sequence_id,
-          reason: "retry_recovery",
-          pending_ordinal: cursor.ordinal,
-          pending_action_id: cursor.action_id,
+    if (cursor.status === "failed") {
+      const failedOutcomeSequence = findOutcomeSequence(this.events, cursor) ?? 1;
+      const appended = this.appendViaKernel(this.navigator.revision, [
+        {
+          event_type: "presentation_sequence_superseded",
+          payload: {
+            sequence_id: cursor.sequence_id,
+            reason: "retry_recovery",
+            pending_ordinal: cursor.ordinal,
+            pending_action_id: cursor.action_id,
+          },
+          occurred_at: nowIso(),
+          causation_sequence: failedOutcomeSequence,
+          idempotency_key: `${this.sessionId}:pss:${cursor.sequence_id}`,
         },
-        occurred_at: nowIso(),
-        causation_sequence: failedOutcomeSequence,
-        idempotency_key: `${this.sessionId}:pss:${cursor.sequence_id}`,
-      },
-    ]);
-    const report = this.presentCurrentBeat();
-    return { supersededSequence: appended.appendedSequences[0], report };
+      ]);
+      const report = this.presentCurrentBeat();
+      return { supersededSequence: appended.appendedSequences[0], report };
+    }
+    const slot = this.navigator.state.generation_slot;
+    if (slot?.status === "failed") {
+      const failedRequest = (this.navigator.state.generation_requests as unknown as Array<{
+        request_id: string;
+        decision_id: string;
+        scope: V9GenerationEventPayload["scope"];
+      }> | undefined)?.find((record) => record.request_id === slot.request_id);
+      if (!failedRequest) {
+        throw new OrchestratorV7Error(
+          "NO_EXECUTABLE_DECISION",
+          `failed generation slot references unknown request ${slot.request_id} (corrupt stream; fail closed, zero events)`,
+        );
+      }
+      if (this.presenterGenerator === undefined) {
+        throw new OrchestratorV7Error(
+          "NO_EXECUTABLE_DECISION",
+          `generation retry_recovery for ${failedRequest.request_id} requires the presenter port to re-reserve (fail closed, zero events; provide the presenter model)`,
+        );
+      }
+      const decisionSequence = this.events.find(
+        (event) => event.event_type === "policy_decision_made"
+          && (event.payload as { decision_id?: string }).decision_id === failedRequest.decision_id,
+      )?.sequence;
+      if (decisionSequence === undefined) {
+        throw new OrchestratorV7Error(
+          "NO_EXECUTABLE_DECISION",
+          `failed generation ${failedRequest.request_id} references decision ${failedRequest.decision_id} with no committed policy_decision_made fact (corrupt stream; fail closed, zero events)`,
+        );
+      }
+      // 重新冻结当前合法状态（规格 :43：显式重试使用当前合法状态和新预算；不修改
+      // 旧失败记录）。source_request_id 携当前 revision 判别——与原预约（旧 revision）
+      // 不同源，幂等身份不冲突；同 revision 重投同 payload ⇒ existing 幂等返回。
+      const context = this.buildGenerationContext(null);
+      const reservation = reserveGeneration(this.generationKernelAccess(), {
+        sourceRequestId: `gen:${this.sessionId}:${failedRequest.decision_id}:r${this.navigator.revision}`,
+        decisionId: failedRequest.decision_id,
+        decisionSequence,
+        scope: failedRequest.scope,
+        contextDigest: context.digest,
+        context: context.context as unknown as V9GenerationEventPayload["context"],
+        inputText: null,
+        presenterPin: this.presenterGenerator.pin as unknown as V9GenerationEventPayload["presenter_pin"],
+        policy: {
+          policy_version: "retry-policy/v1-default",
+          max_attempts: 3,
+          timeout_ms: 30_000,
+          retry_delays_ms: [1_000, 3_000],
+        },
+      });
+      const scope = reservation.request.scope;
+      return {
+        supersededSequence: 0,
+        report: {
+          sequence_id: "",
+          beat_id: scope.kind === "approved" ? scope.beat_id : scope.local_beat_id,
+          plannedCount: 0,
+          generation: { request_id: reservation.request.request_id, status: "pending" },
+        },
+      };
+    }
+    throw new OrchestratorV7Error(
+      "RETRY_RECOVERY_WITHOUT_FAILURE",
+      `control.retry_recovery requires a failed presentation cursor or a failed generation slot (cursor=${cursor.status}, slot=${this.navigator.state.generation_slot?.status ?? "n/a"}); fail closed, zero events`,
+    );
   }
 
   // ------------------------------------------------------------------ //
@@ -1478,19 +1589,53 @@ export class TutorSessionOrchestratorV7 {
         return content ? [{ ref: resourceId, kind: "resource" as const, rank: "core" as const, text: content }] : [];
       }),
     ];
+    // 冻结引用的复算视图：basis 由 context ref 复原（RT2 已在预约前完成组级预算/
+    // 截断——被省略的组不在冻结 ref 内）；truncated 字段为构建期审计面，此处不
+    // 重建（快照投影从权威状态读）。
     const context = {
       context: request.context,
       digest: request.input_digest,
       basis,
       truncated_inference_ids: [],
+      truncated_group_refs: [],
+      context_truncated: false,
       budget: { facts: request.context.selected_fact_ids.length, inferences: request.context.selected_inference_ids.length, approx_chars: basis.reduce((total, item) => total + item.text.length, 0) },
-    } as BuiltPresentationContext;
+    } as unknown as BuiltPresentationContext;
+    // F7 P2-B（B1）：从生成预约的**冻结 cutoff** 重建学生卡点与已呈现内容
+    //（presentation-navigation 规格 :11——ContextBuilder 读取相关学生输入；同一
+    // 请求重试消费同一冻结视图，不随后续事件漂移）。
+    const cutoff = request.context.event_cutoff;
+    let stuckPoint: { readonly text: string; readonly locatedRefs: readonly string[] } | null = null;
+    const alreadyPresented: string[] = [];
+    const plannedActionsBySequence = new Map<string, V7PresentationOrderedAction[]>();
+    for (const event of this.events) {
+      if (event.sequence > cutoff) break; // committed 流按序；cutoff 后的事件不属于本冻结视图
+      if (event.event_type === "student_input_recorded") {
+        // stuckPoint=最新相关学生输入原文（utterance 文本；control 无文本不入）。
+        // located_refs 不经模型定位——不编造定位结论（卡点定位是独立假设面）。
+        const payload = event.payload as { input?: { kind?: string; text?: string } };
+        if (payload.input?.kind === "utterance" && typeof payload.input.text === "string" && payload.input.text.trim() !== "") {
+          stuckPoint = { text: payload.input.text, locatedRefs: [] };
+        }
+      } else if (event.event_type === "presentation_sequence_planned") {
+        const payload = event.payload as unknown as { sequence_id: string; actions: V7PresentationOrderedAction[] };
+        plannedActionsBySequence.set(payload.sequence_id, payload.actions);
+      } else if (event.event_type === "presentation_action_delivered") {
+        // alreadyPresented=已呈现内容（已交付 voice 正文——committed presentation
+        // 序列派生；不重复已讲过的整句是 prompt 硬性规则 7 的输入面）。
+        const payload = event.payload as { sequence_id: string; ordinal: number };
+        const actions = plannedActionsBySequence.get(payload.sequence_id);
+        const action = actions?.find((candidate) => candidate.ordinal === payload.ordinal);
+        const text = action?.kind === "voice" ? action.voice_action?.text : undefined;
+        if (typeof text === "string" && text.trim() !== "") alreadyPresented.push(text);
+      }
+    }
     const prompt = buildPresenterPrompt({
       context,
       instructionalGoal: this.navigator.currentBeat.purpose,
       currentGranularity: "beat",
-      alreadyPresented: [],
-      stuckPoint: null,
+      alreadyPresented,
+      stuckPoint,
       visibleTools: this.visibleGenerationTools(),
       maxItems: 6,
       maxSpeechChars: 400,
