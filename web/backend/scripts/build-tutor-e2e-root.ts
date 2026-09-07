@@ -65,19 +65,17 @@ function writeVersioned(root: string, namespace: string, artifactId: string, pay
   );
 }
 
+/**
+ * 发布用 truth（F7 P2 转办 3：canonical 终态 question-truth/v2 的
+ * canonical_answer 为 strict 封闭形状——不含 options 字段）。choice 选项正文
+ * 只存在于 plan 资源的 action template（select-option 模板 input.options，
+ * 非 canonical 约束面）；本函数是唯一写入磁盘的 truth 形状。
+ */
 function makeTruth(spec: E2eTaskSpec): Record<string, unknown> {
   const stem = `如图（${spec.qtId}），$AB \\parallel CD$。求证：$\\triangle AOB \\sim \\triangle DOC$。`;
   const canonicalAnswer =
     spec.action === "select-option"
-      ? {
-          kind: "choice_option",
-          value: "opt-a",
-          options: [
-            { id: "opt-a", value: "$\\triangle AOB \\sim \\triangle DOC$" },
-            { id: "opt-b", value: "$\\triangle AOB \\cong \\triangle DOC$" },
-            { id: "opt-c", value: "$\\triangle AOB \\sim \\triangle COD$" },
-          ],
-        }
+      ? { kind: "choice_option", value: "opt-a" }
       : { kind: "proof", value: "$\\triangle AOB \\sim \\triangle DOC$" };
   const payload: Record<string, unknown> = {
     schema: "ai_teaching_question_truth/v2",
@@ -95,6 +93,28 @@ function makeTruth(spec: E2eTaskSpec): Record<string, unknown> {
   };
   payload.content_hash = canonicalHash(payload, "authoring");
   return payload;
+}
+
+/**
+ * 构建期 truth：发布形状 + choice options（仅 BuildTutorPlan 生成 select-option
+ * 模板时内存使用；其 content_hash 不进入任何引用链——question_ref 一律锚定
+ * 发布形状的 hash）。
+ */
+function makeBuildTruth(spec: E2eTaskSpec): Record<string, unknown> {
+  const published = makeTruth(spec);
+  if (spec.action !== "select-option") return published;
+  const answer = published.canonical_answer as Record<string, unknown>;
+  return {
+    ...published,
+    canonical_answer: {
+      ...answer,
+      options: [
+        { id: "opt-a", value: "$\\triangle AOB \\sim \\triangle DOC$" },
+        { id: "opt-b", value: "$\\triangle AOB \\cong \\triangle DOC$" },
+        { id: "opt-c", value: "$\\triangle AOB \\sim \\triangle COD$" },
+      ],
+    },
+  };
 }
 
 function makeApproach(spec: E2eTaskSpec, variantSeed: string): Record<string, unknown> {
@@ -189,6 +209,9 @@ function buildPlan(
   variantSeed: string,
   replaceActionWithMakeParallel: boolean,
 ): { plan: TutorPlanV2Payload; approaches: ApproachPayload[]; truth: TruthPayload } {
+  // 构建期 truth 携 choice options（模板生成输入）；发布/引用链一律用干净
+  // truth（question_ref 锚定其 hash——构建后补钉，保证跨 artifact hash 一致）。
+  const buildTruth = makeBuildTruth(spec) as unknown as TruthPayload;
   const truth = makeTruth(spec) as unknown as TruthPayload;
   const approach = makeApproach(spec, variantSeed) as unknown as ApproachPayload;
   const snapshot = buildRuntimeRegistrySnapshot();
@@ -196,13 +219,20 @@ function buildPlan(
     planId: tpId,
     runId: "run-e2e",
     builtAt: "2026-08-22T00:00:00Z",
-    truth,
+    truth: buildTruth,
     approachSet: null,
     approaches: [approach],
     snapshot,
     capabilityPath: ["enter-text"],
   });
   if (!build.ok) throw new Error(build.errors.join(";"));
+  // 构建用的 buildTruth hash ≠ 发布 truth hash：question_ref 补钉为发布形状后
+  // 重算 draft hash（后续 approve/materialize/projection 全部使用发布 truth）。
+  const planDraft = build.plan as unknown as { question_ref: { content_hash: string }; content_hash: string };
+  if (planDraft.question_ref.content_hash !== truth.content_hash) {
+    planDraft.question_ref.content_hash = truth.content_hash;
+    planDraft.content_hash = canonicalHash(build.plan as unknown as Record<string, unknown>, "plan");
+  }
   if (replaceActionWithMakeParallel) {
     // 白板动作任务：去掉自动生成的 enter-text 结论步，注入 make-parallel
     // 模板（hash 在 approve 前重算，投影走同一 materializer 管线）。
@@ -353,7 +383,7 @@ function main(): void {
       const snapshot = buildRuntimeRegistrySnapshot();
       const approachForVariant = role === "alternate" && alternateApproach ? alternateApproach : primaryApproach;
       const { projection_hash } = projectApprovedPlan(planV3 as unknown as TutorPlanV2Payload, {
-        truth: makeTruth(spec) as unknown as TruthPayload,
+        truth: makeTruth(spec) as unknown as TruthPayload, // 发布形状（无 options）
         approaches: new Map([[approachForVariant.artifact_id, approachForVariant as unknown as ApproachPayload]] as const),
         snapshot,
       });

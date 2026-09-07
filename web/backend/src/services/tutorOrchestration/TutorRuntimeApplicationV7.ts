@@ -19,6 +19,7 @@
  *   ReportPresentationOutcome：薄委托 OrchestratorV7（教学判断零新增——本层
  *   零教学语义，与 route 纪律一致）。
  */
+import type { PresenterGeneratorPort } from "./presentationGeneration/GeneratorPort";
 import { TutorSessionOrchestratorV7, type OrchestratorV7ModelInput, type V7ActionEvidenceInput, type V7ActionSubmission, type V7CommandTurnResult, type V7StudentInputTurn, type V7InputTurnOptions, type V7InputTurnResult, type V7OutcomeTurnResult, type V7PresentationOutcomeRequest } from "./TutorSessionOrchestratorV7";
 import { startAtomically, startPayloadHash, type StartReservation } from "./StartRequestRegistry";
 import { resolvableTaskIds, TutorTaskBindingResolver } from "./TutorTaskBindingResolver";
@@ -27,6 +28,11 @@ export interface TutorRuntimeApplicationV7Deps {
   readonly canonicalRoot: string;
   readonly model: OrchestratorV7ModelInput;
   readonly modelTimeoutMs?: number;
+  /**
+   * F7 RT4：Presenter 生成端口（提供 ⇒ 新会话走 event_schema='v9' 生成生命
+   * 周期；缺省 ⇒ v7 既有链零变化）。恢复 v9 会话驱动 pending 生成必需。
+   */
+  readonly presenter?: PresenterGeneratorPort;
 }
 
 export type V7StartOutcome =
@@ -107,6 +113,7 @@ export class TutorRuntimeApplicationV7 {
           model: this.deps.model,
           ...(this.deps.modelTimeoutMs !== undefined ? { modelTimeoutMs: this.deps.modelTimeoutMs } : {}),
           ...(input.assessment !== undefined ? { assessment: input.assessment } : {}),
+          ...(this.deps.presenter !== undefined ? { presenter: this.deps.presenter } : {}),
         });
         return sessionId;
       },
@@ -131,7 +138,18 @@ export class TutorRuntimeApplicationV7 {
       canonicalRoot: this.deps.canonicalRoot,
       model: this.deps.model,
       ...(this.deps.modelTimeoutMs !== undefined ? { modelTimeoutMs: this.deps.modelTimeoutMs } : {}),
+      ...(this.deps.presenter !== undefined ? { presenter: this.deps.presenter } : {}),
     });
+  }
+
+  /**
+   * F7 RT4：驱动会话 pending 生成直至终态（v7 会话 no-op）。GET/restore 不调用
+   * ——本方法包含事务外模型调用；响应丢失场景按幂等身份经 restore+drive 取回
+   * 已提交结果（coordinator 零重调模型路径）。
+   */
+  async drivePendingGeneration(orchestrator: TutorSessionOrchestratorV7): Promise<void> {
+    if (!orchestrator.hasPendingGeneration()) return;
+    await orchestrator.drivePendingGeneration();
   }
 
   async submitStudentInput(orchestrator: TutorSessionOrchestratorV7, input: V7StudentInputTurn, options?: V7InputTurnOptions): Promise<V7InputTurnResult> {

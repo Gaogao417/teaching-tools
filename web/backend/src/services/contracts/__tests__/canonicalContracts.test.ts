@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     // +tutor_plan_bundle/v6、tutor_runtime_state/v3、tutor_session_event/v8、tutor_policy_decision/v2、
     // presentation_plan/v3、presentation_draft/v1、presentation_tool_spec/v1、workspace_runtime_state/v2、
     // student_workspace_view/v2。
-    assert.equal(bySchema.size, 58);
+    assert.equal(bySchema.size, 63); // +5 simplified-context successor contracts
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -271,6 +271,15 @@ async function main(): Promise<void> {
       "mainlineParticipationV1Schema",
       // F7 RT0 集中合同波（2026-09-07，f7-rt0-baseline-freeze 清单 2）：9 份新 schema 导出
       "tutorPlanBundleV6Schema",
+      "tutorPlanBundleV7Schema",
+      "tutorRuntimeStateV4Schema",
+      "tutorSessionEventV9Schema",
+      "presentationPlanV4Schema",
+      "presentationDraftV2Schema",
+      "generationContextRefSchema",
+      "generationRequestRecordSchema",
+      "generationFailureClassSchema",
+
       "tutorRuntimeStateV3Schema",
       "tutorSessionEventV8Schema",
       "tutorPolicyDecisionV2Schema",

@@ -42,6 +42,7 @@ import {
   TutorSessionIntegrityV7Error,
 } from "../../services/tutorSession/TutorSessionEventV7";
 import { projectHttpSnapshotV1, V7RenderProjectionError } from "../../services/tutorOrchestration/V7HttpSnapshotProjector";
+import { createPresenterGenerator } from "../../services/tutorOrchestration/presentationGeneration/GeneratorPort";
 import { transcribeForTutor, SpeechProviderError } from "../../services/tutorSession/asrService";
 import {
   actionEvidenceRequestHttpV1Schema,
@@ -93,7 +94,23 @@ function vNextTaskIds(): string[] {
 }
 
 function createApplication(): TutorRuntimeApplicationV7 {
-  return TutorRuntimeApplicationV7.create({ canonicalRoot: canonicalRoot(), model: vNextGateModel() });
+  // F7 RT4：TUTOR_VNEXT_GENERATION=1 显式启用 v9 生成会话（presenter 端口注入；
+  // 模型键缺失时端口构造成功、调用时如实 provider_failure——不以 stub 冒充）。
+  // 缺省 off ⇒ v7 既有链零变化；snapshot 线格式本轮不变（generation 字段组合
+  // 属 P3 与 A decoder 同一版本原子上线——S1 §1 边界）。
+  const presenter = process.env.TUTOR_VNEXT_GENERATION === "1" ? createPresenterGenerator() : undefined;
+  return TutorRuntimeApplicationV7.create({
+    canonicalRoot: canonicalRoot(),
+    model: vNextGateModel(),
+    ...(presenter !== undefined ? { presenter } : {}),
+  });
+}
+
+/** v9 会话在有 pending 生成时驱动至终态再回包（模型调用在 DB 事务外；P3 转 pending 轮询）。 */
+async function driveGenerationIfPending(application: TutorRuntimeApplicationV7, orchestrator: import("../../services/tutorOrchestration/TutorSessionOrchestratorV7").TutorSessionOrchestratorV7): Promise<void> {
+  if (orchestrator.hasPendingGeneration()) {
+    await application.drivePendingGeneration(orchestrator);
+  }
 }
 
 function toHttpError(error: unknown, res: { status: (code: number) => { json: (body: unknown) => void } }): void {
@@ -175,7 +192,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
     res.json(availabilityResponseHttpV1Schema.parse({ task_id: parsed.data, enabled, profile: TUTOR_RUNTIME_HTTP_PROFILE }));
   });
 
-  router.post("/tutor-sessions", (req, res) => {
+  router.post("/tutor-sessions", async (req, res) => {
     try {
       const body = startRequestHttpV1Schema.parse(req.body);
       const application = createApplication();
@@ -194,6 +211,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         }));
         return;
       }
+      await driveGenerationIfPending(application, outcome.orchestrator);
       const snapshot = projectHttpSnapshotV1({ orchestrator: outcome.orchestrator });
       res.status(outcome.kind === "created" ? 201 : 200).json(snapshot);
     } catch (error) {
@@ -221,13 +239,14 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         input: body.input,
         client_request_id: body.client_request_id,
       }, { expectedRevision: body.expected_revision });
+      await driveGenerationIfPending(application, orchestrator);
       res.json(projectHttpSnapshotV1({ orchestrator, turn: result.turn, turnSource: "input" }));
     } catch (error) {
       toHttpError(error, res);
     }
   });
 
-  router.post("/tutor-sessions/:sessionId/action-evidence", (req, res) => {
+  router.post("/tutor-sessions/:sessionId/action-evidence", async (req, res) => {
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = actionEvidenceRequestHttpV1Schema.parse(req.body);
@@ -245,6 +264,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
           ? { revision: submission.revision, status: submission.status, evaluation: submission.evaluation }
           : { revision: submission.revision, status: submission.status, failure: submission.failure },
       });
+      await driveGenerationIfPending(application, orchestrator);
       if (!response.ok) {
         res.status(500).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "INTERNAL_ERROR", message: response.errors.join("; ") } }));
         return;
@@ -255,7 +275,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
     }
   });
 
-  router.post("/tutor-sessions/:sessionId/workspace-commands", (req, res) => {
+  router.post("/tutor-sessions/:sessionId/workspace-commands", async (req, res) => {
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       // 共享 request schema（canonical student-workspace-command/v1 全形状——
@@ -271,6 +291,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       const result = application.submitWorkspaceCommand(orchestrator, command, {
         expectedRevision: body.expected_revision,
       });
+      await driveGenerationIfPending(application, orchestrator);
       res.json(projectHttpSnapshotV1({ orchestrator, turn: result.turn, turnSource: "command" }));
     } catch (error) {
       toHttpError(error, res);

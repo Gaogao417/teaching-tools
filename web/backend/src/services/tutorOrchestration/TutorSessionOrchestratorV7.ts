@@ -40,10 +40,21 @@ import { TutorTaskBindingResolver, assessmentCatalogVariant, type TutorTaskBindi
 import { NavigatorSessionV7, findCommittedV7Turn, type V7TurnResult } from "../tutorNavigator/NavigatorSessionV7";
 import { isDeepStrictEqual } from "node:util";
 import { realizePresentationPlanV6, type PresentationPlanV6 } from "./TutorPresenterV6";
+import { listWorkspaceCapabilities } from "../tutorSession/WorkspaceCapabilityRegistryV5";
+import { assertIdempotencyKeyShape, composeIdempotencyKey } from "../tutorSession/IdempotencyKey";
+import { createV9Rebuilder, readSessionEventSchema, rebuildWorkspaceRuntimeStateV9 } from "../tutorSession/RuntimeStateRebuilderV9";
+import type { StoredV9Event, V9GenerationEventPayload, V9PresentationSequencePlannedPayload } from "../tutorSession/TutorSessionEventV9";
+import { buildPresentationContext, DEFAULT_CONTEXT_POLICY, PresentationContextError, type BuiltPresentationContext } from "./presentationGeneration/ContextBuilder";
+import { PresenterGenerationError, type PresenterGeneratorPort } from "./presentationGeneration/GeneratorPort";
+import { cancelGeneration, driveGeneration, reserveGeneration, type DriveOutcome, type GenerationKernelAccess } from "./presentationGeneration/GenerationCoordinator";
+import { compilePresentationIntents, type CompiledPresentationPlanV4 } from "./presentationGeneration/IntentCompiler";
+import { buildPresenterPrompt } from "./presentationGeneration/PresenterPrompts";
+import { visiblePresentationTools, type PresentationResourceBinding } from "./presentationGeneration/PresentationToolCatalog";
+import { preflightPresentationSequence } from "./presentationGeneration/SequencePreflight";
 import { projectPendingPresentation, projectV6Views, type V6PendingPresentation, type V6SessionSnapshot } from "./V6SessionSnapshot";
 import { projectActiveAction, type ActiveAction, type ProjectedActionContract } from "./ActiveActionProjector";
 import { buildExternalSupportEvidence } from "../tutorNavigator/ExternalSupportEvidenceV5";
-import { constructionOutputId, adjudicateCommandPayload, adjudicateActionEvidence, evidenceToWorkspaceCommand, resolveBeatActionTemplate } from "./WorkspaceActionAdjudication";
+import { constructionOutputId, adjudicateCommandPayload, adjudicateActionEvidence, evidenceToWorkspaceCommand, resolveBeatActionTemplate, resolveBeatConstructions } from "./WorkspaceActionAdjudication";
 import type { ActionEvaluationResponse, AuthoredActionTemplate } from "../../../../shared/actionRuntime";
 import type { TypedActionDiagnosis } from "../actionRuntime/topicTypedEvaluator";
 
@@ -67,6 +78,12 @@ export interface OrchestratorV7StartInput {
   readonly modelTimeoutMs?: number;
   /** v7：会话模式显式（teaching|assessment；assessment ⇒ locked catalog 变体 pin）。 */
   readonly assessment?: boolean;
+  /**
+   * F7 RT4（v9 会话）：Presenter 生成端口。提供 ⇒ 会话走 event_schema='v9'
+   *（session_started 携 presenter_generation_pin；呈现经预约→驱动→提交拆开）；
+   * 缺省 ⇒ v7 既有确定性链零变化。assessment 会话不提供（无教学生成）。
+   */
+  readonly presenter?: PresenterGeneratorPort;
 }
 
 export interface OrchestratorV7ResumeInput {
@@ -74,6 +91,8 @@ export interface OrchestratorV7ResumeInput {
   readonly canonicalRoot: string;
   readonly model: OrchestratorV7ModelInput;
   readonly modelTimeoutMs?: number;
+  /** F7 RT4：v9 会话恢复所需的 Presenter 端口（v7 行忽略；驱动 pending 生成必需）。 */
+  readonly presenter?: PresenterGeneratorPort;
 }
 
 export interface V7InputTurnOptions {
@@ -90,6 +109,8 @@ export interface V7PresentationReport {
   readonly beat_id: string;
   readonly plannedCount: number;
   readonly pending?: V7PendingPresentation;
+  /** F7 RT4（v9）：预约已落库、驱动待执行（sequence 尚未 planned——不伪造 id）。 */
+  readonly generation?: { readonly request_id: string; readonly status: "pending" };
 }
 
 export interface V7InputTurnResult {
@@ -300,6 +321,8 @@ export class TutorSessionOrchestratorV7 {
   /** 会话 pin 的生效 catalog（teaching=construction 形态；assessment=locked 变体）。 */
   private readonly catalog: WorkspacePresentationCatalogV5;
   private navigator: NavigatorSessionV7;
+  /** F7 RT4：v9 生成会话的 Presenter 端口（v7 会话 undefined）。 */
+  private readonly presenterGenerator: PresenterGeneratorPort | undefined;
 
   private constructor(fields: {
     sessionId: string;
@@ -310,6 +333,7 @@ export class TutorSessionOrchestratorV7 {
     sessionMode: "teaching" | "assessment";
     catalog: WorkspacePresentationCatalogV5;
     navigator: NavigatorSessionV7;
+    presenterGenerator?: PresenterGeneratorPort;
   }) {
     this.sessionId = fields.sessionId;
     this.resolver = fields.resolver;
@@ -319,6 +343,17 @@ export class TutorSessionOrchestratorV7 {
     this.sessionMode = fields.sessionMode;
     this.catalog = fields.catalog;
     this.navigator = fields.navigator;
+    this.presenterGenerator = fields.presenterGenerator;
+  }
+
+  /** F7 RT4：会话事件合同版本（v9 = 生成生命周期链）。 */
+  get eventSchema(): "v7" | "v9" {
+    return this.navigator.eventSchema;
+  }
+
+  /** F7 RT4：在线权威 state 重建（v7=state/v2；v9=state/v4 face；只读）。 */
+  rebuildRuntimeState() {
+    return this.navigator.rebuildState();
   }
 
   // ------------------------------------------------------------------ //
@@ -336,6 +371,8 @@ export class TutorSessionOrchestratorV7 {
     const binding = resolveBindingOrThrow(resolver, input.taskId);
     const sessionMode: "teaching" | "assessment" = input.assessment === true ? "assessment" : "teaching";
     const catalog = sessionMode === "assessment" ? assessmentCatalogVariant(binding) : binding.golden.catalog;
+    // F7 RT4：Presenter 端口提供 ⇒ v9 生成会话（pin 进 session_started；state/v4）。
+    const presenter = input.assessment ? undefined : input.presenter;
     const navigator = NavigatorSessionV7.start({
       sessionId: input.sessionId,
       studentId: input.studentId,
@@ -351,6 +388,7 @@ export class TutorSessionOrchestratorV7 {
         workspace_catalog_pin: workspaceCatalogPin(catalog),
         model_gate_pin: input.model.pin,
       },
+      ...(presenter ? { presenterGenerationPin: presenter.pin } : {}),
     });
     const orchestrator = new TutorSessionOrchestratorV7({
       sessionId: input.sessionId,
@@ -361,6 +399,7 @@ export class TutorSessionOrchestratorV7 {
       sessionMode,
       catalog,
       navigator,
+      ...(presenter ? { presenterGenerator: presenter } : {}),
     });
     orchestrator.presentCurrentBeat();
     return orchestrator;
@@ -375,7 +414,12 @@ export class TutorSessionOrchestratorV7 {
    */
   static resume(input: OrchestratorV7ResumeInput): TutorSessionOrchestratorV7 {
     const resolver = new TutorTaskBindingResolver(input.canonicalRoot);
-    const verified = createV7Rebuilder(resolver.v7RegistryProvider).verifyCommittedStreamV7(input.sessionId);
+    // F7 RT4：按会话行 event_schema 选择 rebuilder（v9 行经 v9 codec verify；
+    // v7 行走既有链——半升级组合在 reader 边界显式拒绝）。
+    const rowSchema = readSessionEventSchema(input.sessionId);
+    const verified = rowSchema === "v9"
+      ? createV9Rebuilder(resolver.v7RegistryProvider).verifyCommittedStreamV9(input.sessionId) as unknown as { sessionStartedPayload: Record<string, unknown> }
+      : createV7Rebuilder(resolver.v7RegistryProvider).verifyCommittedStreamV7(input.sessionId);
     const started = verified.sessionStartedPayload as {
       task_id?: string;
       session_mode?: "teaching" | "assessment";
@@ -416,6 +460,7 @@ export class TutorSessionOrchestratorV7 {
       sessionMode,
       catalog,
       navigator,
+      ...(input.presenter && navigator.eventSchema === "v9" ? { presenterGenerator: input.presenter } : {}),
     });
     orchestrator.resumePresentation();
     return orchestrator;
@@ -493,6 +538,14 @@ export class TutorSessionOrchestratorV7 {
     if (conflict) {
       return { revision: conflict.revision, turn: conflict.turn, presentations: [], snapshot: this.snapshot() };
     }
+    // F7 RT4（v9）：生成中的新输入使旧任务失效——用户取消是**正常控制操作**
+    //（不记系统故障或学生错误）：barge_in ⇒ cancelled；其余输入 ⇒
+    // superseded_by_new_input。取消经 kernel CAS 与提交同事务边界裁决。
+    if (this.hasPendingGeneration()) {
+      const cancelReason = input.input.kind === "control" && input.input.command === "barge_in" ? "cancelled" : "superseded_by_new_input";
+      cancelGeneration(this.generationKernelAccess(), cancelReason, this.generationCausationSequence());
+      this.refreshWrappers();
+    }
     // assessment 权限矩阵（spec §0 裁决 7 修订）：assistance / scaffold / rephrase
     // 是教学帮助入口——assessment 会话边界拒绝（零事实，发生在输入成为事实之前；
     // V5 f6 语义保留）。mainline utterance（后端解释为答案）/confirm/continue 允许。
@@ -507,7 +560,7 @@ export class TutorSessionOrchestratorV7 {
       }
     }
     // failed 停留锁（spec §2.5）：cursor=failed 期间唯一合法输入是 retry_recovery。
-    if (this.navigator.kernel.state.presentation_cursor.status === "failed"
+    if (this.navigator.state.presentation_cursor.status === "failed"
       && !(input.input.kind === "control" && input.input.command === "retry_recovery")) {
       throw new OrchestratorV7Error(
         "PRESENTATION_FAILED_PENDING_RECOVERY",
@@ -700,7 +753,7 @@ export class TutorSessionOrchestratorV7 {
         event_type: "student_workspace_command_recorded",
         payload: recordedPayload,
         occurred_at: nowIso(),
-        idempotency_key: `sc:${this.sessionId}:${command.client_command_id}`,
+        idempotency_key: (() => { const key = composeIdempotencyKey(["sc", this.sessionId, command.client_command_id]); assertIdempotencyKeyShape(key); return key; })(),
       },
       {
         event_type: "action_outcome_recorded",
@@ -817,7 +870,7 @@ export class TutorSessionOrchestratorV7 {
     if (conflict) {
       return { revision: conflict.revision, advanced: false, snapshot: this.snapshot() };
     }
-    const cursor = this.navigator.kernel.state.presentation_cursor;
+    const cursor = this.navigator.state.presentation_cursor;
     const matches = (ref: { sequence_id: string; ordinal: number; action_id: string }): boolean =>
       cursor.status === "awaiting_browser"
       && cursor.sequence_id === ref.sequence_id
@@ -867,7 +920,7 @@ export class TutorSessionOrchestratorV7 {
         },
         occurred_at: nowIso(),
         causation_sequence: deliveredSequence,
-        idempotency_key: `${this.sessionId}:poutcome:${request.sequence_id}:${request.ordinal}:${request.action_id}:${request.client_request_id}`,
+        idempotency_key: (() => { const key = composeIdempotencyKey([this.sessionId, "poutcome", request.sequence_id, String(request.ordinal), request.action_id, request.client_request_id]); assertIdempotencyKeyShape(key); return key; })(),
       },
     ];
     if (request.outcome === "interrupted") {
@@ -924,18 +977,19 @@ export class TutorSessionOrchestratorV7 {
 
   /** 服务层快照（fresh rebuild 投影；pending delivery 从 committed 事实构造）。 */
   snapshot(promptLatex = ""): V7SessionSnapshot {
-    const tutorState = this.navigator.kernel.rebuild();
+    const tutorState = this.navigator.rebuildState();
     const workspace = this.rebuildWorkspace();
     const events = this.events;
     const views = projectV6Views({
       sessionId: this.sessionId,
-      tutorState,
+      tutorState: tutorState as unknown as Parameters<typeof projectV6Views>[0]["tutorState"],
       workspaceState: workspace.state,
       events: events as never,
       plan: this.binding.plan,
       catalog: this.catalog,
       factEntryIds: this.binding.golden.factEntryIds,
       sessionRevision: this.navigator.revision,
+      resources: this.binding.imported.plan.resources,
     });
     const active = (() => {
       // active action 只在 workspace_input 相位挂载（spec §1.3 / PLAN Step 4）：
@@ -1007,6 +1061,12 @@ export class TutorSessionOrchestratorV7 {
     decisionSequence: number,
     options: { supportEvidence?: boolean },
   ): V7PresentationReport {
+    // F7 RT4（v9）：呈现拆「预约（本方法）→ drivePendingGeneration（事务外模型
+    // 调用+编译+预演+原子提交）→ deliverOrdinal（既有交付链）」；预约返回的
+    // report 不携带 sequence（未 planned 不伪造 id）。
+    if (this.presenterGenerator !== undefined && this.navigator.eventSchema === "v9" && !this.assessmentMode) {
+      return this.reserveGenerationForDecision(decision, decisionSequence);
+    }
     const beat = this.navigator.currentBeat;
     const protocol = this.binding.imported.protocols.get(beat.protocol_id);
     const beatPayload = protocol?.beats.find((candidate) => candidate.beat_id === beat.beat_id);
@@ -1129,7 +1189,7 @@ export class TutorSessionOrchestratorV7 {
     const pending = projectPendingPresentation({
       sessionId: this.sessionId,
       events: this.events as never,
-      cursor: this.navigator.kernel.state.presentation_cursor,
+      cursor: this.navigator.state.presentation_cursor,
       revision: this.navigator.revision,
     });
     return { sequence_id: sequence.sequence_id, beat_id: sequence.beat_id, plannedCount: sequence.actions.length, pending };
@@ -1137,7 +1197,7 @@ export class TutorSessionOrchestratorV7 {
 
   /** resume 的崩溃窗口续投：planned 已提交、队首未 delivered → 续投恰好一次。 */
   private resumePresentation(): void {
-    const state = this.navigator.kernel.state;
+    const state = this.navigator.state;
     if (state.presentation_cursor.status !== "idle" || state.completed) return;
     for (let index = this.events.length - 1; index >= 0; index -= 1) {
       const event = this.events[index];
@@ -1153,7 +1213,7 @@ export class TutorSessionOrchestratorV7 {
 
   /** barge-in 服务端侧：pending cursor → outcome interrupted + 同批 superseded。 */
   private closePendingAsInterrupted(): void {
-    const cursor = this.navigator.kernel.state.presentation_cursor;
+    const cursor = this.navigator.state.presentation_cursor;
     if (cursor.status !== "awaiting_browser") return;
     const planned = this.plannedSequenceOf(cursor.sequence_id);
     const action = planned?.actions.find((candidate) => candidate.ordinal === cursor.ordinal);
@@ -1193,7 +1253,7 @@ export class TutorSessionOrchestratorV7 {
 
   /** retry_recovery：failed 停留的显式恢复——supersede 原序列 + 新恢复序列。 */
   private retryRecovery(): { supersededSequence: number; report: V7PresentationReport } {
-    const cursor = this.navigator.kernel.state.presentation_cursor;
+    const cursor = this.navigator.state.presentation_cursor;
     if (cursor.status !== "failed") {
       throw new OrchestratorV7Error(
         "RETRY_RECOVERY_WITHOUT_FAILURE",
@@ -1220,6 +1280,258 @@ export class TutorSessionOrchestratorV7 {
   }
 
   // ------------------------------------------------------------------ //
+  // F7 RT4：v9 生成生命周期（预约 → 驱动 → 提交 → 队首交付）
+  // ------------------------------------------------------------------ //
+
+  /** v9 kernel 访问面（GenerationCoordinator 输入；append 走 kernel CAS 事务）。 */
+  private generationKernelAccess(): GenerationKernelAccess {
+    // 闭包捕获 orchestrator（getter 内 this 指向 access 对象——不绑定方法）。
+    const navigator = () => this.navigator;
+    return {
+      sessionId: this.sessionId,
+      get revision(): number {
+        return navigator().revision;
+      },
+      get state(): never {
+        return navigator().rebuildState() as never;
+      },
+      append: (expectedRevision: number, events: never[]) =>
+        navigator().kernel.append(expectedRevision, events as never) as never,
+    };
+  }
+
+  /** 当前教学任务的生成上下文（RT2：expand 仅扩上下文；纯只读计算）。 */
+  private buildGenerationContext(inputText: string | null): BuiltPresentationContext {
+    const beat = this.navigator.currentBeat;
+    const graph = this.binding.imported.graph;
+    const state = this.navigator.rebuildState();
+    const events = this.events;
+    const recentInputs = events
+      .filter((event) => event.event_type === "student_input_recorded")
+      .slice(-DEFAULT_CONTEXT_POLICY.recent_input_count)
+      .map((event) => {
+        const payload = event.payload as { input?: { kind?: string; channel?: "mainline" | "assistance"; text?: string } };
+        return {
+          sequence: event.sequence,
+          channel: payload.input?.channel === "assistance" ? ("assistance" as const) : ("mainline" as const),
+          ...(payload.input?.text !== undefined ? { text: payload.input.text } : {}),
+        };
+      });
+    return buildPresentationContext({
+      planRef: this.binding.plan.tutor_plan_ref,
+      graphRef: this.binding.plan.solution_graph_ref,
+      graph: {
+        facts: new Map(graph.facts.map((fact) => [fact.fact_id, fact])),
+        inferences: new Map(graph.inferences.map((inference) => [inference.inference_id, inference])),
+      },
+      beat: {
+        protocol_id: beat.protocol_id,
+        beat_id: beat.beat_id,
+        graph_fact_refs: [...beat.graph_fact_refs],
+        inference_refs: [...beat.inference_refs],
+        resource_ids: [...beat.resource_ids],
+      },
+      ...(state.reasoning_focus ? { reasoningFocusFactIds: [...state.reasoning_focus.graph_fact_refs] } : {}),
+      recentInputs,
+      // GenerationContextRef.event_cutoff = 冻结时权威 state revision（多事件
+      // 批共享 revision——不得以原始事件数充当，否则 canonical cutoff≤reservation
+      // 与 STALE_CONTEXT 双违）。
+      eventCutoff: this.navigator.revision,
+      workspaceRevision: this.rebuildWorkspace().state.revision,
+      currentRevision: this.navigator.revision,
+      policy: DEFAULT_CONTEXT_POLICY,
+      sessionMode: "teaching",
+      resourceContent: (resourceId: string) =>
+        this.binding.imported.plan.resources.find((resource) => resource.resource_id === resourceId)?.content,
+    });
+  }
+
+  /** 模型可见工具实例（服务端已注册 capability ∩ Approved 绑定 ∩ mode；golden v5 ⇒ 空集）。 */
+  private visibleGenerationTools() {
+    const registered = new Set(
+      listWorkspaceCapabilities()
+        .filter((spec) => spec.origin === "tutor")
+        .map((spec) => spec.capability),
+    );
+    const bindings = ((this.binding.imported.plan as { resource_bindings?: readonly PresentationResourceBinding[] }).resource_bindings ?? []) as readonly PresentationResourceBinding[];
+    return visiblePresentationTools({ registeredCapabilities: registered, bindings, sessionMode: this.sessionMode });
+  }
+
+  /** 预约（幂等 source_request_id；决策因果锚；冻结上下文与预算）。 */
+  private reserveGenerationForDecision(decision: NavigatorDecision, decisionSequence: number): V7PresentationReport {
+    const context = this.buildGenerationContext(null);
+    const reservation = reserveGeneration(this.generationKernelAccess(), {
+      // source_request_id 携冻结 revision 判别：同决策在取消/失效后的重呈现是
+      // **新的冻结上下文**（新任务新预算）；同 revision 重投同 payload ⇒ existing
+      // 幂等返回（spec：异 payload 同源显式拒绝）。
+      sourceRequestId: `gen:${this.sessionId}:${decision.decision_id}:r${this.navigator.revision}`,
+      decisionId: decision.decision_id,
+      decisionSequence,
+      scope: { kind: "approved", protocol_id: decision.protocol_id, beat_id: decision.beat_id },
+      contextDigest: context.digest,
+      context: context.context as unknown as V9GenerationEventPayload["context"],
+      inputText: null,
+      presenterPin: this.presenterGenerator!.pin as unknown as V9GenerationEventPayload["presenter_pin"],
+      policy: {
+        policy_version: "retry-policy/v1-default",
+        max_attempts: 3,
+        timeout_ms: 30_000,
+        retry_delays_ms: [1_000, 3_000],
+      },
+    });
+    const scope = reservation.request.scope;
+    return {
+      sequence_id: "",
+      beat_id: scope.kind === "approved" ? scope.beat_id : scope.local_beat_id,
+      plannedCount: 0,
+      generation: { request_id: reservation.request.request_id, status: "pending" },
+    };
+  }
+
+  /** 是否存在待驱动的生成请求（应用/路由层决定何时 drive；GET/restore 不调用）。 */
+  hasPendingGeneration(): boolean {
+    return this.navigator.state.generation_slot?.status === "pending";
+  }
+
+  /**
+   * 驱动 pending 生成直至终态（committed ⇒ 原子提交序列并按既有链交付队首）。
+   * 模型调用在 kernel 事务外；迟到/取消由 coordinator CAS 裁决零提交。
+   */
+  async drivePendingGeneration(): Promise<DriveOutcome & { report?: V7PresentationReport }> {
+    if (this.presenterGenerator === undefined) {
+      throw new OrchestratorV7Error(
+        "NO_EXECUTABLE_DECISION",
+        `session ${this.sessionId} carries a pending generation but the restoring process provided no presenter port (fail closed; provide the presenter model to drive)`,
+      );
+    }
+    const outcome = await driveGeneration(this.generationKernelAccess(), {
+      buildAndRun: async (request) => ({ candidate: await this.buildAndRunGeneration(request as never) }),
+    }, {
+      causationSequence: this.generationCausationSequence(),
+      refresh: () => {
+        this.refreshWrappers();
+        return this.generationKernelAccess();
+      },
+    });
+    if (outcome.kind !== "committed") return outcome;
+    let plannedEvent: StoredV7Event | undefined;
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const event = this.events[index];
+      if (event.event_type === "presentation_sequence_planned"
+        && (event.payload as { sequence_id?: string }).sequence_id === outcome.sequence.sequence_id) {
+        plannedEvent = event;
+        break;
+      }
+    }
+    if (!plannedEvent) {
+      throw new OrchestratorV7Error("PRESENTATION_CURSOR_MISMATCH", `committed generation sequence ${outcome.sequence.sequence_id} has no committed planned fact (corrupt stream)`);
+    }
+    const payload = plannedEvent.payload as unknown as V9PresentationSequencePlannedPayload;
+    const report = this.deliverOrdinal(
+      { sequence_id: payload.sequence_id, beat_id: payload.scope.kind === "approved" ? payload.scope.beat_id : payload.scope.local_beat_id, actions: payload.actions as never },
+      plannedEvent.sequence,
+      0,
+    )!;
+    return { ...outcome, report };
+  }
+
+  /** 生成事件因果锚：pending request 的 requested 事件 sequence。 */
+  private generationCausationSequence(): number {
+    const slot = this.navigator.state.generation_slot;
+    const requestId = slot?.status === "pending" ? slot.request_id : undefined;
+    if (requestId === undefined) return this.events.length;
+    const event = this.events.find(
+      (candidate) => (candidate.event_type as string) === "presentation_generation_requested"
+        && (candidate.payload as { request_id?: string }).request_id === requestId,
+    );
+    return event?.sequence ?? this.events.length;
+  }
+
+  /**
+   * 单次内容管线（RT2 冻结上下文复算 + RT3 提示词/模型/编译/预演）。
+   * 上下文不可复现 ⇒ context_irreproducible（不自动重试——非模型故障）。
+   */
+  private async buildAndRunGeneration(request: V9GenerationEventPayload): Promise<CompiledPresentationPlanV4> {
+    if (!this.presenterGenerator) throw new PresenterGenerationError("internal_error", "presenter port missing", false);
+    const graph = this.binding.imported.graph;
+    const factById = new Map(graph.facts.map((fact) => [fact.fact_id, fact]));
+    const inferenceById = new Map(graph.inferences.map((inference) => [inference.inference_id, inference]));
+    const missing = [
+      ...request.context.selected_fact_ids.filter((factId) => !factById.has(factId)),
+      ...request.context.selected_inference_ids.filter((inferenceId) => !inferenceById.has(inferenceId)),
+    ];
+    if (missing.length > 0) {
+      throw new PresenterGenerationError(
+        "context_irreproducible",
+        `frozen context refs ${missing.join(",")} do not resolve against the pinned graph (irreproducible context; not retried)`,
+        false,
+      );
+    }
+    const basis = [
+      ...request.context.selected_fact_ids.map((factId) => ({ ref: factId, kind: "fact" as const, rank: "core" as const, text: factById.get(factId)!.statement })),
+      ...request.context.selected_inference_ids.map((inferenceId) => {
+        const inference = inferenceById.get(inferenceId)!;
+        return { ref: inferenceId, kind: "inference" as const, rank: "core" as const, text: `${inference.derivation}（前提：${inference.premises.join("、")} → 结论：${inference.conclusion}）` };
+      }),
+      ...request.context.resource_ids.flatMap((resourceId) => {
+        const content = this.binding.imported.plan.resources.find((resource) => resource.resource_id === resourceId)?.content;
+        return content ? [{ ref: resourceId, kind: "resource" as const, rank: "core" as const, text: content }] : [];
+      }),
+    ];
+    const context = {
+      context: request.context,
+      digest: request.input_digest,
+      basis,
+      truncated_inference_ids: [],
+      budget: { facts: request.context.selected_fact_ids.length, inferences: request.context.selected_inference_ids.length, approx_chars: basis.reduce((total, item) => total + item.text.length, 0) },
+    } as BuiltPresentationContext;
+    const prompt = buildPresenterPrompt({
+      context,
+      instructionalGoal: this.navigator.currentBeat.purpose,
+      currentGranularity: "beat",
+      alreadyPresented: [],
+      stuckPoint: null,
+      visibleTools: this.visibleGenerationTools(),
+      maxItems: 6,
+      maxSpeechChars: 400,
+    });
+    const { draft } = await this.presenterGenerator.generatePresentationDraft({
+      request_id: request.request_id,
+      systemPrompt: prompt.systemPrompt,
+      promptVersion: prompt.promptVersion,
+      userPayload: prompt.userPayload,
+      timeoutMs: request.timeout_ms,
+    });
+    const beat = this.navigator.currentBeat;
+    const compiled = compilePresentationIntents({
+      sessionId: this.sessionId,
+      sequenceSerial: this.countPlanned() + 1,
+      decisionId: request.decision_id,
+      scope: request.scope as never,
+      request: {
+        request_id: request.request_id,
+        attempt: request.attempt,
+        epoch: request.epoch,
+        input_digest: request.input_digest,
+        presenter_pin: request.presenter_pin,
+      },
+      draft,
+      context,
+      visibleTools: this.visibleGenerationTools(),
+      resources: new Map(this.binding.imported.plan.resources.map((resource) => [resource.resource_id, resource])),
+      graph: { facts: factById, inferences: inferenceById },
+      approvedConstructions: resolveBeatConstructions(this.binding.imported.plan.resources, beat) ?? [],
+      revealAuthorized: (binding) => {
+        if (binding.binding_kind !== "board" || !binding.reveal_after_gate) return false;
+        const evaluation = this.rebuildWorkspace().context.gateLedger.evaluations.get(binding.reveal_after_gate.gate_id);
+        return evaluation?.satisfied === true;
+      },
+    });
+    preflightPresentationSequence({ fold: this.rebuildWorkspace(), catalog: this.catalog, plan: compiled });
+    return compiled;
+  }
+
+  // ------------------------------------------------------------------ //
   // 内部：基础设施
   // ------------------------------------------------------------------ //
 
@@ -1230,7 +1542,7 @@ export class TutorSessionOrchestratorV7 {
         event_type: "student_input_recorded",
         payload: { input: input.input, client_request_id: input.client_request_id },
         occurred_at: nowIso(),
-        idempotency_key: `si:${this.sessionId}:${input.client_request_id}`,
+        idempotency_key: (() => { const key = composeIdempotencyKey(["si", this.sessionId, input.client_request_id]); assertIdempotencyKeyShape(key); return key; })(),
       },
     ]);
     return appended.appendedSequences[0];
@@ -1272,7 +1584,10 @@ export class TutorSessionOrchestratorV7 {
   }
 
   private rebuildWorkspace(): WorkspaceFold {
-    const rebuilt = rebuildWorkspaceRuntimeStateV7(this.sessionId, this.catalog, this.resolver.v7RegistryProvider);
+    // F7 RT4：v9 行经 v9 codec 重建（生成事件族对 workspace 零效果）。
+    const rebuilt = this.navigator.eventSchema === "v9"
+      ? rebuildWorkspaceRuntimeStateV9(this.sessionId, this.catalog, this.resolver.v7RegistryProvider)
+      : rebuildWorkspaceRuntimeStateV7(this.sessionId, this.catalog, this.resolver.v7RegistryProvider);
     return { state: rebuilt.state, context: rebuilt.context };
   }
 
@@ -1317,6 +1632,11 @@ export class TutorSessionOrchestratorV7 {
     if (expectedRevision === undefined) return undefined;
     const current = this.navigator.revision;
     if (current === expectedRevision) return undefined;
+    // F7 RT4（v9）：权威 revision 已前进而生成仍在 pending——旧结果不得提交到
+    // 新状态（cancel_reason=revision_changed；正常控制语义，非系统故障）。
+    if (this.hasPendingGeneration()) {
+      cancelGeneration(this.generationKernelAccess(), "revision_changed", this.generationCausationSequence());
+    }
     // stale revision：revision_conflict failure 事实（canonical runtime_failure 封闭
     // 枚举）——零教学决策、零 presentation 推进。
     this.appendViaKernel(current, [

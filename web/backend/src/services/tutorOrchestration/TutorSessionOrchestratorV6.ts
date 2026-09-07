@@ -493,6 +493,7 @@ export class TutorSessionOrchestratorV6 {
       catalog: this.binding.golden.catalog,
       factEntryIds: this.binding.golden.factEntryIds,
       sessionRevision: this.navigator.revision,
+      resources: this.binding.imported.plan.resources,
     });
     const active = (() => {
       // F7 Step 3 rework（spec §1.3 / PLAN Step 4 一致性校验）：active action

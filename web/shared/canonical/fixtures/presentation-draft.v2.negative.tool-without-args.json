@@ -1,0 +1,33 @@
+{
+  "schema": "ai_teaching_presentation_draft/v2",
+  "request_id": "GR-TS4242-0001",
+  "items": [
+    {
+      "type": "speech",
+      "text": "先看这两个角的对应关系。",
+      "basis_refs": [
+        "RES1"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize"
+    },
+    {
+      "type": "speech",
+      "text": "把这个关系记在旁边。",
+      "basis_refs": [
+        "FN-01"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "board.explain",
+      "args": {
+        "params": {
+          "note_kind": "approved_math_note"
+        }
+      }
+    }
+  ]
+}

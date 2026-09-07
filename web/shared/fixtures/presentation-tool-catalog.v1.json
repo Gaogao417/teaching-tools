@@ -1,0 +1,73 @@
+{
+  "$comment": "F7 RT3 公开工具目录冻结快照（presentation-tool-catalog/v1；B 轨交付给 A 轨的 Board/Geometry adapter 命名与参数真源）。source of truth: teaching-tools web/backend/src/services/tutorOrchestration/presentationGeneration/PresentationToolCatalog.ts（canonical presentation-tool-spec/v1 判定）。可见性规则：模型可见 = 服务端已注册 capability ∩ 前端可执行 ∩ Approved resource_bindings ∩ teaching mode ∩ scope；golden plan TP-SMV-009@v11（planning/v5）无 resource_bindings ⇒ 当前模型可见工具集为空。geometry.emphasize / board.explain 的 capability（geometry.emphasize / solution_board.explain_fragment）尚未注册（RT1 G1/G2）——条目命名先冻结供 A 实现 adapter，注册前 visibility 恒不可见。A 消费方式：adapter registry 以 tool_id 为键；参数 schema 以 parameters 为准（enum 参数的 allowed_values 封闭）。",
+  "catalog_version": "presentation-tool-catalog/v1",
+  "tools": [
+    {
+      "tool_id": "geometry.construct",
+      "version": "v1",
+      "capability": "geometry.construct",
+      "surface": "geometry",
+      "effect_class": "construct",
+      "reveal_scope_ceiling": "none",
+      "requires_binding": true,
+      "teaching_mode_only": true,
+      "parameters": [
+        {
+          "name": "template_id",
+          "value_type": "string",
+          "required": true,
+          "description": "构造模板 id；必须在所选绑定的 allowed_template_ids 内（服务器校验）。"
+        }
+      ]
+    },
+    {
+      "tool_id": "geometry.emphasize",
+      "version": "v1",
+      "capability": "geometry.emphasize",
+      "surface": "geometry",
+      "effect_class": "highlight",
+      "reveal_scope_ceiling": "target_highlight",
+      "requires_binding": true,
+      "teaching_mode_only": true,
+      "parameters": [
+        {
+          "name": "emphasis",
+          "value_type": "enum",
+          "required": true,
+          "allowed_values": ["steady", "pulse"],
+          "description": "强调方式（稳定指示 / 脉冲提示）。"
+        }
+      ]
+    },
+    {
+      "tool_id": "board.explain",
+      "version": "v1",
+      "capability": "solution_board.explain_fragment",
+      "surface": "solution_board",
+      "effect_class": "explain_fragment",
+      "reveal_scope_ceiling": "step_narration",
+      "requires_binding": true,
+      "teaching_mode_only": true,
+      "parameters": [
+        {
+          "name": "note_kind",
+          "value_type": "enum",
+          "required": true,
+          "allowed_values": ["approved_math_note", "relation_note", "explanation_text"],
+          "description": "解释片段类型"
+        }
+      ]
+    },
+    {
+      "tool_id": "board.reveal-entry",
+      "version": "v1",
+      "capability": "board.reveal-entry",
+      "surface": "solution_board",
+      "effect_class": "reveal",
+      "reveal_scope_ceiling": "intermediate_result",
+      "requires_binding": true,
+      "teaching_mode_only": true,
+      "parameters": []
+    }
+  ]
+}
