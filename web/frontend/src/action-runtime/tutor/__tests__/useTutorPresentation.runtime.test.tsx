@@ -268,7 +268,7 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
         sequenceId: "PS-0001",
         ordinal: 0,
         outcome: "presented",
-        clientRequestId: "pres-outcome:TS-99000801:PS-0001:0:VA-bt01-narrate:presented",
+        clientRequestId: "po-8bdc4bfcc4c51ce1",
         expectedRevision: 12,
       },
     );
@@ -378,7 +378,7 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
         sequenceId: "PS-0003",
         ordinal: 0,
         outcome: "presented",
-        clientRequestId: "pres-outcome:TS-99000801:PS-0003:0:WSA-bt03-construct-0:presented",
+        clientRequestId: "po-129dbd491e998887",
         expectedRevision: 20,
       },
     );
@@ -448,7 +448,7 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
         sequenceId: "PS-0003",
         ordinal: 2,
         outcome: "presented",
-        clientRequestId: "pres-outcome:TS-99000801:PS-0003:2:WSA-bt03-reveal:presented",
+        clientRequestId: "po-b1557bc062397f63",
         expectedRevision: 20,
       },
     );
@@ -532,7 +532,7 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
       expect(mocks.reportPresentationOutcome).toHaveBeenCalledWith(
         RUNTIME_SESSION_ID,
         "WSA-bt03-reveal",
-        expect.objectContaining({ outcome: "failed", clientRequestId: "pres-outcome:TS-99000801:PS-0003:2:WSA-bt03-reveal:failed", expectedRevision: 20 }),
+        expect.objectContaining({ outcome: "failed", clientRequestId: "po-b31a8c17b1397805", expectedRevision: 20 }),
       );
       // Real failed ack: no pending. Wait long enough for the view-only paint/cache.
       expect(harness.tutor().runtimeSnapshot?.pending_presentation).toBeUndefined();
@@ -552,7 +552,7 @@ describe("useTutorLearning × PresentationRuntime（canonical 链接线）", () 
       expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(2);
       const secondCall = mocks.reportPresentationOutcome.mock.calls[1];
       expect(secondCall[1]).toBe("WSA-bt03-reveal-R");
-      expect(secondCall[2]).toMatchObject({ outcome: "presented", clientRequestId: "pres-outcome:TS-99000801:PS-0009:0:WSA-bt03-reveal-R:presented", expectedRevision: 22 });
+      expect(secondCall[2]).toMatchObject({ outcome: "presented", clientRequestId: "po-63b0a2377a4c8841", expectedRevision: 22 });
       expect(harness.tutor().runtimeSnapshot?.revision).toBe(23);
       expect(harness.tutor().runtimePresentationPhase.phase).toBe("idle");
     } finally {

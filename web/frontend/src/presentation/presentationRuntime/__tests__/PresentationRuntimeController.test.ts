@@ -169,7 +169,7 @@ describe("PresentationRuntimeController（queue head / 去重 / outcome 幂等�
       outcome: "presented",
       expectedRevision: 12,
     });
-    expect(request.clientRequestId).toBe("pres-outcome:TS-99000801:PS-0001:0:VA-bt01-narrate:presented");
+    expect(request.clientRequestId).toBe("po-8bdc4bfcc4c51ce1");
     await vi.waitFor(() => expect(harness.states).toContain("outcome-pending"));
     await vi.waitFor(() => expect(harness.states[harness.states.length - 1]).toBe("idle"));
   });

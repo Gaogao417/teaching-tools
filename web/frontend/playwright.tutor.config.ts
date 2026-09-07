@@ -27,6 +27,9 @@ if (!process.env.TUTOR_E2E_CANONICAL_ROOT || !fs.existsSync(path.join(canonicalR
     stdio: "inherit",
   });
 }
+// 同进程导出合成 root 路径（tutorHarness 等 spec 文件读取；此前仅在 CI 外部
+// 预设 env 时可运行——自包含修复）。
+process.env.TUTOR_E2E_CANONICAL_ROOT = canonicalRoot;
 const sqliteDir = fs.mkdtempSync(path.join(os.tmpdir(), "tutor-e2e-sqlite-"));
 const backendPort = Number(process.env.TUTOR_E2E_BACKEND_PORT || 3101);
 const frontendPort = Number(process.env.TUTOR_E2E_FRONTEND_PORT || 5174);
@@ -37,6 +40,17 @@ const frontendPort = Number(process.env.TUTOR_E2E_FRONTEND_PORT || 5174);
  * 用例内 TTS 拦截按 TUTOR_E2E_REAL 放行（tutorHarness 既有开关）。
  */
 const realChain = process.env.TUTOR_E2E_REAL === "1";
+/**
+ * F7 P2：canonical 链（/api/vnext → TutorLearnExperience runtimeClient）挂载同一
+ * backend——TUTOR_VNEXT_ROOT 指向 skills-mvp canonical-authoring（只读消费），
+ * 脚本化 Gate 端口（与 playwright.vnext.config.ts 同口径）。legacy 链用例零影响
+ * （vnext 路由独立挂载，availability 按 task 判定）。
+ */
+const vnextRoot = process.env.TUTOR_E2E_VNEXT_ROOT
+  || "/Users/gaochong/develop/teaching-skills-mvp/artifacts/canonical-authoring";
+if (!fs.existsSync(path.join(vnextRoot, "tutor-plan", "TP-SMV-009"))) {
+  throw new Error(`F7 P2 canonical e2e: vnext root unreachable: ${vnextRoot}（设置 TUTOR_E2E_VNEXT_ROOT）`);
+}
 
 export default defineConfig({
   testDir: "./e2e/tutor/specs",
@@ -71,6 +85,9 @@ export default defineConfig({
         TUTOR_CANONICAL_ROOT: canonicalRoot,
         TUTOR_POLICY_PROVIDER: "deepseek-langgraph",
         ...(realChain ? {} : { TUTOR_FAKE_STRUCTURED_MODEL: "1" }),
+        // F7 P2：canonical 链（/api/vnext）挂载（脚本化 Gate；golden 任务集）。
+        TUTOR_VNEXT_ROOT: vnextRoot,
+        TUTOR_VNEXT_SCRIPTED_GATE: "1",
         TUTOR_TELEMETRY: "off",
         FRONTEND_ORIGIN: `http://127.0.0.1:${frontendPort},http://localhost:${frontendPort}`,
       },

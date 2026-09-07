@@ -38,8 +38,27 @@ function keyOfRequest(request: PendingPresentationOutcomeRequest): string {
   return `${request.sessionId}:${request.sequenceId}:${request.ordinal}:${request.actionId}`;
 }
 
+/**
+ * F7 P2（浏览器旅程发现的服务端组合上限）：服务端把 client_request_id 拼进
+ * canonical 事件 idempotency_key（`<session>:poutcome:<seq>:<ordinal>:<action>:
+ * <client_request_id>`，canonical runtime/v1 上限 128 字符）——长会话 id +
+ * 长 action id 下，冗长的可读前缀会溢出（zod pattern 拒绝 → 回执 4xx）。
+ * 改为对完整执行身份（session+sequence+ordinal+action+outcome）的稳定摘要
+ * （FNV-1a 双 32bit，同步无依赖）：同一身份重试仍同 key 同 payload（幂等
+ * 语义不变）；服务端组合键已内嵌完整身份，摘要仅提供行级唯一性。
+ */
 function deterministicOutcomeRequestId(request: Omit<PendingPresentationOutcomeRequest, "clientRequestId">): string {
-  return `pres-outcome:${request.sessionId}:${request.sequenceId}:${request.ordinal}:${request.actionId}:${request.outcome}`;
+  const identity = `${request.sessionId}:${request.sequenceId}:${request.ordinal}:${request.actionId}:${request.outcome}`;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let index = 0; index < identity.length; index += 1) {
+    const code = identity.charCodeAt(index);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01000193) >>> 0;
+    h2 ^= (code + index) & 0xff;
+    h2 = Math.imul(h2, 0x85ebca6b) >>> 0;
+  }
+  return `po-${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
 }
 
 interface Execution {

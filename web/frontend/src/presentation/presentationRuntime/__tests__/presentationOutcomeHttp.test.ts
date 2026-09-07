@@ -157,7 +157,7 @@ describe("Presentation outcome 真实 HTTP 集成（幂等 / revision / 失败�
     controller.adopt(pendingSnapshot(12));
     await vi.waitFor(() => expect(harness.requests).toHaveLength(2), { timeout: 3000 });
     expect(harness.requests[1]!.body).toEqual(harness.requests[0]!.body);
-    expect(harness.requests[1]!.body.client_request_id).toBe("pres-outcome:TS-99000801:PS-0001:0:VA-bt01-narrate:presented");
+    expect(harness.requests[1]!.body.client_request_id).toBe("po-8bdc4bfcc4c51ce1");
     await vi.waitFor(() => expect(adopted).toHaveLength(1), { timeout: 3000 });
     expect(voice.presentCalls).toBe(1); // 全程不重新呈现
     expect(harness.requests[0]!.url).toBe("/api/vnext/tutor-sessions/TS-99000801/presentation-actions/VA-bt01-narrate/outcomes");
