@@ -132,6 +132,17 @@ function withLineage(state: TutorRuntimeStateV7, lineage: V7FoldLineage): TutorR
   return state;
 }
 
+/**
+ * v9 组装缝（F7 RT4）：把 source state 的 fold lineage 过继到同血缘的 target
+ * state 对象（v9 reducer 在 v4 字段上做生成态归约时保持跨事件完整性检查的
+ * lineage 连续）。纯桥接，不改变 lineage 内容；source 只要求是同一血缘的
+ * state 对象（WeakMap 键），不约束 schema 字面量。
+ */
+export function adoptV7Lineage<TState extends object>(target: TState, source: object): TState {
+  foldLineageByState.set(target, lineageOf(source as TutorRuntimeStateV7));
+  return target;
+}
+
 export function initialStateFromSessionStartedV7(event: StoredV7Event): TutorRuntimeStateV7 {
   if (event.event_type !== "session_started") {
     throw new RuntimeStateReducerV7Error(
