@@ -25,6 +25,7 @@ import { TutorSessionKernelV9 } from "../tutorSession/TutorSessionKernelV9";
 import { readSessionEventSchema, readTutorSessionEventsV9, type V9RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV9";
 import type { V7RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV7";
 import { readTutorSessionEventsV7 } from "../tutorSession/WorkspaceRuntimeReducerV7";
+import { assertIdempotencyKeyShape, composeIdempotencyKey } from "../tutorSession/IdempotencyKey";
 import type { TutorRuntimeStateV5 } from "../tutorSession/TutorRuntimeStateReducerV5";
 import type { StoredV5Event } from "../tutorSession/TutorSessionEventV5";
 import {
@@ -498,7 +499,7 @@ export class NavigatorSessionV7 {
           event_type: "student_input_recorded",
           payload: { input: input.input, client_request_id: input.client_request_id },
           occurred_at: nowIso(),
-          idempotency_key: `si:${this.sessionId}:${input.client_request_id}`,
+          idempotency_key: (() => { const key = composeIdempotencyKey(["si", this.sessionId, input.client_request_id]); assertIdempotencyKeyShape(key); return key; })(),
         },
       ]);
       inputSequence = appended.appendedSequences[0];
