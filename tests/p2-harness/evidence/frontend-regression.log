@@ -1,0 +1,49 @@
+
+ RUN  v4.1.10 /Users/gaochong/develop/teaching-tools/web/frontend
+
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx > useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定时序） > 在播可中断 voice：prepareRecordingStart 完成 ①②③ 后返回 true；capture 用 barge-in 后新 revision 17ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx > useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定时序） > ②结算失败（409 拒绝）：返回 false、可见提示、零 control——等待失败不录音 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx > useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定时序） > 无活跃可中断交付：直接 true、零 outcome 零 control（不伪造 interrupted） 1ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx > useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定时序） > P2-A A1：③ control 403 被拒 → prepareRecordingStart resolve false、可见提示、录音不开始（不靠 ASR stale 兜底放行） 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx > useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定时序） > P2-A A1：③ control 409 被拒 → prepareRecordingStart resolve false、可见提示、录音不开始（不靠 ASR stale 兜底放行） 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx > useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定时序） > P2-A A1：③ control 网络失败（5xx）→ false + 可见提示，且不盲重试（幂等 token 留待同键恢复） 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx > useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定时序） > P2-A A2：outcome 未决（自然 ended 回执在途）→ 门等待结算；接受并采用 + control 接受 → true 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx > useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定时序） > P2-A A2：outcome 未决 → 回执拒绝 → false + 可见提示、零 control（不补造 interrupted） 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > view-model：unprojected（无字段）不轮询、不显示；idle/failed 如实投影 16ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > pending(running)：仅读轮询 GET restore、退避重试、采用仍 pending 的快照继续轮询 4ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > pending→idle：轮询停止（不额外 GET）；已提交结果经同一 adopt 流程恢复呈现 3ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > waiting_retry：首次轮询对齐 retry_at（不早于基础退避）；卸载即停 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > 迟到查询不回退 revision：低 revision 轮询响应被拒后轮询继续 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > 轮询网络失败：保留最后合法快照、按退避重试、不写 error/protocolError 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > 轮询 404：停轮 + 显式错误（recovering） 1ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > 轮询协议解析失败：recoverable protocol error、停轮 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > failed 后重新尝试：走既有 control.retry_recovery（服务端新预算新任务） 2ms
+ ✓ src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx > useTutorLearning P2：generation view-model 与只读轮询 > 旧在线负例仍拒：pending 投影携带 pending_presentation 的快照无法进入 hook（fail closed） 1ms
+
+ Test Files  2 passed (2)
+      Tests  18 passed (18)
+   Start at  21:26:49
+   Duration  604ms (transform 318ms, setup 0ms, import 436ms, tests 65ms, environment 508ms)
+
+stderr | src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx > useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定时序） > 在播可中断 voice：prepareRecordingStart 完成 ①②③ 后返回 true；capture 用 barge-in 后新 revision
+An update to Harness inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to Harness inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+

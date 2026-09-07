@@ -1,0 +1,70 @@
+TAP version 13
+# Subtest: v9 session: start reserves generation; drive commits atomically and delivers the head via the existing chain
+ok 1 - v9 session: start reserves generation; drive commits atomically and delivers the head via the existing chain
+  ---
+  duration_ms: 180.263375
+  type: 'test'
+  ...
+# Subtest: v9 session recovery: committed sequence is retrieved with zero model calls
+ok 2 - v9 session recovery: committed sequence is retrieved with zero model calls
+  ---
+  duration_ms: 123.254416
+  type: 'test'
+  ...
+# Subtest: barge_in cancels the pending generation as a normal control outcome
+ok 3 - barge_in cancels the pending generation as a normal control outcome
+  ---
+  duration_ms: 101.186458
+  type: 'test'
+  ...
+# Subtest: new assistance input supersedes the pending generation and reserves a fresh task
+ok 4 - new assistance input supersedes the pending generation and reserves a fresh task
+  ---
+  duration_ms: 175.364625
+  type: 'test'
+  ...
+# Subtest: v7 sessions without a presenter port are unchanged (deterministic chain, zero generation events)
+ok 5 - v7 sessions without a presenter port are unchanged (deterministic chain, zero generation events)
+  ---
+  duration_ms: 26.88325
+  type: 'test'
+  ...
+# Subtest: B1 online prompt assembly carries the student question and already-presented speech from the frozen cutoff
+ok 6 - B1 online prompt assembly carries the student question and already-presented speech from the frozen cutoff
+  ---
+  duration_ms: 185.682708
+  type: 'test'
+  ...
+# Subtest: B3 resume with a changed presenter pin is refused fail-closed (explicit error, zero events, zero model calls)
+ok 7 - B3 resume with a changed presenter pin is refused fail-closed (explicit error, zero events, zero model calls)
+  ---
+  duration_ms: 88.594542
+  type: 'test'
+  ...
+# Subtest: B3 resume with the pinned presenter port proceeds and committed provenance stays truthful
+ok 8 - B3 resume with the pinned presenter port proceeds and committed provenance stays truthful
+  ---
+  duration_ms: 92.317666
+  type: 'test'
+  ...
+# Subtest: B4 retry_recovery after generation failure reserves a fresh request with a new budget; the failed record survives
+ok 9 - B4 retry_recovery after generation failure reserves a fresh request with a new budget; the failed record survives
+  ---
+  duration_ms: 136.998416
+  type: 'test'
+  ...
+# Subtest: B4 retry_recovery without any failure stays refused (fail closed)
+ok 10 - B4 retry_recovery without any failure stays refused (fail closed)
+  ---
+  duration_ms: 74.881959
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 30727.111792

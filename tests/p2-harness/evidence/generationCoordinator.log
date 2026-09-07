@@ -1,0 +1,76 @@
+TAP version 13
+# Subtest: happy path: reserve -> drive -> committed; idempotent re-reserve returns existing (zero events)
+ok 1 - happy path: reserve -> drive -> committed; idempotent re-reserve returns existing (zero events)
+  ---
+  duration_ms: 6.463833
+  type: 'test'
+  ...
+# Subtest: retry budget: two timeout failures then success commits on attempt 3; waiting_retry events recorded
+ok 2 - retry budget: two timeout failures then success commits on attempt 3; waiting_retry events recorded
+  ---
+  duration_ms: 2.129542
+  type: 'test'
+  ...
+# Subtest: RETRY_EXHAUSTED: three failures cap the budget and fail closed (no fourth call)
+ok 3 - RETRY_EXHAUSTED: three failures cap the budget and fail closed (no fourth call)
+  ---
+  duration_ms: 1.5885
+  type: 'test'
+  ...
+# Subtest: non-retryable failures (draft_invalid) fail immediately without consuming retries
+ok 4 - non-retryable failures (draft_invalid) fail immediately without consuming retries
+  ---
+  duration_ms: 0.639083
+  type: 'test'
+  ...
+# Subtest: cancellation race: cancel-first invalidates the slot and the late candidate never commits
+ok 5 - cancellation race: cancel-first invalidates the slot and the late candidate never commits
+  ---
+  duration_ms: 0.600708
+  type: 'test'
+  ...
+# Subtest: commit-first race: cancel after commit is a no-op (sequence survives)
+ok 6 - commit-first race: cancel after commit is a no-op (sequence survives)
+  ---
+  duration_ms: 0.770208
+  type: 'test'
+  ...
+# Subtest: reservation conflicts: drifted payload rejected; slot busy and non-idle cursor refused
+ok 7 - reservation conflicts: drifted payload rejected; slot busy and non-idle cursor refused
+  ---
+  duration_ms: 1.293583
+  type: 'test'
+  ...
+# Subtest: B2 parallel drive: the claim gate admits exactly one model call and a single owner
+ok 8 - B2 parallel drive: the claim gate admits exactly one model call and a single owner
+  ---
+  duration_ms: 1.382167
+  type: 'test'
+  ...
+# Subtest: B2 confirmed commit rollback: the held candidate is resubmitted without a second model call
+ok 9 - B2 confirmed commit rollback: the held candidate is resubmitted without a second model call
+  ---
+  duration_ms: 1.01625
+  type: 'test'
+  ...
+# Subtest: B2 lost commit acknowledgement: the drive verifies and returns the committed result instead of throwing
+ok 10 - B2 lost commit acknowledgement: the drive verifies and returns the committed result instead of throwing
+  ---
+  duration_ms: 1.562333
+  type: 'test'
+  ...
+# Subtest: B2 cancel during the in-flight model call: the late candidate never commits and the drive classifies superseded (no throw)
+ok 11 - B2 cancel during the in-flight model call: the late candidate never commits and the drive classifies superseded (no throw)
+  ---
+  duration_ms: 1.637167
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 28.092709

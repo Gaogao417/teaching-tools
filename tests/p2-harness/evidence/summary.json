@@ -1,0 +1,82 @@
+{
+  "revision": "976c7a6c692fa2d882e9ae3c9cd6d7665ee3401c",
+  "results": [
+    {
+      "name": "backend-build",
+      "ok": true,
+      "exit": 0,
+      "missing": [],
+      "skipped": false,
+      "empty": false
+    },
+    {
+      "name": "generationCoordinator",
+      "ok": true,
+      "exit": 0,
+      "missing": [],
+      "skipped": false,
+      "empty": false
+    },
+    {
+      "name": "v9GenerationSession",
+      "ok": true,
+      "exit": 0,
+      "missing": [],
+      "skipped": false,
+      "empty": false
+    },
+    {
+      "name": "presentationContextBuilder",
+      "ok": true,
+      "exit": 0,
+      "missing": [],
+      "skipped": false,
+      "empty": false
+    },
+    {
+      "name": "presentationGenerationPipeline",
+      "ok": true,
+      "exit": 0,
+      "missing": [],
+      "skipped": false,
+      "empty": false
+    },
+    {
+      "name": "independent-context",
+      "ok": true,
+      "exit": 0,
+      "missing": [],
+      "skipped": false,
+      "empty": false
+    },
+    {
+      "name": "frontend-typecheck",
+      "ok": true,
+      "exit": 0,
+      "missing": [],
+      "skipped": false,
+      "empty": false
+    },
+    {
+      "name": "independent-handshake",
+      "ok": true,
+      "exit": 0,
+      "missing": [],
+      "skipped": false,
+      "empty": false
+    },
+    {
+      "name": "frontend-regression",
+      "ok": true,
+      "exit": 0,
+      "missing": [],
+      "skipped": false,
+      "empty": false
+    }
+  ],
+  "ok": true,
+  "limitations": [
+    "Scripted model/HTTP/media ports; not real provider, microphone or ASR acceptance",
+    "Dynamic board execution, v7 publication and worker restart remain separate acceptance obligations"
+  ]
+}

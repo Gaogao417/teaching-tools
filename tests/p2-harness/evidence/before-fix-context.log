@@ -1,0 +1,5 @@
+FAIL B5 mandatory core character budget Missing expected exception.
+FAIL B5 optional fact budget false == true
+FAIL B5 resource budget false == true
+FAIL B6 private inference conclusion Missing expected exception.
+PASS authorized conclusion positive control

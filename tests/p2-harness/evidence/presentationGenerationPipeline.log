@@ -1,0 +1,94 @@
+TAP version 13
+# Subtest: prompt versions are frozen and presenter payload carries tools/basis/budget
+ok 1 - prompt versions are frozen and presenter payload carries tools/basis/budget
+  ---
+  duration_ms: 1.645041
+  type: 'test'
+  ...
+# Subtest: generator wraps model items with server-owned identity and validates canonical draft
+ok 2 - generator wraps model items with server-owned identity and validates canonical draft
+  ---
+  duration_ms: 0.280375
+  type: 'test'
+  ...
+# Subtest: generator rejects model outputs carrying forbidden fields (draft_invalid, not retried)
+ok 3 - generator rejects model outputs carrying forbidden fields (draft_invalid, not retried)
+  ---
+  duration_ms: 0.515333
+  type: 'test'
+  ...
+# Subtest: structured model errors map to closed failure classes with retryability
+ok 4 - structured model errors map to closed failure classes with retryability
+  ---
+  duration_ms: 0.10975
+  type: 'test'
+  ...
+# Subtest: B7 dashscope with a missing key fails not-configured and never borrows another provider's key (zero network)
+ok 5 - B7 dashscope with a missing key fails not-configured and never borrows another provider's key (zero network)
+  ---
+  duration_ms: 0.251167
+  type: 'test'
+  ...
+# Subtest: B7 dashscope with both keys present sends the dashscope key to the dashscope endpoint; pin provider is dashscope
+ok 6 - B7 dashscope with both keys present sends the dashscope key to the dashscope endpoint; pin provider is dashscope
+  ---
+  duration_ms: 19.028167
+  type: 'test'
+  ...
+# Subtest: compiler emits interleaved voice + board.explain fragment sequence (canonical v4)
+ok 7 - compiler emits interleaved voice + board.explain fragment sequence (canonical v4)
+  ---
+  duration_ms: 0.892875
+  type: 'test'
+  ...
+# Subtest: AP-05 negatives: illegal tool / target / param / source ref / reveal are rejected whole-segment
+ok 8 - AP-05 negatives: illegal tool / target / param / source ref / reveal are rejected whole-segment
+  ---
+  duration_ms: 0.711666
+  type: 'test'
+  ...
+# Subtest: preflight: voice-only segment passes with zero workspace effects
+ok 9 - preflight: voice-only segment passes with zero workspace effects
+  ---
+  duration_ms: 0.308917
+  type: 'test'
+  ...
+# Subtest: preflight: unregistered capability (board.explain) fails closed on an isolated fold
+ok 10 - preflight: unregistered capability (board.explain) fails closed on an isolated fold
+  ---
+  duration_ms: 0.335875
+  type: 'test'
+  ...
+# Subtest: compiler construct intent resolves only approved golden construction templates (BT-04 RES7)
+ok 11 - compiler construct intent resolves only approved golden construction templates (BT-04 RES7)
+  ---
+  duration_ms: 0.971667
+  type: 'test'
+  ...
+# Subtest: quality case set: cases are distinct, basis expectations are within graph closure, forbidden refs never listed as allowed
+ok 12 - quality case set: cases are distinct, basis expectations are within graph closure, forbidden refs never listed as allowed
+  ---
+  duration_ms: 0.064917
+  type: 'test'
+  ...
+# Subtest: quality cases build contexts through RT2 builder (pipeline integrity)
+ok 13 - quality cases build contexts through RT2 builder (pipeline integrity)
+  ---
+  duration_ms: 0.126709
+  type: 'test'
+  ...
+# Subtest: frozen catalog is the visibility naming source used by compiler inputs
+ok 14 - frozen catalog is the visibility naming source used by compiler inputs
+  ---
+  duration_ms: 0.036666
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 126.538709

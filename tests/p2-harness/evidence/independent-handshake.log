@@ -1,0 +1,25 @@
+
+ RUN  v4.1.10 /Users/gaochong/develop/teaching-tools/tests/p2-harness
+
+stdout | handshake.test.tsx > independent P2-A handshake repro > control 409 must block microphone gate
+CONTROL_REJECTED { status: 409, allowed: false, revision: 13 }
+
+stdout | handshake.test.tsx > independent P2-A handshake repro > control 403 must block microphone gate
+CONTROL_REJECTED { status: 403, allowed: false, revision: 13 }
+
+stdout | handshake.test.tsx > independent P2-A handshake repro > pending natural-ended outcome must keep microphone gate waiting
+OUTCOME_PENDING {
+  resolved: false,
+  allowed: undefined,
+  phase: { phase: 'outcome-pending', actionId: 'VA-bt01-narrate' }
+}
+
+ ✓ handshake.test.tsx > independent P2-A handshake repro > control 409 must block microphone gate 16ms
+ ✓ handshake.test.tsx > independent P2-A handshake repro > control 403 must block microphone gate 2ms
+ ✓ handshake.test.tsx > independent P2-A handshake repro > pending natural-ended outcome must keep microphone gate waiting 2ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  21:26:48
+   Duration  700ms (transform 160ms, setup 0ms, import 225ms, tests 21ms, environment 362ms)
+

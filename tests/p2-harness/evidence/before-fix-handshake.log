@@ -1,0 +1,70 @@
+
+ RUN  v4.1.10 /private/tmp/p2-harness-negative/tests/p2-harness
+
+stdout | handshake.test.tsx > independent P2-A handshake repro > control 409 must block microphone gate
+CONTROL_REJECTED { status: 409, allowed: true, revision: 13 }
+
+stdout | handshake.test.tsx > independent P2-A handshake repro > control 403 must block microphone gate
+CONTROL_REJECTED { status: 403, allowed: true, revision: 13 }
+
+stdout | handshake.test.tsx > independent P2-A handshake repro > pending natural-ended outcome must keep microphone gate waiting
+OUTCOME_PENDING {
+  resolved: true,
+  allowed: true,
+  phase: { phase: 'outcome-pending', actionId: 'VA-bt01-narrate' }
+}
+
+ × handshake.test.tsx > independent P2-A handshake repro > control 409 must block microphone gate 18ms
+   → expected true to be false // Object.is equality
+ × handshake.test.tsx > independent P2-A handshake repro > control 403 must block microphone gate 2ms
+   → expected true to be false // Object.is equality
+ × handshake.test.tsx > independent P2-A handshake repro > pending natural-ended outcome must keep microphone gate waiting 2ms
+   → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  handshake.test.tsx > independent P2-A handshake repro > control 409 must block microphone gate
+ FAIL  handshake.test.tsx > independent P2-A handshake repro > control 403 must block microphone gate
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ handshake.test.tsx:165:19
+    163|   expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+    164|   console.log("CONTROL_REJECTED",{status,allowed,revision:harness.tuto…
+    165|   expect(allowed).toBe(false);
+       |                   ^
+    166|  });
+    167|  it("pending natural-ended outcome must keep microphone gate waiting",…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  handshake.test.tsx > independent P2-A handshake repro > pending natural-ended outcome must keep microphone gate waiting
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ handshake.test.tsx:182:21
+    180|   const premature=resolved;
+    181|   await act(async()=>{resolveOutcome(validRuntimeSnapshot({revision:13…
+    182|   expect(premature).toBe(false);
+       |                     ^
+    183|  });
+    184| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  21:24:21
+   Duration  614ms (transform 171ms, setup 0ms, import 244ms, tests 23ms, environment 254ms)
+

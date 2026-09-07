@@ -1,0 +1,94 @@
+TAP version 13
+# Subtest: core context builds with premise closure and stays a pure read-only projection
+ok 1 - core context builds with premise closure and stays a pure read-only projection
+  ---
+  duration_ms: 2.481125
+  type: 'test'
+  ...
+# Subtest: frozen retry keeps the same digest; policy upgrade changes it (new tasks only)
+ok 2 - frozen retry keeps the same digest; policy upgrade changes it (new tasks only)
+  ---
+  duration_ms: 0.354167
+  type: 'test'
+  ...
+# Subtest: expansion (fine region refs) only adds model context, never navigation state
+ok 3 - expansion (fine region refs) only adds model context, never navigation state
+  ---
+  duration_ms: 0.19425
+  type: 'test'
+  ...
+# Subtest: budget truncation drops whole optional groups and never splits a premise set
+ok 4 - budget truncation drops whole optional groups and never splits a premise set
+  ---
+  duration_ms: 0.121209
+  type: 'test'
+  ...
+# Subtest: core group over budget fails explicitly (CONTEXT_BUDGET_EXCEEDED, no truncation)
+ok 5 - core group over budget fails explicitly (CONTEXT_BUDGET_EXCEEDED, no truncation)
+  ---
+  duration_ms: 0.182167
+  type: 'test'
+  ...
+# Subtest: private answer facts never enter context without authorization (expand never widens reveal)
+ok 6 - private answer facts never enter context without authorization (expand never widens reveal)
+  ---
+  duration_ms: 0.131
+  type: 'test'
+  ...
+# Subtest: authorized answer fact inside the current beat plan stays visible
+ok 7 - authorized answer fact inside the current beat plan stays visible
+  ---
+  duration_ms: 0.074708
+  type: 'test'
+  ...
+# Subtest: negative failures: unknown refs, stale cutoff, assessment, empty graph, empty result
+ok 8 - negative failures: unknown refs, stale cutoff, assessment, empty graph, empty result
+  ---
+  duration_ms: 0.147
+  type: 'test'
+  ...
+# Subtest: first-segment build without student input is legal (recentInputs empty)
+ok 9 - first-segment build without student input is legal (recentInputs empty)
+  ---
+  duration_ms: 0.074917
+  type: 'test'
+  ...
+# Subtest: B5 core group exceeding max_total_chars fails CONTEXT_BUDGET_EXCEEDED (no silent oversized build)
+ok 10 - B5 core group exceeding max_total_chars fails CONTEXT_BUDGET_EXCEEDED (no silent oversized build)
+  ---
+  duration_ms: 0.114709
+  type: 'test'
+  ...
+# Subtest: B5 region fine fact exceeding the char budget is omitted as a whole group and registered (context_truncated)
+ok 11 - B5 region fine fact exceeding the char budget is omitted as a whole group and registered (context_truncated)
+  ---
+  duration_ms: 0.090167
+  type: 'test'
+  ...
+# Subtest: B5 optional inference group exceeding the char budget is dropped whole and registered
+ok 12 - B5 optional inference group exceeding the char budget is dropped whole and registered
+  ---
+  duration_ms: 0.0815
+  type: 'test'
+  ...
+# Subtest: B5 resource group exceeding the char budget is omitted from the frozen refs and registered; small resources still pass
+ok 13 - B5 resource group exceeding the char budget is omitted from the frozen refs and registered; small resources still pass
+  ---
+  duration_ms: 0.1325
+  type: 'test'
+  ...
+# Subtest: B6 core inference concluding in an unauthorized answer fact is refused CONTEXT_FORBIDDEN (never silently dropped)
+ok 14 - B6 core inference concluding in an unauthorized answer fact is refused CONTEXT_FORBIDDEN (never silently dropped)
+  ---
+  duration_ms: 0.086292
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 13.484292
