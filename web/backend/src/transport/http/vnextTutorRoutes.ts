@@ -344,7 +344,11 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
     try {
       const sessionId = sessionIdParam.parse(req.params.sessionId);
       const body = asrRequestHttpV1Schema.parse(req.body);
-      if (!ASR_ALLOWED_MIME.has(body.audio.mime_type)) {
+      // MediaRecorder 上报的是完整 mime（如 audio/webm;codecs=opus、Safari 的
+      // audio/mp4;codecs=mp4a.40.2）——按容器类型归一化后对白名单（真人验收
+      // 发现：精确匹配导致所有真实浏览器首次录音即 415）。
+      const containerMimeType = body.audio.mime_type.split(";")[0]!.trim().toLowerCase();
+      if (!ASR_ALLOWED_MIME.has(containerMimeType)) {
         res.status(415).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "AUDIO_FORMAT_UNSUPPORTED", message: `mime_type ${body.audio.mime_type} is not supported` } }));
         return;
       }

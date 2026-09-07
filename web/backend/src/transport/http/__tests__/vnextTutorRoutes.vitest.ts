@@ -564,6 +564,27 @@ describe("F7 Step 4 统一 HTTP application profile（v7 生产链）", () => {
           expect(body.session_id).toBe(sessionId);
           expect(body.observed_revision).toBe(revisionBeforeAsr);
           expect(body.transcript).toContain("16");
+          // 真实 MediaRecorder 上报完整 mime（含 codecs 参数）：归一化后按容器
+          // 类型对白名单——Chromium webm;codecs=opus 与 Safari mp4 均可过，
+          // 非音频容器（带参数）仍 415（真人验收发现回归）。
+          const codecWebm = await fetch(`http://127.0.0.1:${address.port}${base}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audio: { data_url: "data:audio/webm;codecs=opus;base64,QUJD", mime_type: "audio/webm;codecs=opus" }, client_request_id: "rv7-asr-5" }),
+          });
+          expect(codecWebm.status).toBe(200);
+          const codecMp4 = await fetch(`http://127.0.0.1:${address.port}${base}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audio: { data_url: "data:audio/mp4;codecs=mp4a.40.2;base64,QUJD", mime_type: "audio/mp4;codecs=mp4a.40.2" }, client_request_id: "rv7-asr-6" }),
+          });
+          expect(codecMp4.status).toBe(200);
+          const badMimeWithParams = await fetch(`http://127.0.0.1:${address.port}${base}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audio: { data_url: "data:text/plain; charset=utf-8;base64,eA==", mime_type: "text/plain; charset=utf-8" }, client_request_id: "rv7-asr-7" }),
+          });
+          expect(badMimeWithParams.status).toBe(415);
           // observe-only：两次 ASR（422 + 200）后 revision 与事件行数都不变。
           expect((await getSnapshot(sessionId)).revision).toBe(revisionBeforeAsr);
           expect(eventCount(sessionId)).toBe(eventsBeforeAsr);
