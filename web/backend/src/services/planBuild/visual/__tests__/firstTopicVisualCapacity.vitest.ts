@@ -1,3 +1,4 @@
+import {remainingVisualConstructionTools} from '../../../tutorOrchestration/presentationGeneration/FrozenVisualGeneration';
 import {preflightPresentationSequence} from '../../../tutorOrchestration/presentationGeneration/SequencePreflight';
 import type {StoredSessionEvent} from '../../../tutorSession/kernel/sessionKernelTypes';
 import {it,expect} from 'vitest';
@@ -52,6 +53,9 @@ function checkBT04Cache(branchCase=false){
  const {schema:planSchema,session_id:planSession,...planned}=compiled;
  append('presentation_sequence_planned',planned);
  bridge.foldAt(stream);
+ // A planned sequence contains all five commands, but no domain effect yet.
+ const plannedOnly=remainingVisualConstructionTools(ordinary,bridge.generationAt(stream));
+ expect(plannedOnly).toEqual(ordinary);
  if(branchCase){
   const prefix=structuredClone(stream),baseline=bridge.foldAt(prefix);
   const constructs=compiled.actions.filter(a=>a.workspace_action?.capability==='geometry.construct');
@@ -84,7 +88,25 @@ function checkBT04Cache(branchCase=false){
  for(const action of compiled.actions)if(action.workspace_action){
   append('presentation_action_applied',{sequence_id:compiled.sequence_id,ordinal:action.ordinal,action_id:action.workspace_action.action_id,kind:'workspace',resulting_workspace_revision:++revision});
   expect(bridge.foldAt(stream).workspace.state.revision).toBe(revision);
+  if(revision===1){
+   const source=bridge.generationAt(stream);
+   expect(source.authorization.completedConstructions.has('VB-01')).toBe(true);
+   const remaining=remainingVisualConstructionTools(ordinary,source);
+   expect(remaining.find(t=>t.spec.effect_class==='construct')!.bindings.map(b=>b.binding_id)).toEqual(['VB-02','VB-03','VB-04','VB-05']);
+   // A partially completed multi-template binding retains its unbuilt template.
+   const construct=ordinary.find(t=>t.spec.effect_class==='construct')!;
+   const binding=construct.bindings.find(b=>b.binding_id==='VB-02')!;
+   if(binding.binding_kind!=='geometry')throw Error('geometry binding expected');
+   const partial=[{...construct,bindings:[{...binding,allowed_template_ids:['pt-O','seg-AO']}]}];
+   const projected=remainingVisualConstructionTools(partial,source);
+   expect(projected[0].bindings[0]).toEqual({...binding,allowed_template_ids:['seg-AO']});
+   expect(partial[0].bindings[0].allowed_template_ids).toEqual(['pt-O','seg-AO']);
+   expect(ordinary.find(t=>t.spec.effect_class==='construct')!.bindings).toHaveLength(5);
+  }
  }
+ const recoveredTools=remainingVisualConstructionTools(ordinary,bridge.generationAt(stream));
+ expect(recoveredTools.some(t=>t.spec.effect_class==='construct')).toBe(false);
+ expect(recoveredTools).toEqual(ordinary.filter(t=>t.spec.effect_class!=='construct'));
  const cached=bridge.foldAt(stream);
  const fresh=createPinnedVisualWorkspaceBridge({sessionId:'TS-9400',catalogHash:`sha256:${'a'.repeat(64)}`,catalog,workspaceCatalog:workspace,imported,authorityAt:()=>({currentOwner:owner,activeOwners:[owner]})}).foldAt(stream);
  expect(cached).toEqual(fresh);
