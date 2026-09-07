@@ -107,11 +107,19 @@ export function createApplication(): TutorRuntimeApplicationV7 {
   });
 }
 
-/** v9 会话在有 pending 生成时驱动至终态再回包（模型调用在 DB 事务外；P3 转 pending 轮询）。 */
-async function driveGenerationIfPending(application: TutorRuntimeApplicationV7, orchestrator: import("../../services/tutorOrchestration/TutorSessionOrchestratorV7").TutorSessionOrchestratorV7): Promise<void> {
-  if (orchestrator.hasPendingGeneration()) {
-    await application.drivePendingGeneration(orchestrator);
-  }
+/**
+ * F7 P3（A5 pending 轮询）：mutation 预约生成后**立即回包**（快照透出
+ * generation=pending——含 waiting_retry 的 phase/attempt/retry_at 与 active scope），
+ * 不再阻塞驱动模型至终态；驱动交由后台 recovery worker（预约通知 wake 即时接管，
+ * 新建 pending 与崩溃恢复同一认领路径；CAS/epoch 规则不变——coordinator 唯一
+ * 裁决，模型调用仍在 DB 事务外）。v7 会话 hasPendingGeneration 恒 false ⇒
+ * 通知零触发（缺省链行为零变化）。
+ */
+function notifyPendingGeneration(
+  orchestrator: import("../../services/tutorOrchestration/TutorSessionOrchestratorV7").TutorSessionOrchestratorV7,
+  wake: (() => void) | undefined,
+): void {
+  if (orchestrator.hasPendingGeneration()) wake?.();
 }
 
 function toHttpError(error: unknown, res: { status: (code: number) => { json: (body: unknown) => void } }): void {
@@ -179,12 +187,19 @@ export interface VNextTutorRoutesOptions {
   applicationFactory?: () => TutorRuntimeApplicationV7;
   /** 测试注入 ASR transcriber（生产 = tutorSession/asrService，ADR-005 层边界）。 */
   transcriber?: (input: { dataUrl: string; durationMs?: number }) => Promise<{ transcript: string; model: string }>;
+  /**
+   * F7 P3（A5 pending 轮询）：v9 mutation 预约生成后的后台驱动通知（fire-and-forget
+   * wake——GenerationRecoveryWorker 即时扫描接管；认领 CAS/epoch 规则不变）。缺省
+   * 未接线时仅剩 worker 周期扫描兜底；GET/restore 永不通知（只读零模型调用）。
+   */
+  generationWake?: () => void;
 }
 
 export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): Router {
   const router = Router();
   const applicationFactory = options.applicationFactory ?? createApplication;
   const transcribe = options.transcriber ?? transcribeForTutor;
+  const generationWake = options.generationWake;
 
   router.get("/availability/:taskId", (req, res) => {
     const parsed = taskIdParam.safeParse(req.params.taskId);
@@ -215,7 +230,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         }));
         return;
       }
-      await driveGenerationIfPending(application, outcome.orchestrator);
+      notifyPendingGeneration(outcome.orchestrator, generationWake);
       const snapshot = projectHttpSnapshotV1({ orchestrator: outcome.orchestrator });
       res.status(outcome.kind === "created" ? 201 : 200).json(snapshot);
     } catch (error) {
@@ -243,7 +258,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         input: body.input,
         client_request_id: body.client_request_id,
       }, { expectedRevision: body.expected_revision });
-      await driveGenerationIfPending(application, orchestrator);
+      notifyPendingGeneration(orchestrator, generationWake);
       res.json(projectHttpSnapshotV1({ orchestrator, turn: result.turn, turnSource: "input" }));
     } catch (error) {
       toHttpError(error, res);
@@ -268,7 +283,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
           ? { revision: submission.revision, status: submission.status, evaluation: submission.evaluation }
           : { revision: submission.revision, status: submission.status, failure: submission.failure },
       });
-      await driveGenerationIfPending(application, orchestrator);
+      notifyPendingGeneration(orchestrator, generationWake);
       if (!response.ok) {
         res.status(500).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "INTERNAL_ERROR", message: response.errors.join("; ") } }));
         return;
@@ -295,7 +310,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       const result = application.submitWorkspaceCommand(orchestrator, command, {
         expectedRevision: body.expected_revision,
       });
-      await driveGenerationIfPending(application, orchestrator);
+      notifyPendingGeneration(orchestrator, generationWake);
       res.json(projectHttpSnapshotV1({ orchestrator, turn: result.turn, turnSource: "command" }));
     } catch (error) {
       toHttpError(error, res);

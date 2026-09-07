@@ -83,7 +83,7 @@ test("background generation recovery uses the real database and isolates session
       app.drivePendingGeneration = async restored => {
         try { await originalDrive(restored); } finally { recovered.resolve(); }
       };
-      const stop = startGenerationRecoveryWorker(() => app, error => { errors.push(error); recovered.resolve(); });
+      const worker = startGenerationRecoveryWorker(() => app, error => { errors.push(error); recovered.resolve(); });
       try {
         await recovered.promise;
         const state = app.restore(session.sessionId).rebuildRuntimeState();
@@ -92,7 +92,7 @@ test("background generation recovery uses the real database and isolates session
         assert.deepEqual(state.generation_slot, { status: "idle" });
         assert.equal(state.presentation_cursor.status, "awaiting_browser");
         assert.deepEqual(errors, []);
-      } finally { stop(); app.drivePendingGeneration = originalDrive; }
+      } finally { worker.stop(); app.drivePendingGeneration = originalDrive; }
     });
 
     await t.test("non-pending active session is read without another model call or event", async () => {
