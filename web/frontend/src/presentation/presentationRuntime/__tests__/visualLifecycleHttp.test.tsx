@@ -31,11 +31,11 @@ async function server(handle: (request: Request, send: (body: unknown) => void, 
 }
 function runtime(client: HttpTutorRuntimeClient, adapter: PresentationToolAdapter) {
  let controller!: PresentationRuntimeController;
- const notices=vi.fn();
+ const notices=vi.fn(),phases=vi.fn();
  const ports: PresentationRuntimePorts={clientInstanceId:owner.client_instance_id,
   reportOutcome:r=>client.reportPresentationOutcome(r.sessionId,r.actionId,{sequenceId:r.sequenceId,ordinal:r.ordinal,outcome:r.outcome,failureClass:r.failureClass,message:r.message,clientRequestId:r.clientRequestId,expectedRevision:r.expectedRevision,executionOwner:r.executionOwner,holdForControl:r.holdForControl}),
-  adoptOutcomeSnapshot:s=>{controller.adopt(s);return true;},onNotice:notices,onProtocolAnomaly:notices,onStateChanged:vi.fn(),isDefinitiveFailure:e=>e instanceof TutorRuntimeHttpError&&e.status<500};
- controller=new PresentationRuntimeController(createCapabilityRegistry([adapter]),[adapter],ports);cleanups.push(()=>controller.dispose());return {controller,notices};
+  adoptOutcomeSnapshot:s=>{controller.adopt(s);return true;},onNotice:notices,onProtocolAnomaly:notices,onStateChanged:phases,isDefinitiveFailure:e=>e instanceof TutorRuntimeHttpError&&e.status<500};
+ controller=new PresentationRuntimeController(createCapabilityRegistry([adapter]),[adapter],ports);cleanups.push(()=>controller.dispose());return {controller,notices,phases};
 }
 describe("H11–15 visual lifecycle over real HTTP",()=>{
  it("natural ended already sent without hold: preserves wire payload and cancels returned not-started delivery",async()=>{
@@ -167,4 +167,88 @@ it("H33 real HTTP: B claims while A cleanup 200 is delayed, with no prior B obse
  expect(tutor.lockRecordingChannel("assistance")).toBeUndefined();
  expect(h.requests.filter(r=>!r.path.endsWith("/student-inputs")&&!r.path.endsWith("/outcomes"))).toHaveLength(2);
  expect(h.requests.some(r=>r.path.endsWith("/asr"))).toBe(false);
+});
+
+it("network-failed receipt retry uses original HTTP payload, singleflight, and never presents twice",async()=>{
+ let attempts=0,accept!: (body:unknown)=>void;
+ const h=await server((_request,send,drop)=>{if(++attempts===1)drop();else accept=send;});
+ const present=vi.fn(async()=>({outcome:"presented" as const}));
+ const {controller,phases}=runtime(h.client,{supports:a=>a.kind==="voice",present});
+ controller.adopt(snapshot(20,"voice"));
+ await vi.waitFor(()=>expect(phases.mock.calls.at(-1)?.[0]).toMatchObject({phase:"outcome-pending",networkFailed:true}));
+ const first=structuredClone(h.requests[0].body);
+ const retry=controller.retryPendingOutcome(),duplicate=controller.retryPendingOutcome();
+ await vi.waitFor(()=>expect(h.requests).toHaveLength(2));
+ expect(phases.mock.calls.at(-1)?.[0].networkFailed).toBeUndefined();
+ expect(h.requests[1].body).toEqual(first);
+ accept(snapshot(21));await Promise.all([retry,duplicate]);
+ expect(phases.mock.calls.at(-1)?.[0]).toEqual({phase:"idle"});
+ await controller.retryPendingOutcome();expect(h.requests).toHaveLength(2);expect(present).toHaveBeenCalledTimes(1);
+});
+it("network-failed retry is unavailable after observed takeover or disposal",async()=>{
+ const h=await server((_request,_send,drop)=>drop());
+ const present=vi.fn(async()=>({outcome:"presented" as const}));
+ const {controller,phases}=runtime(h.client,{supports:a=>a.kind==="voice",present});controller.adopt(snapshot(20,"voice"));
+ await vi.waitFor(()=>expect(phases.mock.calls.at(-1)?.[0].networkFailed).toBe(true));
+ const claimed=JSON.parse(JSON.stringify(snapshot(21)));claimed.presentation_execution_owner={client_instance_id:"page-test-B",epoch:2};
+ controller.adopt(validFromRaw(claimed));await controller.retryPendingOutcome();expect(h.requests).toHaveLength(1);
+ controller.dispose();await controller.retryPendingOutcome();expect(h.requests).toHaveLength(1);
+});
+
+it("hook pulse interruption → held outcome → barge → exact cleanup without hold → actual question submission",async()=>{
+ const pulseRaw=JSON.parse(JSON.stringify(pageSnapshot(20,"cleanup")));
+ pulseRaw.visual_barrier=null;const delivery=pulseRaw.pending_presentation;delivery.sequence_id="PS-0002";
+ const focus={group_id:"pulse-group",binding_ref:"VB-101",mode:"pulse",resolved_targets:{entity_ids:["pt-A"]}};
+ delivery.action.workspace_action.capability="geometry.visual.focus";
+ delivery.action.workspace_action.command_payload=JSON.stringify({schema:"ai_teaching_geometry_visual_command/v1",op:"focus",...focus,owner:{scope:{kind:"approved",protocol_id:"PR-SMV-001",beat_id:"BT-01"},scope_epoch:1,part_ref:"1"}});
+ pulseRaw.views.student_workspace_view.canvas.visual.focus={...focus,owner_key:"owner-key"};
+ const initial=validFromRaw(pulseRaw),pageOwner=initial.presentation_execution_owner!;
+ let authority=initial,holdId:string|undefined,releaseCleanup!:()=>void;
+ let invalidateReadiness:(()=>void)|undefined,baselineDelayed=false,releaseBaseline!:()=>void;
+ const h=await server((request,send)=>{
+  if(request.path.endsWith("/outcomes")&&request.body.sequence_id==="PS-0002") {
+   holdId=request.body.hold_for_control?.client_request_id;
+   const raw=JSON.parse(JSON.stringify(pageSnapshot(21)));raw.visual_barrier={status:"awaiting-control",barrier_id:"hold-barrier",cause:"barge-in",execution_owner:pageOwner,control_request_id:holdId};
+   authority=validFromRaw(raw);send(authority);
+  } else if(request.path.endsWith("/student-inputs")&&request.body.input.command==="barge_in") {
+   const raw=JSON.parse(JSON.stringify(pageSnapshot(22,"cleanup")));raw.visual_barrier.control_request_id=holdId;
+   authority=validFromRaw(raw);send(authority);
+  } else if(request.path.endsWith("/outcomes")) {
+   releaseCleanup=()=>{authority=pageSnapshot(23);send(authority);};
+  } else if(request.path.endsWith("/student-inputs")) {authority=pageSnapshot(24);send(authority);}
+  else {if(authority.revision===23){baselineDelayed=true;invalidateReadiness?.();}send(authority);}
+ });
+ let tutor!:ReturnType<typeof useTutorLearning>;
+ const element=document.createElement("div");document.body.append(element);const root=createRoot(element);
+ function Probe(){tutor=useTutorLearning({taskId:RUNTIME_TASK_ID as TaskId,studentId:"pulse-handshake",runtimeClient:h.client});return null;}
+ await act(async()=>root.render(<Probe/>));cleanups.push(async()=>{await act(async()=>root.unmount());element.remove();});
+ await act(async()=>{await tutor.restore(RUNTIME_SESSION_ID);});
+ const surface=tutor.workspaceSurface;if(surface.source!=="canonical"||!surface.commitSignal?.visualRenderer)throw new Error("visual renderer unavailable");
+ invalidateReadiness=()=>surface.commitSignal!.visualRenderer!.setLayoutValid(false);
+ let pulseStarted=false;const operations:string[]=[];
+ surface.commitSignal.visualRenderer.attach({render:async(_view,execution)=>{
+  operations.push(execution.operation);
+  if(execution.operation==="installed"&&baselineDelayed)await new Promise<void>(resolve=>releaseBaseline=resolve);
+  if(execution.operation==="entrance-complete") {pulseStarted=true;await new Promise<void>((_resolve,reject)=>execution.abort.addEventListener("abort",()=>reject(new Error("actual pulse interrupted")),{once:true}));}
+  const {abort:_a,pulseIds:_p,...receipt}=execution;return receipt;
+ },suppress:vi.fn()});
+ await act(async()=>{surface.commitSignal!.notifyRealSourceActive();});
+ await vi.waitFor(()=>expect(pulseStarted).toBe(true));
+ let accepted:boolean|undefined;
+ await act(async()=>{void tutor.coachControls.ask("为什么这两组边是对应边？").then(v=>accepted=v);await new Promise(r=>setTimeout(r,30));});
+ await vi.waitFor(()=>expect(releaseCleanup).toBeTypeOf("function"));
+ const outcomes=h.requests.filter(r=>r.path.endsWith("/outcomes"));expect(outcomes).toHaveLength(2);
+ expect(outcomes[0].body).toMatchObject({outcome:"interrupted",hold_for_control:{client_request_id:holdId}});
+ expect(outcomes[1].body.outcome).toBe("presented");expect(outcomes[1].body).not.toHaveProperty("hold_for_control");
+ expect(accepted).toBeUndefined();expect(h.requests.filter(r=>r.body.input?.kind==="utterance")).toHaveLength(0);
+ expect(h.requests.find(r=>r.body.input?.command==="barge_in")?.body.client_request_id).toBe(holdId);
+ await act(async()=>{releaseCleanup();await new Promise(r=>setTimeout(r,30));});
+ await vi.waitFor(()=>expect(releaseBaseline).toBeTypeOf("function"));
+ expect(accepted).toBeUndefined();const requestsBeforeReady=h.requests.length;
+ // No new snapshot or source-active notification: real render receipt arrives later.
+ await act(async()=>{releaseBaseline();await new Promise(r=>setTimeout(r,80));});
+ await vi.waitFor(()=>expect(accepted).toBe(true));
+ expect(h.requests).toHaveLength(requestsBeforeReady+1);
+ expect(h.requests.filter(r=>r.body.input?.kind==="utterance")).toHaveLength(1);
+ expect(operations.filter(op=>op==="entrance-complete")).toHaveLength(1);expect(operations.filter(op=>op==="removed")).toHaveLength(1);
 });

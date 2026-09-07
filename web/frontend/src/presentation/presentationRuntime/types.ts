@@ -62,7 +62,7 @@ export type PresentationRuntimePhase =
   | { phase: "idle" }
   | { phase: "presenting"; kind: "voice" | "geometry" | "board"; actionId: string; interruptible: boolean }
   | { phase: "awaiting-gesture"; actionId: string }
-  | { phase: "outcome-pending"; actionId: string }
+  | { phase: "outcome-pending"; actionId: string; networkFailed?: boolean }
   | {
       phase: "paused";
       reason: "real-signal-unavailable" | "failure";

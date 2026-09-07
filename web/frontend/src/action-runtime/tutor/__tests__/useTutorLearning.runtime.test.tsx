@@ -561,3 +561,20 @@ describe("useTutorLearning（canonical Runtime 数据源）", () => {
   });
 
 });
+
+it.each([false,true])("local clarifying inquiry return availability with pending=%s",async(pending)=>{
+ const {pendingGeometryPresentation}=await import('./runtimeSnapshotFixture');
+ const raw=runtimeSnapshotRaw({participationKind:"temporarily_paused_for_inquiry",inquiryReadyToReturn:true,...(pending?{pendingPresentation:pendingGeometryPresentation(12,3)}:{})});
+ (raw.views as {coach_panel_view:{inquiry:{kind:string}}}).coach_panel_view.inquiry.kind="clarifying";
+ const {client,mocks}=makeClient();mocks.restore.mockResolvedValue(validFromRaw(raw));
+ mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({revision:13}));
+ const harness=mountHarness(client);
+ try {
+  await act(async()=>{await harness.tutor().restore(RUNTIME_SESSION_ID);});
+  const controls=harness.tutor().participationControls;expect(controls.kind).toBe("inquiry");
+  if(controls.kind!=="inquiry")throw new Error("inquiry controls missing");
+  expect(controls.canReturn).toBe(!pending);
+  if(!pending){await act(async()=>{controls.onReturn();await Promise.resolve();});expect(mocks.submitStudentInput).toHaveBeenCalledWith(RUNTIME_SESSION_ID,{kind:"control",command:"return_to_mainline"},expect.any(Number),expect.any(String));}
+  else expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+ } finally {harness.unmount();}
+});

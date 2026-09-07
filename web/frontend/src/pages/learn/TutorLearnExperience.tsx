@@ -557,7 +557,10 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
         case "outcome-pending":
           return (
             <div className="tutor-presentation-status" data-testid="tutor-presentation" data-presentation-phase="outcome-pending" role="status">
-              正在确认呈现结果…
+              {controls.phase.networkFailed ? <>
+                呈现结果尚未确认。
+                <button type="button" className="btn btn-primary" data-testid="tutor-outcome-retry" onClick={controls.retryOutcome}>重试确认结果</button>
+              </> : "正在确认呈现结果…"}
             </div>
           );
         case "paused":

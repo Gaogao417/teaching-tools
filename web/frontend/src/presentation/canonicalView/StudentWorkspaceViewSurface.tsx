@@ -85,7 +85,10 @@ export function StudentWorkspaceViewSurface({ view, geometry, commitSignal, boar
   }), [executionKey, boardPresentation?.targets]);
 
   // ---- production Canvas 投影（零本地教学状态；visualState 全部来自 View）----
-  const model = useMemo(() => (geometry ? buildGeometryModel(geometry) : undefined), [geometry]);
+  // HTTP decoding changes object identity even when every geometry field is unchanged.
+  // Compare the entire JSON geometry, not revision, so real edits still remount.
+  const geometryContent = JSON.stringify(geometry);
+  const model = useMemo(() => (geometryContent ? buildGeometryModel(JSON.parse(geometryContent) as TopicGeometryModel) : undefined), [geometryContent, view.session_id]);
   const interactionView = useMemo<InteractionView>(() => {
     const byId = new Map(elements.map((element) => [element.element_id, element]));
     const entities: Record<string, EntityAffordance> = {};

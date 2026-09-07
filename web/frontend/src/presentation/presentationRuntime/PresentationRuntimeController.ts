@@ -102,7 +102,7 @@ type RuntimeState =
   | { kind: "executing"; execution: Execution }
   | { kind: "awaiting-gesture"; execution: Execution }
   | { kind: "awaiting-real-signal"; execution: Execution }
-  | { kind: "outcome-pending"; key: string; request: PendingPresentationOutcomeRequest }
+  | { kind: "outcome-pending"; key: string; request: PendingPresentationOutcomeRequest; networkFailed?: boolean }
   | { kind: "paused-failure"; key: string; failureClass: PresentationFailureClass; message?: string };
 
 interface AckedOutcome {
@@ -186,13 +186,17 @@ export class PresentationRuntimeController {
             && command.target_visual_revision === barrier.target_visual_revision && sameExecutionOwner(barrier.execution_owner, visual.owner);
         } catch { /* fail closed below */ }
       }
-      if ((barrier || this.controlHold) && !cleanupAllowed) {
-        if (!barrier && this.state.kind === "outcome-pending" && pending && this.state.key === presentationKeyOf(pending)) {
-          void this.dispatchOutcome(this.state.request);
-        }
+      if (barrier && !cleanupAllowed) {
         if (barrier?.status === "failed") this.setState({ kind: "paused-failure", key: barrier.barrier_id, failureClass: "internal_error", message: "visual cleanup failed" });
         return;
       }
+      if(this.controlHold && !barrier && this.state.kind === "outcome-pending"
+        && pending && this.state.key === presentationKeyOf(pending)) {
+        void this.dispatchOutcome(this.state.request);return;
+      }
+      // Pending visual effects are already in the projected view: even static
+      // preparation would display an unstarted action early while held.
+      if(this.controlHold && pending && !cleanupAllowed) return;
       // Visual actions render through their adapter. Before voice/ordinary actions
       // (or an idle restore), rebuild the static baseline without replaying pulses.
       if (!pending?.action.workspace_action?.capability.startsWith("geometry.visual.") && this.ports.visualSnapshotReady?.(snapshot) === false) {
@@ -212,6 +216,9 @@ export class PresentationRuntimeController {
         });
         return;
       }
+      // A released server barrier permits static remount recovery, while the
+      // local handshake still forbids executing any ordinary delivery.
+      if(this.controlHold && !cleanupAllowed) return;
     }
     // 会话作用域按**每份** snapshot 更新（二次复验 P1-5）：切到无 pending 的
     // 新会话同样推进 epoch——旧会话在途 outcome 响应随即失配被丢弃，不能把
@@ -550,12 +557,29 @@ export class PresentationRuntimeController {
       ...(message !== undefined ? { message } : {}),
       expectedRevision: delivery.session_revision,
       ...("execution_owner" in delivery ? { executionOwner: visualExecutionOwnerSchema.parse(delivery.execution_owner) } : {}),
-      ...("execution_owner" in delivery && this.controlHold ? { holdForControl: { client_request_id: this.controlHold } } : {}),
+      ...("execution_owner" in delivery && this.controlHold && delivery.action.workspace_action?.capability !== "geometry.visual.reconcile" ? { holdForControl: { client_request_id: this.controlHold } } : {}),
     };
     const request: PendingPresentationOutcomeRequest = { ...base, clientRequestId: deterministicOutcomeRequestId(base) };
     this.state = { kind: "outcome-pending", key: presentationKeyOf(delivery), request };
     this.publish();
     void this.dispatchOutcome(request);
+  }
+
+  /** Retry only the retained failed receipt. Never execute its presentation again. */
+  async retryPendingOutcome(): Promise<void> {
+    if(this.disposed || this.state.kind !== "outcome-pending") return;
+    const request=this.state.request;
+    if(this.outcomeInFlight) {
+      if(this.inFlightRequest === request) await this.inFlightRecord?.promise;
+      return;
+    }
+    if(!this.state.networkFailed || this.latestSnapshot?.session_id !== request.sessionId) return;
+    if(request.executionOwner) {
+      const visual=visualRuntimeSnapshot(this.latestSnapshot);
+      if(!visual || !sameExecutionOwner(request.executionOwner,visual.owner)
+        || visual.owner.client_instance_id !== this.ports.clientInstanceId) return;
+    }
+    await this.dispatchOutcome(request);
   }
 
   /** 启动一次 outcome 上报并登记结算记录（F7 Step 8：interruptCurrentSettled
@@ -585,6 +609,9 @@ export class PresentationRuntimeController {
       return; // 本次未发出（结果未知）→ record.result 维持 "stale"
     }
     this.outcomeInFlight = true;
+    if(this.state.kind === "outcome-pending" && this.state.request === request) {
+      delete this.state.networkFailed;this.publish();
+    }
     this.inFlightRequest = request;
     this.inFlightRecord = record;
     const epoch = this.epoch;
@@ -643,7 +670,8 @@ export class PresentationRuntimeController {
       // 网络/5xx：保留完整请求，同 key 同 payload 待重发（restore 重同步后）。
       record.result = "network-failed"; // 服务端状态未知
       if (isLiveOutcome()) {
-        this.ports.onNotice("呈现回执网络失败；重新同步后将用同一幂等键重试。");
+        if(this.state.kind === "outcome-pending") this.state.networkFailed=true;
+        this.ports.onNotice("呈现回执网络失败；请重试确认结果，不会重新播放。");
         this.publish();
       }
     } finally {
@@ -700,7 +728,7 @@ export class PresentationRuntimeController {
       case "awaiting-real-signal":
         return { phase: "paused", reason: "real-signal-unavailable", actionId: this.state.execution.delivery.action_id };
       case "outcome-pending":
-        return { phase: "outcome-pending", actionId: this.state.request.actionId };
+        return { phase: "outcome-pending", actionId: this.state.request.actionId, ...(this.state.networkFailed ? {networkFailed:true} : {}) };
       case "paused-failure":
         return {
           phase: "paused",

@@ -123,3 +123,23 @@ describe("TutorLearnExperience：autoplay 受阻 UI 接线（FM-3-2 组件级）
     expect(container!.querySelector('[data-testid="tutor-presentation-failure"]')).toBeNull();
   });
 });
+
+it("outcome network failure exposes retry button; click resends receipt without replay",async()=>{
+ const {client,mocks}=makeClient();
+ mocks.start.mockResolvedValue(validRuntimeSnapshot({pendingPresentation:true,revision:12}));
+ mocks.reportPresentationOutcome.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+ let acknowledge!: (value:unknown)=>void;
+ mocks.reportPresentationOutcome.mockImplementationOnce(()=>new Promise(resolve=>acknowledge=resolve));
+ const play=vi.fn(function(this:HTMLMediaElement){queueMicrotask(()=>this.dispatchEvent(new Event("ended")));return Promise.resolve();});
+ HTMLMediaElement.prototype.play=play;
+ mountExperience(client);
+ await waitForDom(()=>container!.querySelector('[data-testid="tutor-outcome-retry"]')!==null);
+ expect(container!.querySelector('[data-testid="tutor-protocol-error"]')).toBeNull();
+ const first=structuredClone(mocks.reportPresentationOutcome.mock.calls[0]);
+ await act(async()=>{(container!.querySelector('[data-testid="tutor-outcome-retry"]') as HTMLButtonElement).click();});
+ await waitForDom(()=>mocks.reportPresentationOutcome.mock.calls.length===2);
+ expect(container!.querySelector('[data-testid="tutor-outcome-retry"]')).toBeNull();
+ expect(mocks.reportPresentationOutcome.mock.calls[1]).toEqual(first);
+ await act(async()=>acknowledge(validRuntimeSnapshot({revision:13})));
+ expect(play).toHaveBeenCalledTimes(1);expect(mocks.restore).not.toHaveBeenCalled();
+});

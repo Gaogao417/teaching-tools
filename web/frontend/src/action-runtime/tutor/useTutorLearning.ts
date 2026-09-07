@@ -247,6 +247,7 @@ export type PlaybackControlsVm =
     interrupt: () => void;
     /** autoplay 解锁（用户手势恢复；与 failure 的 retrySync/retry_recovery 分离）。 */
     resume: () => void;
+    retryOutcome: () => void;
     /** 纯回放缓存（零上报）。 */
     replay: () => void;
   };
@@ -787,7 +788,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     let done = false;
     const finish = (ok: boolean) => {
       if (done) return;
-      done = true; clearTimeout(timer); visualWaitersRef.current.delete(check); resolve(ok);
+      done = true; clearTimeout(timer); clearInterval(readinessPoll); visualWaitersRef.current.delete(check); resolve(ok);
     };
     const check = () => {
       if (!runtimeMountedRef.current || !executionOwnerGuard.permits(captured)) return finish(false);
@@ -798,6 +799,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       if (workspace.schema === "ai_teaching_student_workspace_view/v3" && presentationRuntimeRef.current?.commitPort.visualRenderer.isReady(workspace.canvas.visual)) finish(true);
     };
     const timer = setTimeout(() => { setRuntimeFailureNotice("几何清理尚未确认，录音和讲解保持暂停；请重新同步后重试。"); finish(false); }, 10_000);
+    // A Canvas reflow can become ready without a new snapshot/controller phase.
+    // Poll only the real identity-checked readiness; elapsed time never completes it.
+    const readinessPoll = setInterval(check, 50);
     visualWaitersRef.current.add(check); check();
   }), [executionOwnerGuard]);
 
@@ -1856,7 +1860,12 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         case "temporarily_paused_for_inquiry":
           return {
             kind: "inquiry",
-            canReturn: runtimeSnapshot?.views.coach_panel_view.inquiry.kind === "ready_to_return",
+            canReturn: runtimeSnapshot !== undefined
+              && runtimeSnapshot.views.coach_panel_view.inquiry.kind !== "no_inquiry"
+              && !runtimeSnapshot.pending_presentation && !runtimeSnapshot.visual_barrier
+              && runtimeSnapshot.generation?.status !== "pending"
+              && presentationPhase.phase === "idle" && !turnPending && !ownerRevoked
+              && (!runtimeSnapshot.presentation_execution_owner || runtimeSnapshot.presentation_execution_owner.client_instance_id === presentationClientInstanceId()),
             onReturn: () => { void submitControl("return_to_mainline"); },
           };
         case "workspace_input":
@@ -1879,7 +1888,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       confused: () => { void submitStudentInput({ input_kind: "question_asked", text: CONFUSED_MESSAGE }); },
       ...(answerVisible ? { answer: { onSubmit: (text: string) => { void submitStudentInput({ input_kind: "reasoning_utterance", text }); } } } : {}),
     };
-  }, [runtimeClient, runtimeSnapshot, mergedCompleted, operateActive, presentation.playing, presentation.awaitingContinue, presentation.reviewing, turnPending, error, sessionId, submitControl, submitUtterance, submitStudentInput, advancePresentation]);
+  }, [runtimeClient, runtimeSnapshot, presentationPhase.phase, ownerRevoked, mergedCompleted, operateActive, presentation.playing, presentation.awaitingContinue, presentation.reviewing, turnPending, error, sessionId, submitControl, submitUtterance, submitStudentInput, advancePresentation]);
 
   /** 讲解播放组（统一 view-model：legacy 本地管线 / canonical PresentationRuntime
    *  执行状态投影——F7 Step 6 填补增补 18 调整点 6 登记的 canonical 挂点）。 */
@@ -1898,6 +1907,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
           && runtimeSnapshot?.views.coach_panel_view.replay_available !== false,
         interrupt: () => controller.interruptCurrent(),
         resume: () => { void controller.resumeAfterGesture(); },
+        retryOutcome: () => { setRuntimeFailureNotice(undefined);void controller.retryPendingOutcome(); },
         replay: () => {
           if (replayActionId !== undefined) controller.replayVoice(replayActionId);
         },
