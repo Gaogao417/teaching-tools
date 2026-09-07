@@ -1,4 +1,4 @@
-import { VISUAL_PRESENTER_PROMPT_VERSION, LEGACY_VISUAL_PRESENTER_PROMPT_VERSION, isVisualPresenterPromptVersion } from "./PresenterPrompts";
+import { VISUAL_PRESENTER_PROMPT_VERSION, LEGACY_VISUAL_PRESENTER_PROMPT_VERSION, PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION, isVisualPresenterPromptVersion } from "./PresenterPrompts";
 import { VISUAL_CONTEXT_BUILDER_VERSION, VISUAL_TOOL_CATALOG_VERSION } from "./VisualPresentationTools";
 /**
  * PresenterGeneratorPort（F7 RT3 — 真实模型一次生成 interleaved speech/tool intents）。
@@ -184,7 +184,7 @@ export function mapStructuredModelError(error: unknown): PresenterGenerationErro
 /** StructuredModelPort → PresenterGeneratorPort 适配（draft 校验在这里收口）。 */
 export function structuredPresenterGenerator(port: StructuredModelPort, options: { readonly promptVersion?: string } = {}): PresenterGeneratorPort {
   const promptVersion = options.promptVersion ?? PRESENTER_PROMPT_VERSION;
-  if (![LEGACY_PRESENTER_PROMPT_VERSION, PREVIOUS_PRESENTER_PROMPT_VERSION, TOOL_INVOCATION_PRESENTER_PROMPT_VERSION, PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION, LEGACY_VISUAL_PRESENTER_PROMPT_VERSION].includes(promptVersion)) {
+  if (![LEGACY_PRESENTER_PROMPT_VERSION, PREVIOUS_PRESENTER_PROMPT_VERSION, TOOL_INVOCATION_PRESENTER_PROMPT_VERSION, PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION, LEGACY_VISUAL_PRESENTER_PROMPT_VERSION, PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION].includes(promptVersion)) {
     throw new Error(`unsupported Presenter prompt version: ${promptVersion}`);
   }
   return {

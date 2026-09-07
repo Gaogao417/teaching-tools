@@ -1,14 +1,14 @@
 /** Scripted inputs; real Draft v14 HTTP/SQLite/compiler/scanner. No provider calls. */
 import express from 'express';
 import {resolve} from 'node:path';
-import {beforeAll,afterAll,it,expect} from 'vitest';
+import {beforeAll,afterAll,afterEach,it,expect} from 'vitest';
 import {createVNextTutorRoutes} from '../vnextTutorRoutes';
 import {TutorRuntimeApplicationV7} from '../../../services/tutorOrchestration/TutorRuntimeApplicationV7';
 import {TutorTaskBindingResolver} from '../../../services/tutorOrchestration/TutorTaskBindingResolver';
 import {importVisualReviewCandidate} from '../../../services/planBuild/visual/ImportVisualReviewCandidate';
 import {f6Model} from '../../../services/tutorOrchestration/__tests__/f6Support';
 import {createGenerationRecoveryScanner} from '../../../services/tutorOrchestration/presentationGeneration/GenerationRecoveryWorker';
-import {VISUAL_PRESENTER_PROMPT_VERSION} from '../../../services/tutorOrchestration/presentationGeneration/PresenterPrompts';
+import {VISUAL_PRESENTER_PROMPT_VERSION,PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION,LEGACY_VISUAL_PRESENTER_PROMPT_VERSION} from '../../../services/tutorOrchestration/presentationGeneration/PresenterPrompts';
 import {VISUAL_CONTEXT_BUILDER_VERSION,VISUAL_TOOL_CATALOG_VERSION} from '../../../services/tutorOrchestration/presentationGeneration/VisualPresentationTools';
 import type {PresenterGeneratorPort} from '../../../services/tutorOrchestration/presentationGeneration/GeneratorPort';
 import {parseSessionSnapshotHttp,type SessionSnapshotHttpV1} from '../../../../../shared/tutorHttpProfile';
@@ -19,7 +19,8 @@ if(!loaded.ok)throw Error(loaded.errors.join(';'));
 const resolver=new TutorTaskBindingResolver(root,()=>loaded);
 const requests:Array<{id:string;payload:any}>=[];
 let duplicate=false;
-const presenter:PresenterGeneratorPort={provider:'local-recovery-test',modelId:'local-recovery-test',pin:{provider:'local-recovery-test',model_id:'local-recovery-test',prompt_version:VISUAL_PRESENTER_PROMPT_VERSION,context_builder_version:VISUAL_CONTEXT_BUILDER_VERSION,tool_catalog_version:VISUAL_TOOL_CATALOG_VERSION},async generatePresentationDraft(request){
+let promptVersion=VISUAL_PRESENTER_PROMPT_VERSION;
+const presenter:PresenterGeneratorPort={provider:'local-recovery-test',modelId:'local-recovery-test',get pin(){return {provider:'local-recovery-test',model_id:'local-recovery-test',prompt_version:promptVersion,context_builder_version:VISUAL_CONTEXT_BUILDER_VERSION,tool_catalog_version:VISUAL_TOOL_CATALOG_VERSION};},async generatePresentationDraft(request){
  const payload=request.userPayload as any;requests.push({id:request.request_id,payload});
  const items:any[]=[];
  const tool=(tool:string,binding_ref:string|undefined,params:unknown)=>items.push({type:'tool_intent',tool,args:{...(binding_ref?{binding_ref}:{}),params}});
@@ -40,6 +41,9 @@ const factory=()=>TutorRuntimeApplicationV7.create({canonicalRoot:root,bindingRe
 const errors:unknown[]=[];const scanner=createGenerationRecoveryScanner(factory,e=>errors.push(e));
 let base='',serial=0,server:import('node:http').Server;
 beforeAll(async()=>{const app=express();app.use(express.json());app.use('/api/vnext',createVNextTutorRoutes({applicationFactory:factory}));await new Promise<void>(done=>{server=app.listen(0,'127.0.0.1',()=>{base=`http://127.0.0.1:${(server.address() as any).port}/api/vnext`;done();});});});
+// Each pin has its own fixture lifecycle. Do not ask a v6-only test provider
+// to restore a previous test's v5 session: production correctly rejects that.
+afterEach(()=>{db.prepare('DELETE FROM tutor_sessions').run();errors.length=0;requests.length=0;});
 afterAll(async()=>{scanner.stop();await new Promise<void>(done=>server.close(()=>done()));});
 async function call(path:string,body?:unknown){const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const json=await r.json();expect(r.status,JSON.stringify(json)).toBe(body&&path==='/tutor-sessions'?201:200);const parsed=parseSessionSnapshotHttp(json);if(!parsed.ok)throw Error(parsed.errors.join(';'));return parsed.snapshot;}
 const events=(id:string)=>db.prepare('SELECT event_type,payload_json FROM tutor_session_events WHERE session_id=? ORDER BY sequence').all(id) as Array<{event_type:string;payload_json:string}>;
@@ -56,8 +60,31 @@ async function reachConstruction(){
  }
  throw Error('BT04 construction not reached');
 }
-it('BT04 applied O + four segments survive claim/cleanup/regenerate without reoffering construct',async()=>{
- duplicate=false;let v=await reachConstruction();let constructed=0;
+/** Compare actual generator requests with durable reservations, never inferred roles. */
+function assertFrozenFactRoles(view:SessionSnapshotHttpV1,version:string){
+ const reservations=events(view.session_id).filter(e=>e.event_type==='presentation_generation_requested').map(e=>JSON.parse(e.payload_json));
+ for(const actual of requests){
+  const reservation=reservations.find(r=>r.request_id===actual.id)!;
+  expect(reservation).toBeDefined();
+  const selected=reservation.context.selected_fact_ids as string[];
+  expect(actual.payload.allowed_knowledge.filter((b:any)=>b.kind==='fact').map((b:any)=>b.ref)).toEqual(selected);
+  if(version===VISUAL_PRESENTER_PROMPT_VERSION){
+   expect(actual.payload.fact_roles).toEqual(selected.map(fact_id=>({fact_id,role:loaded.ok?loaded.imported.graph.facts.find(f=>f.fact_id===fact_id)!.role:undefined})));
+  }else{
+   expect(Object.hasOwn(actual.payload,'fact_roles')).toBe(false);
+   expect(actual.payload.allowed_knowledge.every((b:any)=>!Object.hasOwn(b,'role'))).toBe(true);
+  }
+ }
+ const bt02=reservations.find(r=>r.scope.beat_id==='BT-02');
+ expect(bt02).toBeDefined();
+ const actual=requests.find(r=>r.id===bt02.request_id)!;
+ // The two transferred angle equalities are derived, not new givens.
+ expect(actual.payload.allowed_knowledge.find((b:any)=>b.ref==='FN-05').text).toContain('DAC');
+ if(version===VISUAL_PRESENTER_PROMPT_VERSION)expect(actual.payload.fact_roles).toContainEqual({fact_id:'FN-05',role:'derived'});
+}
+it.each([LEGACY_VISUAL_PRESENTER_PROMPT_VERSION,PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION,VISUAL_PRESENTER_PROMPT_VERSION])('%s: BT04 applied O + four segments survive claim/cleanup/regenerate without reoffering construct',async(version)=>{
+ promptVersion=version;duplicate=false;let v=await reachConstruction();let constructed=0;
+ assertFrozenFactRoles(v,version);
  while(v.pending_presentation?.action.workspace_action?.capability==='geometry.construct'){v=await outcome(v);constructed++;}
  expect(constructed,JSON.stringify(v.generation!)).toBe(5);expect(v.pending_presentation?.action.kind).toBe('voice');
  v=await outcome(v,true);const count=requests.length;
@@ -66,6 +93,8 @@ it('BT04 applied O + four segments survive claim/cleanup/regenerate without reof
  v=await outcome(v);await scanner.scanOnce();v=await get(v);
  expect(errors.map(String)).toEqual([]);expect(requests).toHaveLength(count+1);
  expect(requests.at(-1)!.payload.tools.some((t:any)=>t.tool==='geometry.construct')).toBe(false);
+ assertFrozenFactRoles(v,version);
+ expect(requests.at(-1)!.payload.required_board_bindings.length).toBeGreaterThan(0);
  expect(v.pending_presentation).toBeDefined();expect(v.generation!.status).toBe('idle');
  const resumed=v.pending_presentation!.sequence_id;
  for(let i=0;v.pending_presentation&&i<40;i++)v=await outcome(v);
@@ -74,7 +103,7 @@ it('BT04 applied O + four segments survive claim/cleanup/regenerate without reof
  await scanner.scanOnce();expect(requests).toHaveLength(count+1);
 },90000);
 it('duplicate construction yields one durable failed generation and no repeated scanner reclaim',async()=>{
- duplicate=true;const v=await reachConstruction();
+ promptVersion=VISUAL_PRESENTER_PROMPT_VERSION;duplicate=true;const v=await reachConstruction();
  expect(v.generation!.status,JSON.stringify(v.generation!)).toBe('failed');expect(errors.map(String)).toEqual([]);
  const before=events(v.session_id),calls=requests.length;
  const failures=before.filter(e=>e.event_type==='presentation_generation_failed').map(e=>JSON.parse(e.payload_json));

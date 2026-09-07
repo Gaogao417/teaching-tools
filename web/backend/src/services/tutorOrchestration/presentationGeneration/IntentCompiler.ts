@@ -25,7 +25,7 @@ import type { VisibleVisualTool } from "./VisualPresentationTools";
  * 提交仍由 kernel 事务（RT4 coordinator）唯一落库。
  */
 import type { z } from "zod";
-import { PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION, isVisualPresenterPromptVersion } from "./PresenterPrompts";
+import { PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION, isVisualPresenterPromptVersion, usesVisualFractionFormatGuard } from "./PresenterPrompts";
 
 import { presentationPlanV4Schema } from "../../../../../shared/canonical";
 import { WorldCommandError, type DomainCommand } from "../../../../../shared/actionWorld";
@@ -307,7 +307,7 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
         throw new IntentCompilerError("ILLEGAL_PARAM", "speech item carries no text (draft shape violated)");
       }
       // Format-only gate: never infer/correct the mathematical value or touch old pins.
-      if (input.request.presenter_pin.prompt_version === VISUAL_PRESENTER_PROMPT_VERSION
+      if (usesVisualFractionFormatGuard(input.request.presenter_pin.prompt_version)
         && /[零〇一二两三四五六七八九十百千万亿点负正壹贰叁肆伍陆柒捌玖拾佰仟0-9０-９]+\s*分\s*之\s*[零〇一二两三四五六七八九十百千万亿点负正壹贰叁肆伍陆柒捌玖拾佰仟0-9０-９]+/u.test(item.text)) {
         throw new IntentCompilerError("ILLEGAL_PARAM", "speech fractions require approved LaTeX; handwritten X分之Y is forbidden for this presenter pin");
       }
@@ -513,7 +513,7 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
     for (const action of visualCompiler.finish(actions.length, `WSA-${input.sessionId}-${serial}-T${toolIndex++}`)) appendVisual(action);
     if (actions.length > maxActions) throw new IntentCompilerError("EMPTY_SEGMENT", `visual group closure exceeds ${maxActions} action cap`);
     const uses = actions.flatMap(a => (a.basis_refs ?? []).filter(ref => input.visual!.requirements.some(r => r.binding_ref === ref)).map(binding_ref => ({ ordinal:a.ordinal,binding_ref }))).filter(u => actions[u.ordinal].kind === "voice");
-    const issues = validateVisualCoverage(input.visual.requirements, visualActions, input.visual.alreadyPresented, uses);
+    const issues = validateVisualCoverage(input.visual.requirements, visualActions, input.visual.alreadyPresented, uses, { requireEntryPulse: input.request.presenter_pin.prompt_version === VISUAL_PRESENTER_PROMPT_VERSION });
     if (issues.length) throw new IntentCompilerError("COMPILE_VALIDATION_FAILED", `visual coverage: ${JSON.stringify(issues)}`);
   }
   if (actions.length === 0) {
