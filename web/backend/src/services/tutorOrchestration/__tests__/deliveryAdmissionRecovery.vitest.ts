@@ -115,6 +115,10 @@ describe('delivery admission and missing generation recovery',()=>{
   expect(settled.status).toBe(200);
   const replay=await post('/student-inputs',{...input(),expected_revision:(await settled.json() as any).revision});
   expect(replay.status).toBe(200);
+  // F7 P3（A5）：mutation 路由不再阻塞驱动——replay 预约后立即回包
+  // generation=pending；此处显式驱动等价于后台 recovery worker 的接管路径。
+  expect((await replay.json() as any).generation).toMatchObject({status:'pending'});
+  await f.app().restore(f.session.sessionId).drivePendingGeneration();
   const repaired=f.app().restore(f.session.sessionId);
   expect(repaired.events[0]).toEqual(before[0]);expect(f.gate.callCount).toBe(calls);
   expect(repaired.events.filter(e=>e.event_type==='policy_decision_made')).toEqual(before.filter(e=>e.event_type==='policy_decision_made'));
