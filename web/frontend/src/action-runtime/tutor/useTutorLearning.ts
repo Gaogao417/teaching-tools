@@ -134,6 +134,7 @@ export const CONFUSED_MESSAGE = "我没听懂这一步，请换一种说法，�
 /** 录音开始时锁定的通道与快照身份（不可变捕获——录音开始后 outcome/control
  *  导致的 revision 变化不得悄悄更新捕获值；ASR 结果按此核对后才可自动提交）。 */
 export interface RecordingChannelCapture {
+  readonly captureId: string;
   readonly channel: "mainline" | "assistance";
   readonly sessionId: string;
   readonly revision: number;
@@ -141,6 +142,7 @@ export interface RecordingChannelCapture {
 
 /** stale transcript 草稿（不自动提交；组件填入对应通道草稿并提示用户确认）。 */
 export interface SpeechPendingTranscript {
+  source: RecordingChannelCapture;
   channel: "mainline" | "assistance";
   text: string;
 }
@@ -945,6 +947,8 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
 
   // ---- F7 Step 8：录音 + 通道锁定 + ASR（canonical 链；spec §2.9/§4.8）----
   const [speechAsrBusy, setSpeechAsrBusy] = useState(false);
+  const activeSpeechCaptureRef = useRef<RecordingChannelCapture | undefined>(undefined);
+  const consumedSpeechCaptureRef = useRef<RecordingChannelCapture | undefined>(undefined);
   const [speechPendingTranscript, setSpeechPendingTranscript] = useState<SpeechPendingTranscript | undefined>();
   const [speechNotice, setSpeechNotice] = useState<string | undefined>();
 
@@ -957,7 +961,12 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       if (!runtimeClient) return undefined;
       const current = runtimeSnapshotRef.current;
       if (!current || !recordingChannelLegal(channel, current)) return undefined;
-      return { channel, sessionId: current.session_id, revision: current.revision };
+      const capture = { captureId: newRuntimeRequestId(), channel, sessionId: current.session_id, revision: current.revision };
+      activeSpeechCaptureRef.current = capture;
+      consumedSpeechCaptureRef.current = undefined;
+      setSpeechAsrBusy(false);
+      setSpeechPendingTranscript(undefined);
+      return capture;
     },
     [runtimeClient],
   );
@@ -972,7 +981,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  不自动提交——S1 交叉规则）。权限/系统失败是可见提示，不记为学生错误。 */
   const transcribeRecording = useCallback(
     async (capture: RecordingChannelCapture, audio: { dataUrl: string; mimeType?: string; durationMs?: number }): Promise<void> => {
-      if (!runtimeClient) return;
+      if (!runtimeClient || activeSpeechCaptureRef.current !== capture || consumedSpeechCaptureRef.current === capture) return;
+      consumedSpeechCaptureRef.current = capture;
+      const isCurrentCapture = () => runtimeMountedRef.current && activeSpeechCaptureRef.current === capture;
       setSpeechAsrBusy(true);
       setSpeechNotice(undefined);
       try {
@@ -984,6 +995,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
           },
           clientRequestId: newRuntimeRequestId(),
         });
+        if (!isCurrentCapture()) return;
         const transcript = asr.transcript.trim();
         if (!transcript) {
           setSpeechNotice("没有听到内容，请再试一次或改用文字输入。");
@@ -998,11 +1010,12 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
           || asr.observedRevision !== capture.revision
           || !recordingChannelLegal(capture.channel, current);
         if (stale) {
-          setSpeechPendingTranscript({ channel: capture.channel, text: transcript });
+          setSpeechPendingTranscript({ source: capture, channel: capture.channel, text: transcript });
           return;
         }
         await submitRuntimeInput({ kind: "utterance", channel: capture.channel, text: transcript });
       } catch (failure) {
+        if (!isCurrentCapture() || runtimeSnapshotRef.current?.session_id !== capture.sessionId) return;
         if (failure instanceof ProtocolParseError) {
           // ASR 响应协议非法：recoverable protocol error（保留最后合法快照）。
           setProtocolError(failure.message);
@@ -1030,7 +1043,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         }
         setSpeechNotice("语音识别出现问题，请改用文字输入。");
       } finally {
-        setSpeechAsrBusy(false);
+        if (isCurrentCapture()) setSpeechAsrBusy(false);
       }
     },
     [runtimeClient, submitRuntimeInput],

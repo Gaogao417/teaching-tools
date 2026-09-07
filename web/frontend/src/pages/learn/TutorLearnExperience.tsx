@@ -196,11 +196,16 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
   useEffect(() => {
     const pending = tutor.speechPendingTranscript;
     if (!pending) return;
+    if (pending.source.sessionId !== tutor.sessionId) {
+      setNotice(`上一会话（${pending.source.sessionId}）的语音：${pending.text}。未填入当前会话。`);
+      tutor.clearSpeechPendingTranscript();
+      return;
+    }
     if (pending.channel === "mainline") setAnswerDraft(pending.text);
     else setQuestionDraft(pending.text);
     setNotice("会话已更新，语音内容已按录音时的通道填入草稿，请确认后再发送。");
     tutor.clearSpeechPendingTranscript();
-  }, [tutor.speechPendingTranscript, tutor.clearSpeechPendingTranscript]);
+  }, [tutor.speechPendingTranscript, tutor.clearSpeechPendingTranscript, tutor.sessionId]);
 
   const checkpoint = tutor.currentCheckpoint;
   const pres = tutor.presentation;

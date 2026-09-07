@@ -190,8 +190,8 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
     harness = mountHarness(client);
     await act(async () => { await harness.tutor().start(); });
     const capture = harness.tutor().lockRecordingChannel("mainline");
-    expect(capture).toEqual({ channel: "mainline", sessionId: RUNTIME_SESSION_ID, revision: 12 });
-    expect(harness.tutor().lockRecordingChannel("assistance")).toEqual({ channel: "assistance", sessionId: RUNTIME_SESSION_ID, revision: 12 });
+    expect(capture).toEqual({ captureId: expect.any(String), channel: "mainline", sessionId: RUNTIME_SESSION_ID, revision: 12 });
+    expect(harness.tutor().lockRecordingChannel("assistance")).toEqual({ captureId: expect.any(String), channel: "assistance", sessionId: RUNTIME_SESSION_ID, revision: 12 });
     expect(harness.tutor().mediaSession).toBeDefined();
 
     // mainline：participation 离开 answer_input 即不合法。
@@ -261,7 +261,7 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
     });
     expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
     expect(mocks.submitStudentInput.mock.calls[0][1]).toMatchObject({ kind: "utterance", channel: "mainline", text: "先文字回答" });
-    expect(harness.tutor().speechPendingTranscript).toEqual({ channel: "mainline", text: "迟到的话" });
+    expect(harness.tutor().speechPendingTranscript).toEqual({ source: expect.objectContaining({ captureId: expect.any(String) }), channel: "mainline", text: "迟到的话" });
     await act(async () => { harness.tutor().clearSpeechPendingTranscript(); });
     expect(harness.tutor().speechPendingTranscript).toBeUndefined();
   });
@@ -291,7 +291,7 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
       await pendingCall;
     });
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
-    expect(harness.tutor().speechPendingTranscript).toEqual({ channel: "mainline", text: "另一会话里的话" });
+    expect(harness.tutor().speechPendingTranscript).toEqual({ source: expect.objectContaining({ captureId: expect.any(String) }), channel: "mainline", text: "另一会话里的话" });
   });
 
   it("stale：原通道不再合法（answer_input → confirm_input，revision 不变）→ 草稿，零自动提交", async () => {
@@ -307,7 +307,7 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
     mocks.transcribe.mockResolvedValue(asrResult("通道已换的话", 12));
     await act(async () => { await harness.tutor().transcribeRecording(capture, AUDIO); });
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
-    expect(harness.tutor().speechPendingTranscript).toEqual({ channel: "mainline", text: "通道已换的话" });
+    expect(harness.tutor().speechPendingTranscript).toEqual({ source: expect.objectContaining({ captureId: expect.any(String) }), channel: "mainline", text: "通道已换的话" });
   });
 
   it("stale：ASR observed_revision 与捕获不一致 → 草稿，零自动提交", async () => {
@@ -320,7 +320,7 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
     mocks.transcribe.mockResolvedValue(asrResult("服务端已推进的话", 15));
     await act(async () => { await harness.tutor().transcribeRecording(capture, AUDIO); });
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
-    expect(harness.tutor().speechPendingTranscript).toEqual({ channel: "assistance", text: "服务端已推进的话" });
+    expect(harness.tutor().speechPendingTranscript).toEqual({ source: expect.objectContaining({ captureId: expect.any(String) }), channel: "assistance", text: "服务端已推进的话" });
   });
 
   it("ASR 系统失败：ASR_UNAVAILABLE → 可见提示（非学生错误、零提交、零 protocolError）；空转写同", async () => {
@@ -339,15 +339,55 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
     // 空转写（422 EMPTY_TRANSCRIPT / 200 空 transcript 均不提交）。
     mocks.transcribe.mockRejectedValueOnce(new TutorRuntimeHttpError(422, "EMPTY_TRANSCRIPT", "empty"));
-    await act(async () => { await harness.tutor().transcribeRecording(capture, AUDIO); });
+    await act(async () => { await harness.tutor().transcribeRecording(harness.tutor().lockRecordingChannel("assistance")!, AUDIO); });
     expect(harness.tutor().speechNotice).toContain("没有听到内容");
     mocks.transcribe.mockResolvedValueOnce(asrResult("   ", 12));
-    await act(async () => { await harness.tutor().transcribeRecording(capture, AUDIO); });
+    await act(async () => { await harness.tutor().transcribeRecording(harness.tutor().lockRecordingChannel("assistance")!, AUDIO); });
     expect(harness.tutor().speechNotice).toContain("没有听到内容");
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
     await act(async () => { harness.tutor().clearSpeechNotice(); });
     expect(harness.tutor().speechNotice).toBeUndefined();
   });
+  it("new capture fences a late ASR result and old finally cannot clear the new request busy state", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 12 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    let releaseOld!: (value: ReturnType<typeof asrResult>) => void;
+    let releaseNew!: (value: ReturnType<typeof asrResult>) => void;
+    mocks.transcribe.mockImplementationOnce(() => new Promise((resolve) => { releaseOld = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { releaseNew = resolve; }));
+    const old = harness.tutor().lockRecordingChannel("mainline")!;
+    let first!: Promise<void>; let second!: Promise<void>;
+    await act(async () => { first = harness.tutor().transcribeRecording(old, AUDIO); });
+    const current = harness.tutor().lockRecordingChannel("assistance")!;
+    expect(current.captureId).not.toBe(old.captureId);
+    await act(async () => { second = harness.tutor().transcribeRecording(current, AUDIO); });
+    await act(async () => { releaseOld(asrResult("旧录音", 12)); await first; });
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    expect(harness.tutor().speechPendingTranscript).toBeUndefined();
+    expect(harness.tutor().speechAsrBusy).toBe(true);
+    mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 13 }));
+    await act(async () => { releaseNew(asrResult("新录音", 12)); await second; });
+    expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+    expect(mocks.submitStudentInput.mock.calls[0][1]).toMatchObject({ channel: "assistance", text: "新录音" });
+    expect(harness.tutor().speechAsrBusy).toBe(false);
+  });
+
+  it("one capture cannot submit two utterances through repeated audio callbacks", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 12 }));
+    mocks.transcribe.mockResolvedValue(asrResult("重复回调", 12));
+    mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 12 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    const capture = harness.tutor().lockRecordingChannel("mainline")!;
+    await act(async () => { await harness.tutor().transcribeRecording(capture, AUDIO); });
+    await act(async () => { await harness.tutor().transcribeRecording(capture, AUDIO); });
+    expect(mocks.transcribe).toHaveBeenCalledTimes(1);
+    expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+  });
+
 });
 
 describe("useTutorLearning Step 8：barge-in ①②③④ 因果链", () => {

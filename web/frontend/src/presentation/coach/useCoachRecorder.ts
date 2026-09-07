@@ -47,11 +47,11 @@ export function useCoachRecorder(options: {
 }) {
   const [recording, setRecording] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
-  const chunks = useRef<Blob[]>([]);
   const stream = useRef<MediaStream | null>(null);
   const lease = useRef<CaptureLease | null>(null);
-  const startedAt = useRef(0);
   const timer = useRef<number | undefined>(undefined);
+  const epoch = useRef(0);
+  const starting = useRef(false);
 
   const releaseLease = useCallback(() => {
     lease.current?.release();
@@ -60,7 +60,8 @@ export function useCoachRecorder(options: {
 
   const stop = useCallback(() => { if (recorder.current?.state === "recording") recorder.current.stop(); }, []);
   const toggle = useCallback(async () => {
-    if (recording) { stop(); return; }
+    if (recorder.current?.state === "recording") { stop(); return; }
+    if (starting.current || recorder.current) return;
     if (options.disabled || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       options.onError("这个浏览器暂不支持录音，请先用文字提问。"); return;
     }
@@ -73,23 +74,39 @@ export function useCoachRecorder(options: {
       return;
     }
     lease.current = captureLease;
+    starting.current = true;
+    const attemptEpoch = epoch.current;
+    const live = () => attemptEpoch === epoch.current;
+    let acquiredStream: MediaStream | undefined;
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      acquiredStream = mediaStream;
+      if (!live()) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const mimeType = recordingMimeType();
       const mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
-      recorder.current = mediaRecorder; stream.current = mediaStream; chunks.current = []; startedAt.current = Date.now();
-      mediaRecorder.ondataavailable = (event) => { if (event.data.size) chunks.current.push(event.data); };
+      recorder.current = mediaRecorder; stream.current = mediaStream;
+      const chunks: Blob[] = [];
+      const startedAt = Date.now();
+      mediaRecorder.ondataavailable = (event) => { if (live() && event.data.size) chunks.push(event.data); };
       mediaRecorder.onstop = () => {
-        const durationMs = Date.now() - startedAt.current;
+        if (!live()) return;
+        const durationMs = Date.now() - startedAt;
         if (timer.current !== undefined) window.clearTimeout(timer.current);
         timer.current = undefined; setRecording(false); mediaStream.getTracks().forEach((track) => track.stop());
         stream.current = null; recorder.current = null;
         releaseLease();
+        // Keep this recorder single-flight until its output has been handed off;
+        // a second capture must not overwrite the first capture's channel ref.
+        starting.current = true;
         const containerType = mediaRecorder.mimeType || "audio/webm";
-        const blob = new Blob(chunks.current, { type: containerType });
+        const blob = new Blob(chunks, { type: containerType });
         void blobDataUrl(blob)
-          .then((dataUrl) => options.onAudio({ dataUrl, durationMs, mimeType: containerType }))
-          .catch(() => options.onError("录音没有保存成功，请再试一次。"));
+          .then((dataUrl) => { if (live()) options.onAudio({ dataUrl, durationMs, mimeType: containerType }); })
+          .catch(() => { if (live()) options.onError("录音没有保存成功，请再试一次。"); })
+          .finally(() => { if (live()) starting.current = false; });
       };
       mediaRecorder.start(250); setRecording(true);
       // F7 Step 8：录音真正开始——先锁定通道/捕获快照，再按互斥停掉当前
@@ -101,15 +118,33 @@ export function useCoachRecorder(options: {
     } catch {
       // Permission denied / device error: release the lease so the mic is free
       // and surface a user-facing message without throwing into the training path.
+      acquiredStream?.getTracks().forEach((track) => track.stop());
+      if (!live()) return;
+      if (recorder.current) {
+        recorder.current.onstop = null;
+        recorder.current.ondataavailable = null;
+        stop();
+      }
+      recorder.current = null;
+      stream.current = null;
+      setRecording(false);
       releaseLease();
       options.onError("没有获得麦克风权限，请允许录音或改用文字提问。");
+    } finally {
+      if (live()) starting.current = false;
     }
-  }, [options, recording, releaseLease, stop]);
+  }, [options, releaseLease, stop]);
 
   useEffect(() => () => {
+    // Invalidate permission and FileReader continuations before releasing hardware.
+    epoch.current += 1;
+    starting.current = false;
     if (timer.current !== undefined) window.clearTimeout(timer.current);
     if (recorder.current) recorder.current.onstop = null;
     stop(); stream.current?.getTracks().forEach((track) => track.stop());
+    recorder.current = null;
+    stream.current = null;
+    timer.current = undefined;
     releaseLease();
   }, [stop, releaseLease]);
   return { recording, toggle, stop };
