@@ -19,6 +19,7 @@
  * catalog；禁止读 db、禁止另建 Coach/Board/页面内教学状态机。
  */
 import type { z } from "zod";
+import { resolveBeatActionTemplate } from "./WorkspaceActionAdjudication";
 import { coachPanelViewV1Schema } from "../../../../shared/canonical";
 import type { NavigatorPlanV5 } from "../tutorNavigator/NavigatorPlanV5";
 import type { StoredV5Event } from "../tutorSession/TutorSessionEventV5";
@@ -77,6 +78,12 @@ export interface UnifiedProjectionInput {
   readonly catalog: WorkspacePresentationCatalogV5;
   readonly factEntryIds: ReadonlyMap<string, string>;
   readonly sessionRevision: number;
+  /**
+   * pinned plan 资源（F7 P2 转办 1：awaiting_workspace.action_id 与
+   * active_action.action_id 必须同 identity——spec §1.3 #8）。缺省时保留
+   * 旧回退（capability 串），供无资源上下文的旧调用方。
+   */
+  readonly resources?: readonly import("../planBuild/canonicalInputs").PlanResourceV4[];
 }
 
 /** 当前 Beat（inquiry-aware）：inquiry 打开=inquiry 游标 Beat，否则主线 Beat。 */
@@ -248,10 +255,20 @@ export function projectUnifiedViews(input: UnifiedProjectionInput): UnifiedProje
       case "awaiting_evidence": {
         const kind = beat.completion_evidence.evidence_kind;
         if (kind === "workspace_command" && gateId) {
-          // awaiting_workspace.action_id：学生发起命令无 pending tutor 动作 id——
-          // 以 gate 声明的期望 capability 为操作锚（登记偏差：ADR-010 未定义
-          // 学生发起场景的 action_id 语义）。
-          mainline = { kind: "awaiting_workspace", beat_id: cursor.beat_id, gate_id: gateId, action_id: gate?.capability ?? `gate:${gateId}` };
+          // awaiting_workspace.action_id（F7 P2 转办 1 修复）：与 active_action.
+          // action_id 同 identity——一律取 pinned ActionTemplate 的模板键
+          //（resolveBeatActionTemplate 与 ActiveActionProjector 同源）；
+          // 无 pinned 模板的 Beat 保留 capability 串回退（登记偏差：ADR-010
+          // 未定义学生发起场景的 action_id 语义）。
+          const templateKey = input.resources
+            ? resolveBeatActionTemplate(input.resources, beat)?.template.actionId
+            : undefined;
+          mainline = {
+            kind: "awaiting_workspace",
+            beat_id: cursor.beat_id,
+            gate_id: gateId,
+            action_id: templateKey ?? gate?.capability ?? `gate:${gateId}`,
+          };
         } else if (kind === "student_confirmation" && gateId) {
           mainline = { kind: "awaiting_confirmation", beat_id: cursor.beat_id, gate_id: gateId };
         } else if (gateId) {

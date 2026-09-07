@@ -133,6 +133,8 @@ export function projectV6Views(args: {
   catalog: WorkspacePresentationCatalogV5;
   factEntryIds: ReadonlyMap<string, string>;
   sessionRevision: number;
+  /** F7 P2 转办 1：awaiting_workspace.action_id 与 active_action 同 identity。 */
+  resources?: readonly import("../planBuild/canonicalInputs").PlanResourceV4[];
 }): UnifiedProjection {
   assertV5ProjectionCompatible(args.tutorState, args.events);
   return projectUnifiedViews({
@@ -144,5 +146,6 @@ export function projectV6Views(args: {
     catalog: args.catalog,
     factEntryIds: args.factEntryIds,
     sessionRevision: args.sessionRevision,
+    ...(args.resources !== undefined ? { resources: args.resources } : {}),
   });
 }

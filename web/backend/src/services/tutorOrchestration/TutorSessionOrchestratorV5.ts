@@ -683,6 +683,7 @@ export class TutorSessionOrchestratorV5 {
       catalog: this.golden.catalog,
       factEntryIds: this.golden.factEntryIds,
       sessionRevision: this.navigator.revision,
+      resources: this.imported.plan.resources,
     });
   }
 

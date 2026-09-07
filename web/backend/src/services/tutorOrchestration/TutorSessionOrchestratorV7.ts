@@ -41,6 +41,7 @@ import { NavigatorSessionV7, findCommittedV7Turn, type V7TurnResult } from "../t
 import { isDeepStrictEqual } from "node:util";
 import { realizePresentationPlanV6, type PresentationPlanV6 } from "./TutorPresenterV6";
 import { listWorkspaceCapabilities } from "../tutorSession/WorkspaceCapabilityRegistryV5";
+import { assertIdempotencyKeyShape, composeIdempotencyKey } from "../tutorSession/IdempotencyKey";
 import { createV9Rebuilder, readSessionEventSchema, rebuildWorkspaceRuntimeStateV9 } from "../tutorSession/RuntimeStateRebuilderV9";
 import type { StoredV9Event, V9GenerationEventPayload, V9PresentationSequencePlannedPayload } from "../tutorSession/TutorSessionEventV9";
 import { buildPresentationContext, DEFAULT_CONTEXT_POLICY, PresentationContextError, type BuiltPresentationContext } from "./presentationGeneration/ContextBuilder";
@@ -752,7 +753,7 @@ export class TutorSessionOrchestratorV7 {
         event_type: "student_workspace_command_recorded",
         payload: recordedPayload,
         occurred_at: nowIso(),
-        idempotency_key: `sc:${this.sessionId}:${command.client_command_id}`,
+        idempotency_key: (() => { const key = composeIdempotencyKey(["sc", this.sessionId, command.client_command_id]); assertIdempotencyKeyShape(key); return key; })(),
       },
       {
         event_type: "action_outcome_recorded",
@@ -919,7 +920,7 @@ export class TutorSessionOrchestratorV7 {
         },
         occurred_at: nowIso(),
         causation_sequence: deliveredSequence,
-        idempotency_key: `${this.sessionId}:poutcome:${request.sequence_id}:${request.ordinal}:${request.action_id}:${request.client_request_id}`,
+        idempotency_key: (() => { const key = composeIdempotencyKey([this.sessionId, "poutcome", request.sequence_id, String(request.ordinal), request.action_id, request.client_request_id]); assertIdempotencyKeyShape(key); return key; })(),
       },
     ];
     if (request.outcome === "interrupted") {
@@ -988,6 +989,7 @@ export class TutorSessionOrchestratorV7 {
       catalog: this.catalog,
       factEntryIds: this.binding.golden.factEntryIds,
       sessionRevision: this.navigator.revision,
+      resources: this.binding.imported.plan.resources,
     });
     const active = (() => {
       // active action 只在 workspace_input 相位挂载（spec §1.3 / PLAN Step 4）：
@@ -1540,7 +1542,7 @@ export class TutorSessionOrchestratorV7 {
         event_type: "student_input_recorded",
         payload: { input: input.input, client_request_id: input.client_request_id },
         occurred_at: nowIso(),
-        idempotency_key: `si:${this.sessionId}:${input.client_request_id}`,
+        idempotency_key: (() => { const key = composeIdempotencyKey(["si", this.sessionId, input.client_request_id]); assertIdempotencyKeyShape(key); return key; })(),
       },
     ]);
     return appended.appendedSequences[0];
