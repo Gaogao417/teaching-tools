@@ -134,6 +134,57 @@ export function createBoardPresentationAdapter(dependencies: WorkspaceSurfaceAda
 }
 
 /**
+ * F7 P3（A' 轨 T2 / FM-7-5 裁定：注册 adapter）：geometry.emphasize——对既有
+ * 实体的高亮/强调（工具目录 presentation-tool-catalog/v1 冻结条目：surface=
+ * geometry、effect_class=highlight、reveal_scope_ceiling=target_highlight、
+ * 参数 emphasis steady|pulse 经 command_payload 携带）。
+ *
+ * 呈现链（零新视觉状态）：服务端 delivery 前已应用高亮语义 → student_workspace_
+ * view.canvas.elements[].highlighted → Step 7 display-only visualState（
+ * StudentWorkspaceViewSurface.visualStateFor → "selected"）。完成判据与
+ * geometry.construct 同链：真实 commit 信号（同执行身份 + workspace_revision）
+ * + 数据级对账——target 必须已在同快照 canvas 中且（reveal_scope=
+ * target_highlight）highlighted=true；emphasis 参数不参与完成判定（steady/
+ * pulse 是展示细化，不改变「目标已被强调」的可见事实）。
+ *
+ * B 轨前置（如实登记，不伪造端到端）：geometry.emphasize 尚未进入服务端
+ * SessionPinnedCapabilityRegistry / WorkspaceRuntimeReducer / View 投影
+ * （highlighted 位）与模型可见目录交集（IntentCompiler 对 highlight 类
+ * fail closed）。在前者落地前，本 adapter 仅由合成 delivery 测试锁定行为；
+ * 漏网投递因 view 无 highlighted 位 fail closed（illegal_target），不误报
+ * presented。
+ */
+export function createGeometryEmphasizePresentationAdapter(dependencies: WorkspaceSurfaceAdapterDependencies): PresentationToolAdapter {
+  return {
+    supports(action) {
+      return action.kind === "workspace"
+        && action.workspace_action !== undefined
+        && action.workspace_action.surface === "geometry"
+        && action.workspace_action.capability === "geometry.emphasize";
+    },
+    async present({ delivery, snapshot, abort }) {
+      const action = delivery.action.workspace_action!;
+      // 高亮语义必须有目标：空 target_ids 无法验证「已被强调可见」→ fail closed。
+      if ((action.target_ids ?? []).length === 0) {
+        return {
+          outcome: "failed",
+          failureClass: "illegal_target",
+          message: "geometry.emphasize requires target_ids (highlight of an existing entity)",
+        };
+      }
+      return presentWorkspaceSurface(
+        "geometry",
+        delivery,
+        snapshot.views.student_workspace_view.canvas.elements,
+        snapshot.views.student_workspace_view.solution_board.groups,
+        dependencies,
+        abort,
+      );
+    },
+  };
+}
+
+/**
  * F7 P2（S1 R7 / 动态板书规格）：board.explain adapter——工具名与参数形状以
  * B 的 generation/v1 presentation-tool-spec 目录为准（tool_id=board.explain；
  * plan/v4 冻结形状：workspace_action.capability="board.explain"、

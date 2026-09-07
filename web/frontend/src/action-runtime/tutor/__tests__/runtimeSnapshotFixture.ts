@@ -160,6 +160,40 @@ export function pendingGeometryPresentation(revision: number, workspaceRevision:
   };
 }
 
+/** F7 P3（A' 轨 T2）：geometry.emphasize 交付（目录冻结形状：surface=geometry、
+ *  reveal_scope=target_highlight（ceiling）、target_ids=被强调的既有实体；
+ *  command_payload 携带 emphasis 参数（steady|pulse，B 轨编译侧落地后生效））。
+ *  高亮投影 = student_workspace_view.canvas.elements[].highlighted（Step 7
+ *  display-only visualState 渲染链）。 */
+export function pendingGeometryEmphasizePresentation(
+  revision: number,
+  workspaceRevision: number,
+  targets: string[] = ["seg-CO"],
+): Record<string, unknown> {
+  return {
+    schema: "ai_teaching_presentation_delivery/v1",
+    session_id: RUNTIME_SESSION_ID,
+    sequence_id: "PS-0006",
+    ordinal: 0,
+    action_id: "WSA-bt03-emphasize",
+    action: {
+      kind: "workspace",
+      workspace_action: {
+        action_id: "WSA-bt03-emphasize",
+        decision_id: "TD-seed-0003",
+        surface: "geometry",
+        capability: "geometry.emphasize",
+        origin: "tutor",
+        target_ids: targets,
+        command_payload: JSON.stringify({ emphasis: "steady" }),
+        reveal_scope: "target_highlight",
+      },
+    },
+    session_revision: revision,
+    workspace_revision: workspaceRevision,
+  };
+}
+
 /** BT-03 板书 reveal 交付（board.reveal-entry、reveal_scope=step_narration、
  *  target_ids=BE- 条目）。 */
 export function pendingBoardPresentation(revision: number, workspaceRevision: number, targets: string[] = ["BE-301"]): Record<string, unknown> {
