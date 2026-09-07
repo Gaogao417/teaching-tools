@@ -1,0 +1,28 @@
+{
+  "schema": "ai_teaching_geometry_visual_command/v1",
+  "op": "upsert",
+  "annotation_id": "WSA-visual-0001/a/0",
+  "semantic_key": "relation-20-pair0",
+  "expected_version": 0,
+  "binding_ref": "VB-20",
+  "form": "ratio-label",
+  "role_key": "pair0",
+  "content_ref": "FN-01",
+  "resolved_targets": {
+    "entity_ids": [
+      "CA",
+      "CB"
+    ]
+  },
+  "owner": {
+    "scope": {
+      "kind": "approved",
+      "protocol_id": "PR-SMV-001",
+      "beat_id": "BT-01"
+    },
+    "scope_epoch": 1,
+    "part_ref": "part-1",
+    "group_id": "PS-4242/g/0"
+  },
+  "lifetime": "explanation-group"
+}

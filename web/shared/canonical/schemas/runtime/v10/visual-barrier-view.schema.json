@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ai-teaching.dev/runtime/v10/visual-barrier-view.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "execution_owner",
+    "barrier"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ai_teaching_visual_barrier_view/v1"
+    },
+    "execution_owner": {
+      "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/execution_owner"
+    },
+    "barrier": {
+      "anyOf": [
+        {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/barrier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

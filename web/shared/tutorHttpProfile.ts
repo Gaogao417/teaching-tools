@@ -22,6 +22,7 @@
  *   服务端产出前自证 + 前端采用前同一入口（Step 5 接线）。
  */
 import { z } from "zod";
+import { visualExecutionOwnerSchema, visualBarrierSchema, studentWorkspaceViewV3Schema, presentationDeliveryV2Schema, studentInputV2Schema, geometryVisualCommandSchema } from "./canonical/visualSchemas";
 
 import {
   tutorRuntimeStateV3Schema,
@@ -71,7 +72,7 @@ const viewsSchema = z
     // F7 P2（动态板书规格/view v2）：student_workspace_view 按 schema marker 判别
     // v1|v2——v2 在 solution_board 上增可选 fragments（临场解释板书 EF- 的
     // student-safe 投影）。两形状均过 canonical 镜像 schema（单一真源）。
-    student_workspace_view: z.union([studentWorkspaceViewV1Schema, studentWorkspaceViewV2Schema]),
+    student_workspace_view: z.union([studentWorkspaceViewV1Schema, studentWorkspaceViewV2Schema, studentWorkspaceViewV3Schema]),
     coach_panel_view: coachPanelViewV1Schema,
     participation: mainlineParticipationV1Schema,
     status: statusViewSchema,
@@ -190,7 +191,9 @@ export const sessionSnapshotHttpV1Schema = z
     views: viewsSchema,
     render: renderSchema,
     active_action: activeActionSchema.optional(),
-    pending_presentation: presentationDeliveryV1Schema.optional(),
+    pending_presentation: z.union([presentationDeliveryV1Schema, presentationDeliveryV2Schema]).optional(),
+    presentation_execution_owner: visualExecutionOwnerSchema.optional(),
+    visual_barrier: visualBarrierSchema.nullable().optional(),
     turn: turnSchema.optional(),
     // F7 P2（S1 §1 组合接线）：generation/scope 成对可选——服务端 projector 已
     // 升级时逐快照投影（idle 也投影）；未携带 = 该服务端尚无自适应生成状态
@@ -307,6 +310,7 @@ export const startRequestHttpV1Schema = z
     task_id: z.string().min(1).max(64),
     student_id: z.string().trim().min(1).max(64),
     assessment: z.boolean().optional(),
+    client_instance_id: visualExecutionOwnerSchema.shape.client_instance_id.optional(),
     client_request_id: clientRequestIdPattern,
   })
   .strict();
@@ -324,7 +328,8 @@ const browserStudentInputBody = studentInputV1Schema.shape.input.superRefine((va
 
 export const studentInputRequestHttpV1Schema = z
   .object({
-    input: browserStudentInputBody,
+    input: z.union([browserStudentInputBody, studentInputV2Schema.shape.input]),
+    execution_owner: visualExecutionOwnerSchema.optional(),
     client_request_id: clientRequestIdPattern,
     expected_revision: z.number().int().min(0),
   })
@@ -332,6 +337,7 @@ export const studentInputRequestHttpV1Schema = z
 
 export const actionEvidenceRequestHttpV1Schema = z
   .object({
+    execution_owner: visualExecutionOwnerSchema.optional(),
     evidence: z
       .object({
         actionId: z.string().min(1),
@@ -350,6 +356,7 @@ export const actionEvidenceRequestHttpV1Schema = z
 export const workspaceCommandRequestHttpV1Schema = z
   .object({
     command: studentWorkspaceCommandV1Schema,
+    execution_owner: visualExecutionOwnerSchema.optional(),
     expected_revision: z.number().int().min(0),
   })
   .strict();
@@ -357,6 +364,8 @@ export const workspaceCommandRequestHttpV1Schema = z
 export const presentationOutcomeRequestHttpV1Schema = z
   .object({
     sequence_id: z.string().regex(/^PS-[0-9]{4,}$/),
+    execution_owner: visualExecutionOwnerSchema.optional(),
+    hold_for_control: z.object({ client_request_id: clientRequestIdPattern }).strict().optional(),
     ordinal: z.number().int().min(0),
     outcome: z.enum(["presented", "interrupted", "failed"]),
     failure_class: z.string().min(1).optional(),
@@ -376,6 +385,7 @@ export const presentationOutcomeRequestHttpV1Schema = z
 
 export const asrRequestHttpV1Schema = z
   .object({
+    execution_owner: visualExecutionOwnerSchema.optional(),
     audio: z
       .object({
         data_url: z.string().min(1),
@@ -391,6 +401,7 @@ export const asrResponseHttpV1Schema = z
   .object({
     session_id: sessionIdPattern,
     observed_revision: z.number().int().min(0),
+    execution_owner: visualExecutionOwnerSchema.optional(),
     transcript: z.string(),
     model: z.string().min(1),
     language: z.string().optional(),
@@ -418,6 +429,34 @@ export interface SnapshotConsistencyIssue {
 export function validateSessionSnapshotConsistency(snapshot: SessionSnapshotHttpV1): readonly SnapshotConsistencyIssue[] {
   const issues: SnapshotConsistencyIssue[] = [];
   const add = (check: string, message: string) => issues.push({ check, message });
+
+  // Visual successor fields are atomic: never accept a partial upgrade.
+  const visual = snapshot.views.student_workspace_view.schema === 'ai_teaching_student_workspace_view/v3';
+  const owner = snapshot.presentation_execution_owner;
+  const barrier = snapshot.visual_barrier;
+  const delivery = snapshot.pending_presentation;
+  const sameOwner = (a: {client_instance_id:string;epoch:number}, b: {client_instance_id:string;epoch:number}) => a.client_instance_id === b.client_instance_id && a.epoch === b.epoch;
+  if (visual !== (owner !== undefined && barrier !== undefined)) add('visual-version', 'visual View requires paired execution owner and barrier fields');
+  if (!visual && (owner !== undefined || barrier !== undefined)) add('visual-version', 'historical View cannot carry visual lifecycle fields');
+  if (delivery && (visual !== (delivery.schema === 'ai_teaching_presentation_delivery/v2'))) add('visual-version', 'delivery codec differs from View');
+  if (delivery?.schema === 'ai_teaching_presentation_delivery/v2' && (!owner || !sameOwner(delivery.execution_owner,owner))) add('visual-owner','delivery owner differs from snapshot');
+  if (barrier) {
+    if (!owner || !sameOwner(barrier.execution_owner,owner)) add('visual-owner','barrier owner differs from snapshot');
+    if (snapshot.active_action) add('visual-barrier','student action cannot mount before cleanup');
+    if (barrier.status === 'awaiting-cleanup') {
+      if (!delivery || delivery.sequence_id !== barrier.cleanup_sequence_id || delivery.ordinal !== 0 || delivery.action.workspace_action?.capability !== 'geometry.visual.reconcile') add('visual-barrier','cleanup barrier requires exact unique cleanup delivery');
+      else {
+        try {
+          const command=geometryVisualCommandSchema.parse(JSON.parse(delivery.action.workspace_action.command_payload ?? ''));
+          if(command.op!=='reconcile' || command.barrier_id!==barrier.barrier_id || command.target_digest!==barrier.target_digest || command.target_visual_revision!==barrier.target_visual_revision) add('visual-target','cleanup command target drift');
+        } catch { add('visual-target','invalid cleanup command'); }
+      }
+      if (snapshot.views.student_workspace_view.schema === 'ai_teaching_student_workspace_view/v3') {
+        const target=snapshot.views.student_workspace_view.canvas.visual;
+        if (target.digest!==barrier.target_digest || target.visual_revision!==barrier.target_visual_revision) add('visual-target','cleanup View differs from frozen target');
+      }
+    } else if (delivery) add('visual-barrier','non-executing barrier cannot carry a delivery');
+  }
 
   // #2 envelope / Workspace View / Coach View session_id 完全相同。
   if (
@@ -460,7 +499,7 @@ export function validateSessionSnapshotConsistency(snapshot: SessionSnapshotHttp
   // #8 participation.kind=workspace_input ⇒ 必须有 active_action（无 pending 呈现时
   // ——参与类型是相位派生视图，重锚定呈现期间可能滞后；「输入已开放」的权威
   // 信号是 active_action 挂载）；其他 participation 不得挂载。
-  if (participationKind === "workspace_input" && snapshot.pending_presentation === undefined && snapshot.active_action === undefined) {
+  if (participationKind === "workspace_input" && !snapshot.visual_barrier && snapshot.pending_presentation === undefined && snapshot.active_action === undefined) {
     add("active-action-mount", "participation.kind=workspace_input requires active_action");
   }
   if (participationKind !== "workspace_input" && snapshot.active_action !== undefined) {

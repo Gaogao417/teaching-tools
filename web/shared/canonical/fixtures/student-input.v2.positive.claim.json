@@ -1,0 +1,14 @@
+{
+  "schema": "ai_teaching_student_input/v2",
+  "session_id": "TS-4242",
+  "expected_revision": 9,
+  "client_request_id": "cri-20260903-0002",
+  "input": {
+    "kind": "control",
+    "command": "claim_presentation"
+  },
+  "execution_owner": {
+    "client_instance_id": "browser-visual-0001",
+    "epoch": 1
+  }
+}

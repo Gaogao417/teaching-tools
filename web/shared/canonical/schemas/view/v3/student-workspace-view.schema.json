@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ai-teaching.dev/view/v3/student-workspace-view.schema.json",
+  "title": "ai_teaching_student_workspace_view/v3",
+  "description": "Geometry visual lifecycle; historical readers remain unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "session_id",
+    "revision",
+    "canvas",
+    "solution_board",
+    "participation"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ai_teaching_student_workspace_view/v3"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^TS-[0-9]{4,}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "唯一 View revision：与 WorkspaceRuntimeState.revision 同源（切片不得携带独立 revision）。"
+    },
+    "canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elements",
+        "interaction_enabled",
+        "visual"
+      ],
+      "properties": {
+        "elements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "element_id",
+              "kind",
+              "visible"
+            ],
+            "properties": {
+              "element_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "point",
+                  "segment",
+                  "line",
+                  "circle",
+                  "polygon",
+                  "label",
+                  "measure"
+                ]
+              },
+              "visible": {
+                "const": true
+              },
+              "highlighted": {
+                "type": "boolean"
+              },
+              "annotated": {
+                "type": "boolean"
+              },
+              "student_authored": {
+                "type": "boolean",
+                "description": "区分 tutor 呈现与学生构图（attempt 归属可见）。"
+              }
+            }
+          }
+        },
+        "interaction_enabled": {
+          "type": "boolean",
+          "description": "false=完成态/locked（只读 review）。"
+        },
+        "visual": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/visual_view"
+        }
+      }
+    },
+    "solution_board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "groups",
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "building",
+            "review"
+          ],
+          "description": "同一 View 的两种阅读模式；review 不加载第二份 Board 真相（ADR-009 不变量 7）。"
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "group_id",
+              "entries"
+            ],
+            "properties": {
+              "group_id": {
+                "type": "string",
+                "pattern": "^PG-[0-9]{1,3}$"
+              },
+              "title": {
+                "type": "string"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "entry_id",
+                    "kind",
+                    "content",
+                    "state"
+                  ],
+                  "properties": {
+                    "entry_id": {
+                      "type": "string",
+                      "pattern": "^BE-[0-9]{1,3}$"
+                    },
+                    "kind": {
+                      "enum": [
+                        "statement",
+                        "derivation",
+                        "conclusion",
+                        "question"
+                      ]
+                    },
+                    "content": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "student-safe 呈现文本（hidden 条目不投影，内容不存在于 View）。"
+                    },
+                    "state": {
+                      "enum": [
+                        "visible",
+                        "active"
+                      ],
+                      "description": "View 层无 hidden：未揭示条目整个不出现在 View（不是置空）。"
+                    },
+                    "attempt_summary": {
+                      "type": "string",
+                      "description": "学生尝试的学生侧摘要（不含判定真值的私有内容）。"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "fragments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "fragment_id",
+              "kind",
+              "content",
+              "basis_refs"
+            ],
+            "properties": {
+              "fragment_id": {
+                "type": "string",
+                "pattern": "^EF-[A-Za-z0-9._:-]{4,}$"
+              },
+              "kind": {
+                "enum": [
+                  "approved_math_note",
+                  "relation_note",
+                  "explanation_text"
+                ]
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1
+              },
+              "basis_refs": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "attach_to_entry": {
+                "type": "string",
+                "pattern": "^BE-[0-9]{1,3}$"
+              }
+            }
+          },
+          "description": "仅 visible 解释片段（隐藏 fragment 的内容绝不下发——truth boundary）。kind=question 的 entries 与 fragment 不混用。"
+        }
+      }
+    },
+    "participation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "listen_only",
+            "answer_input",
+            "workspace_input",
+            "confirm_input",
+            "continue_input",
+            "temporarily_paused_for_inquiry",
+            "read_only_completed"
+          ]
+        },
+        "gate_id": {
+          "type": "string",
+          "pattern": "^GT-[0-9]{1,3}$"
+        },
+        "action_id": {
+          "type": "string",
+          "minLength": 3
+        },
+        "return_checkpoint_id": {
+          "type": "string",
+          "pattern": "^BT-[0-9]{1,3}$"
+        }
+      },
+      "description": "ai_teaching_mainline_participation/v1 内嵌形态（同 kind/gate/return 规则）。"
+    }
+  }
+}

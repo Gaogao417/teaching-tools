@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 265,
+  "fixture_count": 309,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -116,6 +116,78 @@
       "sha256": "sha256:eee6a434ba7e325487e158ebd7c9b8d66fc40725e8148a8e24fbdaa2e87f2518"
     },
     {
+      "file": "geometry-visual-command.v1.negative.degenerate-side.json",
+      "object_schema": "ai_teaching_geometry_visual_command/v1",
+      "schema_ref": "../schemas/runtime/v10/geometry-visual-command.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:15f2c66b7d2b738034be9005379f5c67bbc5b93b7a7170ff7a3e0df34e71bc35"
+    },
+    {
+      "file": "geometry-visual-command.v1.negative.extra.json",
+      "object_schema": "ai_teaching_geometry_visual_command/v1",
+      "schema_ref": "../schemas/runtime/v10/geometry-visual-command.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:572192dd48c640ccd2101d0f77c5023b7f664d1a6b188b0b4774e9ca6118b31d"
+    },
+    {
+      "file": "geometry-visual-command.v1.negative.wrong-pair-negative.json",
+      "object_schema": "ai_teaching_geometry_visual_command/v1",
+      "schema_ref": "../schemas/runtime/v10/geometry-visual-command.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:b4b04824eb19c32f0b3085fff328b6838e8cc7123cac7e1e675151434b0b82c6"
+    },
+    {
+      "file": "geometry-visual-command.v1.negative.wrong-pair.json",
+      "object_schema": "ai_teaching_geometry_visual_command/v1",
+      "schema_ref": "../schemas/runtime/v10/geometry-visual-command.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0a943cb852579c7a4401105da60e24e2e9f658e978c73ec6d5d5b12af8b89fe1"
+    },
+    {
+      "file": "geometry-visual-command.v1.positive.close-group.json",
+      "object_schema": "ai_teaching_geometry_visual_command/v1",
+      "schema_ref": "../schemas/runtime/v10/geometry-visual-command.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:c24933d3050038c220626b4a97cab9a820e03dc59b827315a48a4dba73b6e9f2"
+    },
+    {
+      "file": "geometry-visual-command.v1.positive.json",
+      "object_schema": "ai_teaching_geometry_visual_command/v1",
+      "schema_ref": "../schemas/runtime/v10/geometry-visual-command.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:d84222f20fc33f12b54317236454589ee09544c203e6cda8110a14456d63e1ab"
+    },
+    {
+      "file": "geometry-visual-command.v1.positive.ordered-correspondence.json",
+      "object_schema": "ai_teaching_geometry_visual_command/v1",
+      "schema_ref": "../schemas/runtime/v10/geometry-visual-command.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:1055798080099bd8cf0db3ee69d54391f4d9858cea6b95b397a7d229ab76c120"
+    },
+    {
+      "file": "geometry-visual-command.v1.positive.reconcile.json",
+      "object_schema": "ai_teaching_geometry_visual_command/v1",
+      "schema_ref": "../schemas/runtime/v10/geometry-visual-command.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:ad1d4f959cbf6d3a7710af1fb4dd50bd26508cf8f47615b4feb49d285157e27f"
+    },
+    {
+      "file": "geometry-visual-command.v1.positive.upsert.json",
+      "object_schema": "ai_teaching_geometry_visual_command/v1",
+      "schema_ref": "../schemas/runtime/v10/geometry-visual-command.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:3a425b2924c09ac1ef1467aacf625bf0552f5016857cb054ba35d8a7ad93da09"
+    },
+    {
       "file": "intervention.negative.missing-stop-condition.json",
       "object_schema": "ai_teaching_intervention/v1",
       "schema_ref": "../schemas/learning/v1/intervention.schema.json",
@@ -186,6 +258,22 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:4b650a3de0b02c3aca91cbebe2364ff126befe895d484fe92cb7abaccfdf60c0"
+    },
+    {
+      "file": "presentation-delivery.v2.negative.extra.json",
+      "object_schema": "ai_teaching_presentation_delivery/v2",
+      "schema_ref": "../schemas/runtime/v7/presentation-delivery.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0eba89439803874b8c03c9b73681194d78399084b6423623a6b7d5a3ed97045a"
+    },
+    {
+      "file": "presentation-delivery.v2.positive.json",
+      "object_schema": "ai_teaching_presentation_delivery/v2",
+      "schema_ref": "../schemas/runtime/v7/presentation-delivery.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:95f9bb1a934339bd753eba0f8eebf3c98cb8b0bb1deadf0cfbc0a3219cfba19a"
     },
     {
       "file": "presentation-draft.negative.carries-session-fields.json",
@@ -266,6 +354,22 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:434400f64bac16bda6772b2a97657dca375ac62aca5db075035e85505bd2c16c"
+    },
+    {
+      "file": "presentation-outcome.v2.negative.extra.json",
+      "object_schema": "ai_teaching_presentation_outcome/v2",
+      "schema_ref": "../schemas/runtime/v7/presentation-outcome.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:90367f02cd595afa4a78594943e41ae9ddf5d2f5ab75cd102e5d627dd63937b2"
+    },
+    {
+      "file": "presentation-outcome.v2.positive.json",
+      "object_schema": "ai_teaching_presentation_outcome/v2",
+      "schema_ref": "../schemas/runtime/v7/presentation-outcome.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0e718270da1a1c4a03f5c11d34f7c29df7ed21ad5bc2623c6ac60cfe4e204d76"
     },
     {
       "file": "presentation-plan.negative.empty-actions.json",
@@ -442,6 +546,22 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:2c3d02fe8820a3fdcdfa746a31e7a4da9be73b72e77d39d2d27d273195b1faa1"
+    },
+    {
+      "file": "presentation-plan.v5.negative.extra.json",
+      "object_schema": "ai_teaching_presentation_plan/v5",
+      "schema_ref": "../schemas/runtime/v9/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:203c90306842cbf0eeb24f3b5d52bd6083f553fcb7811db8c8c0d2d10205419c"
+    },
+    {
+      "file": "presentation-plan.v5.positive.json",
+      "object_schema": "ai_teaching_presentation_plan/v5",
+      "schema_ref": "../schemas/runtime/v9/presentation-plan.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:d94d5246028364882748c3c09c5e2caf75adf6324c553fe955f162e49258eb08"
     },
     {
       "file": "presentation-tool-spec.negative.missing-parameters.json",
@@ -652,6 +772,46 @@
       "sha256": "sha256:3a8e2fb2e9d19da8dee98e4a5d6c5b0740ba54a7e54030104b9543df3d9d9834"
     },
     {
+      "file": "student-input.v2.negative.cancel-on-other-command.json",
+      "object_schema": "ai_teaching_student_input/v2",
+      "schema_ref": "../schemas/runtime/v7/student-input.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:a6f5cf0851dabc917406f002aaa8c77693529a53ca7aa54a6d9f4cb9fabb983c"
+    },
+    {
+      "file": "student-input.v2.negative.extra.json",
+      "object_schema": "ai_teaching_student_input/v2",
+      "schema_ref": "../schemas/runtime/v7/student-input.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:625392300873250536d9d02321ebd8de257e64b1795473289eb0629c75404ece"
+    },
+    {
+      "file": "student-input.v2.positive.cancel-not-started.json",
+      "object_schema": "ai_teaching_student_input/v2",
+      "schema_ref": "../schemas/runtime/v7/student-input.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:78a5b46527bedb30e044d78da3c531c1102f46eccdc5f02f5ecf15fe449e18fa"
+    },
+    {
+      "file": "student-input.v2.positive.claim.json",
+      "object_schema": "ai_teaching_student_input/v2",
+      "schema_ref": "../schemas/runtime/v7/student-input.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:bf11f52b43a0acc13bce613d44780cbb629b7adce758d772c8fb6221c0d76db3"
+    },
+    {
+      "file": "student-input.v2.positive.json",
+      "object_schema": "ai_teaching_student_input/v2",
+      "schema_ref": "../schemas/runtime/v7/student-input.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:36339d33e609e94df7c704baee7ae2ab52a58529a40a36a02e69ef4ebd291dfc"
+    },
+    {
       "file": "student-intent.negative.command-without-payload.json",
       "object_schema": "ai_teaching_student_intent/v1",
       "schema_ref": "../schemas/runtime/v5/student-intent.schema.json",
@@ -722,6 +882,46 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:d7cca2e6359b0ae3adc0dfd06ff73166913ff61eee5f053382d7a618154aaf95"
+    },
+    {
+      "file": "student-workspace-view.v3.negative.extra.json",
+      "object_schema": "ai_teaching_student_workspace_view/v3",
+      "schema_ref": "../schemas/view/v3/student-workspace-view.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:fa74294141f6b3ef4e2672047d555838a341b825e1a9d0af70703b44ae407c18"
+    },
+    {
+      "file": "student-workspace-view.v3.negative.hidden-record.json",
+      "object_schema": "ai_teaching_student_workspace_view/v3",
+      "schema_ref": "../schemas/view/v3/student-workspace-view.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:41a2778894b73f0933dbbfa0468ea2621fcde792c095ba30ecdfd4b3dd3d5589"
+    },
+    {
+      "file": "student-workspace-view.v3.negative.private-basis.json",
+      "object_schema": "ai_teaching_student_workspace_view/v3",
+      "schema_ref": "../schemas/view/v3/student-workspace-view.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:db6021d6469ca1def55b6fecdef64adde39bcb4dc62241e08d08d25a2655102e"
+    },
+    {
+      "file": "student-workspace-view.v3.positive.angle-view.json",
+      "object_schema": "ai_teaching_student_workspace_view/v3",
+      "schema_ref": "../schemas/view/v3/student-workspace-view.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:d0634bbf4634cada2b0b3f3cf143c80da950ed56bd8331e95ab305c16facbb6c"
+    },
+    {
+      "file": "student-workspace-view.v3.positive.json",
+      "object_schema": "ai_teaching_student_workspace_view/v3",
+      "schema_ref": "../schemas/view/v3/student-workspace-view.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:053525041659a157501fc700e4815844f844102ffd31c2acf6523c836acbdcec"
     },
     {
       "file": "sut-config.negative.model-name-only.json",
@@ -1172,6 +1372,62 @@
       "sha256": "sha256:f761f5af4300525ad0797fc23e0130ff9b494f8f9b7b2abc2b63830effa066bd"
     },
     {
+      "file": "tutor-plan-bundle.v8.negative.degenerate-angle.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v8",
+      "schema_ref": "../schemas/planning/v8/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:cbbb7f447fa03a9f843636b9c3a28d93301bd09c4465dcf4970f04ff191ee829"
+    },
+    {
+      "file": "tutor-plan-bundle.v8.negative.duplicate-binding.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v8",
+      "schema_ref": "../schemas/planning/v8/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:b6a3438737593a15bc9f2127ec2429054e8fb451f50b9645feca1dd17ff2587c"
+    },
+    {
+      "file": "tutor-plan-bundle.v8.negative.extra.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v8",
+      "schema_ref": "../schemas/planning/v8/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:c44333d53cf07bd5daeb2057ddf9e85de8e48eb8a54f7aba6f55cd9a4e7b77de"
+    },
+    {
+      "file": "tutor-plan-bundle.v8.negative.incompatible-form.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v8",
+      "schema_ref": "../schemas/planning/v8/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:26142f973b8e23ba79d80ae74d7f8b730daf7addf7672ef0d3286bdef30bad13"
+    },
+    {
+      "file": "tutor-plan-bundle.v8.negative.unbound-requirement.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v8",
+      "schema_ref": "../schemas/planning/v8/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e8bb51df6d7acdc4a8d6e57ee6c69dc4519c99a1559e8afb39c80ecbcdb64079"
+    },
+    {
+      "file": "tutor-plan-bundle.v8.positive.angle-binding.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v8",
+      "schema_ref": "../schemas/planning/v8/tutor-plan-bundle.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:6756216c0a04a84d84f00dc037df1403c27c759b3c1175ace33ef6bdb7d05883"
+    },
+    {
+      "file": "tutor-plan-bundle.v8.positive.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v8",
+      "schema_ref": "../schemas/planning/v8/tutor-plan-bundle.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:989f71184a1551ac1801dd51c528ef53b01a0cddb16bb0a8feef16063fefd33f"
+    },
+    {
       "file": "tutor-policy-decision.negative.inquiry-without-return.json",
       "object_schema": "ai_teaching_tutor_policy_decision/v1",
       "schema_ref": "../schemas/runtime/v5/tutor-policy-decision.schema.json",
@@ -1508,6 +1764,22 @@
       "sha256": "sha256:6aeb315a19d0ae586a0b156e27fb6a7e8675a0c6cba228de0b5695021239a506"
     },
     {
+      "file": "tutor-runtime-state.v5.negative.extra.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v5",
+      "schema_ref": "../schemas/state/v5/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:80989bb26730bf053987fea53d5c8007a3e3eb11905ae1509f07df6e06802fed"
+    },
+    {
+      "file": "tutor-runtime-state.v5.positive.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v5",
+      "schema_ref": "../schemas/state/v5/tutor-runtime-state.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0545f4396b784b2ed219eb86c181f1ad07016c7f10e4632a2762a64d7f76b150"
+    },
+    {
       "file": "tutor-session-event.negative.payload-missing-level.json",
       "object_schema": "ai_teaching_tutor_session_event/v1",
       "schema_ref": "../schemas/runtime/v1/tutor-session-event.schema.json",
@@ -1530,6 +1802,38 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:11e615a45e9343c172e910ece12c68a5fe459d1789e37c653028b86f84d09bc7"
+    },
+    {
+      "file": "tutor-session-event.v10.negative.extra.json",
+      "object_schema": "ai_teaching_tutor_session_event/v10",
+      "schema_ref": "../schemas/runtime/v10/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0f1ff4867858f355d9bf3b74d0318f0d152833d2314a92457e2e504b1d1dd634"
+    },
+    {
+      "file": "tutor-session-event.v10.negative.missing-workspace-revision.json",
+      "object_schema": "ai_teaching_tutor_session_event/v10",
+      "schema_ref": "../schemas/runtime/v10/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e8b2e4d02b5198dadda6e753d41e139c9d8f52c4ca71cd9261b6169da3b78f4f"
+    },
+    {
+      "file": "tutor-session-event.v10.positive.json",
+      "object_schema": "ai_teaching_tutor_session_event/v10",
+      "schema_ref": "../schemas/runtime/v10/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:8976031fdb0ad034989ace467d418b2041744b9772c7371113b9c2389b625ae8"
+    },
+    {
+      "file": "tutor-session-event.v10.positive.visual-invalidation.json",
+      "object_schema": "ai_teaching_tutor_session_event/v10",
+      "schema_ref": "../schemas/runtime/v10/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:40d2ca60bed30eecb3957121f811ffb82b168ba5e982305f21aac5ba1edad48c"
     },
     {
       "file": "tutor-session-event.v2.negative.move-missing-source.json",
@@ -2052,6 +2356,38 @@
       "sha256": "sha256:04477a16420241835ead6b437d6a63d3072fc5c776e01d8284321237d2196269"
     },
     {
+      "file": "visual-barrier-view.v1.negative.extra.json",
+      "object_schema": "ai_teaching_visual_barrier_view/v1",
+      "schema_ref": "../schemas/runtime/v10/visual-barrier-view.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e4f790892149e7171ae090d006d255e0c6a46abc448fb84c607bebb0edeb0ffe"
+    },
+    {
+      "file": "visual-barrier-view.v1.negative.unfrozen-target.json",
+      "object_schema": "ai_teaching_visual_barrier_view/v1",
+      "schema_ref": "../schemas/runtime/v10/visual-barrier-view.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:04cba24ae13392da5e4fb6ee1ca08ebca8419ebec1d722f5df6448f27a447031"
+    },
+    {
+      "file": "visual-barrier-view.v1.positive.cleanup.json",
+      "object_schema": "ai_teaching_visual_barrier_view/v1",
+      "schema_ref": "../schemas/runtime/v10/visual-barrier-view.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:dbd9376f42dc7b56476d2c837ecaea73fc305d8e5967613e301d50de2ccc6e92"
+    },
+    {
+      "file": "visual-barrier-view.v1.positive.json",
+      "object_schema": "ai_teaching_visual_barrier_view/v1",
+      "schema_ref": "../schemas/runtime/v10/visual-barrier-view.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:3ad3de9fafbd989ab18b84f327bfd57f0f8f7d3e985aba3cb124e8ef1827161d"
+    },
+    {
       "file": "voice-action.negative.approved-without-resource.json",
       "object_schema": "ai_teaching_voice_action/v1",
       "schema_ref": "../schemas/runtime/v5/voice-action.schema.json",
@@ -2106,6 +2442,22 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:bafc5ac73fd25ccaeeebc8471a1cbd2d7c678275bcbfb10f29117269f522866d"
+    },
+    {
+      "file": "workspace-runtime-state.v3.negative.extra.json",
+      "object_schema": "ai_teaching_workspace_runtime_state/v3",
+      "schema_ref": "../schemas/state/v3/workspace-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:77cdb9c78a0ebd58b77ecc775e70262ce5cc53b48ef3990c1cfe36d711b0e4dd"
+    },
+    {
+      "file": "workspace-runtime-state.v3.positive.json",
+      "object_schema": "ai_teaching_workspace_runtime_state/v3",
+      "schema_ref": "../schemas/state/v3/workspace-runtime-state.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:27c3fe9a132e098bc4dbf20b93c2d25d695ee1ea2bd576bb598bcdee87e03737"
     },
     {
       "file": "workspace-surface-action.negative.student-origin.json",
