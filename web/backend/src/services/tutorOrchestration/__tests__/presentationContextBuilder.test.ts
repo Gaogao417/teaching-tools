@@ -208,3 +208,97 @@ test("first-segment build without student input is legal (recentInputs empty)", 
   assert.ok(built.basis.length >= 4);
   assert.equal(built.truncated_inference_ids.length, 0);
 });
+
+// --------------------------------------------------------------------------- //
+// F7 P2-B（B5/B6）：字符预算按完整依据组收口 + 核心推理 conclusion 权限纪律
+// --------------------------------------------------------------------------- //
+
+/** 带超长 fact 的图切片（预算反例构造）。 */
+function graphWithLongFact(): ContextGraphIndex {
+  const slice = goldenSlice();
+  return {
+    facts: new Map([...slice.facts, ["FN-LONG", fact("FN-LONG", { statement: "长".repeat(5000) })]]),
+    inferences: slice.inferences,
+  };
+}
+
+test("B5 core group exceeding max_total_chars fails CONTEXT_BUDGET_EXCEEDED (no silent oversized build)", () => {
+  assert.throws(
+    () => buildPresentationContext(baseInput({
+      graph: graphWithLongFact(),
+      beat: { protocol_id: "PR-SMV-001", beat_id: "BT-10", graph_fact_refs: ["FN-LONG"], inference_refs: [], resource_ids: [] },
+      policy: { ...DEFAULT_CONTEXT_POLICY, max_total_chars: 100 },
+    })),
+    (error: unknown) => error instanceof PresentationContextError && error.kind === "CONTEXT_BUDGET_EXCEEDED",
+  );
+});
+
+test("B5 region fine fact exceeding the char budget is omitted as a whole group and registered (context_truncated)", () => {
+  const built = buildPresentationContext(baseInput({
+    graph: graphWithLongFact(),
+    beat: { protocol_id: "PR-SMV-001", beat_id: "BT-04", graph_fact_refs: ["FN-14"], inference_refs: [], resource_ids: [] },
+    regionFineRefs: { fact_ids: ["FN-LONG"], inference_ids: [] },
+    policy: { ...DEFAULT_CONTEXT_POLICY, max_total_chars: 100 },
+  }));
+  assert.ok(!built.context.selected_fact_ids.includes("FN-LONG"), "oversized fine fact must not enter the frozen refs");
+  assert.ok(!built.basis.some((item) => item.ref === "FN-LONG"), "oversized fine fact must not enter the prompt basis");
+  assert.deepEqual(built.truncated_group_refs, ["FN-LONG"]);
+  assert.equal(built.context_truncated, true);
+  assert.equal(built.truncated_inference_ids.length, 0);
+});
+
+test("B5 optional inference group exceeding the char budget is dropped whole and registered", () => {
+  const built = buildPresentationContext(baseInput({
+    graph: (() => {
+      const slice = goldenSlice();
+      return {
+        facts: slice.facts,
+        inferences: new Map([...slice.inferences, ["IF-LONG", inference("IF-LONG", ["FN-01"], "FN-13", { derivation: "推".repeat(5000) })]]),
+      };
+    })(),
+    beat: { protocol_id: "PR-SMV-001", beat_id: "BT-04", graph_fact_refs: ["FN-14"], inference_refs: [], resource_ids: [] },
+    regionFineRefs: { fact_ids: [], inference_ids: ["IF-LONG"] },
+    policy: { ...DEFAULT_CONTEXT_POLICY, max_total_chars: 100 },
+  }));
+  assert.ok(!built.context.selected_inference_ids.includes("IF-LONG"));
+  assert.deepEqual(built.truncated_inference_ids, ["IF-LONG"]);
+  assert.deepEqual(built.truncated_group_refs, ["IF-LONG"]);
+  assert.equal(built.context_truncated, true);
+});
+
+test("B5 resource group exceeding the char budget is omitted from the frozen refs and registered; small resources still pass", () => {
+  const oversized = buildPresentationContext(baseInput({
+    beat: { protocol_id: "PR-SMV-001", beat_id: "BT-04", graph_fact_refs: ["FN-14"], inference_refs: [], resource_ids: ["RES-BIG"] },
+    resourceContent: () => "资".repeat(5000),
+    policy: { ...DEFAULT_CONTEXT_POLICY, max_total_chars: 100 },
+  }));
+  assert.deepEqual(oversized.context.resource_ids, [], "oversized resource must not stay in the frozen refs (drive recomputes basis from them)");
+  assert.ok(!oversized.basis.some((item) => item.ref === "RES-BIG"));
+  assert.deepEqual(oversized.truncated_group_refs, ["RES-BIG"]);
+  assert.equal(oversized.context_truncated, true);
+  // 正例：小资源照常进入（预算内）。
+  const small = buildPresentationContext(baseInput({
+    beat: { protocol_id: "PR-SMV-001", beat_id: "BT-04", graph_fact_refs: ["FN-14"], inference_refs: [], resource_ids: ["RES-OK"] },
+    resourceContent: () => "小资源",
+    policy: { ...DEFAULT_CONTEXT_POLICY, max_total_chars: 100 },
+  }));
+  assert.deepEqual(small.context.resource_ids, ["RES-OK"]);
+  assert.ok(small.basis.some((item) => item.ref === "RES-OK"));
+  assert.equal(small.context_truncated, false);
+});
+
+test("B6 core inference concluding in an unauthorized answer fact is refused CONTEXT_FORBIDDEN (never silently dropped)", () => {
+  // IF-18 结论 FN-23（reveals_answer）且不在本 Beat 授权 refs 内。
+  assert.throws(
+    () => buildPresentationContext(baseInput({
+      beat: { protocol_id: "PR-SMV-001", beat_id: "BT-11", graph_fact_refs: ["FN-14"], inference_refs: ["IF-18"], resource_ids: [] },
+    })),
+    (error: unknown) => error instanceof PresentationContextError && error.kind === "CONTEXT_FORBIDDEN",
+  );
+  // 同一推理作为可选扩充（region）时维持既有语义：整组静默放弃（不进上下文）。
+  const asRegion = buildPresentationContext(baseInput({
+    beat: { protocol_id: "PR-SMV-001", beat_id: "BT-04", graph_fact_refs: ["FN-14"], inference_refs: [], resource_ids: [] },
+    regionFineRefs: { fact_ids: [], inference_ids: ["IF-18"] },
+  }));
+  assert.ok(!asRegion.context.selected_inference_ids.includes("IF-18"));
+});

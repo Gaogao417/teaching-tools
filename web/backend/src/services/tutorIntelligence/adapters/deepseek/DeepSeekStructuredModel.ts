@@ -49,7 +49,11 @@ function positiveInteger(value: number | undefined, fallback: number): number {
 
 function resolveOptions(options: DeepSeekStructuredModelOptions): ResolvedOptions {
   return {
-    apiKey: options.apiKey?.trim() || process.env.DEEPSEEK_API_KEY?.trim() || "",
+    // F7 P2-B（B7 供应商隔离）：显式传入的 apiKey（含空串）按传入值生效——空串
+    // 不再触发 DEEPSEEK_API_KEY 环境回退；只有调用方未提供（undefined）才走本
+    // 供应商环境解析。否则跨供应商组合（如 DashScope 端口）会把另一家的密钥
+    // 发到本 baseUrl。
+    apiKey: options.apiKey !== undefined ? options.apiKey.trim() : (process.env.DEEPSEEK_API_KEY?.trim() ?? ""),
     baseUrl: (options.baseUrl?.trim() || process.env.DEEPSEEK_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
     model: options.model?.trim() || process.env.TUTOR_DEEPSEEK_MODEL?.trim() || DEFAULT_MODEL,
     timeoutMs: positiveInteger(options.timeoutMs ?? Number(process.env.TUTOR_DEEPSEEK_TIMEOUT_MS), DEFAULT_TIMEOUT_MS),

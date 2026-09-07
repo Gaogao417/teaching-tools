@@ -21,13 +21,13 @@ import { ensureSqlite } from "../../tutorSession/__tests__/support";
 import { realCanonicalRoot } from "../../tutorNavigator/__tests__/navigatorSupport";
 import { f6Model } from "./f6Support";
 import { FixedResponseGateProvider, type GateAdjudicationProvider } from "../../tutorNavigator/ModelGateAdjudicatorV5";
-import type { PresenterGeneratorPort, PresenterGenerationPin } from "../presentationGeneration/GeneratorPort";
+import { PresenterGenerationError, type PresenterGeneratorPort, type PresenterGenerationPin } from "../presentationGeneration/GeneratorPort";
 import { readSessionEventSchema } from "../../tutorSession/RuntimeStateRebuilderV9";
 
 const sqlitePath = ensureSqlite("f7-rt4-v9-session");
 
 const orchestratorModule = require("../TutorSessionOrchestratorV7") as typeof import("../TutorSessionOrchestratorV7");
-const { TutorSessionOrchestratorV7 } = orchestratorModule;
+const { TutorSessionOrchestratorV7, OrchestratorV7Error } = orchestratorModule;
 
 const ROOT = realCanonicalRoot();
 const at = (): string => new Date().toISOString();
@@ -239,6 +239,166 @@ test("v7 sessions without a presenter port are unchanged (deterministic chain, z
   assert.equal(state.presentation_cursor.status, "awaiting_browser");
   const events = orchestrator.events;
   assert.ok(events.every((event) => (event.event_type as string).indexOf("presentation_generation") !== 0));
+});
+
+// --------------------------------------------------------------------------- //
+// F7 P2-B 会话级返工（B1/B3/B4）
+// --------------------------------------------------------------------------- //
+
+/** 捕获 payload 的 scripted 端口（B1：payload 必须含学生问题原文）。 */
+class CapturingPresenterPort extends ScriptedPresenterPort {
+  readonly payloads: unknown[] = [];
+  async generatePresentationDraft(request: Parameters<ScriptedPresenterPort["generatePresentationDraft"]>[0]) {
+    this.payloads.push(request.userPayload);
+    return super.generatePresentationDraft(request);
+  }
+}
+
+/** 首次调用 draft_invalid（不可重试 ⇒ 立即 failed），之后恢复成功的端口（B4）。 */
+class FailOncePresenterPort extends ScriptedPresenterPort {
+  failuresLeft = 1;
+  attempts = 0;
+  async generatePresentationDraft(request: Parameters<ScriptedPresenterPort["generatePresentationDraft"]>[0]) {
+    this.attempts += 1;
+    if (this.failuresLeft > 0) {
+      this.failuresLeft -= 1;
+      throw new PresenterGenerationError("draft_invalid", "scripted first failure (non-retryable)", false);
+    }
+    return super.generatePresentationDraft(request);
+  }
+}
+
+/** pin 不同的端口（B3：换 provider/model 恢复必须被拒绝）。 */
+class ChangedPinPresenterPort extends ScriptedPresenterPort {
+  override readonly pin: PresenterGenerationPin = {
+    provider: "other-provider",
+    model_id: "other-model/v1",
+    prompt_version: "presenter-interleaved/v1",
+    context_builder_version: "presentation-context-builder/v1",
+    tool_catalog_version: "presentation-tool-catalog/v1",
+  };
+}
+
+test("B1 online prompt assembly carries the student question and already-presented speech from the frozen cutoff", async () => {
+  const sessionId = freshSessionId();
+  const presenter = new CapturingPresenterPort();
+  const orchestrator = startV9(sessionId, presenter);
+
+  // 首段讲解：无学生输入 ⇒ stuck_point=null、already_presented=[]（首段合法缺省）。
+  await orchestrator.drivePendingGeneration();
+  assert.equal(presenter.payloads.length, 1);
+  const first = presenter.payloads[0] as { student_stuck_point: unknown; already_presented: unknown[] };
+  assert.equal(first.student_stuck_point, null);
+  assert.deepEqual(first.already_presented, []);
+
+  // 浏览器 outcome presented（末项）⇒ cursor idle，为追问腾出预约面。
+  const cursor = orchestrator.rebuildRuntimeState().presentation_cursor;
+  assert.equal(cursor.status, "awaiting_browser");
+  orchestrator.reportPresentationOutcome({
+    sequence_id: cursor.sequence_id,
+    ordinal: cursor.ordinal,
+    action_id: cursor.action_id,
+    outcome: "presented",
+    client_request_id: "cr-b1-presented-1",
+  });
+  assert.equal(orchestrator.rebuildRuntimeState().presentation_cursor.status, "idle");
+
+  // 学生追问（assistance）⇒ 新决策预约新任务；驱动时 payload 必须含问题原文。
+  const question = "为什么这里要这样折？我不理解折叠。";
+  await orchestrator.submitStudentInput(
+    { input: { kind: "utterance", channel: "assistance", text: question }, client_request_id: "cr-b1-question-1" },
+    {},
+  );
+  assert.equal(orchestrator.hasPendingGeneration(), true, "assistance question reserves a new generation task");
+  const outcome = await orchestrator.drivePendingGeneration();
+  assert.equal(outcome.kind, "committed");
+  const second = presenter.payloads.at(-1) as { student_stuck_point: { text: string } | null; already_presented: string[] };
+  assert.ok(JSON.stringify(presenter.payloads).includes(question), "payload must carry the student question verbatim");
+  assert.equal(second.student_stuck_point?.text, question);
+  assert.ok(second.already_presented.length >= 1, "after a delivered presentation already_presented must be non-empty");
+});
+
+test("B3 resume with a changed presenter pin is refused fail-closed (explicit error, zero events, zero model calls)", async () => {
+  const sessionId = freshSessionId();
+  startV9(sessionId, new ScriptedPresenterPort());
+
+  const eventsBefore = resume(sessionId).events.length;
+  const changed = new ChangedPinPresenterPort();
+  assert.throws(
+    () => resume(sessionId, changed),
+    (error: unknown) => error instanceof OrchestratorV7Error
+      && error.code === "PRESENTER_PIN_MISMATCH"
+      && error.message.includes("fail closed"),
+  );
+  assert.equal(changed.calls, 0, "zero model calls from the rejected port");
+  assert.equal(resume(sessionId).events.length, eventsBefore, "zero events appended by the refused resume");
+  // 会话保持可只读加载（不带 presenter 端口）。
+  const readonly = resume(sessionId);
+  assert.equal(readonly.eventSchema, "v9");
+});
+
+test("B3 resume with the pinned presenter port proceeds and committed provenance stays truthful", async () => {
+  const sessionId = freshSessionId();
+  startV9(sessionId, new ScriptedPresenterPort());
+  const restored = resume(sessionId, new ScriptedPresenterPort());
+  const outcome = await restored.drivePendingGeneration();
+  assert.equal(outcome.kind, "committed");
+  const request = (restored.rebuildRuntimeState().generation_requests as Array<{ status: string; presenter_pin: { provider: string } }>)[0];
+  assert.equal(request.status, "committed");
+  assert.equal(request.presenter_pin.provider, "scripted-presenter");
+  const planned = restored.events.find((event) => event.event_type === "presentation_sequence_planned")!;
+  const generation = (planned.payload as { generation: { presenter_pin: { provider: string }; epoch: number } }).generation;
+  assert.equal(generation.presenter_pin.provider, "scripted-presenter", "planned generation pin equals the frozen request pin (provenance truthful)");
+  assert.equal(generation.epoch, 2, "commit carries the claimed fencing epoch");
+});
+
+test("B4 retry_recovery after generation failure reserves a fresh request with a new budget; the failed record survives", async () => {
+  const sessionId = freshSessionId();
+  const presenter = new FailOncePresenterPort();
+  const orchestrator = startV9(sessionId, presenter);
+
+  // 第一次生成：不可重试失败 ⇒ slot=failed、cursor=idle（生成失败是 slot 停留）。
+  const failed = await orchestrator.drivePendingGeneration();
+  assert.equal(failed.kind, "failed");
+  assert.equal(failed.errorClass, "draft_invalid");
+  let state = orchestrator.rebuildRuntimeState();
+  assert.equal(state.generation_slot?.status, "failed");
+  assert.equal(state.presentation_cursor.status, "idle");
+
+  // 显式重试：control.retry_recovery ⇒ 为原 decision/scope 创建新生成请求。
+  const turn = await orchestrator.submitStudentInput(
+    { input: { kind: "control", command: "retry_recovery" }, client_request_id: "cr-b4-retry-1" },
+    {},
+  );
+  assert.ok(turn.presentations[0]?.generation, "retry recovery report carries the fresh pending generation");
+  state = orchestrator.rebuildRuntimeState();
+  const requests = state.generation_requests as Array<{ request_id: string; status: string; attempt: number }>;
+  assert.equal(requests.length, 2, "a second generation request is created");
+  assert.equal(requests[0].status, "failed", "old failed record untouched");
+  assert.equal(requests[1].status, "pending");
+  assert.notEqual(requests[1].request_id, requests[0].request_id);
+  assert.equal(requests[1].attempt, 1, "fresh attempt budget for the new request");
+  assert.equal(state.generation_slot?.status, "pending");
+
+  // 正常 drive ⇒ 模型再调（第 2 次）并 committed。
+  const outcome = await orchestrator.drivePendingGeneration();
+  assert.equal(outcome.kind, "committed");
+  assert.equal(presenter.attempts, 2, "the model is called again for the retried task");
+});
+
+test("B4 retry_recovery without any failure stays refused (fail closed)", async () => {
+  const sessionId = freshSessionId();
+  const presenter = new ScriptedPresenterPort();
+  const orchestrator = startV9(sessionId, presenter);
+  await orchestrator.drivePendingGeneration();
+  // 无 failed cursor / 无 failed slot ⇒ 显式拒绝。
+  await assert.rejects(
+    () => orchestrator.submitStudentInput(
+      { input: { kind: "control", command: "retry_recovery" }, client_request_id: "cr-b4-neg-1" },
+      {},
+    ),
+    (error: unknown) => error instanceof OrchestratorV7Error && error.code === "RETRY_RECOVERY_WITHOUT_FAILURE",
+  );
 });
 
 void sqlitePath;

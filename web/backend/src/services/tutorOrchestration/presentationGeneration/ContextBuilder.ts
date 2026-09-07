@@ -18,11 +18,13 @@
  * - STALE_CONTEXT：cutoff/workspace 快照与权威状态不一致；
  * - CONTEXT_FORBIDDEN：越权引用（私有答案在无授权时请求进入上下文）。
  *
- * 预算纪律（规格 Invariants）：按**完整依据组**截断——每条 inference 连同其全部
- * premises 构成一个组；可选组整组省略并登记 context_truncated，核心组（当前
- * Beat 自身 refs 及其前提闭包）不可省略；核心组超预算 ⇒ CONTEXT_BUDGET_EXCEEDED。
+ * 预算纪律（规格 Invariants）：按**完整依据组**与**最终渲染长度**截断——每条
+ * inference 连同其全部 premises 构成一个组；可选组/region fine fact/资源组超限
+ * ⇒ 整组省略并登记 truncated/context_truncated；核心组（当前 Beat 自身 refs
+ * 及其前提闭包）不可省略；核心组超预算（条数或字符）⇒ CONTEXT_BUDGET_EXCEEDED。
  * 权限纪律：reveals_answer=true 的 fact 仅当其已属于当前 Beat 计划内容
- * （beat.graph_fact_refs）才可进入上下文——更多模型上下文不扩大答案揭示权限。
+ * （beat.graph_fact_refs）才可进入上下文——更多模型上下文不扩大答案揭示权限；
+ * 核心推理的 conclusion 同受该纪律约束（越权 ⇒ CONTEXT_FORBIDDEN，F7 P2-B/B6）。
  */
 import { createHash } from "node:crypto";
 
@@ -148,6 +150,10 @@ export interface BuiltPresentationContext {
   readonly basis: readonly ContextBasisItem[];
   /** 整组省略的可选 inference 组（context_truncated=true 的依据）。 */
   readonly truncated_inference_ids: readonly string[];
+  /** F7 P2-B（B5）：全部被整组省略的组 ref（可选 inference 组 + region fine fact + 资源）。 */
+  readonly truncated_group_refs: readonly string[];
+  /** 任一完整组被省略 ⇒ true（快照/审计的显式截断登记）。 */
+  readonly context_truncated: boolean;
   readonly budget: { readonly facts: number; readonly inferences: number; readonly approx_chars: number };
 }
 
@@ -157,6 +163,16 @@ function sha256Digest(value: unknown): string {
 
 function approxChars(items: readonly ContextBasisItem[]): number {
   return items.reduce((total, item) => total + item.text.length, 0);
+}
+
+/** fact 的最终渲染文本（预算按此计；与 basisItems 同一公式）。 */
+function factText(fact: GraphFactNode): string {
+  return fact.statement;
+}
+
+/** inference 的最终渲染文本（derivation + 前提/结论行；与 basisItems 同一公式）。 */
+function inferenceText(inference: GraphInferenceNode): string {
+  return `${inference.derivation}（前提：${inference.premises.join("、")} → 结论：${inference.conclusion}）`;
 }
 
 /**
@@ -216,6 +232,22 @@ export function buildPresentationContext(input: ContextBuildInput): BuiltPresent
         `inference ${inferenceId} referenced for beat ${input.beat.beat_id} is not in the pinned graph (corrupt import; fail closed)`,
       );
     }
+    // F7 P2-B（B6）：核心组 conclusion 与 premises 同受权限纪律约束——conclusion
+    // 为越权 reveals_answer fact ⇒ CONTEXT_FORBIDDEN 明确拒绝（核心组不得像可选
+    // 组那样静默整组放弃：Beat 计划内容本身要求呈现该推理时，缺它即任务损坏）。
+    // 「更多模型上下文不扩大对学生的答案揭示权限」（规格 Invariants）。
+    if (!facts.has(inference.conclusion)) {
+      throw new PresentationContextError(
+        "CONTEXT_LOOKUP_FAILED",
+        `inference ${inferenceId} conclusion ${inference.conclusion} is not in the pinned graph (incomplete approval chain; fail closed)`,
+      );
+    }
+    if (!factVisible(inference.conclusion)) {
+      throw new PresentationContextError(
+        "CONTEXT_FORBIDDEN",
+        `inference ${inferenceId} concludes with answer-revealing fact ${inference.conclusion} outside the authorized reveal set of beat ${input.beat.beat_id} (core basis cannot silently drop its conclusion; fail closed)`,
+      );
+    }
     targetInferences.add(inferenceId);
     if (!input.policy.include_prerequisites) return;
     for (const premise of inference.premises) {
@@ -238,13 +270,21 @@ export function buildPresentationContext(input: ContextBuildInput): BuiltPresent
     addInferenceWithPremises(inferenceId, coreFactIds, coreInferenceIds);
   }
 
-  // 核心组预算：不可裁剪——超限即明确失败（规格 Invariants）。
-  if (coreFactIds.size > input.policy.max_facts || coreInferenceIds.size > input.policy.max_inferences) {
+  // 核心组预算：不可裁剪——条数或最终渲染字符超限即明确失败（规格 Invariants：
+  // 最小必需依据组无法容纳 ⇒ CONTEXT_BUDGET_EXCEEDED，不截断半组/单个公式）。
+  // F7 P2-B（B5）：字符预算按核心组自身的最终渲染长度计（fact 声明 + inference
+  // 渲染行）；资源组可整组省略，不参与核心组的硬失败判定。
+  const coreChars =
+    [...coreFactIds].reduce((total, factId) => total + factText(facts.get(factId)!).length, 0)
+    + [...coreInferenceIds].reduce((total, inferenceId) => total + inferenceText(inferences.get(inferenceId)!).length, 0);
+  if (coreFactIds.size > input.policy.max_facts || coreInferenceIds.size > input.policy.max_inferences || coreChars > input.policy.max_total_chars) {
     throw new PresentationContextError(
       "CONTEXT_BUDGET_EXCEEDED",
-      `core basis group for beat ${input.beat.beat_id} (${coreFactIds.size} facts / ${coreInferenceIds.size} inferences) exceeds the frozen budget (${input.policy.max_facts}/${input.policy.max_inferences}); the minimal required group cannot be truncated`,
+      `core basis group for beat ${input.beat.beat_id} (${coreFactIds.size} facts / ${coreInferenceIds.size} inferences / ${coreChars} chars) exceeds the frozen budget (${input.policy.max_facts}/${input.policy.max_inferences}/${input.policy.max_total_chars} chars); the minimal required group cannot be truncated`,
     );
   }
+  // 已纳入组的运行字符总数（可选/fine fact/资源按最终渲染长度累计入同一预算）。
+  let budgetChars = coreChars;
 
   // ---- 可选组：focus（语义聚焦）→ region（细图 fine refs，expand 语义）。 ----
   interface OptionalGroup {
@@ -300,24 +340,30 @@ export function buildPresentationContext(input: ContextBuildInput): BuiltPresent
   const selectedFacts = new Set(coreFactIds);
   const selectedInferences = new Set(coreInferenceIds);
   const truncated: string[] = [];
+  const truncatedGroupRefs: string[] = [];
+  const registerTruncated = (inferenceId: string): void => {
+    truncated.push(inferenceId);
+    truncatedGroupRefs.push(inferenceId);
+  };
   for (const group of optionalGroups) {
     const newFacts = group.facts.filter((factId) => !selectedFacts.has(factId));
     if (
       selectedFacts.size + newFacts.length > input.policy.max_facts
       || selectedInferences.size + 1 > input.policy.max_inferences
     ) {
-      truncated.push(group.inferenceId);
+      registerTruncated(group.inferenceId);
       continue;
     }
-    // 字符预算按整组评估（fact 文本 + inference derivation）。
-    const projectedChars =
-      approxChars(basisItems(input, selectedFacts, selectedInferences, coreFactIds, coreInferenceIds))
-      + newFacts.reduce((total, factId) => total + (facts.get(factId)?.statement.length ?? 0), 0)
-      + (inferences.get(group.inferenceId)?.derivation.length ?? 0);
-    if (projectedChars > input.policy.max_total_chars) {
-      truncated.push(group.inferenceId);
+    // 字符预算按完整组评估（新 fact 声明 + inference 渲染行；F7 P2-B/B5 与核心
+    // 组共用同一最终渲染长度口径）。
+    const groupChars =
+      newFacts.reduce((total, factId) => total + factText(facts.get(factId)!).length, 0)
+      + inferenceText(inferences.get(group.inferenceId)!).length;
+    if (budgetChars + groupChars > input.policy.max_total_chars) {
+      registerTruncated(group.inferenceId);
       continue;
     }
+    budgetChars += groupChars;
     for (const factId of newFacts) selectedFacts.add(factId);
     selectedInferences.add(group.inferenceId);
   }
@@ -334,6 +380,14 @@ export function buildPresentationContext(input: ContextBuildInput): BuiltPresent
     if (selectedFacts.size + 1 > input.policy.max_facts) {
       continue; // 单独 fact 视作独立组省略；不截断已有内容。
     }
+    // F7 P2-B（B5）：fine fact 同受字符预算约束——独立组超限 ⇒ 整组省略并登记
+    // truncated/context_truncated（不截断单个事实文本）。
+    const factChars = factText(facts.get(factId)!).length;
+    if (budgetChars + factChars > input.policy.max_total_chars) {
+      truncatedGroupRefs.push(factId);
+      continue;
+    }
+    budgetChars += factChars;
     selectedFacts.add(factId);
   }
 
@@ -344,8 +398,26 @@ export function buildPresentationContext(input: ContextBuildInput): BuiltPresent
     );
   }
 
-  const basis = basisItems(input, selectedFacts, selectedInferences, coreFactIds, coreInferenceIds);
-  const resourceIds = [...input.beat.resource_ids];
+  // ---- 资源组（voice_seed/support 文本；F7 P2-B/B5）——按最终渲染长度纳入总预算：
+  // 无内容解析 ⇒ 引用保留（零文本进入 prompt，既有语义）；有内容但整组超限 ⇒
+  // 从 context.resource_ids 整组省略并登记（冻结引用与 drive 侧 basis 复算一致，
+  // 不出现「引用在、正文被截」的半组状态）。
+  const resourceIds: string[] = [];
+  for (const resourceId of input.beat.resource_ids) {
+    const content = input.policy.include_support_resources ? input.resourceContent?.(resourceId) : undefined;
+    if (content === undefined) {
+      resourceIds.push(resourceId);
+      continue;
+    }
+    if (budgetChars + content.length > input.policy.max_total_chars) {
+      truncatedGroupRefs.push(resourceId);
+      continue;
+    }
+    budgetChars += content.length;
+    resourceIds.push(resourceId);
+  }
+
+  const basis = basisItems(input, selectedFacts, selectedInferences, coreFactIds, coreInferenceIds, resourceIds);
 
   const context = {
     plan_ref: input.planRef,
@@ -370,6 +442,10 @@ export function buildPresentationContext(input: ContextBuildInput): BuiltPresent
     digest: sha256Digest({ context, policy_version: input.policy.policy_version, builder: CONTEXT_BUILDER_VERSION }),
     basis,
     truncated_inference_ids: truncated,
+    // F7 P2-B（B5）：完整组省略的登记面——可选 inference 组 / region fine fact /
+    // 资源组任一被省略 ⇒ context_truncated=true 且组 ref 逐一列明（不静默截断）。
+    truncated_group_refs: truncatedGroupRefs,
+    context_truncated: truncatedGroupRefs.length > 0,
     budget: { facts: selectedFacts.size, inferences: selectedInferences.size, approx_chars: approxChars(basis) },
   };
 }
@@ -380,12 +456,13 @@ function basisItems(
   inferenceIds: ReadonlySet<string>,
   coreFactIds: ReadonlySet<string>,
   coreInferenceIds: ReadonlySet<string>,
+  admittedResourceIds: readonly string[],
 ): ContextBasisItem[] {
   const items: ContextBasisItem[] = [];
   for (const factId of factIds) {
     const fact = input.graph.facts.get(factId);
     if (fact) {
-      items.push({ ref: factId, kind: "fact", rank: coreFactIds.has(factId) ? "core" : "region", text: fact.statement });
+      items.push({ ref: factId, kind: "fact", rank: coreFactIds.has(factId) ? "core" : "region", text: factText(fact) });
     }
   }
   for (const inferenceId of inferenceIds) {
@@ -395,12 +472,12 @@ function basisItems(
         ref: inferenceId,
         kind: "inference",
         rank: coreInferenceIds.has(inferenceId) ? "core" : "region",
-        text: `${inference.derivation}（前提：${inference.premises.join("、")} → 结论：${inference.conclusion}）`,
+        text: inferenceText(inference),
       });
     }
   }
   if (input.policy.include_support_resources) {
-    for (const resourceId of input.beat.resource_ids) {
+    for (const resourceId of admittedResourceIds) {
       const content = input.resourceContent?.(resourceId);
       if (content) items.push({ ref: resourceId, kind: "resource", rank: "core", text: content });
     }

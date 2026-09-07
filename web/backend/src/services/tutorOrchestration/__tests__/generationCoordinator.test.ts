@@ -16,6 +16,7 @@ import test from "node:test";
 
 import { ensureSqlite } from "../../tutorSession/__tests__/support";
 import { SHA, SYNTHETIC_CATALOG_PIN, SYNTHETIC_TASK_ID, syntheticRegistry } from "../../tutorSession/__tests__/v6KernelSupport";
+import { TutorSessionEventStoreV9Error, type PendingV9Event } from "../../tutorSession/TutorSessionEventV9";
 
 const sqlitePath = ensureSqlite("f7-rt4-generation-coordinator");
 
@@ -309,6 +310,138 @@ test("reservation conflicts: drifted payload rejected; slot busy and non-idle cu
   assert.equal(retry.kind, "reserved");
   assert.notEqual(retry.request.request_id, kernel.state.generation_requests[0].request_id);
   assert.equal(kernel.state.generation_requests[0].status, "failed", "old failed record untouched");
+});
+
+// --------------------------------------------------------------------------- //
+// F7 P2-B（B2）：认领门（并行认领最多一个有效 owner）+ 提交路径查证
+//（CAS 回滚重交持有候选 / 回执丢失查证返回 / 取消竞争语义保持）
+// --------------------------------------------------------------------------- //
+
+test("B2 parallel drive: the claim gate admits exactly one model call and a single owner", async () => {
+  const sessionId = freshSessionId();
+  const kernel = startKernel(sessionId);
+  const requestId = reserve(kernel).request.request_id;
+  const calls: Array<[number, number]> = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const pipeline = {
+    buildAndRun: async (request: { request_id: string; attempt: number; epoch: number }) => {
+      calls.push([request.attempt, request.epoch]);
+      const candidate = candidateFor(kernel, request.request_id);
+      await gate;
+      return { candidate: candidate as never };
+    },
+  };
+  // 两 worker 并发驱动同一请求：worker A 同步完成 CAS 认领（epoch 提升）后进入
+  // 模型调用；worker B 重读时已见他方 token ⇒ 本轮退让（零模型调用）。
+  const first = driveGeneration(accessOf(kernel), pipeline as never, { causationSequence: 1, sleep: noWaitSleep });
+  const resumedKernel = TutorSessionKernelV9.resume(sessionId, registryProvider());
+  const second = driveGeneration(accessOf(resumedKernel), pipeline as never, { causationSequence: 1, sleep: noWaitSleep });
+  release();
+  const outcomes = await Promise.allSettled([first, second]);
+  assert.equal(calls.length, 1, "exactly one model call across parallel drives");
+  const kinds = outcomes.map((outcome) => (outcome.status === "fulfilled" ? outcome.value.kind : `rejected:${(outcome.reason as Error).message}`));
+  assert.deepEqual([...kinds].sort(), ["committed", "superseded"]);
+  const record = kernel.state.generation_requests.find((entry) => entry.request_id === requestId)!;
+  assert.equal(record.status, "committed");
+  assert.equal(record.epoch, 2, "winner claimed with a raised fencing epoch");
+});
+
+test("B2 confirmed commit rollback: the held candidate is resubmitted without a second model call", async () => {
+  const sessionId = freshSessionId();
+  const kernel = startKernel(sessionId);
+  reserve(kernel);
+  let calls = 0;
+  let injected = false;
+  const wrapped = {
+    sessionId,
+    get revision(): number {
+      return kernel.revision;
+    },
+    get state() {
+      return kernel.state;
+    },
+    append(expectedRevision: number, events: PendingV9Event[]) {
+      // 已确认回滚：CAS 冲突且**未落库**（候选仍由本 worker 持有）。
+      if (!injected && events[0].event_type === "presentation_sequence_planned") {
+        injected = true;
+        throw new TutorSessionEventStoreV9Error("REVISION_CONFLICT", "injected confirmed rollback (nothing appended)");
+      }
+      return kernel.append(expectedRevision, events);
+    },
+  };
+  const outcome = await driveGeneration(wrapped, {
+    buildAndRun: async (request) => {
+      calls += 1;
+      return { candidate: candidateFor(kernel, request.request_id) as never };
+    },
+  }, { causationSequence: 1, sleep: noWaitSleep, refresh: () => wrapped });
+  assert.equal(calls, 1, "rollback of a confirmed commit must not regenerate");
+  assert.equal(outcome.kind, "committed");
+  const record = kernel.state.generation_requests.find((entry) => entry.status === "committed")!;
+  assert.ok(record.sequence_id);
+});
+
+test("B2 lost commit acknowledgement: the drive verifies and returns the committed result instead of throwing", async () => {
+  const sessionId = freshSessionId();
+  const kernel = startKernel(sessionId);
+  reserve(kernel);
+  let calls = 0;
+  let injected = false;
+  const wrapped = {
+    sessionId,
+    get revision(): number {
+      return kernel.revision;
+    },
+    get state() {
+      return kernel.state;
+    },
+    append(expectedRevision: number, events: PendingV9Event[]) {
+      const result = kernel.append(expectedRevision, events);
+      // 提交已成功落库，但回执错误注入（ack 丢失）。
+      if (!injected && events[0].event_type === "presentation_sequence_planned") {
+        injected = true;
+        throw new Error("injected lost commit acknowledgement (store committed, response lost)");
+      }
+      return result;
+    },
+  };
+  const outcome = await driveGeneration(wrapped, {
+    buildAndRun: async (request) => {
+      calls += 1;
+      return { candidate: candidateFor(kernel, request.request_id) as never };
+    },
+  }, { causationSequence: 1, sleep: noWaitSleep, refresh: () => wrapped });
+  assert.equal(outcome.kind, "committed", "ack loss must be resolved by verification, not by throwing or regenerating");
+  assert.equal(calls, 1);
+  const record = kernel.state.generation_requests.find((entry) => entry.status === "committed")!;
+  assert.equal(record.sequence_id, outcome.sequence.sequence_id);
+});
+
+test("B2 cancel during the in-flight model call: the late candidate never commits and the drive classifies superseded (no throw)", async () => {
+  const sessionId = freshSessionId();
+  const kernel = startKernel(sessionId);
+  reserve(kernel);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const pending = driveGeneration(accessOf(kernel), {
+    buildAndRun: async (request) => {
+      const candidate = candidateFor(kernel, request.request_id);
+      await gate;
+      return { candidate: candidate as never };
+    },
+  }, { causationSequence: 1, sleep: noWaitSleep });
+  cancelGeneration(accessOf(kernel), "cancelled", 1);
+  release();
+  const outcome = await pending;
+  assert.equal(outcome.kind, "superseded");
+  const record = kernel.state.generation_requests[0];
+  assert.equal(record.status, "cancelled");
+  assert.equal(kernel.state.generation_slot.status, "idle");
 });
 
 void sqlitePath;

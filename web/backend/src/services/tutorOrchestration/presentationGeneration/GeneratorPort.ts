@@ -5,8 +5,10 @@
  * 与判题链 model_gate_pin、教学策略链 policy_profile 分开——state/v4 描述）。
  * Provider 组合（组合根 createPresenterModelPort）：
  * - deepseek（缺省）：DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / TUTOR_PRESENTER_MODEL；
- * - dashscope：DASHSCOPE_API_KEY + DashScope OpenAI 兼容模式
- *   （TUTOR_PRESENTER_DASHSCOPE_BASE_URL，缺省 compatible-mode 端点）。
+ * - dashscope：只取 DASHSCOPE_API_KEY + DashScope OpenAI 兼容模式
+ *   （TUTOR_PRESENTER_DASHSCOPE_BASE_URL，缺省 compatible-mode 端点）——
+ *   供应商严格隔离（F7 P2-B/B7）：缺键不回退 DEEPSEEK_API_KEY，provider 标记
+ *   「dashscope」（经 DashScopePresenterModelPort 委托既有适配器，非第三套设施）。
  * 键名环境变量只检测存在性，绝不记录值；键缺失 ⇒ not-configured 错误如实上抛
  * （协调者登记受阻，不伪造模型输出，不以 stub 冒充 AP-01/02 通过）。
  *
@@ -18,7 +20,7 @@ import type { z } from "zod";
 
 import { presentationDraftV2Schema } from "../../../../../shared/canonical";
 import { DeepSeekStructuredModel } from "../../tutorIntelligence/adapters/deepseek/DeepSeekStructuredModel";
-import { StructuredModelError, type StructuredModelPort } from "../../tutorIntelligence/structuredModelPort";
+import { StructuredModelError, type StructuredCompletionRequest, type StructuredCompletionResult, type StructuredModelPort } from "../../tutorIntelligence/structuredModelPort";
 import { CONTEXT_BUILDER_VERSION } from "./ContextBuilder";
 import { PRESENTER_PROMPT_VERSION } from "./PresenterPrompts";
 import { PRESENTATION_TOOL_CATALOG_VERSION } from "./PresentationToolCatalog";
@@ -76,6 +78,48 @@ const DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mo
 const DEFAULT_PRESENTER_TIMEOUT_MS = 30_000;
 const DEFAULT_PRESENTER_MAX_TOKENS = 2_048;
 
+/**
+ * DashScope 严格隔离端口（F7 P2-B/B7）：provider 身份=「dashscope」，密钥只取
+ * DASHSCOPE_API_KEY——缺失 ⇒ 端口构造成功但调用时 not-configured 如实失败，
+ * 绝不回退 DEEPSEEK_API_KEY（跨供应商密钥不得互发；文件头声明的意图在此收口）。
+ * 有键时委托既有 DeepSeekStructuredModel（OpenAI 兼容协议复用，非第三套设施）；
+ * 显式传入的非空 apiKey/baseUrl/model 在适配器内按传入值生效（无 env 回退）。
+ */
+class DashScopePresenterModelPort implements StructuredModelPort {
+  readonly provider = "dashscope";
+  readonly modelId: string;
+  private readonly apiKey: string;
+  private readonly delegate: DeepSeekStructuredModel | undefined;
+
+  constructor(options: { readonly apiKey?: string; readonly baseUrl: string; readonly model?: string; readonly timeoutMs: number; readonly maxCompletionTokens: number }) {
+    this.apiKey = options.apiKey?.trim() ?? "";
+    this.modelId = options.model?.trim() ?? "";
+    this.delegate = this.apiKey && this.modelId
+      ? new DeepSeekStructuredModel({
+        apiKey: this.apiKey,
+        baseUrl: options.baseUrl,
+        model: this.modelId,
+        timeoutMs: options.timeoutMs,
+        maxCompletionTokens: options.maxCompletionTokens,
+      })
+      : undefined;
+  }
+
+  async complete<T>(request: StructuredCompletionRequest): Promise<StructuredCompletionResult<T>> {
+    if (!this.apiKey || !this.modelId || !this.delegate) {
+      // 如实受阻：键/模型名缺失不是 DeepSeek 的 not-configured——供应商身份准确。
+      throw new StructuredModelError(
+        "not-configured",
+        !this.apiKey
+          ? "DASHSCOPE_API_KEY is not configured (dashscope presenter never falls back to another provider's key)"
+          : "TUTOR_PRESENTER_MODEL is not configured for the dashscope presenter",
+        false,
+      );
+    }
+    return this.delegate.complete<T>(request);
+  }
+}
+
 function presenterTimeoutMs(): number {
   const raw = Number(process.env.TUTOR_PRESENTER_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_PRESENTER_TIMEOUT_MS;
@@ -91,8 +135,11 @@ export function createPresenterModelPort(): StructuredModelPort {
   const provider = (process.env.TUTOR_PRESENTER_PROVIDER ?? "deepseek").trim().toLowerCase();
   const model = process.env.TUTOR_PRESENTER_MODEL?.trim();
   if (provider === "dashscope") {
-    return new DeepSeekStructuredModel({
-      apiKey: process.env.DASHSCOPE_API_KEY?.trim() || "",
+    // F7 P2-B（B7）：供应商严格隔离——只取 DASHSCOPE_API_KEY；空键交给
+    // DashScopePresenterModelPort 在调用时如实 not-configured（显式空键不得
+    // 触发适配器对 DEEPSEEK_API_KEY 的回退）；provider 标记 dashscope。
+    return new DashScopePresenterModelPort({
+      apiKey: process.env.DASHSCOPE_API_KEY,
       baseUrl: process.env.TUTOR_PRESENTER_DASHSCOPE_BASE_URL?.trim() || DEFAULT_DASHSCOPE_BASE_URL,
       ...(model !== undefined ? { model } : {}),
       timeoutMs: presenterTimeoutMs(),

@@ -241,6 +241,104 @@ test("structured model errors map to closed failure classes with retryability", 
 });
 
 // --------------------------------------------------------------------------- //
+// F7 P2-B（B7）：供应商严格隔离——合成密钥 + 拦截 fetch，不发送真实网络请求。
+// --------------------------------------------------------------------------- //
+
+const generatorPortModule = require("../presentationGeneration/GeneratorPort") as typeof import("../presentationGeneration/GeneratorPort");
+
+/** 临时环境变量隔离（结束时逐键复原；undefined ⇒ delete，不残留 "undefined"）。 */
+async function withEnv(mutations: Record<string, string | undefined>, run: () => Promise<void>): Promise<void> {
+  const saved: Array<[string, string | undefined]> = [];
+  for (const [key, value] of Object.entries(mutations)) {
+    saved.push([key, process.env[key]]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    await run();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("B7 dashscope with a missing key fails not-configured and never borrows another provider's key (zero network)", async () => {
+  let fetchCalls = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    throw new Error("the isolation probe must not reach the network");
+  }) as typeof fetch;
+  try {
+    await withEnv({
+      TUTOR_PRESENTER_PROVIDER: "dashscope",
+      TUTOR_PRESENTER_MODEL: "synthetic-qwen",
+      // 显式空串 = 未配置（不得触发适配器对 DEEPSEEK_API_KEY 的回退）。
+      DASHSCOPE_API_KEY: "",
+      DEEPSEEK_API_KEY: "synthetic-deepseek-probe",
+      TUTOR_PRESENTER_DASHSCOPE_BASE_URL: "https://synthetic-dashscope.invalid/v1",
+    }, async () => {
+      const port = generatorPortModule.createPresenterModelPort();
+      assert.equal(port.provider, "dashscope", "provider identity must be dashscope even when unconfigured");
+      await assert.rejects(
+        () => port.complete({ systemPrompt: "probe", promptVersion: "probe", userPayload: {}, timeoutMs: 1_000 }),
+        (error: unknown) => error instanceof StructuredModelError
+          && error.code === "not-configured"
+          && error.message.includes("DASHSCOPE_API_KEY")
+          && !error.message.includes("DEEPSEEK_API_KEY"),
+      );
+    });
+    assert.equal(fetchCalls, 0, "missing dashscope key must not send any request (no cross-provider borrowing)");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("B7 dashscope with both keys present sends the dashscope key to the dashscope endpoint; pin provider is dashscope", async () => {
+  const seen: { url: string; authorization: string; model: string }[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seen.push({
+      url: String(input),
+      authorization: String((init?.headers as Record<string, string>).Authorization),
+      model: JSON.parse(String(init?.body)).model,
+    });
+    return new Response(JSON.stringify({ choices: [{ message: { content: "{\"items\":[{\"type\":\"speech\",\"text\":\"合成讲解。\",\"basis_refs\":[\"FN-14\"]}]}" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    await withEnv({
+      TUTOR_PRESENTER_PROVIDER: "dashscope",
+      TUTOR_PRESENTER_MODEL: "synthetic-qwen",
+      DASHSCOPE_API_KEY: "synthetic-dashscope-probe",
+      DEEPSEEK_API_KEY: "synthetic-deepseek-probe",
+      TUTOR_PRESENTER_DASHSCOPE_BASE_URL: "https://synthetic-dashscope.invalid/v1",
+    }, async () => {
+      const port = generatorPortModule.createPresenterModelPort();
+      const generator = structuredPresenterGenerator(port);
+      assert.equal(port.provider, "dashscope");
+      assert.equal(generator.pin.provider, "dashscope", "presenter pin provider must be dashscope");
+      const result = await generator.generatePresentationDraft({
+        request_id: `GR-${SESSION}-0002`,
+        systemPrompt: "s",
+        promptVersion: PRESENTER_PROMPT_VERSION,
+        userPayload: {},
+        timeoutMs: 1_000,
+      });
+      assert.equal(result.draft.items.length, 1);
+      assert.equal(result.draft.items[0].type, "speech");
+    });
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].url, "https://synthetic-dashscope.invalid/v1/chat/completions");
+    assert.equal(seen[0].authorization, "Bearer synthetic-dashscope-probe", "dashscope endpoint must receive the dashscope key");
+    assert.equal(seen[0].model, "synthetic-qwen");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// --------------------------------------------------------------------------- //
 // IntentCompiler（正例 + AP-05 确定性反例）
 // --------------------------------------------------------------------------- //
 

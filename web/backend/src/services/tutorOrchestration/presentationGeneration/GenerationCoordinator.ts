@@ -4,14 +4,17 @@
  * 职责分工（规格 Ownership）：
  * - Orchestrator 依已提交教学决策**预约**生成（reserveGeneration：幂等
  *   source_request_id、CAS 预约事件、冻结上下文 digest）；
- * - 本协调器驱动**事务外**模型调用循环（driveGeneration）：每次调用前原子
- *   登记 attempt 消耗 + 新 epoch（attempt_started）；超时/传输失败/5xx ⇒
- *   waiting_retry + retry_at（同 request、同冻结上下文、新 attempt/epoch）；
+ * - 本协调器驱动**事务外**模型调用循环（driveGeneration）：每次调用前先以
+ *   attempt_started 事件原子认领（ownership token：attempt/epoch；首次认领
+ *   attempt 不变、epoch+1，重试/续跑新认领 = attempt+1/epoch+1 原子消耗预算；
+ *   CAS 失败方本轮不得调用模型——并行认领最多一个有效 owner）；超时/传输失败/
+ *   5xx ⇒ waiting_retry + retry_at（同 request、同冻结上下文、新 attempt/epoch）；
  *   预算耗尽 ⇒ failed(RETRY_EXHAUSTED)；schema/binding/权限失败 ⇒ 立即
  *   failed（不重试）；用户取消 ⇒ invalidated（正常控制结果）；
  * - 提交：编译候选经 kernel 单事件事务 planned(v4+generation) 落库——序列、
- *   provenance、板书正文原子提交，slot 同事件清回 idle；CAS/fencing 失败
- *   （迟到 epoch、取消先胜、revision 变化）⇒ 零提交静默退出；
+ *   provenance、板书正文原子提交，slot 同事件清回 idle；提交路径任何异常（CAS
+ *   冲突/回执错误）先重读查证：已 committed ⇒ 返回既有结果（不重生成），仍持
+ *   有效 epoch ⇒ 重交持有候选（不调模型），否则 superseded（迟到/取消零提交）；
  * - 恢复：committed 请求按幂等身份取回已提交序列（零模型调用）；pending
  *   请求按剩余预算续跑（崩溃后 attempt 消耗已登记，不重置计数）。
  *
@@ -21,7 +24,6 @@
 import { createHash } from "node:crypto";
 
 import type { PendingV9Event, V9GenerationEventPayload } from "../../tutorSession/TutorSessionEventV9";
-import { TutorSessionEventStoreV9Error } from "../../tutorSession/TutorSessionEventV9";
 import type { TutorRuntimeStateV9 } from "../../tutorSession/TutorRuntimeStateReducerV9";
 import type { CompiledPresentationPlanV4 } from "./IntentCompiler";
 import { PresenterGenerationError } from "./GeneratorPort";
@@ -92,10 +94,6 @@ function sha256(value: unknown): string {
 }
 
 const nowIso = (): string => new Date().toISOString();
-
-function isRevisionConflict(error: unknown): boolean {
-  return error instanceof TutorSessionEventStoreV9Error && error.code === "REVISION_CONFLICT";
-}
 
 /**
  * 预约（幂等）：同 source_request_id 同 payload → 返回既有任务（不重复调用
@@ -207,8 +205,19 @@ export type DriveOutcome =
 
 /**
  * 驱动 pending 请求直至终态（committed/failed/superseded）。
- * 模型调用在 append 事务外；每次调用前原子登记 attempt/epoch；CAS 失败重读
- * 权威状态后按请求终态决定续跑或退出（迟到 worker 零提交）。
+ *
+ * F7 P2-B（B2）认领门与提交查证（生成生命周期规格 :26/:38/:45/:52）：
+ * - 调用模型前必须以 attempt_started 事件原子认领（ownership token：attempt/epoch；
+ *   首次认领 attempt 不变、epoch+1；重试/失联续跑的新认领 = attempt+1/epoch+1，
+ *   原子消耗预算）。CAS 失败方本轮不得调用模型——并行认领最多一个有效 owner；
+ * - running 请求已被其他 worker 认领（epoch 已提升）⇒ 本驱动退让（superseded，
+ *   零模型调用、不劫持在途调用的预算）。进程内单 worker 模型下这是可判定的
+ *   「在途 owner 存在」唯一信号——事件词表冻结（26 类）无租约时钟字段，对
+ *   running 孤儿（认领者已死）的自动接管因此不在此实现；显式恢复路径见
+ *   Orchestrator.retryRecovery（生成失败后 retry_recovery 新任务新预算）；
+ * - 提交（planned）路径任何异常（CAS 冲突/已确认回滚/回执错误注入）⇒ 先重读
+ *   权威状态查证：已 committed ⇒ 返回既有结果（不重生成）；仍 pending 且 epoch
+ *   仍属本 worker ⇒ 用持有候选重交（不调模型）；epoch 已推进/取消/失败 ⇒ superseded。
  */
 export async function driveGeneration(
   initialAccess: GenerationKernelAccess,
@@ -221,23 +230,84 @@ export async function driveGeneration(
   });
   let access = initialAccess;
 
-  type PendingRequestView = GenerationRequestView & { status: string; phase?: string; retry_at?: string; attempt: number; epoch: number };
+  type PendingRequestView = GenerationRequestView & { status: string; phase?: string; retry_at?: string; attempt: number; epoch: number; sequence_id?: string };
   const requestOf = (): PendingRequestView | undefined => {
     const slot = access.state.generation_slot;
     if (slot.status !== "pending") return undefined;
     return access.state.generation_requests.find((record) => record.request_id === slot.request_id) as unknown as PendingRequestView;
   };
+  const recordOf = (requestId: string): PendingRequestView | undefined =>
+    access.state.generation_requests.find((record) => record.request_id === requestId) as unknown as PendingRequestView | undefined;
 
-  const appendCas = (events: PendingV9Event[]): boolean => {
+  /** 认领/预算事件构造（attempt_started 快照；retry_at 不随认领携带）。 */
+  const attemptStartedEvent = (request: PendingRequestView, attempt: number, epoch: number): PendingV9Event => {
+    const payload: V9GenerationEventPayload = { ...(request as unknown as V9GenerationEventPayload), attempt, epoch, phase: "running" };
+    delete payload.retry_at;
+    return {
+      event_type: "presentation_generation_attempt_started",
+      payload,
+      occurred_at: nowIso(),
+      causation_sequence: deps.causationSequence,
+      idempotency_key: `gen:${access.sessionId}:${request.request_id}:attempt:${attempt}`,
+    };
+  };
+
+  /**
+   * 认领 CAS：任何失败（含非 REVISION_CONFLICT 的竞态归约错误）⇒ 重读权威状态，
+   * 由循环顶重判（终态/他人认领/重试认领）。refresh 自身抛出（存储不可达）则上抛。
+   */
+  const appendClaim = (events: PendingV9Event[]): boolean => {
     try {
       access.append(access.revision, events);
       return true;
-    } catch (error) {
-      if (!isRevisionConflict(error)) throw error;
+    } catch {
       access = deps.refresh?.() ?? access;
       return false;
     }
   };
+
+  /**
+   * 模型后事实转换（retry_scheduled/failed）提交：CAS 冲突/异常 ⇒ 重读查证后
+   * 重交**同一转换**（不重调模型）；请求终态或 epoch 被推进 ⇒ superseded。
+   * 重交仍失败（查证后仍属本 worker）⇒ 如实上抛。
+   */
+  const appendTransition = (events: PendingV9Event[], snapshot: PendingRequestView, owned: { attempt: number; epoch: number }): "appended" | "superseded" => {
+    let failure: unknown;
+    for (let round = 0; round < 2; round += 1) {
+      try {
+        access.append(access.revision, events);
+        return "appended";
+      } catch (error) {
+        failure = error;
+        access = deps.refresh?.() ?? access;
+        const reread = recordOf(snapshot.request_id);
+        if (!reread || reread.status !== "pending") return "superseded";
+        if (reread.epoch !== owned.epoch || reread.attempt !== owned.attempt) return "superseded";
+      }
+    }
+    throw failure;
+  };
+
+  /** 查证路径的 committed 视图：优先返回持有候选（id 相同=本 worker 的候选已入库）；他人先交的序列只回身份/成因摘要（交付层按 sequence_id 从 committed 流重读正文）。 */
+  const verifiedSequence = (record: PendingRequestView, candidate: CompiledPresentationPlanV4): CompiledPresentationPlanV4 => {
+    if (record.sequence_id !== undefined && record.sequence_id === candidate.sequence_id) return candidate;
+    return {
+      sequence_id: record.sequence_id ?? "",
+      decision_id: record.decision_id,
+      scope: record.scope,
+      generation: {
+        request_id: record.request_id,
+        attempt: record.attempt,
+        input_digest: record.input_digest,
+        presenter_pin: record.presenter_pin,
+        epoch: record.epoch,
+      },
+      actions: [],
+    } as unknown as CompiledPresentationPlanV4;
+  };
+
+  // 本驱动循环经 CAS attempt_started 认领到的 ownership token（attempt/epoch）。
+  let owned: { attempt: number; epoch: number } | undefined;
 
   for (;;) {
     if (deps.signal?.aborted) {
@@ -248,8 +318,6 @@ export async function driveGeneration(
     const request = requestOf();
     if (!request) {
       // slot 非 pending：committed（已有人提交）或 failed/idle（已取消/失败）。
-      const last = access.state.generation_requests[access.state.generation_requests.length - 1];
-      if (last?.status === "committed") return { kind: "superseded" };
       return { kind: "superseded" };
     }
     if (request.status === "cancelled" || request.status === "committed" || request.status === "failed") {
@@ -258,56 +326,59 @@ export async function driveGeneration(
     if (request.phase === "waiting_retry" && request.retry_at !== undefined) {
       const waitMs = Math.max(0, Date.parse(request.retry_at) - now().getTime());
       if (waitMs > 0) await sleep(waitMs);
-      // 到点后先以新 attempt 登记（attempt+1 / epoch+1——原子消耗预算）。
-      const nextAttempt = request.attempt + 1;
-      const started: V9GenerationEventPayload = {
-        ...(request as unknown as V9GenerationEventPayload),
-        attempt: nextAttempt,
-        epoch: nextAttempt,
-        phase: "running",
-      };
-      delete started.retry_at;
-      if (!appendCas([
-        { event_type: "presentation_generation_attempt_started", payload: started, occurred_at: nowIso(), causation_sequence: deps.causationSequence, idempotency_key: `gen:${access.sessionId}:${request.request_id}:attempt:${nextAttempt}` },
-      ])) {
-        continue;
-      }
+      // 到点后新认领：attempt+1 / epoch+1（原子消耗预算；规格 :27——自动重试复用
+      // 同一上下文和 request，但使用新 attempt/epoch）。
+      const claim = { attempt: request.attempt + 1, epoch: request.epoch + 1 };
+      if (appendClaim([attemptStartedEvent(request, claim.attempt, claim.epoch)])) owned = claim;
       continue;
     }
-    // running：确认当前 attempt 已登记（requested 事件自带 attempt=1；重读后
-    // 恢复的 running 请求也已登记）——直接调用模型（事务外）。
+    // running：认领门（规格 :26/:38/:52）。
+    if (owned !== undefined && (request.epoch !== owned.epoch || request.attempt !== owned.attempt)) {
+      // 权威 epoch/attempt 已不属本 worker：被 fence（迟到 worker 零提交）。
+      return { kind: "superseded" };
+    }
+    if (owned === undefined) {
+      if (request.epoch === 1 && request.attempt === 1) {
+        // 首次认领：requested 事件只登记预算基线（attempt=1/epoch=1）——本 worker
+        // 以 attempt_started 提升 epoch 建立 ownership token；CAS 失败方本轮退出。
+        const claim = { attempt: 1, epoch: 2 };
+        if (appendClaim([attemptStartedEvent(request, claim.attempt, claim.epoch)])) owned = claim;
+        continue;
+      }
+      // 已被其他 worker 认领（epoch>=2 且非本循环所立）：并行认领最多一个有效
+      // owner——本轮退让，零模型调用、不消耗在途调用的预算。
+      return { kind: "superseded" };
+    }
+    // —— 认领有效：事务外调用模型 ——
     const snapshot = request as unknown as V9GenerationEventPayload;
     let candidate: CompiledPresentationPlanV4;
     try {
       const result = await pipeline.buildAndRun(snapshot);
       candidate = result.candidate;
     } catch (error) {
-      if (error instanceof PresenterGenerationError) {
-        const canRetry = error.retryable && snapshot.attempt < snapshot.max_attempts;
-        if (canRetry) {
-          const delayMs = snapshot.retry_delays_ms[snapshot.attempt - 1] ?? 0;
-          const retryPayload: V9GenerationEventPayload = { ...snapshot, phase: "waiting_retry", retry_at: new Date(now().getTime() + delayMs).toISOString() };
-          if (!appendCas([
-            { event_type: "presentation_generation_retry_scheduled", payload: retryPayload, occurred_at: nowIso(), causation_sequence: deps.causationSequence, idempotency_key: `gen:${access.sessionId}:${snapshot.request_id}:retry:${snapshot.attempt}` },
-          ])) {
-            continue;
-          }
-          continue;
-        }
-        const errorClass = error.retryable && snapshot.attempt >= snapshot.max_attempts ? "RETRY_EXHAUSTED" : error.failureClass;
-        const failedPayload: V9GenerationEventPayload = { ...snapshot, status: "failed", error_class: errorClass };
-        delete failedPayload.phase;
-        delete failedPayload.retry_at;
-        if (!appendCas([
-          { event_type: "presentation_generation_failed", payload: failedPayload, occurred_at: nowIso(), causation_sequence: deps.causationSequence, idempotency_key: `gen:${access.sessionId}:${snapshot.request_id}:failed:${snapshot.attempt}` },
-        ])) {
-          continue;
-        }
-        return { kind: "failed", errorClass };
+      if (!(error instanceof PresenterGenerationError)) throw error;
+      const canRetry = error.retryable && snapshot.attempt < snapshot.max_attempts;
+      if (canRetry) {
+        const delayMs = snapshot.retry_delays_ms[snapshot.attempt - 1] ?? 0;
+        const retryPayload: V9GenerationEventPayload = { ...snapshot, phase: "waiting_retry", retry_at: new Date(now().getTime() + delayMs).toISOString() };
+        const appended = appendTransition([
+          { event_type: "presentation_generation_retry_scheduled", payload: retryPayload, occurred_at: nowIso(), causation_sequence: deps.causationSequence, idempotency_key: `gen:${access.sessionId}:${snapshot.request_id}:retry:${snapshot.attempt}` },
+        ], snapshot as PendingRequestView, owned);
+        if (appended === "superseded") return { kind: "superseded" };
+        continue;
       }
-      throw error;
+      const errorClass = error.retryable && snapshot.attempt >= snapshot.max_attempts ? "RETRY_EXHAUSTED" : error.failureClass;
+      const failedPayload: V9GenerationEventPayload = { ...snapshot, status: "failed", error_class: errorClass };
+      delete failedPayload.phase;
+      delete failedPayload.retry_at;
+      const appended = appendTransition([
+        { event_type: "presentation_generation_failed", payload: failedPayload, occurred_at: nowIso(), causation_sequence: deps.causationSequence, idempotency_key: `gen:${access.sessionId}:${snapshot.request_id}:failed:${snapshot.attempt}` },
+      ], snapshot as PendingRequestView, owned);
+      if (appended === "superseded") return { kind: "superseded" };
+      return { kind: "failed", errorClass };
     }
-    // 提交：planned(v4+generation)——序列+provenance+正文原子入库，slot 同事件清空。
+    // —— 提交：planned(v4+generation)——序列+provenance+正文原子入库，slot 同事件清空。
+    // 任何异常（CAS 冲突/回执错误注入）先重读查证再决定（不重生成；规格 :39/:40/:55）。
     const plannedPayload = {
       sequence_id: candidate.sequence_id,
       decision_id: candidate.decision_id,
@@ -317,14 +388,34 @@ export async function driveGeneration(
       ...(candidate.explanation_fragments !== undefined ? { explanation_fragments: candidate.explanation_fragments } : {}),
       ...(candidate.existing_fragment_refs !== undefined ? { existing_fragment_refs: candidate.existing_fragment_refs } : {}),
     };
-    if (!appendCas([
-      { event_type: "presentation_sequence_planned", payload: plannedPayload, occurred_at: nowIso(), causation_sequence: deps.causationSequence, idempotency_key: `gen:${access.sessionId}:${snapshot.request_id}:planned:${candidate.sequence_id}` },
-    ])) {
-      // CAS 失败：重读后由循环顶部的终态判定收口（迟到/被取消零提交）。
-      const reread = requestOf();
-      if (reread && reread.status === "pending") continue;
-      return { kind: "superseded" };
+    const plannedEvent: PendingV9Event = {
+      event_type: "presentation_sequence_planned",
+      payload: plannedPayload,
+      occurred_at: nowIso(),
+      causation_sequence: deps.causationSequence,
+      idempotency_key: `gen:${access.sessionId}:${snapshot.request_id}:planned:${candidate.sequence_id}`,
+    };
+    let submitFailure: unknown;
+    let submitted = false;
+    for (let round = 0; round < 2 && !submitted; round += 1) {
+      try {
+        access.append(access.revision, [plannedEvent]);
+        submitted = true;
+      } catch (error) {
+        submitFailure = error;
+        // refresh 自身抛出（存储不可达）⇒ 上抛原错误（存储不可达暂停，不重调模型）。
+        access = deps.refresh?.() ?? access;
+        const reread = recordOf(snapshot.request_id);
+        if (reread && reread.status === "committed" && reread.sequence_id !== undefined) {
+          // 已提交（回执丢失/他人先交同请求）：查证返回既有结果，不重生成。
+          return { kind: "committed", sequence: verifiedSequence(reread, candidate) };
+        }
+        if (!reread || reread.status !== "pending") return { kind: "superseded" };
+        if (reread.epoch !== owned.epoch || reread.attempt !== owned.attempt) return { kind: "superseded" };
+        // 仍 pending 且 epoch 仍属本 worker：下一轮用持有候选重交（不调模型）。
+      }
     }
+    if (!submitted) throw submitFailure;
     return { kind: "committed", sequence: candidate };
   }
 }
