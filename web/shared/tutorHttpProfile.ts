@@ -24,6 +24,7 @@
 import { z } from "zod";
 
 import {
+  tutorRuntimeStateV3Schema,
   coachPanelViewV1Schema,
   mainlineParticipationV1Schema,
   presentationDeliveryV1Schema,
@@ -433,3 +434,37 @@ export function parseSessionSnapshotHttp(payload: unknown):
   }
   return { ok: true, snapshot: parsed.data };
 }
+
+// S1 field contract; P2 composes it atomically into the existing HTTP parser and
+// projector. No new endpoint, online profile, or navigation state is enabled.
+const adaptiveGenerationSlot = tutorRuntimeStateV3Schema.innerType().shape.generation_slot;
+const generationBudgetFields = {
+  attempt: z.number().int().min(1),
+  max_attempts: z.number().int().min(1),
+};
+export const adaptivePresentationSnapshotFieldsSchema = z.object({
+  generation: z.discriminatedUnion("status", [
+    adaptiveGenerationSlot.options[0],
+    adaptiveGenerationSlot.options[1].pick({ status: true, request_id: true }).extend({
+      ...generationBudgetFields,
+      phase: z.enum(["running", "waiting_retry"]),
+      retry_at: z.string().datetime().optional(),
+    }),
+    adaptiveGenerationSlot.options[2].extend({
+      ...generationBudgetFields,
+      error_class: adaptiveGenerationSlot.options[2].shape.error_class.or(z.literal("RETRY_EXHAUSTED")),
+    }),
+  ]),
+  scope: adaptiveGenerationSlot.options[1].shape.scope.nullable(),
+}).strict().superRefine((value, ctx) => {
+  const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  const generation = value.generation;
+  if (generation.status === "idle") return;
+  if (value.scope === null) add("generation requires an active teaching scope");
+  if (generation.attempt > generation.max_attempts) add("generation attempt exceeds budget");
+  if (generation.status === "pending") {
+    if (generation.phase === "waiting_retry") {
+      if (!generation.retry_at || generation.attempt >= generation.max_attempts) add("retry requires remaining budget and retry_at");
+    } else if (generation.retry_at !== undefined) add("running generation cannot carry retry_at");
+  }
+});

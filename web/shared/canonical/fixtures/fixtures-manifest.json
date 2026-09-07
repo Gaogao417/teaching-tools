@@ -1,7 +1,7 @@
 {
   "schema": "ai_teaching_fixtures_manifest/v1",
   "generated_at": "2026-08-27T00:00:00Z",
-  "fixture_count": 191,
+  "fixture_count": 252,
   "fixtures": [
     {
       "file": "action-outcome.negative.completed-with-class.json",
@@ -212,6 +212,30 @@
       "sha256": "sha256:42cf1f570aad235f02234697ff396faa1d64832ddebaeaa018dfec3dfb043820"
     },
     {
+      "file": "presentation-draft.v2.negative.forged-reveal.json",
+      "object_schema": "ai_teaching_presentation_draft/v2",
+      "schema_ref": "../schemas/generation/v2/presentation-draft.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:972e6c2f1665f2f834f7c98d2e7c01ae65ebe92006482a3e0f5548143dc6f6ae"
+    },
+    {
+      "file": "presentation-draft.v2.negative.tool-without-args.json",
+      "object_schema": "ai_teaching_presentation_draft/v2",
+      "schema_ref": "../schemas/generation/v2/presentation-draft.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:d5e59724d3129a937bedd25e79b511e199479e27f257ce3354caa84c109ad3d6"
+    },
+    {
+      "file": "presentation-draft.v2.positive.optional-binding.json",
+      "object_schema": "ai_teaching_presentation_draft/v2",
+      "schema_ref": "../schemas/generation/v2/presentation-draft.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:b4f3f1147314495d3558ac42e0dfc779abac3856482ce66c77eabffc72054734"
+    },
+    {
       "file": "presentation-outcome.negative.failed-without-class.json",
       "object_schema": "ai_teaching_presentation_outcome/v1",
       "schema_ref": "../schemas/runtime/v6/presentation-outcome.schema.json",
@@ -314,6 +338,110 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:cb077816bdcf4ecb7ee811383f6271d36b48b4d328c84772a93263f941d6b797"
+    },
+    {
+      "file": "presentation-plan.v4.negative.duplicate-fragment.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:ad844ce10b3b97af9a3211a17d47b1dd541a26c461db97b766a6e6bcf23e6ece"
+    },
+    {
+      "file": "presentation-plan.v4.negative.foreign-action-decision.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:4a2b7527bf63ce6b88b3d6ce6b8bd507e744b826fe20ba7de2c0a708945789d1"
+    },
+    {
+      "file": "presentation-plan.v4.negative.fragment-generation-mismatch.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:b5721f78e054ce3d1e0d6421dab71ff8e87f9b53103d32f99f28debf875b654c"
+    },
+    {
+      "file": "presentation-plan.v4.negative.missing-content-source.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:a94b6ccc0c7f1e93628ec64000e6a82be08ffb46b58623dc59d08e8e1ebd1781"
+    },
+    {
+      "file": "presentation-plan.v4.negative.missing-epoch.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:1f59a64a85439aa4f41c870a15c6631f5345adc51d92d9d4637e4de304754e00"
+    },
+    {
+      "file": "presentation-plan.v4.negative.missing-presenter-pin.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:4d4b21d4122654f73cff435bcf378a06e01c1767c4e2071905b8aed45003a04c"
+    },
+    {
+      "file": "presentation-plan.v4.negative.missing-source-hash.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:3b6cffdcb6417110bf9f37814e01e2a70bd4b316905917028947be77a4b884a6"
+    },
+    {
+      "file": "presentation-plan.v4.negative.mixed-content-sources.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:6b68c2f3955fa583bd4e75c7958da834eba8c1e3481481430c8dbc737cb86917"
+    },
+    {
+      "file": "presentation-plan.v4.negative.null-fragment-table.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:6047d696b71e71c34bfc1311b69d717c9141488a8946dc84a5b1acbfc7456e8c"
+    },
+    {
+      "file": "presentation-plan.v4.negative.retired-frame.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:3dc8314283c562c0efa6b38e2d75969b4289ef2fd26cb74c8f7b2729661df29d"
+    },
+    {
+      "file": "presentation-plan.v4.negative.self-source.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:8943f93d98fb511fc7d403f5c4d973a0b27507325ad8973829f84e9b8187c224"
+    },
+    {
+      "file": "presentation-plan.v4.positive.generated-content.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:68d5cb872c29b5e4f5e29fc1eb713a11d81d91ae2d108873daac83b89acf08a9"
+    },
+    {
+      "file": "presentation-plan.v4.positive.recovery-existing-fragment.json",
+      "object_schema": "ai_teaching_presentation_plan/v4",
+      "schema_ref": "../schemas/runtime/v8/presentation-plan.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:2c3d02fe8820a3fdcdfa746a31e7a4da9be73b72e77d39d2d27d273195b1faa1"
     },
     {
       "file": "presentation-tool-spec.negative.missing-parameters.json",
@@ -884,6 +1012,62 @@
       "sha256": "sha256:be777254c9b98f2dec1646d4157be53a2201e6b83b3fe9fca58446133bc30fb5"
     },
     {
+      "file": "tutor-plan-bundle.v7.negative.duplicate-binding.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v7",
+      "schema_ref": "../schemas/planning/v7/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:01a629770047b664a77382cbed67910984f11469e64ae955735529fc806c90f4"
+    },
+    {
+      "file": "tutor-plan-bundle.v7.negative.missing-existing-gate.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v7",
+      "schema_ref": "../schemas/planning/v7/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:595a81fc6a68d8c47b51a25228ddfbd6a17271cf15df0029488217524b3c91ef"
+    },
+    {
+      "file": "tutor-plan-bundle.v7.negative.retired-checkpoint.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v7",
+      "schema_ref": "../schemas/planning/v7/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:21dade54c03b2edac3f93d072fc9aea05f76be22a2bf34a33693114a8355bfec"
+    },
+    {
+      "file": "tutor-plan-bundle.v7.negative.retired-refinement.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v7",
+      "schema_ref": "../schemas/planning/v7/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:4ea6790823d69a7f3722a1b926680f6412e24514a9e41518ab36419d6a4c6978"
+    },
+    {
+      "file": "tutor-plan-bundle.v7.negative.unknown-reveal-protocol.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v7",
+      "schema_ref": "../schemas/planning/v7/tutor-plan-bundle.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:ccd5bc79c4b5a49c1c0fe31dbf0227f11f67518624de1122f2597cde94ca23de"
+    },
+    {
+      "file": "tutor-plan-bundle.v7.positive.bindings-without-refinement.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v7",
+      "schema_ref": "../schemas/planning/v7/tutor-plan-bundle.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:2be43448fde35685e1bd772f0a9f37c1c444de384f7eaab38c00ab9986922e21"
+    },
+    {
+      "file": "tutor-plan-bundle.v7.positive.no-new-binding.json",
+      "object_schema": "ai_teaching_tutor_plan_bundle/v7",
+      "schema_ref": "../schemas/planning/v7/tutor-plan-bundle.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:f761f5af4300525ad0797fc23e0130ff9b494f8f9b7b2abc2b63830effa066bd"
+    },
+    {
       "file": "tutor-policy-decision.negative.inquiry-without-return.json",
       "object_schema": "ai_teaching_tutor_policy_decision/v1",
       "schema_ref": "../schemas/runtime/v5/tutor-policy-decision.schema.json",
@@ -1026,6 +1210,198 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:6b35b6ccb63ee39d38e6bd0610886f870bcec0386ddb235b5a00f434a53ca3b3"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.attempt-over-budget.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:54427e63c0167ab48f4b0afbe8a9f013f997d631b9fae0bc7a4aa7ea9cbba381"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.concurrent-delivery.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:f4591b5a61a7c464bdff10bd348a4a0c3e607642021e29e1bbded0b649313e21"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.context-plan-drift.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:f5b82d5f3e332af32b4c196f6cc41d569a7e388b130a83dc88e7bb0286b4e9e8"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.duplicate-record.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e50ee2c103146204593183fb8b0671449731110d3fc982f8ae90b1dadf9bd96c"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.duplicate-source-request.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:ee674f3bcdb22af1fb4844501a2541252bb240b93dee7e7eb9307c5b6dff7e8a"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.exhausted-wait.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:36eb40c618ecf961887868dc4a98c16b793fdebe5a2a85cd59232fae4fa1699b"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.false-exhaustion.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:5a015b2a41f50531da753a07ebac3c4483ad39f6913780e46d6d739ea523f713"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.future-context-cutoff.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:b37681056bca9c51b5816e4d347234d8c53b5c0377bf8230e969b6cf3c69fca6"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.future-reservation.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:690cee259ba66a50ff36ee26374804acd1f5e6bf7a54b694228a1ede6895a494"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.invalid-budget-schedule.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:79a8abe6bfbec9584a319979d0b3f69bdeb8f86a011db834f089f4871f7e7ed3"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.missing-context.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:239bad2e6ced2b8858176ef4dfd0accc7ddf676de0b80a267af43d7b8f4a8550"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.missing-session-presenter-pin.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:5be927021a5edf0e8113ac13763403e31dfdc4bab5af46f933e053fa2761a368"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.missing-source.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:d5660df6c39a118d1b6accd513876275c132bb3f60dcab59756dde47e5d85acb"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.null-retry-time.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:81e77e1fbb7c002e5deb9d134c915cdc1abc1b52dbb352c8101722d4442b5049"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.orphan-pending.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e79503a9767a67dbe4b42c140bb7bf4e964b351775405d8f1cd4db6ba79a4593"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.request-pin-drift.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:fbc841d114cddda3d8c768eede163c7e32556a2b8b167614272559cd79a061e9"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.retired-frames.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:bbafc013d3bb2dea4927c24dfc137c670bed505223c75debbd2f54fca61d41c5"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.retry-without-time.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:e39233c91aa35bbdfd42ebabeac44b4b91d5225decc53ab88cb26c3a29a58f4b"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.slot-mismatch.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:8ae98e06ac0ed617419b6bc04d9d442c86e6344758d129b01907739935497d55"
+    },
+    {
+      "file": "tutor-runtime-state.v4.negative.terminal-with-live-phase.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:3a347cfc94e000d28ccffb6ed2400345d17ad882c4e7d4586bc85af561878391"
+    },
+    {
+      "file": "tutor-runtime-state.v4.positive.committed-history.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:306950cc0a2202d11ee53c6de78814729491e03b52e997a6bbfc2d87c7f847d2"
+    },
+    {
+      "file": "tutor-runtime-state.v4.positive.exhausted.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:07404fa4e64061814e7b252fbd3f0869f476a9cfcee7d584a1dc2d09193271b2"
+    },
+    {
+      "file": "tutor-runtime-state.v4.positive.running.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:5636a5ea6d6b2d668c3013438e4a00f55a41397ad19867f8439076e51f8f3d7e"
+    },
+    {
+      "file": "tutor-runtime-state.v4.positive.waiting-retry.json",
+      "object_schema": "ai_teaching_tutor_runtime_state/v4",
+      "schema_ref": "../schemas/state/v4/tutor-runtime-state.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:6aeb315a19d0ae586a0b156e27fb6a7e8675a0c6cba228de0b5695021239a506"
     },
     {
       "file": "tutor-session-event.negative.payload-missing-level.json",
@@ -1458,6 +1834,118 @@
       "expect_schema": "valid",
       "expect_publication": "n/a",
       "sha256": "sha256:d42f6926adb3eba2c93294b215b3b673cad3c02e4fc43c3765fec8cb34cd2992"
+    },
+    {
+      "file": "tutor-session-event.v9.negative.future-reservation.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:4a0136ae70f96ecab160ac24324c286e538a123ffc8afe817ce7a440bc2bfca3"
+    },
+    {
+      "file": "tutor-session-event.v9.negative.missing-causation.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:10b94f0f9bccce6576507a549173960bb717e7589d5fe375031e16dbaf5329db"
+    },
+    {
+      "file": "tutor-session-event.v9.negative.missing-pin.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:123d93ddcd47538a8f2005c481335031bffb1650f9e66c3f84f37f27d1c5a95b"
+    },
+    {
+      "file": "tutor-session-event.v9.negative.missing-planned-content.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:1ac98a0653010c663f5703a72ad40dc9a9de34e47635cc47ef3687705ca18416"
+    },
+    {
+      "file": "tutor-session-event.v9.negative.requested-spent-budget.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:6b0113546b0d03189908e91c040676c56a3072b22f4a493359334b401544be35"
+    },
+    {
+      "file": "tutor-session-event.v9.negative.retired-frame-event.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:d561245e9ba39e0de4a6e7801c2c07a74ce953427e86a7f495f702c847ecd9ce"
+    },
+    {
+      "file": "tutor-session-event.v9.negative.retired-refine-decision.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:009216774f2193b2799bd08e87659898f67ea30bfa2fafd2d49ea0f1f43bb938"
+    },
+    {
+      "file": "tutor-session-event.v9.negative.state-mismatch.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "invalid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:a93b9334c1d13e6546f8c407e5a30765f25bb83e892d9a943238ae6b6f7ecd77"
+    },
+    {
+      "file": "tutor-session-event.v9.positive.attempt-started.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:cfd676545fccef96ba53915fc7c8cc9dc40f1135a8fdb26b223e541cc2b3f56f"
+    },
+    {
+      "file": "tutor-session-event.v9.positive.cancelled.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:772137e1c7b444ce39260b4d7c105cd6a17d462d4c6acb0b64a68ef69de7799d"
+    },
+    {
+      "file": "tutor-session-event.v9.positive.failed.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:0f3b86a09bc4a482ae28c2ed7138a0c84cdf31f52026971ef57fe8b9e602a2ab"
+    },
+    {
+      "file": "tutor-session-event.v9.positive.planned-content.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:d6bb4fb169f729b4f980a9d5d73620b9e7e64c4b2836bf3335851ccce757fda0"
+    },
+    {
+      "file": "tutor-session-event.v9.positive.requested.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:976bf642b04a228a926c2a858115be92e2a45746ef74ee10336d3b81b2943aeb"
+    },
+    {
+      "file": "tutor-session-event.v9.positive.retry.json",
+      "object_schema": "ai_teaching_tutor_session_event/v9",
+      "schema_ref": "../schemas/runtime/v9/tutor-session-event.schema.json",
+      "expect_schema": "valid",
+      "expect_publication": "n/a",
+      "sha256": "sha256:04477a16420241835ead6b437d6a63d3072fc5c776e01d8284321237d2196269"
     },
     {
       "file": "voice-action.negative.approved-without-resource.json",

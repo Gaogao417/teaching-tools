@@ -1,0 +1,5458 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ai-teaching.dev/runtime/v9/tutor-session-event.schema.json",
+  "title": "TutorSessionEvent v9",
+  "description": "Existing teaching events plus generation lifecycle. Frozen context and budget survive retries; no new teaching decisions or frame events.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "session_id",
+    "sequence",
+    "state_revision",
+    "occurred_at",
+    "event_type",
+    "payload",
+    "idempotency_key"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ai_teaching_tutor_session_event/v9"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^TS-[0-9]{4,}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "该事件提交后对应的 session state revision；同一 Pinned Plan + 有序 committed events 必须重建相同 TutorRuntimeState（F2 不变量）。"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event_type": {
+      "enum": [
+        "session_started",
+        "student_input_recorded",
+        "student_workspace_command_recorded",
+        "student_intent_recorded",
+        "semantic_interpretation_recorded",
+        "policy_decision_made",
+        "gate_evaluated",
+        "presentation_sequence_planned",
+        "presentation_action_validated",
+        "presentation_action_applied",
+        "presentation_action_delivered",
+        "presentation_action_outcome_recorded",
+        "presentation_sequence_superseded",
+        "action_outcome_recorded",
+        "external_support_recorded",
+        "inquiry_opened",
+        "inquiry_returned",
+        "student_progressed",
+        "policy_failed",
+        "runtime_failure",
+        "session_completed",
+        "presentation_generation_requested",
+        "presentation_generation_attempt_started",
+        "presentation_generation_retry_scheduled",
+        "presentation_generation_failed",
+        "presentation_generation_invalidated"
+      ]
+    },
+    "payload": {
+      "type": "object"
+    },
+    "causation_sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "决策派生事实指向触发它的学生输入/决策事件 sequence。"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+    }
+  },
+  "$defs": {
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "version",
+        "content_hash"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^[A-Z]{2,4}-[A-Z0-9]+-[0-9]{3,}$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+$"
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "description": "core/v1 artifact-ref 内嵌形状。"
+    },
+    "policy_profile_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "version",
+        "primary_provider",
+        "fallback_provider",
+        "model_id",
+        "prompt_version"
+      ],
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "pattern": "^PP-[A-Z0-9]+-[0-9]{3,}$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "primary_provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fallback_provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prompt_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "description": "与 v4 同构：恢复会话不得偷偷换模型。"
+    },
+    "presentation_voice_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "decision_id",
+        "text",
+        "source"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "pattern": "^VA-[A-Za-z0-9._:-]{4,}$"
+        },
+        "decision_id": {
+          "type": "string",
+          "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "enum": [
+            "approved-resource",
+            "model-generated",
+            "deterministic-scaffold"
+          ]
+        },
+        "resource_ref": {
+          "type": "string",
+          "pattern": "^RES[0-9]{1,3}$"
+        },
+        "generation_id": {
+          "type": "string",
+          "pattern": "^VG-[A-Za-z0-9._:-]{4,}$"
+        },
+        "interruptible": {
+          "type": "boolean"
+        },
+        "intent": {
+          "enum": [
+            "narrate",
+            "question",
+            "feedback"
+          ]
+        }
+      },
+      "description": "与 ai_teaching_voice_action/v1 的 body 同构（无外层 schema/session_id）。"
+    },
+    "presentation_workspace_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "decision_id",
+        "surface",
+        "capability",
+        "origin",
+        "reveal_scope"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "pattern": "^WSA-[A-Za-z0-9._:-]{4,}$"
+        },
+        "decision_id": {
+          "type": "string",
+          "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+        },
+        "surface": {
+          "enum": [
+            "geometry",
+            "solution_board"
+          ]
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "const": "tutor"
+        },
+        "target_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "command_payload": {
+          "type": "string"
+        },
+        "reveal_scope": {
+          "enum": [
+            "none",
+            "target_highlight",
+            "step_narration",
+            "intermediate_result",
+            "final_result"
+          ]
+        },
+        "presentation_only": {
+          "type": "boolean"
+        }
+      },
+      "description": "与 ai_teaching_workspace_surface_action/v1 的 body 同构（无外层 schema/session_id）。"
+    },
+    "presentation_ordered_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "kind"
+      ],
+      "properties": {
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "必须等于数组下标（0 起连续、唯一）——镜像强制。"
+        },
+        "kind": {
+          "enum": [
+            "voice",
+            "workspace"
+          ]
+        },
+        "voice_action": {
+          "$ref": "#/$defs/presentation_voice_action"
+        },
+        "workspace_action": {
+          "$ref": "#/$defs/presentation_workspace_action"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "voice"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "voice_action"
+            ],
+            "not": {
+              "required": [
+                "workspace_action"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "workspace"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "workspace_action"
+            ],
+            "not": {
+              "required": [
+                "voice_action"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "voice_action_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "decision_id",
+        "text",
+        "source"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "pattern": "^VA-[A-Za-z0-9._:-]{4,}$"
+        },
+        "decision_id": {
+          "type": "string",
+          "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "enum": [
+            "approved-resource",
+            "model-generated",
+            "deterministic-scaffold"
+          ]
+        },
+        "resource_ref": {
+          "type": "string",
+          "pattern": "^RES[0-9]{1,3}$"
+        },
+        "generation_id": {
+          "type": "string",
+          "pattern": "^VG-[A-Za-z0-9._:-]{4,}$"
+        },
+        "interruptible": {
+          "type": "boolean"
+        },
+        "intent": {
+          "enum": [
+            "narrate",
+            "question",
+            "feedback"
+          ]
+        }
+      },
+      "description": "voice-action/v1 body 同构（无外层 schema/session_id）。source=approved-resource 必带 resource_ref、source=model-generated 必带 generation_id（镜像强制，同 v2）。"
+    },
+    "workspace_action_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "decision_id",
+        "surface",
+        "capability",
+        "origin",
+        "reveal_scope"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "pattern": "^WSA-[A-Za-z0-9._:-]{4,}$"
+        },
+        "decision_id": {
+          "type": "string",
+          "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+        },
+        "surface": {
+          "enum": [
+            "geometry",
+            "solution_board"
+          ]
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "description": "开放 capability 字符串（registry 校验）；board.explain 等新工具经此进入（裁定 B6），command_payload 只携编译器分配的 EF- fragment 引用。"
+        },
+        "origin": {
+          "const": "tutor"
+        },
+        "target_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "command_payload": {
+          "type": "string"
+        },
+        "reveal_scope": {
+          "enum": [
+            "none",
+            "target_highlight",
+            "step_narration",
+            "intermediate_result",
+            "final_result"
+          ]
+        },
+        "presentation_only": {
+          "type": "boolean"
+        }
+      },
+      "description": "workspace-surface-action/v1 body 同构（无外层 schema/session_id）。"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "session_started"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "session_mode",
+              "task_id",
+              "scenario_id",
+              "question_ref",
+              "approach_set_ref",
+              "solution_graph_ref",
+              "protocol_refs",
+              "tutor_plan_ref",
+              "policy_profile_snapshot",
+              "initial_cursor"
+            ],
+            "properties": {
+              "task_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "session_mode": {
+                "enum": [
+                  "teaching",
+                  "assessment"
+                ],
+                "description": "F7 Step 4：会话模式显式记录（不由 catalog hash 间接推断）。teaching=正常教学；assessment=无教学帮助、无答案揭示、Workspace locked，但仍收集并评价学生独立作答（mainline utterance/confirm/continue 与确定性指示 voice 允许；assistance/request_scaffold/request_rephrase/tutor Geometry-Board 呈现动作/学生 workspace 命令拒绝）。resume 时 session_mode 与 workspace_catalog_pin（assessment ⇒ locked catalog 变体 hash）双重对账，任一不符 fail closed。"
+              },
+              "scenario_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "question_ref": {
+                "$ref": "#/$defs/artifact_ref"
+              },
+              "approach_set_ref": {
+                "$ref": "#/$defs/artifact_ref"
+              },
+              "solution_graph_ref": {
+                "$ref": "#/$defs/artifact_ref"
+              },
+              "protocol_refs": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/artifact_ref"
+                },
+                "description": "session pin 的全部 TeachingProtocol（含 mainline + inquiry/scaffold 分支）。"
+              },
+              "tutor_plan_ref": {
+                "$ref": "#/$defs/artifact_ref"
+              },
+              "policy_profile_snapshot": {
+                "$ref": "#/$defs/policy_profile_snapshot"
+              },
+              "initial_cursor": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "protocol_id",
+                  "beat_id"
+                ],
+                "properties": {
+                  "protocol_id": {
+                    "type": "string",
+                    "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                  },
+                  "beat_id": {
+                    "type": "string",
+                    "pattern": "^BT-[0-9]{1,3}$"
+                  }
+                }
+              },
+              "previous_session_id": {
+                "type": "string",
+                "pattern": "^TS-[0-9]{4,}$"
+              },
+              "switch_reason": {
+                "const": "alternate_approach"
+              },
+              "workspace_catalog_pin": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "catalog_schema_version",
+                  "content_hash"
+                ],
+                "properties": {
+                  "catalog_schema_version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "WorkspacePresentationCatalog 的 schemaVersion（F3 当前=1）。"
+                  },
+                  "content_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "description": "catalog 内容的 canonical sha256（计算口径冻结于 mvp/foundation/f3-f5-rework/r0-contract-wave.md：递归键排序 JSON、无空白、UTF-8；参与字段=schemaVersion/taskId/baseGeometry?/authoredElementKinds?/boardEntries/canonicalPathEntryIds/initialInteractionMode；seed overlay 不参与）。resume 时未对账或 mismatch 的 catalog 不得被接受。"
+                  },
+                  "entry_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "boardEntries 数（快速对账辅助；content_hash 为权威）。"
+                  }
+                },
+                "description": "2026-08-31 R0 增补（F3/F5 修复波次）：F3 WorkspacePresentationCatalogV5 的持久 pin（resume 对账依据；catalog 为 F3 代码级产物，本字段只 pin 内容摘要不内嵌 catalog）。可选加法：缺省=流不含 catalog pin（旧流仍合法）；新 F3 会话由实现写入门禁强制携带（schema 不强制，理由见 r0 报告）。"
+              },
+              "model_gate_pin": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "provider",
+                  "model_id",
+                  "prompt_version",
+                  "adjudicator_version"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Gate 裁决 provider 标识（GateAdjudicationProvider.name 口径；如 structured-model/deepseek-v4-flash、claude-code-cli/2.1.114——后者仅人工实证不作生产 Runtime）。"
+                  },
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Gate 裁决模型 id（R3 起自然语言 completion evidence 的 adjudicator；区别于 policy_profile_snapshot 的教学策略模型链）。"
+                  },
+                  "prompt_version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Gate 裁决 prompt 版本（ModelGateAdjudicatorV5 的系统提示词版本）。"
+                  },
+                  "adjudicator_version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "裁决器实现版本（MODEL_GATE_ADJUDICATOR_VERSION）。"
+                  }
+                },
+                "description": "2026-08-29 F6 增补（f6-scope-ledger「合同变更」）：Gate 裁决 provider/model/prompt/version 随 session pin（resume 对账依据；provider 由生产组合根显式注入，replay 不重新调模型）。可选加法：缺省=流不含模型 pin（R3 前旧流仍合法）；新 F6 会话由实现写入门禁强制携带（schema 不强制，先例=workspace_catalog_pin）。resume 方以注入 provider 重算 pin 逐字段对账，不符 fail closed（实现级 MODEL_PIN_MISMATCH，零事件追加）。"
+              },
+              "presenter_generation_pin": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "provider",
+                  "model_id",
+                  "prompt_version",
+                  "context_builder_version",
+                  "tool_catalog_version"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "context_builder_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool_catalog_version": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "student_input_recorded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "input",
+              "client_request_id"
+            ],
+            "properties": {
+              "input": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "utterance",
+                      "control"
+                    ]
+                  },
+                  "channel": {
+                    "enum": [
+                      "mainline",
+                      "assistance"
+                    ],
+                    "description": "用户选择的交互入口，不是语义理解结果。"
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "command": {
+                    "enum": [
+                      "confirm",
+                      "continue",
+                      "request_scaffold",
+                      "request_rephrase",
+                      "barge_in",
+                      "return_to_mainline",
+                      "retry_recovery"
+                    ]
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "kind": {
+                          "const": "utterance"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "channel",
+                        "text"
+                      ],
+                      "not": {
+                        "required": [
+                          "command"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "kind": {
+                          "const": "control"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "command"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "channel"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "text"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "description": "与 ai_teaching_student_input/v1 的 input 同构（判别联合 utterance|control）。"
+              },
+              "client_request_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._:-]{4,128}$"
+              }
+            },
+            "description": "学生原始输入事实（ADR-011 决策 6）：只有 raw utterance/channel 或显式 control；语义解释结果记录在 student_intent_recorded / semantic_interpretation_recorded（causation 指向本事件）。"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "student_workspace_command_recorded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "command_id",
+              "surface",
+              "capability",
+              "origin",
+              "target_ids",
+              "expected_workspace_revision",
+              "client_request_id"
+            ],
+            "properties": {
+              "command_id": {
+                "type": "string",
+                "pattern": "^SC-[A-Za-z0-9._:-]{4,}$",
+                "description": "领域命令身份（SC-）。"
+              },
+              "surface": {
+                "enum": [
+                  "geometry",
+                  "solution_board"
+                ]
+              },
+              "capability": {
+                "type": "string",
+                "minLength": 1,
+                "description": "学生可执行能力（capability/mode 校验 fail closed；unknown capability 零事件）。"
+              },
+              "origin": {
+                "const": "student",
+                "description": "常量：学生来源；tutor 呈现走 WorkspaceSurfaceAction。"
+              },
+              "target_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "params": {
+                "type": "object",
+                "description": "自由参数对象（值/文本等）；具体形状由 capability validator 决定。"
+              },
+              "expected_workspace_revision": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "命令观察到的 workspace revision；不匹配即 stale 拒绝（不静默覆盖）。"
+              },
+              "client_request_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._:-]{4,128}$",
+                "description": "HTTP 幂等身份（统一命名；与请求幂等键同值）。"
+              },
+              "source": {
+                "enum": [
+                  "direct",
+                  "accepted_action_evidence"
+                ],
+                "description": "命令入口来源判别：direct=学生直接提交（/workspace-commands）；accepted_action_evidence=accepted action evidence 确定性派生（/action-evidence accepted）。replay 由此可审计命令入口，不加独立 evidence 事件。"
+              },
+              "evidence_action_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "source=accepted_action_evidence 时必带（派生命令的来源 action id）；source=direct 禁带。"
+              },
+              "input_evidence_sequence": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "可选：输入因果引用（与 ai_teaching_student_workspace_command/v1 的 input_evidence_sequence 字段对齐；命令事实先行记录，常规缺省）。"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "source": {
+                      "const": "accepted_action_evidence"
+                    }
+                  },
+                  "required": [
+                    "source"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "evidence_action_id"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "source": {
+                      "const": "direct"
+                    }
+                  },
+                  "required": [
+                    "source"
+                  ]
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "evidence_action_id"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "F7 Step 4 新增：学生来源的权威 WorkspaceCommand 事实（与 ai_teaching_student_workspace_command/v1 命令域字段逐字段同形；schema/session_id 由事件 envelope 承载）。直接命令（source=direct）与 accepted action-evidence 确定性派生命令（source=accepted_action_evidence）均落本事件；rejected evidence 零事件不变量不破。action_outcome_recorded{student_command} 的 causation 指向本事件。raw fact：不要求 causation_sequence。"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "student_intent_recorded"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "intent_kind",
+              "client_request_id"
+            ],
+            "properties": {
+              "intent_kind": {
+                "enum": [
+                  "submit_answer",
+                  "confirm",
+                  "continue",
+                  "ask_question",
+                  "request_scaffold",
+                  "request_rephrase",
+                  "replay_narration",
+                  "barge_in",
+                  "return_to_mainline",
+                  "retry_recovery"
+                ]
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "client_request_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._:-]{4,128}$"
+              }
+            },
+            "description": "后端语义解释结果（SemanticInterpreter 对 utterance/control 的产物；v7 起不再承载 submit_workspace_command——结构化命令走 student_workspace_command_recorded，两条输入因果链不混用）。"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "semantic_interpretation_recorded"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "intent",
+              "reasoning_location",
+              "confidence",
+              "interpreter_version"
+            ],
+            "properties": {
+              "intent": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reasoning_location": {
+                "enum": [
+                  "aligned",
+                  "partially_aligned",
+                  "misaligned",
+                  "unknown"
+                ]
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "interpreter_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "grounding_refs": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.\\[\\]-]{3,64}$"
+                }
+              },
+              "reasoning_focus": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "graph_fact_refs"
+                ],
+                "properties": {
+                  "part_id": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,2}$"
+                  },
+                  "graph_fact_refs": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^FN-[0-9]{1,3}$"
+                    }
+                  }
+                },
+                "description": "2026-08-31 R0 增补（F3/F5 修复波次；发布前原地加法，v5 无已发布 artifact）：本事件携带时，reducer 用它整体覆写 state/v1 reasoning_focus（学生追问旧推理区域：主线 TeachingCursor 不动，focus 转局部子图）；缺省时 reducer 不改 reasoning_focus（旧事件仍合法、行为不变）。形状与 state/v1 reasoning_focus 逐字段同构（state/v1 冻结不改，事件是唯一驱动源）。"
+              },
+              "reasoning_alignment": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "expected_region",
+                      "alternate_valid_path",
+                      "incorrect_reasoning",
+                      "unclear_reasoning",
+                      "no_progress"
+                    ],
+                    "description": "09-target-architecture:1118 五类 ReasoningAlignment 的合同枚举（PascalCase→snake_case 逐词对齐：ExpectedRegion/AlternateValidPath/IncorrectReasoning/UnclearReasoning/NoProgress）。"
+                  },
+                  "fact_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^FN-[0-9]{1,3}$"
+                    },
+                    "description": "expected_region / alternate_valid_path 携带：对齐（或替代路径）命中的 graph fact 集。"
+                  },
+                  "inference_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^IF-[0-9]{1,3}$"
+                    },
+                    "description": "expected_region / alternate_valid_path 携带：命中的 InferenceNode 集（ReviewedSolutionGraph IF-）。"
+                  },
+                  "anchored_fact_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^FN-[0-9]{1,3}$"
+                    },
+                    "description": "incorrect_reasoning 携带：错误推理锚定的 fact 集（09: IncorrectReasoning of anchoredFactIds）。"
+                  }
+                },
+                "description": "2026-08-31 R0 增补：五类 alignment 假设（09:1118 架构合同的运行时表达）。与 legacy 四值 reasoning_location 并存（reasoning_location 保持必填、不改旧值）；本字段可选，各类别携带的引用集由 payload 级 allOf 条件强制。"
+              }
+            },
+            "description": "结构化假设（可推翻），不保存 chain-of-thought。",
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "reasoning_alignment": {
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "expected_region",
+                            "alternate_valid_path"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "reasoning_alignment"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "reasoning_alignment": {
+                      "required": [
+                        "fact_ids",
+                        "inference_ids"
+                      ],
+                      "not": {
+                        "required": [
+                          "anchored_fact_ids"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "reasoning_alignment": {
+                      "properties": {
+                        "kind": {
+                          "const": "incorrect_reasoning"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "reasoning_alignment"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "reasoning_alignment": {
+                      "required": [
+                        "anchored_fact_ids"
+                      ],
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "fact_ids"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "inference_ids"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "reasoning_alignment": {
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "unclear_reasoning",
+                            "no_progress"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "reasoning_alignment"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "reasoning_alignment": {
+                      "not": {
+                        "anyOf": [
+                          {
+                            "required": [
+                              "fact_ids"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "inference_ids"
+                            ]
+                          },
+                          {
+                            "required": [
+                              "anchored_fact_ids"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "policy_decision_made"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "decision_id",
+              "decision_kind",
+              "protocol_id",
+              "beat_id",
+              "policy_version",
+              "source_event_sequence",
+              "source_state_revision"
+            ],
+            "properties": {
+              "decision_id": {
+                "type": "string",
+                "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+              },
+              "decision_kind": {
+                "enum": [
+                  "execute_beat",
+                  "complete_beat",
+                  "transition_beat",
+                  "open_inquiry",
+                  "open_scaffold",
+                  "continue_inquiry",
+                  "return_to_mainline",
+                  "revisit_beat",
+                  "accept_alternate_path",
+                  "change_stance",
+                  "request_clarification",
+                  "pause",
+                  "safe_fallback"
+                ]
+              },
+              "protocol_id": {
+                "type": "string",
+                "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+              },
+              "beat_id": {
+                "type": "string",
+                "pattern": "^BT-[0-9]{1,3}$"
+              },
+              "to_beat_id": {
+                "type": "string",
+                "pattern": "^BT-[0-9]{1,3}$"
+              },
+              "policy_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_event_sequence": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "source_state_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "transition_basis": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "basis"
+                ],
+                "properties": {
+                  "basis": {
+                    "enum": [
+                      "legal_transition",
+                      "gate_satisfied",
+                      "gate_unsatisfied",
+                      "student_evidence",
+                      "inquiry_completed",
+                      "timeout",
+                      "safe_fallback_policy"
+                    ]
+                  },
+                  "gate_id": {
+                    "type": "string",
+                    "pattern": "^GT-[0-9]{1,3}$"
+                  },
+                  "graph_variant_id": {
+                    "type": "string",
+                    "pattern": "^SV-[0-9]{1,3}$",
+                    "description": "accept_alternate_path 时引用 ReviewedSolutionGraph 的 solution variant（SV）。"
+                  }
+                }
+              },
+              "inquiry": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "inquiry_id",
+                  "return_beat_id"
+                ],
+                "properties": {
+                  "inquiry_id": {
+                    "type": "string",
+                    "pattern": "^IQ-[A-Za-z0-9._:-]{4,}$"
+                  },
+                  "inquiry_protocol_id": {
+                    "type": "string",
+                    "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                  },
+                  "return_beat_id": {
+                    "type": "string",
+                    "pattern": "^BT-[0-9]{1,3}$"
+                  }
+                }
+              },
+              "local_inquiry_protocol": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "local_protocol_id",
+                  "source_plan",
+                  "anchor_fact_ids",
+                  "anchor_inference_ids",
+                  "beats",
+                  "transitions",
+                  "return_beat_id",
+                  "expires_with_session"
+                ],
+                "properties": {
+                  "local_protocol_id": {
+                    "type": "string",
+                    "pattern": "^LPR-[A-Za-z0-9._:-]{4,}$",
+                    "description": "session-local 协议 id（id-registry LPR，runtime）。非 PR- artifact：永不发布、永不复用、不改写 Approved Plan。"
+                  },
+                  "source_plan": {
+                    "$ref": "#/$defs/artifact_ref",
+                    "description": "生成依据的 Pinned Plan（TP- ref，与 session_started tutor_plan_ref 对账）——LocalInquiryProtocol 六要素之 sourcePlan。"
+                  },
+                  "anchor_fact_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^FN-[0-9]{1,3}$"
+                    },
+                    "description": "锚定 Pinned ReviewedSolutionGraph 的 fact 集（六要素之 anchorFactIds；≥1——零锚点协议无法做图边界校验，fail closed）。"
+                  },
+                  "anchor_inference_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^IF-[0-9]{1,3}$"
+                    },
+                    "description": "锚定 InferenceNode 集（六要素之 anchorInferenceIds；可为空）。"
+                  },
+                  "beats": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "beat_id",
+                        "purpose",
+                        "graph_fact_refs",
+                        "cognitive_activity",
+                        "completion_evidence",
+                        "participation",
+                        "pacing",
+                        "support_boundary"
+                      ],
+                      "properties": {
+                        "beat_id": {
+                          "type": "string",
+                          "pattern": "^LBT-[0-9]{1,3}$",
+                          "description": "本地 beat 命名空间（id-registry LBT）——与 Approved Protocol 的 BT- 空间构造性隔离，防止与主线 beat 混淆。"
+                        },
+                        "purpose": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "graph_fact_refs": {
+                          "type": "array",
+                          "minItems": 1,
+                          "items": {
+                            "type": "string",
+                            "pattern": "^FN-[0-9]{1,3}$"
+                          },
+                          "description": "本 beat 引用的图 fact（边界校验输入：必须在 Pinned RG 内）。"
+                        },
+                        "cognitive_activity": {
+                          "enum": [
+                            "attend",
+                            "recall",
+                            "relate",
+                            "apply",
+                            "verify",
+                            "explain"
+                          ]
+                        },
+                        "completion_evidence": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "evidence_kind"
+                          ],
+                          "properties": {
+                            "evidence_kind": {
+                              "enum": [
+                                "student_answer",
+                                "workspace_command",
+                                "student_confirmation",
+                                "narration_completed",
+                                "explicit_gate_pass",
+                                "tutor_observed"
+                              ]
+                            },
+                            "gate": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "gate_id",
+                                "requirement"
+                              ],
+                              "properties": {
+                                "gate_id": {
+                                  "type": "string",
+                                  "pattern": "^GT-[0-9]{1,3}$"
+                                },
+                                "requirement": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "capability": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "graph_fact_id": {
+                                  "type": "string",
+                                  "pattern": "^FN-[0-9]{1,3}$"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "participation": {
+                          "enum": [
+                            "listen",
+                            "answer",
+                            "operate",
+                            "confirm",
+                            "continue"
+                          ]
+                        },
+                        "pacing": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "wait_policy"
+                          ],
+                          "properties": {
+                            "wait_policy": {
+                              "enum": [
+                                "student_driven",
+                                "bounded_wait"
+                              ]
+                            },
+                            "max_wait_seconds": {
+                              "type": "integer",
+                              "minimum": 5,
+                              "maximum": 3600
+                            }
+                          }
+                        },
+                        "resource_ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^RES[0-9]{1,3}$"
+                          },
+                          "description": "批准资源（必须在 Pinned Plan resources 内——资源边界校验输入）。"
+                        },
+                        "support_boundary": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "may_reveal_answer",
+                            "may_reveal_intermediate",
+                            "max_support"
+                          ],
+                          "properties": {
+                            "may_reveal_answer": {
+                              "const": false
+                            },
+                            "may_reveal_intermediate": {
+                              "type": "boolean"
+                            },
+                            "max_support": {
+                              "enum": [
+                                "orient",
+                                "foreground",
+                                "name_strategy",
+                                "specify_operation",
+                                "provide_intermediate_conclusion"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "description": "session-local TeachingBeat（lean 形状：approved planning/v4 beat 的边界子集，Builder 在批准图/资源边界内生成）。"
+                  },
+                  "transitions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "from_beat",
+                        "to_beat",
+                        "on"
+                      ],
+                      "properties": {
+                        "from_beat": {
+                          "type": "string",
+                          "pattern": "^LBT-[0-9]{1,3}$"
+                        },
+                        "to_beat": {
+                          "type": "string",
+                          "pattern": "^(LBT|BT)-[0-9]{1,3}$",
+                          "description": "本地转移目标（LBT-）或返回点（BT-；BT- 值必须等于 return_beat_id——镜像强制）。"
+                        },
+                        "on": {
+                          "enum": [
+                            "gate_satisfied",
+                            "evidence_collected",
+                            "student_request",
+                            "timeout",
+                            "tutor_discretion"
+                          ]
+                        }
+                      }
+                    },
+                    "description": "本地合法转移（六要素之 transitions）。本地协议永不隐式推进主线 TeachingCursor（ADR-007：返回只经显式 return_beat_id）。"
+                  },
+                  "return_beat_id": {
+                    "type": "string",
+                    "pattern": "^BT-[0-9]{1,3}$",
+                    "description": "显式返回点（主线 BT-）；必须与本事件 inquiry.return_beat_id 同值——镜像强制。"
+                  },
+                  "expires_with_session": {
+                    "const": true,
+                    "description": "六要素之 expiresWithSession：事件流内的 session-local 协议恒为 true（不回写 Plan、会话结束即弃）。"
+                  }
+                },
+                "description": "2026-08-31 R0 增补（F3/F5 修复波次）：session-local LocalInquiryProtocol 的结构化持久表达（09:1288 六要素：sourcePlan/anchors/beats/transitions/returnBeatId/expiresWithSession）。只随 decision_kind=open_inquiry 的决策事件出现一次（Builder 产出 → 决策消费；09 的 LocalInquiryProposed 在 v5 词表内映射为决策事件载荷）。边界可由 schema 强制的部分：本地 id 命名空间（LPR-/LBT-）、锚点/引用 pattern、may_reveal_answer=false、expires_with_session=true、与 PR- artifact id 互斥；跨字段/跨事件相等性（return_beat_id 同值、to_beat 的 BT- 值=return_beat_id、锚点在 Pinned RG 内、资源在 Pinned Plan 内）由镜像与实现 fail closed。"
+              }
+            },
+            "description": "与 ai_teaching_tutor_policy_decision/v1 同构（含镜像侧 open_inquiry 必带 inquiry 规则）；local_inquiry_protocol 自 2026-08-31 standalone 同步波次（f3-f5-rework 裁定记录第 4 条）起与 standalone 合同严格同构（形状逐字段一致），不再是事件流专属扩展。",
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "decision_kind": {
+                      "enum": [
+                        "open_inquiry",
+                        "open_scaffold",
+                        "continue_inquiry",
+                        "return_to_mainline"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "inquiry"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "decision_kind": {
+                      "enum": [
+                        "transition_beat",
+                        "revisit_beat",
+                        "return_to_mainline"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "to_beat_id"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "required": [
+                    "local_inquiry_protocol"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "decision_kind": {
+                      "const": "open_inquiry"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "required": [
+                    "local_inquiry_protocol"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "inquiry": {
+                      "not": {
+                        "required": [
+                          "inquiry_protocol_id"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "inquiry"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "gate_evaluated"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "gate_id",
+              "beat_id",
+              "satisfied"
+            ],
+            "properties": {
+              "gate_id": {
+                "type": "string",
+                "pattern": "^GT-[0-9]{1,3}$"
+              },
+              "beat_id": {
+                "type": "string",
+                "pattern": "^BT-[0-9]{1,3}$"
+              },
+              "satisfied": {
+                "type": "boolean"
+              },
+              "evidence_sequence": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_sequence_planned"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequence_id",
+              "decision_id",
+              "scope",
+              "actions"
+            ],
+            "properties": {
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence 的 session 间唯一运行时 id（id-registry PS）。"
+              },
+              "decision_id": {
+                "type": "string",
+                "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "protocol_id",
+                      "beat_id"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "approved"
+                      },
+                      "protocol_id": {
+                        "type": "string",
+                        "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "beat_id": {
+                        "type": "string",
+                        "pattern": "^BT-[0-9]{1,3}$"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "inquiry_id",
+                      "local_protocol_id",
+                      "local_beat_id",
+                      "anchor"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "local"
+                      },
+                      "inquiry_id": {
+                        "type": "string",
+                        "pattern": "^IQ-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_protocol_id": {
+                        "type": "string",
+                        "pattern": "^LPR-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_beat_id": {
+                        "type": "string",
+                        "pattern": "^LBT-[0-9]{1,3}$"
+                      },
+                      "anchor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "protocol_id",
+                          "beat_id"
+                        ],
+                        "properties": {
+                          "protocol_id": {
+                            "type": "string",
+                            "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                          },
+                          "beat_id": {
+                            "type": "string",
+                            "pattern": "^BT-[0-9]{1,3}$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "description": "TeachingScopeRef（与 state/v3、runtime/v8 同构）。"
+              },
+              "generation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "request_id",
+                  "attempt",
+                  "input_digest",
+                  "presenter_pin",
+                  "epoch"
+                ],
+                "properties": {
+                  "request_id": {
+                    "type": "string",
+                    "pattern": "^GR-[A-Za-z0-9._:-]{4,}$",
+                    "description": "id-registry GR。"
+                  },
+                  "attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "input_digest": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "presenter_pin": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "provider",
+                      "model_id",
+                      "prompt_version",
+                      "context_builder_version",
+                      "tool_catalog_version"
+                    ],
+                    "properties": {
+                      "provider": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "model_id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "prompt_version": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "context_builder_version": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "tool_catalog_version": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "epoch": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "description": "整段生成 provenance；model-generated 序列必带（镜像强制）——approved-resource 确定性序列不带。"
+              },
+              "actions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ordinal",
+                    "kind"
+                  ],
+                  "properties": {
+                    "ordinal": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "必须等于数组下标（0 起连续、唯一）——镜像强制。"
+                    },
+                    "kind": {
+                      "enum": [
+                        "voice",
+                        "workspace"
+                      ]
+                    },
+                    "basis_refs": {
+                      "type": "array",
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "description": "批准依据引用（RES- 解释资源 / VB- 绑定 / FN-|IF- 图节点）；编译期由服务端绑定，模型只经 draft basis_refs 提议。"
+                    },
+                    "voice_action": {
+                      "$ref": "#/$defs/voice_action_body"
+                    },
+                    "workspace_action": {
+                      "$ref": "#/$defs/workspace_action_body"
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": {
+                          "kind": {
+                            "const": "voice"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ]
+                      },
+                      "then": {
+                        "required": [
+                          "voice_action"
+                        ],
+                        "not": {
+                          "required": [
+                            "workspace_action"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "kind": {
+                            "const": "workspace"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ]
+                      },
+                      "then": {
+                        "required": [
+                          "workspace_action"
+                        ],
+                        "not": {
+                          "required": [
+                            "voice_action"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                },
+                "description": "有序判别联合：{ordinal, kind=voice, voice_action, basis_refs?} | {ordinal, kind=workspace, workspace_action, basis_refs?}。"
+              },
+              "explanation_fragments": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "fragment_id",
+                    "kind",
+                    "content",
+                    "basis_refs",
+                    "origin_generation"
+                  ],
+                  "properties": {
+                    "fragment_id": {
+                      "type": "string",
+                      "pattern": "^EF-[A-Za-z0-9._:-]{4,}$",
+                      "description": "id-registry EF（session runtime；编译器分配，模型不填）。"
+                    },
+                    "kind": {
+                      "enum": [
+                        "approved_math_note",
+                        "relation_note",
+                        "explanation_text"
+                      ],
+                      "description": "approved_math_note=批准公式引用笔记；relation_note=批准关系引用；explanation_text=纯解释文本。数学表达第一版以批准公式/关系引用为主，自由改写数学式需另行等价性验证。"
+                    },
+                    "content": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "呈现文本（含批准表达引用的渲染形式）。"
+                    },
+                    "basis_refs": {
+                      "type": "array",
+                      "minItems": 1,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "description": "批准依据引用（FN-/IF-/RES-/VB-；来源与支持等级审计对象）。"
+                    },
+                    "origin_generation": {
+                      "type": "string",
+                      "pattern": "^GR-[A-Za-z0-9._:-]{4,}$",
+                      "description": "来源生成请求（GR-）；确定性 fragment 可缺省。"
+                    },
+                    "attach_to_entry": {
+                      "type": "string",
+                      "pattern": "^BE-[0-9]{1,3}$",
+                      "description": "附着到已有 Board 条目（布局语义；非像素坐标）。"
+                    }
+                  },
+                  "description": "已验证、随序列落库的解释内容；无 visible，真实 Workspace 在该动作 applied 后才显示。恢复不得依赖模型重生成或进程缓存。"
+                },
+                "description": "本序列 board.explain 引用的不可变内容。ID 唯一、引用闭合、origin_generation 对账由两语言镜像校验。"
+              },
+              "existing_fragment_refs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "fragment_id": {
+                      "type": "string",
+                      "pattern": "^EF-[A-Za-z0-9._:-]{4,}$"
+                    },
+                    "source_sequence_id": {
+                      "type": "string",
+                      "pattern": "^PS-[0-9]{4,}$",
+                      "description": "presentation sequence 的 session 间唯一运行时 id（id-registry PS）。"
+                    },
+                    "content_hash": {
+                      "type": "string",
+                      "pattern": "^sha256:[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "fragment_id",
+                    "source_sequence_id",
+                    "content_hash"
+                  ]
+                },
+                "minItems": 1
+              }
+            },
+            "$defs": {
+              "voice_action_body": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action_id",
+                  "decision_id",
+                  "text",
+                  "source"
+                ],
+                "properties": {
+                  "action_id": {
+                    "type": "string",
+                    "pattern": "^VA-[A-Za-z0-9._:-]{4,}$"
+                  },
+                  "decision_id": {
+                    "type": "string",
+                    "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "source": {
+                    "enum": [
+                      "approved-resource",
+                      "model-generated",
+                      "deterministic-scaffold"
+                    ]
+                  },
+                  "resource_ref": {
+                    "type": "string",
+                    "pattern": "^RES[0-9]{1,3}$"
+                  },
+                  "generation_id": {
+                    "type": "string",
+                    "pattern": "^VG-[A-Za-z0-9._:-]{4,}$"
+                  },
+                  "interruptible": {
+                    "type": "boolean"
+                  },
+                  "intent": {
+                    "enum": [
+                      "narrate",
+                      "question",
+                      "feedback"
+                    ]
+                  }
+                },
+                "description": "voice-action/v1 body 同构（无外层 schema/session_id）。source=approved-resource 必带 resource_ref、source=model-generated 必带 generation_id（镜像强制，同 v2）。"
+              },
+              "workspace_action_body": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action_id",
+                  "decision_id",
+                  "surface",
+                  "capability",
+                  "origin",
+                  "reveal_scope"
+                ],
+                "properties": {
+                  "action_id": {
+                    "type": "string",
+                    "pattern": "^WSA-[A-Za-z0-9._:-]{4,}$"
+                  },
+                  "decision_id": {
+                    "type": "string",
+                    "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+                  },
+                  "surface": {
+                    "enum": [
+                      "geometry",
+                      "solution_board"
+                    ]
+                  },
+                  "capability": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "开放 capability 字符串（registry 校验）；board.explain 等新工具经此进入（裁定 B6），command_payload 只携编译器分配的 EF- fragment 引用。"
+                  },
+                  "origin": {
+                    "const": "tutor"
+                  },
+                  "target_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "command_payload": {
+                    "type": "string"
+                  },
+                  "reveal_scope": {
+                    "enum": [
+                      "none",
+                      "target_highlight",
+                      "step_narration",
+                      "intermediate_result",
+                      "final_result"
+                    ]
+                  },
+                  "presentation_only": {
+                    "type": "boolean"
+                  }
+                },
+                "description": "workspace-surface-action/v1 body 同构（无外层 schema/session_id）。"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "actions": {
+                      "contains": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "const": "voice"
+                          },
+                          "voice_action": {
+                            "type": "object",
+                            "properties": {
+                              "source": {
+                                "const": "model-generated"
+                              }
+                            },
+                            "required": [
+                              "source"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "voice_action"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "actions"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "generation"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "required": [
+                    "explanation_fragments"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "generation"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "actions": {
+                      "contains": {
+                        "properties": {
+                          "workspace_action": {
+                            "properties": {
+                              "capability": {
+                                "const": "board.explain"
+                              }
+                            },
+                            "required": [
+                              "capability"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "workspace_action"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "actions"
+                  ]
+                },
+                "then": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "explanation_fragments"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "existing_fragment_refs"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "required": [
+          "causation_sequence"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_action_validated"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequence_id",
+              "ordinal",
+              "action_id",
+              "kind"
+            ],
+            "properties": {
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence id（id-registry PS）。"
+              },
+              "ordinal": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "action_id": {
+                "type": "string",
+                "pattern": "^(VA|WSA)-[A-Za-z0-9._:-]{4,}$"
+              },
+              "kind": {
+                "enum": [
+                  "voice",
+                  "workspace"
+                ]
+              }
+            },
+            "description": "服务端校验通过（capability/target/truth 边界）；尚未应用权威状态。"
+          }
+        },
+        "required": [
+          "causation_sequence"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_action_applied"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequence_id",
+              "ordinal",
+              "action_id",
+              "kind"
+            ],
+            "properties": {
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence id（id-registry PS）。"
+              },
+              "ordinal": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "action_id": {
+                "type": "string",
+                "pattern": "^(VA|WSA)-[A-Za-z0-9._:-]{4,}$"
+              },
+              "kind": {
+                "enum": [
+                  "voice",
+                  "workspace"
+                ]
+              },
+              "resulting_workspace_revision": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "仅 kind=workspace：应用后的 WorkspaceRuntimeState.revision；kind=voice 禁带（payload 级 if/then 强制）。"
+              }
+            },
+            "description": "服务端 validator/reducer 已应用到权威 WorkspaceRuntimeState（状态应用事实，不等于浏览器完成）。kind=voice 无 Workspace 状态转移，同样记录本事件但不带 resulting_workspace_revision。",
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "workspace"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "resulting_workspace_revision"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "resulting_workspace_revision"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "required": [
+          "causation_sequence"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_action_delivered"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequence_id",
+              "ordinal",
+              "action_id",
+              "kind"
+            ],
+            "properties": {
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence id（id-registry PS）。"
+              },
+              "ordinal": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "action_id": {
+                "type": "string",
+                "pattern": "^(VA|WSA)-[A-Za-z0-9._:-]{4,}$"
+              },
+              "kind": {
+                "enum": [
+                  "voice",
+                  "workspace"
+                ]
+              }
+            },
+            "description": "队首 action 已交付浏览器（SessionSnapshot pending_presentation）；未收到 outcome 的 delivery 在 refresh 时原样重投，adapter 幂等。"
+          }
+        },
+        "required": [
+          "causation_sequence"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_action_outcome_recorded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequence_id",
+              "ordinal",
+              "action_id",
+              "kind",
+              "outcome"
+            ],
+            "properties": {
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence id（id-registry PS）。"
+              },
+              "ordinal": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "action_id": {
+                "type": "string",
+                "pattern": "^(VA|WSA)-[A-Za-z0-9._:-]{4,}$"
+              },
+              "kind": {
+                "enum": [
+                  "voice",
+                  "workspace"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "presented",
+                  "interrupted",
+                  "failed"
+                ],
+                "description": "浏览器真实执行结果；presented 才推进 cursor，interrupted 废止剩余 sequence（barge_in 触发重决策），failed 停留当前 action。"
+              },
+              "failure_class": {
+                "enum": [
+                  "validation_failure",
+                  "capability_unsupported",
+                  "illegal_target",
+                  "stale_revision",
+                  "truth_boundary_violation",
+                  "provider_failure",
+                  "timeout",
+                  "internal_error"
+                ],
+                "description": "封闭失败分类（同 ai_teaching_action_outcome/v1）；仅 outcome=failed 允许。"
+              },
+              "message": {
+                "type": "string",
+                "description": "仅 outcome=failed 允许。"
+              }
+            },
+            "description": "浏览器 adapter outcome 的服务端记账（形状同 ai_teaching_presentation_outcome/v1 判定字段）；sequence_id+ordinal+action_id 与服务端 pending cursor 的对账由服务端 fail closed（Step 2 义务）。",
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "outcome": {
+                      "const": "failed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "failure_class"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "failure_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "message"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "required": [
+          "causation_sequence"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_sequence_superseded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequence_id",
+              "reason"
+            ],
+            "properties": {
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence id（id-registry PS）。"
+              },
+              "reason": {
+                "enum": [
+                  "interrupted",
+                  "retry_recovery",
+                  "superseded_by_decision"
+                ],
+                "description": "interrupted=barge-in 废止剩余 action；retry_recovery=failed 后恢复重建新 sequence；superseded_by_decision=Navigator 新决策取代。"
+              },
+              "pending_ordinal": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "废止时未完成 outcome 的队首 ordinal（审计辅助，可选）。"
+              },
+              "pending_action_id": {
+                "type": "string",
+                "pattern": "^(VA|WSA)-[A-Za-z0-9._:-]{4,}$"
+              }
+            },
+            "description": "sequence 废止记账；已完成 action 的权威 Workspace 状态不伪回滚。"
+          }
+        },
+        "required": [
+          "causation_sequence"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "action_outcome_recorded"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action_id",
+              "action_kind",
+              "outcome"
+            ],
+            "properties": {
+              "action_id": {
+                "type": "string",
+                "minLength": 3
+              },
+              "action_kind": {
+                "const": "student_command",
+                "description": "v6 收窄：仅学生命令回执（SC-）。voice/workspace_surface 的 completed 语义由 presentation_action_outcome_recorded 取代（ADR-011 §5）。"
+              },
+              "outcome": {
+                "enum": [
+                  "completed",
+                  "rejected",
+                  "interrupted",
+                  "failed"
+                ]
+              },
+              "failure_class": {
+                "enum": [
+                  "validation_failure",
+                  "capability_unsupported",
+                  "illegal_target",
+                  "stale_revision",
+                  "truth_boundary_violation",
+                  "provider_failure",
+                  "timeout",
+                  "internal_error"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "resulting_revision": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "description": "与 ai_teaching_action_outcome/v1 同构（含镜像侧 failed 必带 failure_class 规则）。",
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "outcome": {
+                      "const": "failed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "failure_class"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "failure_class"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "external_support_recorded"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "evidence_id",
+              "support_kinds",
+              "initiated_by",
+              "action_ids",
+              "derived_partial"
+            ],
+            "properties": {
+              "evidence_id": {
+                "type": "string",
+                "pattern": "^ESE-[A-Za-z0-9._:-]{4,}$"
+              },
+              "beat_id": {
+                "type": "string",
+                "pattern": "^BT-[0-9]{1,3}$"
+              },
+              "support_kinds": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "orient",
+                    "reveal_target",
+                    "foreground",
+                    "name_strategy",
+                    "specify_operation",
+                    "provide_intermediate_conclusion",
+                    "provide_final_conclusion"
+                  ]
+                }
+              },
+              "initiated_by": {
+                "enum": [
+                  "tutor_initiated",
+                  "student_requested",
+                  "unknown"
+                ]
+              },
+              "action_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 3
+                }
+              },
+              "student_response": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "progression_observed",
+                  "self_corrected"
+                ],
+                "properties": {
+                  "progression_observed": {
+                    "type": "boolean"
+                  },
+                  "self_corrected": {
+                    "type": "boolean"
+                  },
+                  "observed_after_sequences": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              },
+              "derived_partial": {
+                "type": "boolean"
+              },
+              "legacy_source": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "legacy_event_schema",
+                  "legacy_level"
+                ],
+                "properties": {
+                  "legacy_event_schema": {
+                    "enum": [
+                      "ai_teaching_tutor_session_event/v2",
+                      "ai_teaching_tutor_session_event/v3",
+                      "ai_teaching_tutor_session_event/v4"
+                    ]
+                  },
+                  "legacy_level": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  }
+                }
+              }
+            },
+            "description": "与 ai_teaching_external_support_evidence/v1 同构。",
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "derived_partial": {
+                      "const": true
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "legacy_source"
+                  ]
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "derived_partial": {
+                      "const": false
+                    }
+                  }
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "legacy_source"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": [
+              "inquiry_opened",
+              "inquiry_returned"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "inquiry_id",
+              "return_beat_id"
+            ],
+            "properties": {
+              "inquiry_id": {
+                "type": "string",
+                "pattern": "^IQ-[A-Za-z0-9._:-]{4,}$"
+              },
+              "inquiry_protocol_id": {
+                "type": "string",
+                "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+              },
+              "return_beat_id": {
+                "type": "string",
+                "pattern": "^BT-[0-9]{1,3}$",
+                "description": "显式返回点（ADR-010 不变量 3）；opened 与 returned 必须同值（reducer 校验）。"
+              },
+              "local": {
+                "type": "boolean",
+                "description": "true=session-local LocalInquiryProtocol（bounded、可丢弃、不回写 Plan）。"
+              },
+              "trigger": {
+                "enum": [
+                  "ask_question",
+                  "request_scaffold",
+                  "request_rephrase",
+                  "unclear",
+                  "out_of_bound"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "student_progressed"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "beat_id",
+              "evidence_sequence"
+            ],
+            "properties": {
+              "beat_id": {
+                "type": "string",
+                "pattern": "^BT-[0-9]{1,3}$"
+              },
+              "part_id": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,2}$"
+              },
+              "evidence_sequence": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "policy_failed"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "policy_version",
+              "failure_class",
+              "fallback_used"
+            ],
+            "properties": {
+              "policy_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "failure_class": {
+                "enum": [
+                  "no_legal_transition",
+                  "gate_unresolvable",
+                  "interpreter_unavailable",
+                  "policy_engine_error",
+                  "timeout"
+                ]
+              },
+              "fallback_used": {
+                "type": "boolean"
+              },
+              "fallback_beat_id": {
+                "type": "string",
+                "pattern": "^BT-[0-9]{1,3}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "runtime_failure"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "failure_class",
+              "message"
+            ],
+            "properties": {
+              "failure_class": {
+                "enum": [
+                  "event_store_failure",
+                  "rebuild_failure",
+                  "corruption_detected",
+                  "revision_conflict",
+                  "internal_error"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "related_event_sequence": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "description": "corruption/revision 冲突 fail closed（F2 门禁）。"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "session_completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "final_beat_id"
+            ],
+            "properties": {
+              "final_beat_id": {
+                "type": "string",
+                "pattern": "^BT-[0-9]{1,3}$"
+              },
+              "completed_parts": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,2}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_generation_requested"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "request_id": {
+                "type": "string",
+                "pattern": "^GR-[A-Za-z0-9._:-]{4,}$",
+                "description": "id-registry GR。"
+              },
+              "source_request_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+              },
+              "decision_id": {
+                "type": "string",
+                "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "protocol_id",
+                      "beat_id"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "approved"
+                      },
+                      "protocol_id": {
+                        "type": "string",
+                        "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "beat_id": {
+                        "type": "string",
+                        "pattern": "^BT-[0-9]{1,3}$"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "inquiry_id",
+                      "local_protocol_id",
+                      "local_beat_id",
+                      "anchor"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "local"
+                      },
+                      "inquiry_id": {
+                        "type": "string",
+                        "pattern": "^IQ-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_protocol_id": {
+                        "type": "string",
+                        "pattern": "^LPR-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_beat_id": {
+                        "type": "string",
+                        "pattern": "^LBT-[0-9]{1,3}$"
+                      },
+                      "anchor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "protocol_id",
+                          "beat_id"
+                        ],
+                        "properties": {
+                          "protocol_id": {
+                            "type": "string",
+                            "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                          },
+                          "beat_id": {
+                            "type": "string",
+                            "pattern": "^BT-[0-9]{1,3}$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "description": "TeachingScopeRef（与 state/v3、runtime/v8 同构）。"
+              },
+              "reservation_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "epoch": {
+                "const": 1
+              },
+              "attempt": {
+                "const": 1
+              },
+              "max_attempts": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_policy_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_delays_ms": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "plan_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^TP-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "graph_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^RG-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "selected_fact_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^FN-[0-9]{1,3}$"
+                    }
+                  },
+                  "selected_inference_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^IF-[0-9]{1,3}$"
+                    }
+                  },
+                  "resource_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "event_cutoff": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "workspace_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "plan_ref",
+                  "graph_ref",
+                  "selected_fact_ids",
+                  "selected_inference_ids",
+                  "resource_ids",
+                  "event_cutoff",
+                  "workspace_revision"
+                ]
+              },
+              "input_digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "presenter_pin": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "provider",
+                  "model_id",
+                  "prompt_version",
+                  "context_builder_version",
+                  "tool_catalog_version"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "context_builder_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool_catalog_version": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "status": {
+                "const": "pending"
+              },
+              "phase": {
+                "const": "running"
+              },
+              "retry_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "error_class": {
+                "enum": [
+                  "provider_failure",
+                  "timeout",
+                  "draft_invalid",
+                  "preflight_failed",
+                  "context_irreproducible",
+                  "internal_error",
+                  "RETRY_EXHAUSTED"
+                ]
+              },
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence 的 session 间唯一运行时 id（id-registry PS）。"
+              },
+              "cancel_reason": {
+                "enum": [
+                  "cancelled",
+                  "superseded_by_new_input",
+                  "revision_changed",
+                  "session_closing"
+                ]
+              }
+            },
+            "required": [
+              "request_id",
+              "source_request_id",
+              "decision_id",
+              "scope",
+              "reservation_revision",
+              "epoch",
+              "attempt",
+              "max_attempts",
+              "retry_policy_version",
+              "timeout_ms",
+              "retry_delays_ms",
+              "context",
+              "input_digest",
+              "presenter_pin",
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "pending"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "phase"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "failed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "error_class"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "committed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "sequence_id"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "cancelled"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "cancel_reason"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "phase": {
+                      "const": "waiting_retry"
+                    }
+                  },
+                  "required": [
+                    "phase"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "retry_at"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "retry_at"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "Immutable request identity and frozen context/budget with kernel-owned lifecycle. Numerical budget, slot and cross-event CAS checks are enforced by mirrors/kernel."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_generation_attempt_started"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "request_id": {
+                "type": "string",
+                "pattern": "^GR-[A-Za-z0-9._:-]{4,}$",
+                "description": "id-registry GR。"
+              },
+              "source_request_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+              },
+              "decision_id": {
+                "type": "string",
+                "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "protocol_id",
+                      "beat_id"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "approved"
+                      },
+                      "protocol_id": {
+                        "type": "string",
+                        "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "beat_id": {
+                        "type": "string",
+                        "pattern": "^BT-[0-9]{1,3}$"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "inquiry_id",
+                      "local_protocol_id",
+                      "local_beat_id",
+                      "anchor"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "local"
+                      },
+                      "inquiry_id": {
+                        "type": "string",
+                        "pattern": "^IQ-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_protocol_id": {
+                        "type": "string",
+                        "pattern": "^LPR-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_beat_id": {
+                        "type": "string",
+                        "pattern": "^LBT-[0-9]{1,3}$"
+                      },
+                      "anchor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "protocol_id",
+                          "beat_id"
+                        ],
+                        "properties": {
+                          "protocol_id": {
+                            "type": "string",
+                            "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                          },
+                          "beat_id": {
+                            "type": "string",
+                            "pattern": "^BT-[0-9]{1,3}$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "description": "TeachingScopeRef（与 state/v3、runtime/v8 同构）。"
+              },
+              "reservation_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "epoch": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 2
+              },
+              "max_attempts": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_policy_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_delays_ms": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "plan_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^TP-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "graph_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^RG-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "selected_fact_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^FN-[0-9]{1,3}$"
+                    }
+                  },
+                  "selected_inference_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^IF-[0-9]{1,3}$"
+                    }
+                  },
+                  "resource_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "event_cutoff": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "workspace_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "plan_ref",
+                  "graph_ref",
+                  "selected_fact_ids",
+                  "selected_inference_ids",
+                  "resource_ids",
+                  "event_cutoff",
+                  "workspace_revision"
+                ]
+              },
+              "input_digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "presenter_pin": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "provider",
+                  "model_id",
+                  "prompt_version",
+                  "context_builder_version",
+                  "tool_catalog_version"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "context_builder_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool_catalog_version": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "status": {
+                "const": "pending"
+              },
+              "phase": {
+                "const": "running"
+              },
+              "retry_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "error_class": {
+                "enum": [
+                  "provider_failure",
+                  "timeout",
+                  "draft_invalid",
+                  "preflight_failed",
+                  "context_irreproducible",
+                  "internal_error",
+                  "RETRY_EXHAUSTED"
+                ]
+              },
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence 的 session 间唯一运行时 id（id-registry PS）。"
+              },
+              "cancel_reason": {
+                "enum": [
+                  "cancelled",
+                  "superseded_by_new_input",
+                  "revision_changed",
+                  "session_closing"
+                ]
+              }
+            },
+            "required": [
+              "request_id",
+              "source_request_id",
+              "decision_id",
+              "scope",
+              "reservation_revision",
+              "epoch",
+              "attempt",
+              "max_attempts",
+              "retry_policy_version",
+              "timeout_ms",
+              "retry_delays_ms",
+              "context",
+              "input_digest",
+              "presenter_pin",
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "pending"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "phase"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "failed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "error_class"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "committed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "sequence_id"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "cancelled"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "cancel_reason"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "phase": {
+                      "const": "waiting_retry"
+                    }
+                  },
+                  "required": [
+                    "phase"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "retry_at"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "retry_at"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "Immutable request identity and frozen context/budget with kernel-owned lifecycle. Numerical budget, slot and cross-event CAS checks are enforced by mirrors/kernel."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_generation_retry_scheduled"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "request_id": {
+                "type": "string",
+                "pattern": "^GR-[A-Za-z0-9._:-]{4,}$",
+                "description": "id-registry GR。"
+              },
+              "source_request_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+              },
+              "decision_id": {
+                "type": "string",
+                "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "protocol_id",
+                      "beat_id"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "approved"
+                      },
+                      "protocol_id": {
+                        "type": "string",
+                        "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "beat_id": {
+                        "type": "string",
+                        "pattern": "^BT-[0-9]{1,3}$"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "inquiry_id",
+                      "local_protocol_id",
+                      "local_beat_id",
+                      "anchor"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "local"
+                      },
+                      "inquiry_id": {
+                        "type": "string",
+                        "pattern": "^IQ-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_protocol_id": {
+                        "type": "string",
+                        "pattern": "^LPR-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_beat_id": {
+                        "type": "string",
+                        "pattern": "^LBT-[0-9]{1,3}$"
+                      },
+                      "anchor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "protocol_id",
+                          "beat_id"
+                        ],
+                        "properties": {
+                          "protocol_id": {
+                            "type": "string",
+                            "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                          },
+                          "beat_id": {
+                            "type": "string",
+                            "pattern": "^BT-[0-9]{1,3}$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "description": "TeachingScopeRef（与 state/v3、runtime/v8 同构）。"
+              },
+              "reservation_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "epoch": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "max_attempts": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_policy_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_delays_ms": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "plan_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^TP-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "graph_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^RG-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "selected_fact_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^FN-[0-9]{1,3}$"
+                    }
+                  },
+                  "selected_inference_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^IF-[0-9]{1,3}$"
+                    }
+                  },
+                  "resource_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "event_cutoff": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "workspace_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "plan_ref",
+                  "graph_ref",
+                  "selected_fact_ids",
+                  "selected_inference_ids",
+                  "resource_ids",
+                  "event_cutoff",
+                  "workspace_revision"
+                ]
+              },
+              "input_digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "presenter_pin": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "provider",
+                  "model_id",
+                  "prompt_version",
+                  "context_builder_version",
+                  "tool_catalog_version"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "context_builder_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool_catalog_version": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "status": {
+                "const": "pending"
+              },
+              "phase": {
+                "const": "waiting_retry"
+              },
+              "retry_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "error_class": {
+                "enum": [
+                  "provider_failure",
+                  "timeout",
+                  "draft_invalid",
+                  "preflight_failed",
+                  "context_irreproducible",
+                  "internal_error",
+                  "RETRY_EXHAUSTED"
+                ]
+              },
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence 的 session 间唯一运行时 id（id-registry PS）。"
+              },
+              "cancel_reason": {
+                "enum": [
+                  "cancelled",
+                  "superseded_by_new_input",
+                  "revision_changed",
+                  "session_closing"
+                ]
+              }
+            },
+            "required": [
+              "request_id",
+              "source_request_id",
+              "decision_id",
+              "scope",
+              "reservation_revision",
+              "epoch",
+              "attempt",
+              "max_attempts",
+              "retry_policy_version",
+              "timeout_ms",
+              "retry_delays_ms",
+              "context",
+              "input_digest",
+              "presenter_pin",
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "pending"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "phase"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "failed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "error_class"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "committed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "sequence_id"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "cancelled"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "cancel_reason"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "phase": {
+                      "const": "waiting_retry"
+                    }
+                  },
+                  "required": [
+                    "phase"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "retry_at"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "retry_at"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "Immutable request identity and frozen context/budget with kernel-owned lifecycle. Numerical budget, slot and cross-event CAS checks are enforced by mirrors/kernel."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_generation_failed"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "request_id": {
+                "type": "string",
+                "pattern": "^GR-[A-Za-z0-9._:-]{4,}$",
+                "description": "id-registry GR。"
+              },
+              "source_request_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+              },
+              "decision_id": {
+                "type": "string",
+                "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "protocol_id",
+                      "beat_id"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "approved"
+                      },
+                      "protocol_id": {
+                        "type": "string",
+                        "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "beat_id": {
+                        "type": "string",
+                        "pattern": "^BT-[0-9]{1,3}$"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "inquiry_id",
+                      "local_protocol_id",
+                      "local_beat_id",
+                      "anchor"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "local"
+                      },
+                      "inquiry_id": {
+                        "type": "string",
+                        "pattern": "^IQ-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_protocol_id": {
+                        "type": "string",
+                        "pattern": "^LPR-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_beat_id": {
+                        "type": "string",
+                        "pattern": "^LBT-[0-9]{1,3}$"
+                      },
+                      "anchor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "protocol_id",
+                          "beat_id"
+                        ],
+                        "properties": {
+                          "protocol_id": {
+                            "type": "string",
+                            "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                          },
+                          "beat_id": {
+                            "type": "string",
+                            "pattern": "^BT-[0-9]{1,3}$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "description": "TeachingScopeRef（与 state/v3、runtime/v8 同构）。"
+              },
+              "reservation_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "epoch": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "max_attempts": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_policy_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_delays_ms": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "plan_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^TP-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "graph_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^RG-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "selected_fact_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^FN-[0-9]{1,3}$"
+                    }
+                  },
+                  "selected_inference_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^IF-[0-9]{1,3}$"
+                    }
+                  },
+                  "resource_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "event_cutoff": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "workspace_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "plan_ref",
+                  "graph_ref",
+                  "selected_fact_ids",
+                  "selected_inference_ids",
+                  "resource_ids",
+                  "event_cutoff",
+                  "workspace_revision"
+                ]
+              },
+              "input_digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "presenter_pin": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "provider",
+                  "model_id",
+                  "prompt_version",
+                  "context_builder_version",
+                  "tool_catalog_version"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "context_builder_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool_catalog_version": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "status": {
+                "const": "failed"
+              },
+              "phase": {
+                "enum": [
+                  "running",
+                  "waiting_retry"
+                ]
+              },
+              "retry_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "error_class": {
+                "enum": [
+                  "provider_failure",
+                  "timeout",
+                  "draft_invalid",
+                  "preflight_failed",
+                  "context_irreproducible",
+                  "internal_error",
+                  "RETRY_EXHAUSTED"
+                ]
+              },
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence 的 session 间唯一运行时 id（id-registry PS）。"
+              },
+              "cancel_reason": {
+                "enum": [
+                  "cancelled",
+                  "superseded_by_new_input",
+                  "revision_changed",
+                  "session_closing"
+                ]
+              }
+            },
+            "required": [
+              "request_id",
+              "source_request_id",
+              "decision_id",
+              "scope",
+              "reservation_revision",
+              "epoch",
+              "attempt",
+              "max_attempts",
+              "retry_policy_version",
+              "timeout_ms",
+              "retry_delays_ms",
+              "context",
+              "input_digest",
+              "presenter_pin",
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "pending"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "phase"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "failed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "error_class"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "committed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "sequence_id"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "cancelled"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "cancel_reason"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "phase": {
+                      "const": "waiting_retry"
+                    }
+                  },
+                  "required": [
+                    "phase"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "retry_at"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "retry_at"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "Immutable request identity and frozen context/budget with kernel-owned lifecycle. Numerical budget, slot and cross-event CAS checks are enforced by mirrors/kernel."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "presentation_generation_invalidated"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "required": [
+          "causation_sequence"
+        ],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "request_id": {
+                "type": "string",
+                "pattern": "^GR-[A-Za-z0-9._:-]{4,}$",
+                "description": "id-registry GR。"
+              },
+              "source_request_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+              },
+              "decision_id": {
+                "type": "string",
+                "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "protocol_id",
+                      "beat_id"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "approved"
+                      },
+                      "protocol_id": {
+                        "type": "string",
+                        "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "beat_id": {
+                        "type": "string",
+                        "pattern": "^BT-[0-9]{1,3}$"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "kind",
+                      "inquiry_id",
+                      "local_protocol_id",
+                      "local_beat_id",
+                      "anchor"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "const": "local"
+                      },
+                      "inquiry_id": {
+                        "type": "string",
+                        "pattern": "^IQ-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_protocol_id": {
+                        "type": "string",
+                        "pattern": "^LPR-[A-Za-z0-9._:-]{4,}$"
+                      },
+                      "local_beat_id": {
+                        "type": "string",
+                        "pattern": "^LBT-[0-9]{1,3}$"
+                      },
+                      "anchor": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "protocol_id",
+                          "beat_id"
+                        ],
+                        "properties": {
+                          "protocol_id": {
+                            "type": "string",
+                            "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                          },
+                          "beat_id": {
+                            "type": "string",
+                            "pattern": "^BT-[0-9]{1,3}$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ],
+                "description": "TeachingScopeRef（与 state/v3、runtime/v8 同构）。"
+              },
+              "reservation_revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "epoch": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "max_attempts": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_policy_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "retry_delays_ms": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "context": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "plan_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^TP-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "graph_ref": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "artifact_id",
+                      "version",
+                      "content_hash"
+                    ],
+                    "properties": {
+                      "artifact_id": {
+                        "type": "string",
+                        "pattern": "^RG-[A-Z0-9]+-[0-9]{3,}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^v[0-9]+$"
+                      },
+                      "content_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "selected_fact_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^FN-[0-9]{1,3}$"
+                    }
+                  },
+                  "selected_inference_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^IF-[0-9]{1,3}$"
+                    }
+                  },
+                  "resource_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "event_cutoff": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "workspace_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "plan_ref",
+                  "graph_ref",
+                  "selected_fact_ids",
+                  "selected_inference_ids",
+                  "resource_ids",
+                  "event_cutoff",
+                  "workspace_revision"
+                ]
+              },
+              "input_digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "presenter_pin": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "provider",
+                  "model_id",
+                  "prompt_version",
+                  "context_builder_version",
+                  "tool_catalog_version"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "prompt_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "context_builder_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tool_catalog_version": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "status": {
+                "const": "cancelled"
+              },
+              "phase": {
+                "enum": [
+                  "running",
+                  "waiting_retry"
+                ]
+              },
+              "retry_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "error_class": {
+                "enum": [
+                  "provider_failure",
+                  "timeout",
+                  "draft_invalid",
+                  "preflight_failed",
+                  "context_irreproducible",
+                  "internal_error",
+                  "RETRY_EXHAUSTED"
+                ]
+              },
+              "sequence_id": {
+                "type": "string",
+                "pattern": "^PS-[0-9]{4,}$",
+                "description": "presentation sequence 的 session 间唯一运行时 id（id-registry PS）。"
+              },
+              "cancel_reason": {
+                "enum": [
+                  "cancelled",
+                  "superseded_by_new_input",
+                  "revision_changed",
+                  "session_closing"
+                ]
+              }
+            },
+            "required": [
+              "request_id",
+              "source_request_id",
+              "decision_id",
+              "scope",
+              "reservation_revision",
+              "epoch",
+              "attempt",
+              "max_attempts",
+              "retry_policy_version",
+              "timeout_ms",
+              "retry_delays_ms",
+              "context",
+              "input_digest",
+              "presenter_pin",
+              "status"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "pending"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "phase"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "failed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "error_class"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "committed"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "sequence_id"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "cancel_reason"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "cancelled"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "cancel_reason"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "error_class"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "phase"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "retry_at"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "sequence_id"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "phase": {
+                      "const": "waiting_retry"
+                    }
+                  },
+                  "required": [
+                    "phase"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "retry_at"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "retry_at"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "Immutable request identity and frozen context/budget with kernel-owned lifecycle. Numerical budget, slot and cross-event CAS checks are enforced by mirrors/kernel."
+          }
+        }
+      }
+    }
+  ]
+}

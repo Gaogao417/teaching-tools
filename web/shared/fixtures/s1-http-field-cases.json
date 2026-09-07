@@ -1,0 +1,260 @@
+[
+  {
+    "name": "idle-no-active-scope",
+    "valid": true,
+    "payload": {
+      "generation": {
+        "status": "idle"
+      },
+      "scope": null
+    }
+  },
+  {
+    "name": "pending-approved",
+    "valid": true,
+    "payload": {
+      "generation": {
+        "status": "pending",
+        "request_id": "GR-TS4242-0001",
+        "phase": "running",
+        "attempt": 1,
+        "max_attempts": 3
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "failed-timeout",
+    "valid": true,
+    "payload": {
+      "generation": {
+        "status": "failed",
+        "request_id": "GR-TS4242-0001",
+        "error_class": "timeout",
+        "attempt": 3,
+        "max_attempts": 3
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "pending-missing-request",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "pending",
+        "phase": "running",
+        "attempt": 1,
+        "max_attempts": 3
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "failed-missing-class",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "failed",
+        "request_id": "GR-TS4242-0001",
+        "attempt": 3,
+        "max_attempts": 3
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "idle-stray-request",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "idle",
+        "request_id": "GR-TS4242-0001"
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "pending-no-scope",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "pending",
+        "request_id": "GR-TS4242-0001",
+        "phase": "running",
+        "attempt": 1,
+        "max_attempts": 3
+      },
+      "scope": null
+    }
+  },
+  {
+    "name": "private-epoch-leak",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "pending",
+        "request_id": "GR-TS4242-0001",
+        "epoch": 1,
+        "phase": "running",
+        "attempt": 1,
+        "max_attempts": 3
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "unknown-error-not-student-incorrect",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "failed",
+        "request_id": "GR-TS4242-0001",
+        "error_class": "StudentIncorrect",
+        "attempt": 3,
+        "max_attempts": 3
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "waiting-retry",
+    "valid": true,
+    "payload": {
+      "generation": {
+        "status": "pending",
+        "request_id": "GR-TS4242-0001",
+        "phase": "waiting_retry",
+        "attempt": 1,
+        "max_attempts": 3,
+        "retry_at": "2026-09-07T12:00:01Z"
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "exhausted-wait",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "pending",
+        "request_id": "GR-TS4242-0001",
+        "phase": "waiting_retry",
+        "attempt": 3,
+        "max_attempts": 3,
+        "retry_at": "2026-09-07T12:00:01Z"
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "attempt-over-budget",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "pending",
+        "request_id": "GR-TS4242-0001",
+        "phase": "waiting_retry",
+        "attempt": 4,
+        "max_attempts": 3,
+        "retry_at": "2026-09-07T12:00:01Z"
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "waiting-retry-without-time",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "pending",
+        "request_id": "GR-TS4242-0001",
+        "phase": "waiting_retry",
+        "attempt": 1,
+        "max_attempts": 3
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "running-stray-retry-time",
+    "valid": false,
+    "payload": {
+      "generation": {
+        "status": "pending",
+        "request_id": "GR-TS4242-0001",
+        "phase": "running",
+        "attempt": 1,
+        "max_attempts": 3,
+        "retry_at": "2026-09-07T12:00:01Z"
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  },
+  {
+    "name": "retry-budget-exhausted",
+    "valid": true,
+    "payload": {
+      "generation": {
+        "status": "failed",
+        "request_id": "GR-TS4242-0001",
+        "error_class": "RETRY_EXHAUSTED",
+        "attempt": 3,
+        "max_attempts": 3
+      },
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      }
+    }
+  }
+]

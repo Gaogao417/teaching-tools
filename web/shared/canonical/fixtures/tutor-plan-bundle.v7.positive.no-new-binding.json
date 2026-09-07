@@ -1,0 +1,256 @@
+{
+  "schema": "ai_teaching_tutor_plan_bundle/v7",
+  "artifact_id": "TP-SMV-009",
+  "version": "v3",
+  "status": "Approved",
+  "approval": {
+    "reviewer_id": "teacher:gaochong",
+    "approved_at": "2026-09-01T08:00:00Z",
+    "review_note": "图压缩正例"
+  },
+  "question_ref": {
+    "artifact_id": "QT-SMV-001",
+    "version": "v2",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "approach_set_ref": {
+    "artifact_id": "AS-SMV-001",
+    "version": "v2",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "solution_graph_ref": {
+    "artifact_id": "RG-SMV-001",
+    "version": "v3",
+    "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "policy_profile_ref": {
+    "artifact_id": "PP-SMV-001",
+    "version": "v1",
+    "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "default_resolution_profile_id": "RP-01",
+  "resolution_profiles": [
+    {
+      "profile_id": "RP-01",
+      "learner_description": "需要看到策略分段和局部展开的学生",
+      "default_view": "beat",
+      "available_views": [
+        "chunk",
+        "beat",
+        "fine"
+      ],
+      "chunk_ids": [
+        "CH-01",
+        "CH-02"
+      ]
+    },
+    {
+      "profile_id": "RP-02",
+      "learner_description": "已能独立补足运算细节的学生",
+      "default_view": "chunk",
+      "available_views": [
+        "chunk",
+        "beat",
+        "fine"
+      ],
+      "chunk_ids": [
+        "CH-01",
+        "CH-02"
+      ]
+    }
+  ],
+  "chunk_graph": {
+    "entry_chunk_id": "CH-01",
+    "completion_chunk_ids": [
+      "CH-02"
+    ],
+    "edges": [
+      {
+        "from_chunk_id": "CH-01",
+        "to_chunk_id": "CH-02",
+        "on": "complete"
+      }
+    ]
+  },
+  "solution_regions": [
+    {
+      "region_id": "SR-01",
+      "label": "第一组子母型相似细节",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-04",
+          "FN-05"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      },
+      "local_protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v3",
+          "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    },
+    {
+      "region_id": "SR-02",
+      "label": "蝶形相似到结论",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-20",
+          "FN-21"
+        ],
+        "inference_ids": [
+          "IF-20"
+        ]
+      }
+    }
+  ],
+  "chunks": [
+    {
+      "chunk_id": "CH-01",
+      "part_id": "1",
+      "title": "建立前置长度",
+      "instructional_intent": "识别并完成第一组相似",
+      "entry_state": "学生已读懂题设",
+      "exit_understanding": "学生能说明对应关系并求出关键长度",
+      "source_subgraph_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-04",
+          "FN-05"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      },
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-001",
+          "version": "v3",
+          "content_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ],
+      "teacher_narration_refs": [
+        "RES1"
+      ],
+      "presentation_groups": [
+        {
+          "group_id": "PG-01",
+          "label": "第一组相似",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-04",
+              "FN-05"
+            ],
+            "inference_ids": [
+              "IF-01",
+              "IF-02"
+            ]
+          }
+        }
+      ],
+      "expandable_region_ids": [
+        "SR-01"
+      ],
+      "resource_ids": [
+        "RES1"
+      ]
+    },
+    {
+      "chunk_id": "CH-02",
+      "part_id": "1",
+      "title": "蝶形收束",
+      "instructional_intent": "用第二组相似得到目标",
+      "entry_state": "关键长度已知",
+      "exit_understanding": "学生能由比例推出 BE",
+      "source_subgraph_refs": {
+        "fact_ids": [
+          "FN-20",
+          "FN-21"
+        ],
+        "inference_ids": [
+          "IF-20"
+        ]
+      },
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-001",
+          "version": "v3",
+          "content_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ],
+      "teacher_narration_refs": [
+        "RES2"
+      ],
+      "presentation_groups": [
+        {
+          "group_id": "PG-02",
+          "label": "蝶形相似与结论",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-20",
+              "FN-21"
+            ],
+            "inference_ids": [
+              "IF-20"
+            ]
+          }
+        }
+      ],
+      "expandable_region_ids": [
+        "SR-02"
+      ],
+      "resource_ids": [
+        "RES2"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "resource_id": "RES1",
+      "kind": "voice_seed",
+      "source": "authored",
+      "content": "先核对对应关系。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-04"
+        ],
+        "inference_ids": [
+          "IF-01"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES2",
+      "kind": "voice_seed",
+      "source": "authored",
+      "content": "用蝶形比例完成最后一步。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-20"
+        ],
+        "inference_ids": [
+          "IF-20"
+        ]
+      }
+    }
+  ],
+  "build_provenance": {
+    "provider": "deterministic-rules",
+    "model_id": "none",
+    "workflow_version": "wf-v5-001",
+    "run_id": "run-20260901-01",
+    "built_at": "2026-09-01T08:00:00Z",
+    "runtime_registry_version": "registry-2026-09-01",
+    "compiler_version": "plan-compiler/5.0.0",
+    "materializer_version": "plan-materializer/5.0.0"
+  },
+  "content_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "artifact_uri": "artifact://tutor-plan/TP-SMV-009@v3",
+  "resource_bindings": []
+}

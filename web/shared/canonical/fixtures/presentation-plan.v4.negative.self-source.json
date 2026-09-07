@@ -1,0 +1,41 @@
+{
+  "schema": "ai_teaching_presentation_plan/v4",
+  "session_id": "TS-4242",
+  "sequence_id": "PS-0009",
+  "decision_id": "TD-20260907-0001",
+  "scope": {
+    "kind": "local",
+    "inquiry_id": "IQ-20260907-0001",
+    "local_protocol_id": "LPR-TS4242-0001",
+    "local_beat_id": "LBT-01",
+    "anchor": {
+      "protocol_id": "PR-SMV-002",
+      "beat_id": "BT-03"
+    }
+  },
+  "actions": [
+    {
+      "ordinal": 0,
+      "kind": "workspace",
+      "basis_refs": [
+        "VB-03"
+      ],
+      "workspace_action": {
+        "action_id": "WSA-20260907-0002",
+        "decision_id": "TD-20260907-0001",
+        "surface": "solution_board",
+        "capability": "board.explain",
+        "origin": "tutor",
+        "command_payload": "EF-TS4242-0001",
+        "reveal_scope": "step_narration"
+      }
+    }
+  ],
+  "existing_fragment_refs": [
+    {
+      "fragment_id": "EF-TS4242-0001",
+      "source_sequence_id": "PS-0009",
+      "content_hash": "sha256:1e5a5dda1aa2208dfa401cc73fb2e402b0b934735d274156263c036e939fcb68"
+    }
+  ]
+}

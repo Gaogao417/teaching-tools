@@ -1,0 +1,63 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v9",
+  "session_id": "TS-4242",
+  "sequence": 43,
+  "state_revision": 8,
+  "occurred_at": "2026-09-07T09:00:00Z",
+  "event_type": "presentation_generation_requested",
+  "payload": {
+    "request_id": "GR-TS4242-0001",
+    "source_request_id": "source-input-0001",
+    "decision_id": "TD-20260907-0001",
+    "scope": {
+      "kind": "approved",
+      "protocol_id": "PR-SMV-002",
+      "beat_id": "BT-03"
+    },
+    "reservation_revision": 9,
+    "epoch": 1,
+    "attempt": 1,
+    "max_attempts": 3,
+    "retry_policy_version": "retry-v1",
+    "timeout_ms": 30000,
+    "retry_delays_ms": [
+      1000,
+      3000
+    ],
+    "context": {
+      "plan_ref": {
+        "artifact_id": "TP-SMV-002",
+        "version": "v6",
+        "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "graph_ref": {
+        "artifact_id": "RG-SMV-002",
+        "version": "v1",
+        "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "selected_fact_ids": [
+        "FN-01"
+      ],
+      "selected_inference_ids": [
+        "IF-01"
+      ],
+      "resource_ids": [
+        "RES1"
+      ],
+      "event_cutoff": 9,
+      "workspace_revision": 0
+    },
+    "input_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "presenter_pin": {
+      "provider": "structured-model",
+      "model_id": "glm-presenter-1",
+      "prompt_version": "ppt-pv-1",
+      "context_builder_version": "cb-1",
+      "tool_catalog_version": "tc-1"
+    },
+    "status": "pending",
+    "phase": "running"
+  },
+  "idempotency_key": "idem-20260907-0001",
+  "causation_sequence": 42
+}

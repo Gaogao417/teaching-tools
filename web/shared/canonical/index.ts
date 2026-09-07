@@ -8,6 +8,11 @@
 import { z } from "zod";
 
 import {
+  tutorPlanBundleV7Schema,
+  tutorRuntimeStateV4Schema,
+  presentationPlanV4Schema,
+  presentationDraftV2Schema,
+  tutorSessionEventV9Schema,
   approachSetSchema,
   benchmarkRunSchema,
   interventionSchema,
@@ -73,6 +78,11 @@ export * from "./artifactUri";
 export * from "./publication";
 
 const SCHEMA_CONST_TO_ZOD: Record<string, z.ZodTypeAny> = {
+  "ai_teaching_tutor_plan_bundle/v7": tutorPlanBundleV7Schema,
+  "ai_teaching_tutor_runtime_state/v4": tutorRuntimeStateV4Schema,
+  "ai_teaching_presentation_plan/v4": presentationPlanV4Schema,
+  "ai_teaching_presentation_draft/v2": presentationDraftV2Schema,
+  "ai_teaching_tutor_session_event/v9": tutorSessionEventV9Schema,
   "ai_teaching_source_evidence/v1": sourceEvidenceSchema,
   "ai_teaching_question_candidate/v1": questionCandidateSchema,
   "ai_teaching_question_truth/v1": questionTruthSchema,

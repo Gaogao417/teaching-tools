@@ -5344,3 +5344,169 @@ export const tutorSessionEventV8Schema = z
       });
     }
   });
+
+const preparedExplanationFragmentSchema = explanationFragmentStateSchema.omit({ visible: true }).extend({ origin_generation: generationRequestIdPattern }).strict();
+// F7 simplified-context contract wave. Historical schemas above remain readers.
+const gateBindingRefSchema = z.object({ protocol_id: teachingProtocolId, gate_id: gateIdPattern }).strict();
+const bindingBase = resourceBindingSchema.innerType().omit({ reveal_after_checkpoint: true });
+const contextResourceBindingSchema = z.discriminatedUnion("binding_kind", [
+  bindingBase.pick({ binding_id: true, binding_kind: true, purpose: true, geometry_target: true, semantic_role: true, allowed_template_ids: true })
+    .extend({ binding_kind: z.literal("geometry") }).required(),
+  bindingBase.pick({ binding_id: true, binding_kind: true, purpose: true, board_entry_id: true })
+    .extend({ binding_kind: z.literal("board"), reveal_after_gate: gateBindingRefSchema }).required(),
+  bindingBase.pick({ binding_id: true, binding_kind: true, purpose: true, basis_refs: true, presentation_resource: true })
+    .extend({ binding_kind: z.literal("explanation") }).required(),
+]);
+export const tutorPlanBundleV7Schema = tutorPlanBundleV5Body.omit({ schema: true }).extend({
+  schema: z.literal("ai_teaching_tutor_plan_bundle/v7"),
+  resource_bindings: z.array(contextResourceBindingSchema),
+}).strict().superRefine((value, ctx) => {
+  const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  planBundleCrossFieldRules(value, add);
+  if (new Set(value.resource_bindings.map((b) => b.binding_id)).size !== value.resource_bindings.length) add("binding_id must be unique");
+  for (const binding of value.resource_bindings) {
+    if (binding.binding_kind === "explanation" && !value.resources.some((r) => r.resource_id === binding.presentation_resource)) add("unknown explanation resource");
+    if (binding.binding_kind === "board" && !value.chunks.some((chunk) => chunk.protocol_refs.some((p) => p.artifact_id === binding.reveal_after_gate.protocol_id))) add("unknown reveal protocol");
+  }
+});
+
+export const generationContextRefSchema = z.object({
+  plan_ref: tutorRuntimeStateV3Schema.innerType().shape.pinned_plan.shape.tutor_plan_ref,
+  graph_ref: tutorRuntimeStateV3Schema.innerType().shape.pinned_plan.shape.solution_graph_ref,
+  selected_fact_ids: z.array(z.string().regex(/^FN-[0-9]{1,3}$/)),
+  selected_inference_ids: z.array(z.string().regex(/^IF-[0-9]{1,3}$/)),
+  resource_ids: z.array(nonEmptyString),
+  event_cutoff: z.number().int().min(0),
+  workspace_revision: z.number().int().min(0),
+}).strict();
+export const generationFailureClassSchema = generationErrorClassEnum.or(z.literal("RETRY_EXHAUSTED"));
+export const generationRequestRecordSchema = z.object({
+  request_id: generationRequestIdPattern,
+  source_request_id: z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/),
+  decision_id: decisionIdPattern,
+  scope: teachingScopeRefSchema,
+  reservation_revision: z.number().int().min(0),
+  epoch: z.number().int().min(1), attempt: z.number().int().min(1), max_attempts: z.number().int().min(1),
+  retry_policy_version: nonEmptyString, timeout_ms: z.number().int().min(1),
+  retry_delays_ms: z.array(z.number().int().min(0)),
+  context: generationContextRefSchema, input_digest: sha256, presenter_pin: presenterGenerationPinSchema,
+  status: z.enum(["pending", "committed", "failed", "cancelled"]),
+  phase: z.enum(["running", "waiting_retry"]).optional(), retry_at: isoDateTime.optional(),
+  error_class: generationFailureClassSchema.optional(), sequence_id: presentationSequenceIdPattern.optional(),
+  cancel_reason: z.enum(["cancelled", "superseded_by_new_input", "revision_changed", "session_closing"]).optional(),
+}).strict().superRefine((v, ctx) => {
+  const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  if (v.attempt > v.max_attempts || v.epoch < v.attempt) add("invalid attempt budget or fencing epoch");
+  if (v.retry_delays_ms.length !== v.max_attempts - 1) add("retry schedule must match frozen budget");
+  if (v.context.event_cutoff > v.reservation_revision) add("context cutoff exceeds reservation");
+  const allowed = { pending: ["phase", "retry_at"], committed: ["sequence_id"], failed: ["error_class"], cancelled: ["cancel_reason"] }[v.status];
+  const required = { pending: "phase", committed: "sequence_id", failed: "error_class", cancelled: "cancel_reason" }[v.status];
+  const fields = v as Record<string, unknown>;
+  if (fields[required] === undefined) add(`status ${v.status} requires ${required}`);
+  for (const key of ["phase", "retry_at", "sequence_id", "error_class", "cancel_reason"]) if (!allowed.includes(key) && fields[key] !== undefined) add(`status ${v.status} forbids ${key}`);
+  if (v.phase === "waiting_retry") {
+    if (!v.retry_at || v.attempt >= v.max_attempts) add("retry requires time and remaining budget");
+  } else if (v.retry_at !== undefined) add("retry_at requires waiting_retry");
+  if (v.error_class === "RETRY_EXHAUSTED" && v.attempt !== v.max_attempts) add("retry exhaustion requires spent budget");
+});
+export const tutorRuntimeStateV4Schema = tutorRuntimeStateV2Schema.omit({ schema: true }).extend({
+  schema: z.literal("ai_teaching_tutor_runtime_state/v4"),
+  // v4 收缩：presenter pin 从可选升为必填——生成请求/重呈现一律按会话级 pin 复核。
+  pinned_plan: tutorRuntimeStateV3Schema.innerType().shape.pinned_plan.omit({ presenter_generation_pin: true }).extend({
+    presenter_generation_pin: presenterGenerationPinSchema,
+  }),
+  generation_slot: z.union([
+    z.object({ status: z.literal("idle") }).strict(),
+    z.object({ status: z.enum(["pending", "failed"]), request_id: generationRequestIdPattern }).strict(),
+  ]),
+  generation_requests: z.array(generationRequestRecordSchema),
+}).strict().superRefine((v, ctx) => {
+  const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  if (new Set(v.generation_requests.map((r) => r.request_id)).size !== v.generation_requests.length) add("duplicate generation request");
+  if (new Set(v.generation_requests.map((r) => r.source_request_id)).size !== v.generation_requests.length) add("duplicate source request");
+  const sessionPin = v.pinned_plan.presenter_generation_pin;
+  for (const r of v.generation_requests) {
+    if (r.reservation_revision > v.state_revision) add("future reservation revision");
+    if (r.status === "pending" && (v.generation_slot.status !== "pending" || v.generation_slot.request_id !== r.request_id)) add("pending request must own current slot");
+    if (
+      r.presenter_pin.provider !== sessionPin.provider || r.presenter_pin.model_id !== sessionPin.model_id ||
+      r.presenter_pin.prompt_version !== sessionPin.prompt_version || r.presenter_pin.context_builder_version !== sessionPin.context_builder_version ||
+      r.presenter_pin.tool_catalog_version !== sessionPin.tool_catalog_version
+    ) add("request pin drifts from session presenter pin");
+    if (
+      r.context.plan_ref.artifact_id !== v.pinned_plan.tutor_plan_ref.artifact_id ||
+      r.context.plan_ref.version !== v.pinned_plan.tutor_plan_ref.version ||
+      r.context.plan_ref.content_hash !== v.pinned_plan.tutor_plan_ref.content_hash
+    ) add("generation context drifts from pinned plan");
+  }
+  if (v.generation_slot.status !== "idle") {
+    const slot = v.generation_slot;
+    if (!v.generation_requests.some((r) => r.request_id === slot.request_id && r.status === slot.status)) add("slot must resolve to matching request record");
+  }
+  if (v.generation_slot.status === "pending" && v.presentation_cursor.status !== "idle") add("cannot deliver while a generation request is pending");
+});
+
+const previousFragmentRefSchema = z.object({ fragment_id: explanationFragmentIdPattern, source_sequence_id: presentationSequenceIdPattern, content_hash: sha256 }).strict();
+const planGenerationV4Schema = planGenerationProvenanceSchema.extend({ epoch: z.number().int().min(1), presenter_pin: presenterGenerationPinSchema });
+const sequenceV4Body = presentationPlanV3Schema.innerType().omit({ schema: true, session_id: true, resolution_frame_id: true }).extend({
+  explanation_fragments: z.array(preparedExplanationFragmentSchema).min(1).optional(),
+  generation: planGenerationV4Schema.optional(), existing_fragment_refs: z.array(previousFragmentRefSchema).min(1).optional(),
+});
+function checkSequenceV4(v: z.infer<typeof sequenceV4Body>, ctx: z.RefinementCtx): void {
+  const add = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  checkPresentationOrdinals(v.actions, ctx);
+  const fresh = v.explanation_fragments ?? []; const existing = v.existing_fragment_refs ?? [];
+  const ids = new Set([...fresh, ...existing].map((f) => f.fragment_id));
+  if (ids.size !== fresh.length + existing.length) add("fragment sources must be unique and disjoint");
+  const used = new Set<string>(); const actions = new Set<string>();
+  for (const a of v.actions) {
+    const body = a.voice_action ?? a.workspace_action;
+    if (body) {
+      if (body.decision_id !== v.decision_id || actions.has(body.action_id)) add("invalid action decision or duplicate identity");
+      actions.add(body.action_id);
+    }
+    if (a.voice_action?.source === "model-generated" && !v.generation) add("generated voice requires provenance");
+    const w = a.workspace_action;
+    if (w?.capability === "board.explain") {
+      if (!w.command_payload || !ids.has(w.command_payload)) add("board.explain requires a unique persisted content source");
+      if (w.command_payload) used.add(w.command_payload);
+      if (w.surface !== "solution_board" || w.reveal_scope === "none") add("invalid explanation surface or reveal scope");
+    }
+  }
+  for (const id of ids) if (!used.has(id)) add("unreferenced fragment source");
+  for (const f of fresh) if (!v.generation || f.origin_generation !== v.generation.request_id) add("fresh fragment provenance mismatch");
+  for (const f of existing) if (f.source_sequence_id === v.sequence_id) add("existing fragment cannot originate in current sequence");
+}
+export const presentationPlanV4Schema = sequenceV4Body.extend({ schema: z.literal("ai_teaching_presentation_plan/v4"), session_id: sessionId }).strict().superRefine(checkSequenceV4);
+const sequenceV4Payload = sequenceV4Body.strict().superRefine(checkSequenceV4);
+const draftItemV2 = presentationDraftV1Schema.shape.items.element.innerType().extend({
+  args: z.object({ binding_ref: resourceBindingIdPattern.optional(), params: z.record(z.unknown()).optional() }).strict().optional(),
+}).superRefine((v, ctx) => {
+  if (v.type === "speech" ? (!v.text || v.tool !== undefined || v.args !== undefined) : (v.text !== undefined || !v.tool || !v.args)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "invalid draft item discriminant" });
+});
+export const presentationDraftV2Schema = presentationDraftV1Schema.extend({ schema: z.literal("ai_teaching_presentation_draft/v2"), items: z.array(draftItemV2).min(1) });
+const generationEventStates = {
+  presentation_generation_requested: ["pending", "running"],
+  presentation_generation_attempt_started: ["pending", "running"],
+  presentation_generation_retry_scheduled: ["pending", "waiting_retry"],
+  presentation_generation_failed: ["failed"], presentation_generation_invalidated: ["cancelled"],
+} as const;
+const eventV9Payloads: Record<string, z.ZodTypeAny> = { ...v7EventPayloadSchemas, session_started: v8SessionStartedPayload, presentation_sequence_planned: sequenceV4Payload };
+for (const [name, state] of Object.entries(generationEventStates)) {
+  eventV9Payloads[name] = generationRequestRecordSchema.superRefine((v, ctx) => {
+    if (v.status !== state[0] || (state.length > 1 && v.phase !== state[1])) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "generation event state mismatch" });
+  });
+}
+export const tutorSessionEventV9Schema = tutorSessionEventV8Schema.innerType().extend({
+  schema: z.literal("ai_teaching_tutor_session_event/v9"), event_type: z.string(),
+}).superRefine((v, ctx) => {
+  const result = eventV9Payloads[v.event_type]?.safeParse(v.payload);
+  if (!result) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "unknown event_type" });
+  else if (!result.success) for (const issue of result.error.issues) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["payload", ...issue.path], message: issue.message });
+  if (v.event_type in generationEventStates) {
+    const record = v.payload as { reservation_revision?: number; attempt?: number };
+    if (record.reservation_revision !== undefined && record.reservation_revision > v.state_revision) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "generation reservation exceeds event state revision" });
+    if (v.event_type === "presentation_generation_requested" && record.attempt !== 1) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "requested event must start an unspent budget" });
+  }
+  if ((V6_CAUSATION_REQUIRED.has(v.event_type) || v.event_type in generationEventStates) && v.causation_sequence === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "event requires causation_sequence" });
+});
