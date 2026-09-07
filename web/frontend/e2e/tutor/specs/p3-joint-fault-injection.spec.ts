@@ -178,6 +178,60 @@ for (const scenario of ["runtime-failure", "command-rejected"] as const) {
   });
 }
 
+/**
+ * JR4-e（US-07/FM-10-6 浏览器行）：错值→wrong 诊断可见+选择保留+零推进→
+ * 修改为正确值→过门推进 BT-05。附 a11y snapshot 留档（INT §3.1 类型 7）。
+ */
+test("JR4-e 错值 retain→修改→correct 过门（US-07 浏览器旅程）", async ({ page }) => {
+  test.setTimeout(6 * 60_000);
+  await prepareStudent(page);
+  await installTtsIntercept(page);
+  await driveToAnswerFlow(page);
+  const workspace = page.getByTestId("action-runtime-workspace");
+  await expect(workspace).toBeVisible({ timeout: 60_000 });
+  await expect(workspace).toHaveAttribute("data-action-id", /mark-segment-values/, { timeout: 30_000 });
+  const board = page.locator(".geometry-canvas__board");
+  const canvas = page.locator(".geometry-canvas");
+  const selectAll = async (): Promise<void> => {
+    await canvas.focus();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Enter");
+    await expect(workspace).toHaveAttribute("data-selected", "seg-AO");
+    for (const segmentId of ["seg-DO", "seg-BO", "seg-OE"]) {
+      const entity = board.locator(`[data-geometry-id="${segmentId}"]`);
+      const rect = await entity.evaluate((el) => { const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; });
+      await page.mouse.click(rect.x + rect.w / 2, rect.y + rect.h / 2);
+      await expect(workspace.getAttribute("data-selected")).resolves.toContain(segmentId);
+    }
+  };
+  await selectAll();
+  const evidencePosts: { status: number; body: string }[] = [];
+  page.on("response", async (response) => {
+    if (/\/action-evidence$/.test(new URL(response.url()).pathname) && response.request().method() === "POST") {
+      evidencePosts.push({ status: response.status(), body: (await response.text()).slice(0, 0) || "ok" });
+      console.log(`JR4-E-EVIDENCE #${evidencePosts.length} status=${response.status()}`);
+    }
+  });
+  // —— 第一轮：错值 → wrong 诊断可见、选择保留、不推进 ——
+  const wrongValues: Record<string, string> = { "seg-AO": "1", "seg-DO": "2", "seg-BO": "3", "seg-OE": "4" };
+  for (const [sid, v] of Object.entries(wrongValues)) await page.getByLabel(sid, { exact: false }).fill(v);
+  await page.getByRole("button", { name: "确认" }).last().click();
+  await expect(page.getByTestId("runtime-wrong-feedback")).toBeVisible({ timeout: 30_000 });
+  await expect(workspace).toBeVisible({ timeout: 30_000 }); // actor 保留（不卸载、不推进）
+  await expect(page.getByTestId("tutor-submit-answer")).toBeHidden({ timeout: 5_000 }).catch(async () => {
+    // 若已推进（不应发生），失败并留证
+    throw new Error("wrong 值不应推进 Beat");
+  });
+  // —— 第二轮：修改为正确值 → 过门推进 ——
+  const correctValues: Record<string, string> = { "seg-AO": "\\frac{16}{5}", "seg-DO": "\\frac{32}{15}", "seg-BO": "\\frac{6}{5}", "seg-OE": "\\frac{4}{5}" };
+  for (const [sid, v] of Object.entries(correctValues)) await page.getByLabel(sid, { exact: false }).fill(v);
+  await page.getByRole("button", { name: "确认" }).last().click();
+  await expect(page.getByTestId("tutor-submit-answer").or(page.getByTestId("tutor-participation"))).toBeVisible({ timeout: 30_000 });
+  // a11y snapshot 留档（非穷尽审计：结构快照证据）
+  const snapshot = await page.locator("main").ariaSnapshot();
+  expect(snapshot.length, "a11y snapshot 非空").toBeGreaterThan(200);
+});
+
 test("JR4-d granted 权限 + ASR 成功自动提交 / 空转写 422（fake-device L3 行）", async ({ page }) => {
   test.setTimeout(6 * 60_000);
   await prepareStudent(page);
