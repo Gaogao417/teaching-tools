@@ -41,6 +41,13 @@ const frontendPort = Number(process.env.TUTOR_E2E_FRONTEND_PORT || 5174);
  */
 const realChain = process.env.TUTOR_E2E_REAL === "1";
 /**
+ * F7 P3（FM-3-2）：TUTOR_E2E_AUTOPLAY_BLOCKED=1 时翻转启动策略为
+ * user-gesture-required（默认不变——no-user-gesture-required）。test.use 的
+ * launchOptions 无法可靠覆盖 config 级参数（合并后 config 侧生效），故经
+ * env 门控；只影响显式带该 env 的单独运行（p3-media-autoplay.spec.ts）。
+ */
+const autoplayBlocked = process.env.TUTOR_E2E_AUTOPLAY_BLOCKED === "1";
+/**
  * F7 P2：canonical 链（/api/vnext → TutorLearnExperience runtimeClient）挂载同一
  * backend——TUTOR_VNEXT_ROOT 指向 skills-mvp canonical-authoring（只读消费），
  * 脚本化 Gate 端口（与 playwright.vnext.config.ts 同口径）。legacy 链用例零影响
@@ -69,7 +76,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     video: "off",
-    launchOptions: { args: ["--autoplay-policy=no-user-gesture-required"] },
+    launchOptions: { args: [autoplayBlocked ? "--autoplay-policy=user-gesture-required" : "--autoplay-policy=no-user-gesture-required"] },
   },
   webServer: [
     {
