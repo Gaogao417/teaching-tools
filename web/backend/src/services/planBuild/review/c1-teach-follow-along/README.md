@@ -59,8 +59,8 @@ npx tsx src/services/planBuild/__tests__/teachFollowAlongCandidate.test.ts
 
 预算 13 facts / 4 inferences / 1261 字符（包含四份资源文本），默认 14/8/4000 不变。核心使用原补讲范围内既有角关系与长度事实支持 AA/SAS，不重新携带所有前序证明；未新增 FN23 或资源解释绑定权限。主线六拍内容与预算不变，只更新其 Inquiry hash pin。
 
-现有 TutorNavigatorV5 对 Inquiry 的最后一拍有效证据执行 inquiry_completed→return_to_mainline，目的地沿保存的 return_beat_id；候选采用既有 evidence_collected 终态自边形式，不改 Navigator。createSyntheticFollowAlongRoot() 自动消费新版。main 应验证一次有效补讲反馈自然返回原 Beat、无 continue_inquiry 四拍遍历，以及返回后是否重复确认。候选不代填主线 gate、不宣称主线已自动复用本次证据。
+现有 TutorNavigatorV5 对 Inquiry 的最后一拍有效证据执行 inquiry_completed→return_to_mainline，目的地沿保存的 return_beat_id；候选采用既有 evidence_collected 终态自边形式，不改 Navigator。createSyntheticFollowAlongRoot() 自动消费新版。服务端已支持同一句自然反馈对保存的原拍目标再次复核：覆盖完整目标则原子返回并推进，否则仅返回原锚点。局部控件确认不跨范围复用；没有自动代填主线 Gate。
 
-待用户裁定：是否接受“一个断点、一个补讲拍、一次有效反馈返回”的教学组织，以及 RES9–RES12 从必过诊断流程改为按需方向。三份候选仍为 Draft。main 已报告 C4 七项通过，包含 one-inquiry 自然返回、按真实 bindings 发起五条 geometry.construct 以及其他 Beat 的 board.explain；这是 main 提供的集成测试结果，不能代替用户教研批准。
+待用户裁定：是否接受“一个断点、一个补讲拍、一次有效反馈返回”的教学组织，以及 RES9–RES12 从必过诊断流程改为按需方向。三份候选仍为 Draft。main 已报告 C4 十项通过，包含 one-inquiry 自然返回、按真实 bindings 发起五条 geometry.construct 以及其他 Beat 的 board.explain、跨目标反馈复用及失败回滚；这是 main 提供的集成测试结果，不能代替用户教研批准。
 
 收口验证：C1 编译、候选永久测试、默认预算测试及整包只读校验通过；main 继续统一门禁/提交。本次目录归一未修改候选内容。

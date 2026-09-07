@@ -81,12 +81,57 @@ test('Teach self-report protocol cannot be started as an assessment',()=>{
 });
 
 test('a bounded repair accepts one natural confirmation and returns to the existing mainline anchor',async()=>{
- const {session:s,provider}=start([response('GT-01','question','not_applicable',['FN-01']),response('GT-01')]);
+ const {session:s,provider}=start([response('GT-01','question','not_applicable',['FN-01']),response('GT-01'),response('GT-01','mixed_or_ambiguous','unclear')]);
  await finish(s);const opened=await say(s,'翻折后 AE 为什么等于 AC？');
  assert.equal(opened.turn.decision?.decision_kind,'open_inquiry');
  const branch=s.plan.branches.get('PR-SMV-002')!;assert.equal(branch.beat_order.length,1,'repair must not force four confirmations');
  await finish(s);const returned=await say(s,'这个补讲听懂了，翻折保持对应长度');
  assert.equal(returned.turn.decision?.decision_kind,'return_to_mainline');
  assert.equal(s.rebuildRuntimeState().inquiry_cursor,null);assert.equal(s.rebuildRuntimeState().teaching_cursor.beat_id,'BT-01');
- assert.equal(provider.callCount,2);assert.equal(s.assertReplayParity().equal,true);
+ assert.equal(provider.callCount,3);assert.equal(s.assertReplayParity().equal,true);
+});
+
+test('same repair feedback covering the mainline goal advances atomically without another question',async()=>{
+ const {session:s,provider,presenter}=start([response('GT-01','question','not_applicable',['FN-01']),response('GT-01'),response('GT-01','restatement','pass',['FN-01'])]);
+ await finish(s);await say(s,'翻折后 AE 为什么等于 AC？');await finish(s);
+ const id='repair-and-mainline';const text='明白了，翻折保长，所以AE等于AC；题设和要求BE我都接上了';
+ const result=await say(s,text,id);
+ assert.equal(result.turn.decision?.decision_kind,'transition_beat');assert.equal(s.rebuildRuntimeState().teaching_cursor.beat_id,'BT-02');
+ const returned=s.events.filter(e=>e.event_type==='inquiry_returned').at(-1)!;
+ const gate=s.events.filter(e=>e.event_type==='gate_evaluated').at(-1)!;
+ assert.equal(returned.state_revision,gate.state_revision,'return and mainline pass share a transaction');
+ const before=s.events.length;const replay=await say(s,text,id);assert.equal(s.events.length,before);assert.equal(provider.callCount,3);assert.equal(replay.turn.interpretationSequence,result.turn.interpretationSequence);assert.equal(replay.turn.gateSequence,result.turn.gateSequence);assert.equal(replay.turn.decision?.decision_id,result.turn.decision?.decision_id);
+ const recheck=JSON.parse(provider.calls[2]);assert.equal(recheck.current_beat.protocol_id,'PR-SMV-001');assert.equal(recheck.student_input.intent_kind,'utterance');assert.equal(recheck.student_input.responding_to.protocol_id,'PR-SMV-002');
+ assert.ok(s.events.some(e=>e.event_type==='semantic_interpretation_recorded'&&(e.payload as {intent:string}).intent==='confirm:follow_along:expressed:return:PR-SMV-001:BT-01:GT-01'));
+ const restored=TutorSessionOrchestratorV7.resume({sessionId:s.sessionId,canonicalRoot:candidate.root,model:f6Model(provider,'C4-follow-along'),presenter});
+ assert.deepEqual(restored.rebuildRuntimeState(),s.rebuildRuntimeState());assert.equal(s.assertReplayParity().equal,true);
+ const {verifyGateAttributionAgainstPlanV7}=require('../../tutorNavigator/NavigatorSessionV7') as typeof import('../../tutorNavigator/NavigatorSessionV7');
+ const {TutorTaskBindingResolver}=require('../TutorTaskBindingResolver') as typeof import('../TutorTaskBindingResolver');
+ const resolver=new TutorTaskBindingResolver(candidate.root);const binding=resolver.resolveForStart('goldenMinhangFold2020');
+ const forged=structuredClone(s.events);
+ const reuse=forged.find(e=>e.event_type==='semantic_interpretation_recorded'&&(e.payload as {intent:string}).intent.includes(':return:'))!;
+ (reuse.payload as {intent:string}).intent='confirm:follow_along:expressed';
+ assert.throws(()=>verifyGateAttributionAgainstPlanV7(s.plan,binding.imported.plan.resources,forged,resolver.v7RegistryProvider(forged[0].payload)),/same input's interpreted/,'local evidence cannot replace missing mainline recheck');
+});
+
+test('failed return transaction preserves Inquiry and retries the same raw input without partial progress',async()=>{
+ const {session:s,provider}=start([response('GT-01','question','not_applicable',['FN-01']),response('GT-01'),response('GT-01'),response('GT-01'),response('GT-01')]);
+ await finish(s);await say(s,'翻折后 AE 为什么等于 AC？');await finish(s);
+ const {db}=require('../../../db/database') as typeof import('../../../db/database');
+ db.exec(`CREATE TEMP TRIGGER fail_follow_along_gate BEFORE INSERT ON tutor_session_events WHEN NEW.session_id='${s.sessionId}' AND NEW.event_type='gate_evaluated' BEGIN SELECT RAISE(ABORT,'injected follow-along rollback'); END`);
+ const request={input:{kind:'utterance' as const,channel:'mainline' as const,text:'这一步和刚才的疑点都接上了'},client_request_id:'atomic-return-retry'};
+ try { await assert.rejects(()=>s.submitStudentInput(request,{}),/injected follow-along rollback/); } finally {db.exec('DROP TRIGGER fail_follow_along_gate');}
+ assert.equal(s.events.filter(e=>e.event_type==='inquiry_returned').length,0);
+ assert.equal(s.rebuildRuntimeState().teaching_cursor.beat_id,'BT-01');assert.ok(s.rebuildRuntimeState().inquiry_cursor);
+ const retried=await s.submitStudentInput(request,{});assert.equal(retried.turn.decision?.decision_kind,'transition_beat');
+ assert.equal(s.rebuildRuntimeState().teaching_cursor.beat_id,'BT-02');assert.equal(provider.callCount,5);
+ assert.equal(s.events.filter(e=>e.event_type==='student_input_recorded'&&(e.payload as {client_request_id:string}).client_request_id==='atomic-return-retry').length,1);
+ assert.equal(s.assertReplayParity().equal,true);
+});
+
+test('a local confirmation button is not silently reinterpreted as confirmation of the mainline',async()=>{
+ const {session:s,provider}=start([response('GT-01','question','not_applicable',['FN-01']),response('GT-01')]);
+ await finish(s);await say(s,'翻折后 AE 为什么等于 AC？');await finish(s);
+ const returned=await s.submitStudentInput({input:{kind:'control',command:'confirm'},client_request_id:'local-control-only'},{});
+ assert.equal(returned.turn.decision?.decision_kind,'return_to_mainline');assert.equal(s.rebuildRuntimeState().teaching_cursor.beat_id,'BT-01');assert.equal(provider.callCount,2);
 });

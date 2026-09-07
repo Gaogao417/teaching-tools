@@ -786,7 +786,7 @@ export class NavigatorSessionV7 {
     return { ...result, inputSequence };
   }
 
-  private interpretAndDecide(
+  private async interpretAndDecide(
     revision: number,
     inputSequence: number,
     clientRequestId: string,
@@ -794,7 +794,7 @@ export class NavigatorSessionV7 {
     text: string | undefined,
     hypothesis: NavigatorInterpretation,
     modelFailure?: { reason: string; detail: string },
-  ): V7TurnResult {
+  ): Promise<V7TurnResult> {
     const batch: PendingV7Event[] = [];
     if (modelFailure) {
       batch.push({
@@ -809,6 +809,7 @@ export class NavigatorSessionV7 {
       });
     }
     const interpretationSequence = this.nextSequence() + batch.length;
+    let effectiveInterpretationSequence = interpretationSequence;
     batch.push({
       event_type: "semantic_interpretation_recorded",
       payload: hypothesisEventPayload(hypothesis),
@@ -873,6 +874,45 @@ export class NavigatorSessionV7 {
     }
 
     const outcome = decideNavigation(this.baseContext(), trigger);
+    let reuse: { beat: NavigatorBeatView; evidenceSequence: number } | undefined;
+    // A local repair and the original Beat are different evidence goals. Reuse the
+    // same raw feedback only after adjudicating the saved mainline goal as well.
+    // Both judgments and all navigation facts commit in one batch: a lost response
+    // cannot leave half a returned/advanced turn or cause a second confirmation.
+    if (outcome.ok && outcome.decision.decision_kind === "return_to_mainline"
+      && outcome.decision.transition_basis?.basis === "inquiry_completed"
+      && hypothesis.gate_assessment?.verdict === "pass"
+      && text !== undefined && text.trim().length > 0
+      && beat.completion_evidence.confirmation_target === "follow_along") {
+      const target = this.plan.mainline.beats.get(outcome.decision.to_beat_id ?? "");
+      if (target?.completion_evidence.confirmation_target === "follow_along") {
+        const originalInput = (this.events.find((event) => event.sequence === inputSequence)?.payload as {input: V7StudentInputBody}).input;
+        const context = buildGateAdjudicationContext({
+          plan: this.plan, beat: target,
+          events: this.events as unknown as Parameters<typeof buildGateAdjudicationContext>[0]["events"],
+          studentInput: { intent_kind: originalInput.kind === "utterance" ? "utterance" : (originalInput.command ?? "utterance"), text: text ?? "" },
+          factRelevanceScore: interpretationMatchScore,
+        });
+        const adjudication = await this.adjudicator.adjudicate({...context, student_input: {...context.student_input,
+          responding_to: {protocol_id: beat.protocol_id, beat_id: beat.beat_id, purpose: beat.purpose}}});
+        const checked = hypothesisFromAdjudication({plan: this.plan, beat: target, intent_kind: "confirm", text: text ?? "",
+          adjudication, evidence_sequence: intentSequence});
+        effectiveInterpretationSequence = this.nextSequence() + batch.length;
+        batch.push({ event_type: "semantic_interpretation_recorded", payload: {
+          ...hypothesisEventPayload(checked),
+          intent: `${checked.intent}:return:${target.protocol_id}:${target.beat_id}:${target.completion_evidence.gate!.gate_id}`,
+        }, occurred_at: nowIso(), causation_sequence: inputSequence });
+        if (adjudication.degraded_reason) batch.push({event_type: "runtime_failure", payload: {
+          failure_class: "internal_error", message: `return feedback adjudication unavailable: ${adjudication.degraded_reason}`,
+          related_event_sequence: inputSequence,
+        }, occurred_at: nowIso(), causation_sequence: inputSequence});
+        if ((checked.intent === "confirm:follow_along:self_reported" || checked.intent === "confirm:follow_along:expressed")
+          && evaluateGateEvidence(this.plan, target, {confirmation_sequences: [intentSequence], workspace_outcomes: [],
+            narration_completed: false, model_assessment: checked.gate_assessment}).satisfied) {
+          reuse = {beat: target, evidenceSequence: intentSequence};
+        }
+      }
+    }
     const result = this.commitDecisions(
       revision,
       [
@@ -881,11 +921,12 @@ export class NavigatorSessionV7 {
           : { kind: "failed", sequence: trigger.sequence, failure: outcome.failure },
       ],
       batch,
+      reuse,
     );
     return {
       ...result,
       inputSequence,
-      interpretationSequence,
+      interpretationSequence: effectiveInterpretationSequence,
       ...(gateSequence !== undefined ? { gateSequence } : {}),
     };
   }
@@ -898,8 +939,10 @@ export class NavigatorSessionV7 {
       | { kind: "failed"; sequence: number; failure: { failure_class: string; message: string } }
     >,
     prefixBatch: PendingV7Event[] = [],
+    reuseAfterReturn?: { beat: NavigatorBeatView; evidenceSequence: number },
   ): V7TurnResult {
     const batch: PendingV7Event[] = [...prefixBatch];
+    let nextInquiryBeatId = this.inquiryBeatId;
     const results: V7TurnResult[] = [];
     let currentRevision = revision;
     for (const item of items) {
@@ -940,7 +983,7 @@ export class NavigatorSessionV7 {
             occurred_at: nowIso(),
             causation_sequence: decisionSequence,
           });
-          this.inquiryBeatId = inquiry.inquiry_protocol_id
+          nextInquiryBeatId = inquiry.inquiry_protocol_id
             ? pinnedProtocol(this.plan, inquiry.inquiry_protocol_id)?.entry_beat_id
             : undefined;
         }
@@ -957,10 +1000,10 @@ export class NavigatorSessionV7 {
           occurred_at: nowIso(),
           causation_sequence: decisionSequence,
         });
-        this.inquiryBeatId = undefined;
+        nextInquiryBeatId = undefined;
       }
       if (decision.decision_kind === "continue_inquiry" && decision.inquiry?.inquiry_protocol_id) {
-        this.inquiryBeatId = decision.beat_id;
+        nextInquiryBeatId = decision.beat_id;
       }
       if (decision.decision_kind === "complete_beat" && !this.state.completed) {
         batch.push({
@@ -970,10 +1013,39 @@ export class NavigatorSessionV7 {
         });
       }
       results.push({ revision: currentRevision, inputSequence: item.sequence, decisionSequence, decision });
+      if (decision.decision_kind === "return_to_mainline" && reuseAfterReturn) {
+        const target = reuseAfterReturn.beat;
+        const gate = target.completion_evidence.gate!;
+        const gateSequence = this.nextSequence() + batch.length;
+        batch.push({event_type: "gate_evaluated", payload: {gate_id: gate.gate_id, beat_id: target.beat_id,
+          satisfied: true, evidence_sequence: reuseAfterReturn.evidenceSequence}, occurred_at: nowIso(),
+          causation_sequence: reuseAfterReturn.evidenceSequence});
+        // Fold the prospective batch using the existing reducer. This is transaction
+        // validation, not a second persisted state or a guessed cursor transition.
+        let prospective = this.state as unknown as Parameters<typeof applyV7Event>[0];
+        const foldContext = this.registryProvider(this.events[0].payload);
+        for (const [index, pending] of batch.entries()) {
+          prospective = applyV7Event(prospective, {schema: "ai_teaching_tutor_session_event/v7",
+            session_id: this.sessionId, sequence: this.nextSequence() + index, state_revision: revision + 1,
+            idempotency_key: `${this.sessionId}:preview:${index}`, ...pending} as StoredV7Event, foldContext);
+        }
+        const next = decideNavigation({...this.baseContext(), state: prospective as unknown as NavigatorContext["state"], inquiryBeatId: undefined}, {
+          kind: "gate_evaluated", sequence: gateSequence, gate_id: gate.gate_id, beat_id: target.beat_id,
+          satisfied: true, evidence_sequence: reuseAfterReturn.evidenceSequence,
+        });
+        if (!next.ok) throw new Error(`return feedback cannot take a legal transition: ${next.failure.message}`);
+        const nextSequence = this.nextSequence() + batch.length;
+        batch.push(this.decisionEvent(nextSequence, next.decision, gateSequence));
+        if (next.decision.decision_kind === "complete_beat") batch.push({event_type: "session_completed",
+          payload: {final_beat_id: target.beat_id, completed_parts: [target.part_id ?? "1"]}, occurred_at: nowIso()});
+        results.push({revision: currentRevision, inputSequence: item.sequence, decisionSequence: nextSequence,
+          gateSequence, decision: next.decision});
+      }
     }
     if (batch.length) {
       const appended = this.append(currentRevision, batch);
       currentRevision = appended.revision;
+      this.inquiryBeatId = nextInquiryBeatId;
     }
     const last = results[results.length - 1];
     return { ...last, revision: currentRevision };
@@ -1053,6 +1125,7 @@ export function verifyGateAttributionAgainstPlanV7(
   if (events.length === 0) return;
   let state = initialStateFromSessionStartedV7(events[0]);
   const evidenceBySequence = new Map<number, StoredV7Event>();
+  const inputScopes = new Map<number, {inquiry: boolean; protocol_id: string; beat_id: string; inquiry_id?: string; return_beat_id?: string}>();
   for (const event of events) {
     if (
       event.event_type === "student_intent_recorded"
@@ -1063,6 +1136,10 @@ export function verifyGateAttributionAgainstPlanV7(
     }
   }
   for (const event of events.slice(1)) {
+    if (event.event_type === "student_input_recorded") inputScopes.set(event.sequence, {
+      inquiry: state.inquiry_cursor !== null, protocol_id: state.teaching_cursor.protocol_id, beat_id: state.teaching_cursor.beat_id,
+      inquiry_id: state.inquiry_cursor?.inquiry_id, return_beat_id: state.inquiry_cursor?.return_beat_id,
+    });
     if (event.event_type === "gate_evaluated") {
       const gate = event.payload as unknown as { gate_id: string; beat_id: string; satisfied: boolean; evidence_sequence?: number };
       const cursor = state.teaching_cursor;
@@ -1112,17 +1189,36 @@ export function verifyGateAttributionAgainstPlanV7(
             );
           }
           if (beat.completion_evidence.confirmation_target === "follow_along") {
+            const source = inputScopes.get(evidence.causation_sequence ?? -1);
+            const directScope = source?.inquiry === false && source.protocol_id === beat.protocol_id && source.beat_id === beat.beat_id;
+            const returnedScope = source?.inquiry === true && source.protocol_id === beat.protocol_id && source.return_beat_id === beat.beat_id
+              && events.some((candidate) => candidate.event_type === "inquiry_returned"
+                && candidate.sequence > evidence.sequence && candidate.sequence < event.sequence
+                && candidate.state_revision === event.state_revision
+                && (candidate.payload as {return_beat_id?: string}).return_beat_id === beat.beat_id
+                && (candidate.payload as {inquiry_id?: string}).inquiry_id === source.inquiry_id
+                && events.some((decision) => decision.sequence === candidate.causation_sequence
+                  && decision.event_type === "policy_decision_made" && decision.causation_sequence === evidence.sequence
+                  && decision.state_revision === event.state_revision
+                  && (decision.payload as {decision_kind?: string}).decision_kind === "return_to_mainline"));
             const interpretation = events.find((candidate) =>
               candidate.event_type === "semantic_interpretation_recorded"
               && candidate.causation_sequence === evidence.causation_sequence
-              && candidate.sequence < evidence.sequence
-              && candidate.state_revision === evidence.state_revision);
+              && candidate.sequence < event.sequence
+              && candidate.state_revision === evidence.state_revision
+              && ((directScope && candidate.sequence < evidence.sequence && ((candidate.payload as {intent?: string}).intent === "confirm:follow_along:self_reported"
+                || (candidate.payload as {intent?: string}).intent === "confirm:follow_along:expressed"))
+                || (returnedScope && (candidate.payload as {intent?: string}).intent?.endsWith(`:return:${beat.protocol_id}:${beat.beat_id}:${gate.gate_id}`))));
             const semanticIntent = (interpretation?.payload as { intent?: string } | undefined)?.intent;
+            const allowedIntents = ["confirm:follow_along:self_reported", "confirm:follow_along:expressed"];
+            const validIntent = allowedIntents.includes(semanticIntent ?? "") || allowedIntents.some((kind) =>
+              semanticIntent === `${kind}:return:${beat.protocol_id}:${beat.beat_id}:${gate.gate_id}`);
             const rawInput = events.find((candidate) => candidate.sequence === evidence.causation_sequence);
             if ((evidence.payload as { intent_kind?: string }).intent_kind !== "confirm"
               || rawInput?.event_type !== "student_input_recorded"
               || event.causation_sequence !== evidence.sequence
-              || (semanticIntent !== "confirm:follow_along:self_reported" && semanticIntent !== "confirm:follow_along:expressed")) {
+              || event.state_revision !== evidence.state_revision
+              || !validIntent) {
               throw new NavigatorResumeIntegrityError("GATE_EVIDENCE_FORGED",
                 `sequence ${event.sequence}: follow-along gate requires the same input's interpreted understanding confirmation`, event.sequence);
             }

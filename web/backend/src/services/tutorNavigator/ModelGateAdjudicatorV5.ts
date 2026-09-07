@@ -97,7 +97,10 @@ export interface GateAdjudicationContext {
     grounding_refs: readonly string[];
   }>;
   readonly reasoning_focus?: { part_id?: string; graph_fact_refs: readonly string[] };
-  readonly student_input: { intent_kind: string; text: string };
+  readonly student_input: { intent_kind: string; text: string;
+    /** Original feedback scope when assessing whether repair feedback also covers the saved mainline goal. */
+    responding_to?: { protocol_id: string; beat_id: string; purpose: string };
+  };
 }
 
 /** 服务端校验后的裁决结果（编排层唯一采信形状）。 */
@@ -153,6 +156,7 @@ export const GATE_ADJUDICATION_SYSTEM_PROMPT = [
   "规则 13（矛盾尚未修复）：结合 recent_dialogue、recent_interpretations 和 recent_presentations 判断；近期明确误解/矛盾未被修复时，不能单凭一句「懂了」给 pass。必须有相关纠正讲解已实际呈现且学生随后确认，或学生明确纠正其理解；不确定是否已修复则 unclear。",
   "规则 14（结构化控件也是学生输入）：student_input.intent_kind=confirm 是原始结构化控件事实，表示学生主动点击了当前理解确认；即使 student_input.text 是空字符串，也已经存在明确确认输入，绝不能因text空而判未输入、求助或out_of_bound。在当前明确follow_along目标、有对应实际呈现且无待修复误解时，控件 intent_kind=confirm 应分类understanding_confirmation并可pass，grounding_refs=[]，reasoning_location=unknown；无需编造文本或数学推理。若仍有未修复误解，则规则13仍优先，不得放行。",
   "规则 14b（确认不等于跳过）：intent_kind=continue仅是继续请求，即使text空也不得改成确认；只能判not_applicable/unclear。提问、求助、含混、否定理解、未解决的矛盾、仅要求继续/跳过均不pass。不要把confirm与continue混同，也不能靠关键词忽略学生真正表达的内容。",
+  "规则 14b（跨范围复用）：student_input.responding_to 若存在，表示学生原话是在回答该补讲范围，不是直接确认 current_beat。只有原话明确覆盖 current_beat 完整目标，或明确把补讲结论接回原拍整体关系时，才可对 current_beat 判 pass。仅说补讲懂了、确认局部、对原拍另一关键关系仍不懂，均不能当作原拍确认；判 unclear/not_applicable，不替学生扩大确认范围。",
   "规则 15（事件事实边界）：recent_presentations 只含实际完成呈现的语音/问题，in_current_beat 标示是否属于当前 protocol+beat。无当前相关呈现证据时，含混的「懂了」不能被猜成某段讲解的确认；不得把别的 Beat 的问题当作当前目标。response_kind 额外允许 understanding_confirmation；其余 JSON 字段规则保持。",
   "规则 16（分类字段不能混用）：response_kind 只能是 final_answer、alternate_path、question、help_request、restatement、understanding_confirmation、mixed_or_ambiguous 之一。not_applicable/unclear/pass/fail 是 verdict 的值，绝不能写进 response_kind。confirm是原始控件意图，正确对应understanding_confirmation；continue可对应mixed_or_ambiguous，但verdict不能pass。",
 ].join("\n");

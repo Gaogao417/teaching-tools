@@ -2,7 +2,7 @@
 
 三件新候选：TP-SMV-009@v13（planning/v7）、PR-SMV-001@v11 和 PR-SMV-002@v10（protocol/v3，planning/v8），全部 Draft，无 approval。旧 v12 已撤回，未作为来源或批准使用。
 
-**当前未批准、未发布。C0 裁定：protocol/v3 + confirmation_target=follow_along 已裁定；当前 Beat 已有 Context 允许目标 fact；动态 board.explain 仍受现有工具可见性/权限约束，不新增最终答案展示政策，不扩大 support_boundary。待 C4 真实板书验证。** 本包可校验/联合导入，不等于 C2/C3 已实现或 C4 验收通过。
+**当前未批准、未发布。C0 裁定：protocol/v3 + confirmation_target=follow_along 已裁定；当前 Beat 已有 Context 允许目标 fact；动态 board.explain 仍受现有工具可见性/权限约束，不新增最终答案展示政策，不扩大 support_boundary。板书执行证据见实施报告；本材料不代替真实浏览器体验验收。** 本文是内容审核材料；代码及分层验证结果见 PRDS 的 Teach 理解衔接实施报告，不以 Draft 校验代替联合体验验收。
 
 下列走读从开场到总结，区分听懂自述、关系表达和独立验证。每拍有自己的输入锚点，不能用整题末尾一句确认反填前面。
 
@@ -199,7 +199,7 @@ PR-SMV-002@v10 现在只有一个 BT-01（follow_along），原四拍不再是�
 
 走读：主线学生问「这个比例怎么来的」→ 打开单拍 Inquiry，选择蝶形比例方向解释对应边与夹角 → 学生相关复述或明确表示接上且无矛盾 → 现有 Navigator 的末拍完成规则返回保存的原主线 Beat，无第二个补讲 Gate。学生说「懂了，但对应方向还是反的」→ 不完成，留本次断点澄清；沉默/播放完成不完成。未定位的问题可以简短追问，但不会自动遍历四个方向。
 
-资产保留既有 inquiry_branch/return_beat_id/expand_region_id。单拍终态沿用 evidence_collected 自边声明，Navigator 识别末拍后优先执行 inquiry_completed 返回；不新增导航规则。返回不代填原主线 Gate，也不宣称同一反馈已复用到主线：是否出现返回后同义确认由 main 的实际补讲返回链验证。
+资产保留既有 inquiry_branch/return_beat_id/expand_region_id。单拍终态沿用 evidence_collected 自边声明，Navigator 识别末拍后优先执行 inquiry_completed 返回；不新增导航规则。返回不自动满足原主线 Gate。若学生原话也明确覆盖原拍目标，服务端对保存的原拍目标独立复核同一句话，记录范围后原子提交返回与合法推进，不重复询问；只确认补讲或局部控件确认不扩大为整拍确认。
 
 学生明确选择自己做：这是一项独立验证任务，不能以「听懂了」判计算正确。review-manifest.json 保存原 PR/RES8 的只读验证要求；RES8 未挂入新 Teach 计划/Beat。C1 不捏造未存在的练习入口，任务切换由 main 核对现有正式字段/路由。
 
