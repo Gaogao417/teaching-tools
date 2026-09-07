@@ -128,14 +128,18 @@ test.describe("F7 P2 canonical 浏览器旅程", () => {
   });
 
   /**
-   * B 轨缺陷登记（本旅程实测发现，2026-09-07）：BT-04 挂载时 V7 server 投影
-   * coach_panel_view.mainline(awaiting_workspace).action_id = "similarity.mark-
-   * known-segments"（capability 串）≠ active_action.action_id = "tp:TP-SMV-009:1:
-   * mark-segment-values-bt04"（模板键）——违反 spec §1.3 #8 对账，前端 adopt
-   * 门禁 fail closed（协议错误提示 + 重试），workspace 无法挂载。修复归 B
-   *（ActiveActionProjector/coach 投影统一 action_id 口径）；修复后启用本用例。
+   * F7 P3（US-06/FM-10-2/FM-10-6 浏览器行）：BT-04 画布挂载与双输入路径。
+   * B 轨投影修复（376e591：coach awaiting_workspace.action_id 与 active_action
+   * 统一模板键）已入基线——本用例转为永久回归（不再 fixme）。
+   * 断言（spec §3 US-06）：
+   * - active_action 挂载：action-runtime-workspace[data-action-id*=mark-segment-values]；
+   * - production Canvas 可见实体（SVG 真实渲染节点，非点/线段文字列表）；
+   * - 键盘与鼠标进入同一 actor：键盘 ArrowRight+Enter 与鼠标点选渲染节点都产生
+   *   同一 OBJECT.SELECTED 语义链（frame data-selected 逐项增长）；
+   * - 真值过门：四段正确值提交后 Beat 推进到 BT-05 answer_input（typed
+   *   evaluator，错误数值零事件的行为由 API 级安全用例锁定）。
    */
-  test.fixme("BT-04 画布挂载（受阻：B 轨 coach awaiting_workspace.action_id 投影与 active_action 不一致）", async ({ page }) => {
+  test("BT-04 画布挂载：active_action 挂载 + Canvas 可见实体 + 鼠标/键盘同 actor + 正确值过门", async ({ page }) => {
     await prepareStudent(page);
     await installCanonicalHarness(page);
     await openCanonicalTask(page);
@@ -145,8 +149,54 @@ test.describe("F7 P2 canonical 浏览器旅程", () => {
     await page.getByTestId("tutor-submit-answer").click();
     await page.getByLabel("回答输入").fill("对应边成比例，AD=CD=8/3、BD=10/3");
     await page.getByTestId("tutor-submit-answer").click();
-    await expect(page.getByTestId("action-runtime-workspace")).toBeVisible({ timeout: 25_000 });
-    await expect(page.locator(".geometry-canvas__board")).toBeVisible();
+
+    // ---- active_action 挂载（BT-04 mark-segment-values；376e591 后投影一致）。
+    const workspace = page.getByTestId("action-runtime-workspace");
+    await expect(workspace).toBeVisible({ timeout: 30_000 });
+    await expect(workspace).toHaveAttribute("data-action-id", /mark-segment-values/, { timeout: 30_000 });
+
+    // ---- production Canvas：真实 SVG 实体节点可见（非文字列表替身）。
+    const board = page.locator(".geometry-canvas__board");
+    await expect(board).toBeVisible();
+    const entityNodes = board.locator("svg [data-geometry-id]");
+    await expect(entityNodes.first()).toBeVisible({ timeout: 15_000 });
+    expect(await entityNodes.count()).toBeGreaterThanOrEqual(4);
+
+    // ---- 键盘路径：Tab 聚焦画布 → ArrowRight 在 enabled 实体间移动 → Enter 选中
+    //（同一 XState actor 的 OBJECT.SELECTED 语义事件，非组件本地状态）。
+    const canvas = page.locator(".geometry-canvas");
+    await canvas.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(canvas).toHaveAttribute("data-keyboard-focus-id", "seg-AO");
+    await page.keyboard.press("Enter");
+    await expect(workspace).toHaveAttribute("data-selected", "seg-AO");
+
+    // ---- 鼠标路径：点选渲染节点（data-geometry-id 锚定真实位置）进入同一 actor。
+    for (const segmentId of ["seg-DO", "seg-BO", "seg-OE"]) {
+      const entity = board.locator(`[data-geometry-id="${segmentId}"]`);
+      await expect(entity).toBeAttached();
+      const rect = await entity.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        return { x: box.x, y: box.y, width: box.width, height: box.height };
+      });
+      if (rect.width <= 0 && rect.height <= 0) throw new Error(`geometry entity ${segmentId} 渲染尺寸为零`);
+      await page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      await expect(workspace.getAttribute("data-selected")).resolves.toContain(segmentId);
+    }
+    await expect(workspace).toHaveAttribute("data-selected", "seg-AO,seg-DO,seg-BO,seg-OE");
+
+    // ---- 正确四值（教师审核 RG 真值）→ SUBMIT → typed evaluator 过门 → BT-05。
+    const values: Record<string, string> = {
+      "seg-AO": "\\frac{16}{5}",
+      "seg-DO": "\\frac{32}{15}",
+      "seg-BO": "\\frac{6}{5}",
+      "seg-OE": "\\frac{4}{5}",
+    };
+    for (const [segmentId, value] of Object.entries(values)) {
+      await page.getByLabel(segmentId, { exact: false }).fill(value);
+    }
+    await page.getByRole("button", { name: "确认" }).last().click();
+    await expect(page.getByTestId("tutor-submit-answer")).toBeVisible({ timeout: 30_000 });
   });
 
   test("barge-in 因果：②interrupted/presented outcome 先于 ③control.barge_in；④新 sequence 再呈现", async ({ page }) => {
