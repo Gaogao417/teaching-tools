@@ -251,6 +251,37 @@ export function renderFragmentContent(
   return lines.join("\n").trim();
 }
 
+/** v7 voice-only format normalization; no arithmetic or language repair.
+ * Only isolated unsigned integer n/d tokens outside existing math are admitted.
+ * Signs/operators stay in the surrounding text. Ambiguous slash syntax fails closed.
+ */
+export function normalizeVisualVoiceFractions(text: string): string {
+  const math = /(\$\$[\s\S]*?\$\$|\$[^$]*\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g;
+  const plain = (value: string): string => {
+    const result = value.replace(/(?<![A-Za-z0-9_.^{}()\/\\])([0-9]+)\s*\/\s*([0-9]+)(?![A-Za-z0-9_.^{}()\/])/g,
+      (match, numerator: string, denominator: string, offset: number) => {
+        const before = value.slice(0, offset).trimEnd();
+        const after = value.slice(offset + match.length).trimStart();
+        if (/[\^{}()\/]$/.test(before) || /^[\^{}()\/]/.test(after)) {
+          throw new IntentCompilerError("ILLEGAL_PARAM", "ambiguous voice slash grouping: use approved delimited LaTeX fractions");
+        }
+        return String.raw`$\frac{${numerator}}{${denominator}}$`;
+      });
+    if (result.includes('/')) throw new IntentCompilerError("ILLEGAL_PARAM", "ambiguous voice slash: use approved delimited LaTeX fractions");
+    return result;
+  };
+  let end = 0;
+  let result = "";
+  for (const match of text.matchAll(math)) {
+    result += plain(text.slice(end, match.index));
+    if (match[0].includes('/')) throw new IntentCompilerError("ILLEGAL_PARAM", "slash inside existing math: use approved LaTeX fractions");
+    result += match[0];
+    end = match.index! + match[0].length;
+  }
+  result += plain(text.slice(end));
+  return result;
+}
+
 /**
  * 编译：validated draft + 冻结上下文 + 可见工具目录 → canonical 候选序列。
  * 纯函数；任何非法项 ⇒ IntentCompilerError（整段拒绝，零部分产物）。
@@ -319,7 +350,8 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
         voice_action: {
           action_id: actionId,
           decision_id: input.decisionId,
-          text: item.text,
+          text: input.request.presenter_pin.prompt_version === VISUAL_PRESENTER_PROMPT_VERSION
+            ? normalizeVisualVoiceFractions(item.text) : item.text,
           source: "model-generated",
           generation_id: `VG-${input.sessionId}-${serial}-G${voiceIndex}`,
           interruptible: true,
