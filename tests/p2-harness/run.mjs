@@ -34,7 +34,7 @@ if(build){
  }
  run('v7-publication',process.execPath,[resolve(be,'dist/backend/src/services/planBuild/__tests__/planBuildV7.test.js')],be,['PASS real v5 compatibility']);
  run('dynamic-board-execution',process.execPath,[resolve(be,'node_modules/vitest/vitest.mjs'),'run','src/services/tutorSession/__tests__/dynamicBoardExecution.vitest.ts','src/transport/http/__tests__/v9GenerationSnapshotReadOnly.vitest.ts','--reporter=verbose'],be);
- run('follow-along-semantics',process.execPath,[resolve(be,'node_modules/vitest/vitest.mjs'),'run','src/services/tutorNavigator/__tests__/followAlongAdjudicationC2.vitest.ts','--reporter=verbose'],be);
+ run('follow-along-semantics',process.execPath,[resolve(be,'node_modules/vitest/vitest.mjs'),'run','src/services/tutorNavigator/__tests__/followAlongAdjudicationC2.vitest.ts','src/services/tutorNavigator/__tests__/followAlongReturnReviewRegression.vitest.ts','--reporter=verbose'],be);
  run('independent-context',process.execPath,[resolve(repo,'tests/p2-harness/context.cjs')],be);
 }
 run('frontend-typecheck','npm',['run','typecheck'],fe);

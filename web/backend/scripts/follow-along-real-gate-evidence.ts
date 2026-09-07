@@ -51,8 +51,8 @@ async function main(): Promise<void> {
     graph_inferences: new Map(), solution_variants: [],
   } as unknown as NavigatorPlanV5;
   const ev = (sequence: number, event_type: string, payload: Record<string, unknown>): StoredV5Event => ({ schema: "ai_teaching_tutor_session_event/v5", session_id: "TS-1000", sequence, state_revision: sequence, occurred_at: "2026-09-07T15:00:00Z", event_type, payload, idempotency_key: `qa-${sequence}` }) as StoredV5Event;
-  const presentation = (sequence: number, id: string, text: string, presented = true): StoredV5Event[] => [
-    ev(sequence, "presentation_sequence_planned", { sequence_id: id, scope: { kind: "approved", protocol_id: beat.protocol_id, beat_id: beat.beat_id }, actions: [{ ordinal: 0, kind: "voice", voice_action: { action_id: `VA-${id}`, decision_id: `TD-${id}`, text, intent: "question" } }] }),
+  const presentation = (sequence: number, id: string, text: string, presented = true, scope = { kind: "approved", protocol_id: beat.protocol_id, beat_id: beat.beat_id }): StoredV5Event[] => [
+    ev(sequence, "presentation_sequence_planned", { sequence_id: id, scope, actions: [{ ordinal: 0, kind: "voice", voice_action: { action_id: `VA-${id}`, decision_id: `TD-${id}`, text, intent: "question" } }] }),
     ev(sequence + 1, "presentation_action_delivered", { sequence_id: id, ordinal: 0, action_id: `VA-${id}`, kind: "voice" }),
     ...(presented ? [ev(sequence + 2, "presentation_action_outcome_recorded", { sequence_id: id, ordinal: 0, action_id: `VA-${id}`, kind: "voice", outcome: "presented" })] : []),
   ];
@@ -62,7 +62,16 @@ async function main(): Promise<void> {
     ev(5, "semantic_interpretation_recorded", { intent: "submit_answer:restatement", reasoning_location: "misaligned", grounding_refs: ["FN-01"], reasoning_alignment: { kind: "incorrect_reasoning", anchored_fact_ids: ["FN-01"] } }),
   ];
   const correction = "刚才你说只减左边，这是需要纠正的地方。等式像平衡的天平，两边必须同时减3；所以右边也从7变成4，得到2x=4。不是2x=7。这一点现在跟上了吗？";
-  interface Case { id: string; label: string; text: string; expectation: "pass" | "not_pass"; expected_kind?: string; events?: StoredV5Event[]; old?: boolean; control?: "confirm" | "continue"; }
+  // Artificial Inquiry history: the repair covers subtraction only, while the saved
+  // mainline goal also requires understanding division. No real classroom is claimed.
+  const respondingTo = { protocol_id: "PR-QA-002", beat_id: "BT-01", purpose: "仅补讲为什么等式两边同时减3；不补讲随后同时除以2的关系。" };
+  const returnHistory = [
+    ...baseline,
+    ev(4, "student_input_recorded", { input: { kind: "utterance", channel: "mainline", text: "为什么两边都要减3？后面两边除以2我也还没懂。" } }),
+    ...presentation(5, "PS-QA-REPAIR", "我们先只解决减3这一点：等式像平衡的天平，两边同时减3，左边成为2x，右边成为4，所以2x=4。这里只补讲减3，后面同时除以2的关系还没有补讲。减3这一点现在跟上了吗？", true,
+      { kind: "approved", protocol_id: respondingTo.protocol_id, beat_id: respondingTo.beat_id }),
+  ];
+  interface Case { id: string; label: string; text: string; expectation: "pass" | "not_pass"; expected_kind?: string; events?: StoredV5Event[]; old?: boolean; control?: "confirm" | "continue"; responding_to?: typeof respondingTo; }
   const cases: Case[] = [
     { id: "F01", label: "明确懂了", text: "懂了，这一步我跟上了。", expectation: "pass", expected_kind: "understanding_confirmation" },
     { id: "F02", label: "正确表达自身理解", text: "我的理解是要让等式继续平衡，所以不能只减左边。两边都减3就是2x=4，再两边除以2就是x=2。", expectation: "pass", expected_kind: "restatement" },
@@ -79,6 +88,9 @@ async function main(): Promise<void> {
     { id: "F13", label: "continue控件", text: "", expectation: "not_pass", control: "continue" },
     { id: "F14", label: "含混自述", text: "差不多吧，可能是吧，也许。", expectation: "not_pass" },
     { id: "F15", label: "只引用正确材料但未理解", text: "书上写的是‘两边减3得到2x=4，再除以2得到x=2’，我是在照读材料，自己还没理解。", expectation: "not_pass" },
+    { id: "F16", label: "补讲原话明确接回主线完整目标", text: "减3这点现在明白了，也能接回刚才整个解方程过程了：要保持等式平衡，两边都减3，所以2x=4；接下来两边都除以2，因为2x是两个x，4也要分成两份，得到x=2。减3和除以2这整条关系我都跟上了。", expectation: "pass", expected_kind: "restatement", events: returnHistory, responding_to: respondingTo },
+    { id: "F17", label: "补讲只确认局部而另一关键关系仍不懂", text: "两边都减3得到2x=4这点我现在懂了。但接下来为什么两边还要除以2，怎么变成x=2，我仍然不懂。", expectation: "not_pass", events: returnHistory, responding_to: respondingTo },
+    { id: "F18", label: "裸补讲懂了不能扩大到原拍", text: "懂了。", expectation: "not_pass", events: returnHistory, responding_to: respondingTo },
   ];
   const selected = arg("--case") ? cases.filter((c) => c.id === arg("--case")) : cases;
   if (!selected.length) throw new Error("unknown --case");
@@ -98,6 +110,14 @@ async function main(): Promise<void> {
   for (const c of selected) {
     const selectedBeat = c.old ? practice : beat;
     const context = buildGateAdjudicationContext({ plan, beat: selectedBeat, events: c.events ?? baseline, studentInput: { intent_kind: c.control ?? "utterance", text: c.text } });
+    // Match secondary adjudication's explicit original Inquiry identity.
+    if (c.responding_to) context.student_input.responding_to = c.responding_to;
+    if (c.responding_to && (context.student_input.intent_kind !== "utterance"
+      || context.current_beat.completion_evidence?.confirmation_target !== "follow_along"
+      || !context.recent_presentations?.some((p) => p.in_current_beat && p.protocol_id === beat.protocol_id)
+      || !context.recent_presentations?.some((p) => !p.in_current_beat && p.protocol_id === c.responding_to!.protocol_id && p.beat_id === c.responding_to!.beat_id && p.text.includes("还没有补讲")))) {
+      throw new Error("Return QA requires original utterance, full marked mainline goal, and separately scoped completed repair presentation");
+    }
     let receipt: Record<string, unknown> | undefined;
     let providerFailure: { code: string; detail: string } | undefined;
     // Observes actual production calls. It cannot manufacture responses or skip the real delegate.
