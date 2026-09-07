@@ -84,15 +84,19 @@ export function projectHttpSnapshotV1(args: {
   turn?: V7TurnResult;
   turnSource?: "input" | "command";
   promptLatex?: string;
+  /** Same-call service result; callers must not retain it across mutations. */
+  serviceSnapshot?: ReturnType<TutorSessionOrchestratorV7["snapshot"]>;
 }): SessionSnapshotHttpV1 {
   const { orchestrator } = args;
-  const service = orchestrator.snapshot(args.promptLatex ?? orchestrator.question.stem);
+  const service = args.serviceSnapshot ?? orchestrator.snapshot(args.promptLatex ?? orchestrator.question.stem);
+  if(service.session_id !== orchestrator.sessionId || service.revision !== orchestrator.revision) throw new V7RenderProjectionError("service snapshot does not match current session revision");
   const fold = orchestrator.workspaceFold();
   const geometry = composeRenderGeometryV7(fold, orchestrator.sessionCatalog.baseGeometry);
   const payload = {
-    ...(orchestrator.eventSchema === "v9"
-      ? projectGenerationSnapshotFields(tutorRuntimeStateV4Schema.parse(orchestrator.rebuildRuntimeState()))
+    ...(orchestrator.eventSchema !== "v7"
+      ? projectGenerationSnapshotFields(tutorRuntimeStateV4Schema.parse((()=>{const {visual_barrier,scope_epoch,presentation_execution_owner,...state}=orchestrator.rebuildRuntimeState() as unknown as Record<string,unknown>; return {...state,schema:"ai_teaching_tutor_runtime_state/v4"};})()))
       : {}),
+    ...orchestrator.visualLifecycle,
     profile: TUTOR_RUNTIME_HTTP_PROFILE,
     session_id: service.session_id,
     task_id: service.task_id,
@@ -119,7 +123,7 @@ export function projectHttpSnapshotV1(args: {
       workspace_revision: fold.state.revision,
       geometry,
     },
-    ...(service.active_action !== undefined
+    ...(!orchestrator.visualLifecycle?.visual_barrier && service.active_action !== undefined
       ? {
           active_action: {
             action_id: service.active_action.action_id,
@@ -133,7 +137,7 @@ export function projectHttpSnapshotV1(args: {
           },
         }
       : {}),
-    ...(service.pending_presentation !== undefined ? { pending_presentation: service.pending_presentation } : {}),
+    ...(service.pending_presentation !== undefined ? { pending_presentation: orchestrator.visualLifecycle ? {...service.pending_presentation,schema:"ai_teaching_presentation_delivery/v2",execution_owner:orchestrator.visualLifecycle.presentation_execution_owner} : service.pending_presentation } : {}),
     ...(args.turn !== undefined ? { turn: projectTurn(args.turn, args.turnSource ?? "input") } : {}),
   };
   const parsed = parseSessionSnapshotHttp(payload);

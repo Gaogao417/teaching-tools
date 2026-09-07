@@ -62,6 +62,12 @@ function withLineage(fold: WorkspaceFold, lineage: V7WorkspaceLineage): Workspac
   return fold;
 }
 
+/** Isolate a derived fold while retaining its exact validated planned/applied
+ * lineage. This is not a new state source and never reconstructs missing facts. */
+export function cloneWorkspaceFoldV7(fold: WorkspaceFold): WorkspaceFold {
+  return withLineage(structuredClone(fold), structuredClone(lineageOf(fold)));
+}
+
 /** v7 事件 → v5 fold 的只读结构 adapter（保留分支 payload 逐字节同 v5）。 */
 function asV5Event(event: StoredV7Event): Parameters<typeof applyWorkspaceV5Event>[1] {
   return event as unknown as Parameters<typeof applyWorkspaceV5Event>[1];

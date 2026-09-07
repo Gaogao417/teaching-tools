@@ -18,6 +18,9 @@
  *   typed evaluator 产出的 verified assessment（completed ≠ 数学正确）；
  * - 幂等：同 client_request_id 的已提交判断 → 读已 committed 轮返回，零新事件。
  */
+import { TutorSessionKernelV10 } from "../tutorSession/TutorSessionKernelV10";
+import { readTutorSessionEventsV10, type V10RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV10";
+import type { VisualExecutionOwner } from "../../../../shared/canonical";
 import type { ImportedApprovedPlanV5 } from "../planBuild/v5/ImportApprovedPlanV5";
 import type { PendingV7Event, StoredV7Event, V7StudentInputBody } from "../tutorSession/TutorSessionEventV7";
 import { TutorSessionKernelV7 } from "../tutorSession/TutorSessionKernelV7";
@@ -109,7 +112,7 @@ export interface NavigatorV7SessionInput {
    * start 必须携带 presenterGenerationPin）。resume 按会话行 event_schema 分派，
    * 本字段缺省时以行值为准。
    */
-  readonly eventSchema?: "v7" | "v9";
+  readonly eventSchema?: "v7" | "v9" | "v10";
 }
 
 export interface NavigatorV7StartInput extends NavigatorV7SessionInput {
@@ -136,6 +139,7 @@ export interface NavigatorV7StartInput extends NavigatorV7SessionInput {
    * F7 RT4（v9 会话）：Presenter 生成 pin（state/v4 pinned_plan 必填；与判题链
    * model_gate_pin、教学策略链 policy_profile 分开）。提供即启用 v9 会话。
    */
+  readonly presentationExecutionOwner?: VisualExecutionOwner;
   readonly presenterGenerationPin?: {
     provider: string;
     model_id: string;
@@ -309,6 +313,13 @@ export function findCommittedV7Turn(events: readonly StoredV7Event[], clientRequ
   };
 }
 
+export interface PreparedNavigationV7 {
+  readonly expectedRevision: number;
+  readonly events: readonly PendingV7Event[];
+  readonly result: V7TurnResult;
+  readonly nextInquiryBeatId: string | undefined;
+}
+
 export class NavigatorSessionV7 {
   readonly sessionId: string;
   readonly plan: NavigatorPlanV5;
@@ -317,9 +328,11 @@ export class NavigatorSessionV7 {
   private readonly adjudicator: ModelGateAdjudicatorV5;
   private inquiryBeatId: string | undefined;
   private readonly imported: ImportedApprovedPlanV5;
-  private readonly schemaVersion: "v7" | "v9";
+  private decisionBatchComposer: ((prepared:PreparedNavigationV7)=>PreparedNavigationV7) | undefined;
+  setDecisionBatchComposer(composer:(prepared:PreparedNavigationV7)=>PreparedNavigationV7):void { this.decisionBatchComposer=composer; }
+  private readonly schemaVersion: "v7" | "v9" | "v10";
 
-  private constructor(input: NavigatorV7SessionInput, kernel: NavigatorSessionKernel, schemaVersion: "v7" | "v9") {
+  private constructor(input: NavigatorV7SessionInput, kernel: NavigatorSessionKernel, schemaVersion: "v7" | "v9" | "v10") {
     this.sessionId = input.sessionId;
     this.plan = input.plan;
     this.imported = input.imported;
@@ -332,7 +345,7 @@ export class NavigatorSessionV7 {
   }
 
   /** 会话事件合同版本（编排层 v9 生成路径判定；start 冻结、resume 按行值）。 */
-  get eventSchema(): "v7" | "v9" {
+  get eventSchema(): "v7" | "v9" | "v10" {
     return this.schemaVersion;
   }
 
@@ -363,6 +376,14 @@ export class NavigatorSessionV7 {
         ? { presenter_generation_pin: input.presenterGenerationPin }
         : {}),
     };
+    if (input.presentationExecutionOwner) {
+      if (!input.presenterGenerationPin) throw new Error("PRESENTER_PIN_MISMATCH: V10 requires presenter pin");
+      const kernel = TutorSessionKernelV10.start({sessionId:input.sessionId,studentId:input.studentId,
+        sessionStarted:{...payload,presentation_execution_owner:input.presentationExecutionOwner},occurred_at:nowIso()},input.registryProvider as V10RegistryProvider);
+      const session=new NavigatorSessionV7(input,kernel,"v10");
+      session.commitDecisions(1,[{kind:"session_start"}]);
+      return session;
+    }
     if (input.presenterGenerationPin) {
       const kernel = TutorSessionKernelV9.start({
         sessionId: input.sessionId,
@@ -394,6 +415,15 @@ export class NavigatorSessionV7 {
     // F7 RT4：按会话行 event_schema 分派（v7 行 → v7 kernel；v9 行 → v9 kernel；
     // v5/v6 行 → SESSION_VERSION_UNSUPPORTED。半升级组合显式拒绝，不迁移）。
     const rowSchema = readSessionEventSchema(input.sessionId);
+    if ((input.eventSchema ?? rowSchema) === "v10") {
+      const provider=input.registryProvider as V10RegistryProvider;
+      const kernel=TutorSessionKernelV10.resume(input.sessionId,provider,{expectedTutorPlanRef:input.plan.tutor_plan_ref});
+      const events=readTutorSessionEventsV10(input.sessionId,provider);
+      verifyGateAttributionAgainstPlanV7(input.plan,input.imported.plan.resources,events as unknown as StoredV7Event[],provider(events[0].payload));
+      const session=new NavigatorSessionV7(input,kernel,"v10");
+      session.inquiryBeatId=reconstructInquiryBeatId(events as unknown as StoredV5Event[]);
+      return session;
+    }
     const useV9 = (input.eventSchema ?? rowSchema) === "v9";
     if (useV9) {
       const kernel = TutorSessionKernelV9.resume(input.sessionId, input.registryProvider as unknown as V9RegistryProvider, {
@@ -438,6 +468,7 @@ export class NavigatorSessionV7 {
   get events(): StoredV7Event[] {
     // v9 行经 v9 reader（canonical v9 判定）；返回形状对编排层读取面兼容
     //（共享事件逐字段同形；v9 生成事件族由 GenerationCoordinator 消费）。
+    if (this.schemaVersion === "v10") return readTutorSessionEventsV10(this.sessionId,this.registryProvider as V10RegistryProvider) as unknown as StoredV7Event[];
     if (this.schemaVersion === "v9") {
       return readTutorSessionEventsV9(this.sessionId, this.registryProvider as unknown as V9RegistryProvider) as unknown as StoredV7Event[];
     }
@@ -694,6 +725,15 @@ export class NavigatorSessionV7 {
     };
   }
 
+  /** Explicit write-side bootstrap. Fixed idempotency plus CAS fences workers. */
+  completeBootstrap(): V7TurnResult | undefined {
+    if (this.events.some(event=>event.event_type === "policy_decision_made")) return undefined;
+    if (this.events.length !== 1) throw new Error("VISUAL_BOOTSTRAP_CORRUPT");
+    const prepared=this.prepareDecisions(this.revision,[{kind:"session_start"}]);
+    return this.commitPrepared({...prepared,events:prepared.events.map((event,index)=>({...event,
+      idempotency_key:composeIdempotencyKey([this.sessionId,"bootstrap",String(index)])}))});
+  }
+
   /** 对当前（inquiry-aware）Beat 产出 execute_beat 呈现决策（与 v5/v6 同型）。 */
   executeCurrentBeat(): V7TurnResult {
     const revision = this.kernelRef.revision;
@@ -931,7 +971,7 @@ export class NavigatorSessionV7 {
     };
   }
 
-  private commitDecisions(
+  prepareDecisions(
     revision: number,
     items: ReadonlyArray<
       | { kind: "session_start" }
@@ -940,7 +980,7 @@ export class NavigatorSessionV7 {
     >,
     prefixBatch: PendingV7Event[] = [],
     reuseAfterReturn?: { beat: NavigatorBeatView; evidenceSequence: number },
-  ): V7TurnResult {
+  ): PreparedNavigationV7 {
     const batch: PendingV7Event[] = [...prefixBatch];
     let nextInquiryBeatId = this.inquiryBeatId;
     const results: V7TurnResult[] = [];
@@ -1042,13 +1082,22 @@ export class NavigatorSessionV7 {
           gateSequence, decision: next.decision});
       }
     }
-    if (batch.length) {
-      const appended = this.append(currentRevision, batch);
-      currentRevision = appended.revision;
-      this.inquiryBeatId = nextInquiryBeatId;
-    }
     const last = results[results.length - 1];
-    return { ...last, revision: currentRevision };
+    return { expectedRevision: revision, events: batch,
+      result: { ...last, revision: currentRevision }, nextInquiryBeatId };
+  }
+
+  /** Commit decisions and lifecycle companions with one CAS. */
+  commitPrepared(prepared: PreparedNavigationV7, suffix: readonly PendingV7Event[] = []): V7TurnResult {
+    prepared=this.decisionBatchComposer?.(prepared) ?? prepared;
+    const batch = [...prepared.events, ...suffix];
+    const result = batch.length ? this.kernelRef.append(prepared.expectedRevision, batch) : {revision: prepared.expectedRevision};
+    this.inquiryBeatId = prepared.nextInquiryBeatId;
+    return {...prepared.result, revision: result.revision};
+  }
+
+  private commitDecisions(...args: Parameters<NavigatorSessionV7["prepareDecisions"]>): V7TurnResult {
+    return this.commitPrepared(this.prepareDecisions(...args));
   }
 
   private decisionEvent(decisionSequence: number, decision: NavigatorDecision, causation: number): PendingV7Event {

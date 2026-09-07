@@ -46,13 +46,15 @@ export function createGenerationRecoveryScanner(
     scanning = true;
     try {
       const rows = db.prepare(
-        "SELECT session_id FROM tutor_sessions WHERE event_schema='v9' AND completed_at IS NULL",
+        "SELECT session_id FROM tutor_sessions WHERE event_schema IN ('v9','v10') AND completed_at IS NULL",
       ).all() as { session_id: string }[];
       const application = factory();
       for (let i = 0; i < rows.length && !stopped; i += RECOVERY_CONCURRENCY) {
         await Promise.all(rows.slice(i, i + RECOVERY_CONCURRENCY).map(async (row) => {
           try {
             const session = application.restore(row.session_id);
+            // Durable continuation is a write-side recovery operation, never a GET effect.
+            if (session.eventSchema === "v10") session.recoverVisualContinuation();
             if (session.hasPendingGeneration()) await application.drivePendingGeneration(session);
           } catch (error) {
             onError(error);

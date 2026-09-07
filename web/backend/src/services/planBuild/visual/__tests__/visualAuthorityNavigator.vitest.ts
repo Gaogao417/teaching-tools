@@ -1,0 +1,31 @@
+import {importApprovedPlanV5} from '../../v5/ImportApprovedPlanV5';
+import {it,expect} from 'vitest';
+import {NavigatorSessionV5} from '../../../tutorNavigator/NavigatorSessionV5';
+import {FixedResponseGateProvider} from '../../../tutorNavigator/ModelGateAdjudicatorV5';
+import {GOLDEN,realCanonicalRoot,importGoldenPlan,questionOn,passFor,QUESTION_IN_BOUND,SCAFFOLD_STEP1_OK} from '../../../tutorNavigator/__tests__/navigatorSupport';
+import {visualAuthorityAt} from '../../../tutorSession/VisualBindingAuthority';
+const imported=importGoldenPlan({importApprovedPlanV5});
+const start=(id:string,responses:string[])=>NavigatorSessionV5.start({sessionId:id,studentId:'visual-authority',canonicalRoot:realCanonicalRoot(),tpId:GOLDEN.tpId,taskId:GOLDEN.taskId,scenarioId:GOLDEN.scenarioId,gateProvider:new FixedResponseGateProvider(responses)});
+it('real local continue names anchor, preserves valid local entry and replay parity',async()=>{
+ const s=start('TS-942001',[questionOn('FN-03'),questionOn('FN-03')]);
+ await s.acceptStudentIntent({intent_kind:'request_scaffold',client_request_id:'open-local'});
+ const opened=visualAuthorityAt(s.events,imported);
+ await s.acceptStudentIntent({intent_kind:'ask_question',text:QUESTION_IN_BOUND,client_request_id:'continue-local'});
+ const decision=s.events.filter(e=>e.event_type==='policy_decision_made').at(-1)!;
+ expect(decision.payload).toMatchObject({decision_kind:'continue_inquiry',beat_id:'BT-01'});
+ expect(visualAuthorityAt(s.events,imported)).toEqual(opened);
+ expect(opened.currentOwner.scope).toMatchObject({kind:'local',local_beat_id:'LBT-01'});
+ expect(s.assertReplayParity().equal).toBe(true);
+});
+it('real approved Inquiry advance gets new visit and return restores the saved anchor epoch',async()=>{
+ const s=start('TS-942002',[questionOn('FN-03'),passFor('GT-01','FN-03')]);
+ await s.acceptStudentIntent({intent_kind:'ask_question',text:QUESTION_IN_BOUND,client_request_id:'open-approved'});
+ const opened=visualAuthorityAt(s.events,imported);
+ await s.acceptStudentIntent({intent_kind:'submit_answer',text:SCAFFOLD_STEP1_OK,client_request_id:'continue-approved'});
+ const next=visualAuthorityAt(s.events,imported);
+ expect(next.currentOwner.scope).toMatchObject({protocol_id:'PR-SMV-002',beat_id:'BT-02'});
+ expect(next.currentOwner.scope_epoch).toBeGreaterThan(opened.currentOwner.scope_epoch);
+ for(let i=0;i<3;i++)await s.acceptStudentIntent({intent_kind:'confirm',client_request_id:`finish-${i}`});
+ expect(visualAuthorityAt(s.events,imported).currentOwner).toEqual(opened.activeOwners[0]);
+ expect(s.assertReplayParity().equal).toBe(true);
+});

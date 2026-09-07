@@ -1,0 +1,8 @@
+{
+  "status": "DRAFT_NOT_APPROVED",
+  "release_ready": false,
+  "plan_version": "v14",
+  "plan_hash": "sha256:d69a2b1fc5f331b392d70d0ec9a57b5f770bf0e796dad6b0ddad92805c11549d",
+  "graph_hash": "sha256:2bc516468e9cc8c4033f96277d810f96752a7cb41269f1f0eb0735c2da507c25",
+  "base_plan_hash": "sha256:560bda35c0212d0a3980bbbb819f5cc210b7db93aa864827a1e949ca9bd5b000"
+}

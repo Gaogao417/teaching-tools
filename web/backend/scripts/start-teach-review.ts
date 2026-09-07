@@ -13,7 +13,8 @@ async function main() {
   const root = arg("--root");
   if (!root) throw new Error("--root <canonical-authoring> required");
   const canonicalRoot = resolve(root);
-  const candidateDir = resolve(arg("--candidate") ?? "src/services/planBuild/review/c1-teach-follow-along/candidate-v13-r3");
+  const visual = process.argv.includes("--visual");
+  const candidateDir = resolve(arg("--candidate") ?? (visual ? "src/services/planBuild/review/geometry-visual/candidate-v14" : "src/services/planBuild/review/c1-teach-follow-along/candidate-v13-r3"));
   const backendPort = Number(arg("--backend-port") ?? 3124);
   const frontendPort = Number(arg("--frontend-port") ?? 5184);
   const resumeRun = arg("--resume-run");
@@ -32,7 +33,8 @@ async function main() {
     throw new Error("Real review requires configured DEEPSEEK_API_KEY and DASHSCOPE_API_KEY (values never logged)");
   }
   const { importReviewCandidate } = await import("../src/services/planBuild/c1/ImportReviewCandidate");
-  const loaded = importReviewCandidate({ canonicalRoot, candidateDirectory: candidateDir });
+  const { importVisualReviewCandidate } = await import("../src/services/planBuild/visual/ImportVisualReviewCandidate");
+  const loaded = (visual ? importVisualReviewCandidate : importReviewCandidate)({ canonicalRoot, candidateDirectory: candidateDir });
   if (!loaded.ok) throw new Error(loaded.errors.join("; "));
   if (previousRun && (previousRun.plan?.artifact_id !== loaded.imported.plan.artifact_id
     || previousRun.plan?.version !== loaded.imported.plan.version || previousRun.plan?.content_hash !== loaded.imported.plan.content_hash)) {
@@ -59,7 +61,8 @@ async function main() {
       }
     },
   } };
-  const realPresenter = createPresenterGenerator(previousRun ? { promptVersion: previousRun.presenter.prompt_version } : {});
+  const { VISUAL_PRESENTER_PROMPT_VERSION } = await import("../src/services/tutorOrchestration/presentationGeneration/PresenterPrompts");
+  const realPresenter = createPresenterGenerator(previousRun ? { promptVersion: previousRun.presenter.prompt_version } : visual ? { promptVersion: VISUAL_PRESENTER_PROMPT_VERSION } : {});
   const presenter: typeof realPresenter = {
     provider: realPresenter.provider, modelId: realPresenter.modelId, pin: realPresenter.pin,
     async generatePresentationDraft(request) {
@@ -77,7 +80,9 @@ async function main() {
   };
   const applicationFactory = () => TutorRuntimeApplicationV7.create({ canonicalRoot, bindingResolver: resolver, model, presenter });
   const { createApp } = await import("../src/app");
-  const app = createApp({ vnext: { applicationFactory } });
+  const { createGenerationWakeChannel } = await import("../src/services/tutorOrchestration/presentationGeneration/GenerationRecoveryWorker");
+  const generationWake = createGenerationWakeChannel();
+  const app = createApp({ vnext: { applicationFactory, generationWake: generationWake.notify } });
   const metadata = { mode: "author-review", status: "Draft", publicationPerformed: false, runDir,
     plan: { artifact_id: loaded.imported.plan.artifact_id, version: loaded.imported.plan.version, content_hash: loaded.imported.plan.content_hash },
     gate: model.pin, presenter: presenter.pin, url: `http://127.0.0.1:${frontendPort}/learn/goldenMinhangFold2020` };
@@ -94,8 +99,9 @@ async function main() {
   const { startGenerationRecoveryWorker } = await import("../src/services/tutorOrchestration/presentationGeneration/GenerationRecoveryWorker");
   const stopWorker = startGenerationRecoveryWorker(applicationFactory, (error) => console.error("review recovery failed", error instanceof Error ? error.name : "Error"));
   writeFileSync(join(runDir, "run.json"), JSON.stringify(metadata, null, 2));
-  const stop = () => { stopWorker(); vite.kill(); server.close(); };
+  const unsubscribeWake = generationWake.subscribe(() => stopWorker.wake());
+  const stop = () => { unsubscribeWake(); stopWorker.stop(); vite.kill(); server.close(); };
   process.once("SIGINT", stop); process.once("SIGTERM", stop);
-  vite.once("exit", () => { stopWorker(); server.close(); });
+  vite.once("exit", () => { unsubscribeWake(); stopWorker.stop(); server.close(); });
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : "Review startup failed"); process.exitCode = 1; });

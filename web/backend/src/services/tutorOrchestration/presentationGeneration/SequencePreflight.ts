@@ -1,3 +1,7 @@
+import { geometryVisualCommandSchema } from "../../../../../shared/canonical/visualSchemas";
+import { applyDomainCommands } from "../../../../../shared/actionWorld";
+import { reduceVisual } from "../../tutorSession/WorkspaceVisualReducer";
+import type { VisualCompilationInput, CompiledPresentationPlanV5 } from "./IntentCompiler";
 import { registerWorkspaceExplanationFragmentsV5 } from "../../tutorSession/WorkspaceExplanationFragmentsV5";
 /**
  * SequencePreflight（F7 RT3 — 整段顺序依赖预演；动态板书事实链规格）。
@@ -45,7 +49,8 @@ function isolateFold(fold: WorkspaceFold): WorkspaceFold {
 export function preflightPresentationSequence(args: {
   readonly fold: WorkspaceFold;
   readonly catalog: WorkspacePresentationCatalogV5;
-  readonly plan: CompiledPresentationPlanV4;
+  readonly plan: CompiledPresentationPlanV4 | CompiledPresentationPlanV5;
+  readonly visual?: VisualCompilationInput;
 }): PreflightResult {
   let current: WorkspaceFold;
   try {
@@ -53,8 +58,25 @@ export function preflightPresentationSequence(args: {
   } catch (error) {
     throw new SequencePreflightError(0, args.plan.sequence_id, `fragment registration rejected: ${String(error)}`);
   }
+  let visualState = args.visual ? structuredClone(args.visual.state) : undefined;
+  let world = args.visual?.constructionWorld ? structuredClone(args.visual.constructionWorld) : undefined;
+  let completed = new Set(args.visual?.permission.completedConstructions ?? []);
   for (const action of args.plan.actions) {
     if (action.kind !== "workspace" || !action.workspace_action) continue;
+    if (action.workspace_action.capability.startsWith("geometry.visual.")) {
+      if (!args.visual || !visualState || args.plan.schema !== "ai_teaching_presentation_plan/v5" || args.plan.purpose !== "teaching") throw new SequencePreflightError(action.ordinal, action.workspace_action.action_id, "visual context/purpose required");
+      try {
+        const command = geometryVisualCommandSchema.parse(JSON.parse(action.workspace_action.command_payload ?? ""));
+        if (command.op === "reconcile") throw new Error("system reconcile is not a teaching preflight command");
+        if (action.workspace_action.capability !== `geometry.visual.${command.op}` || action.workspace_action.presentation_only) throw new Error("visual capability/effect mismatch");
+        const reduction = reduceVisual(visualState, command, args.visual.catalog, { ...args.visual.permission, owner: args.visual.owner,
+          completedConstructions: completed, existingPoints: world?.geometry ? new Map(world.geometry.points.map(p => [p.id, { x:p.x,y:p.y }])) : args.visual.permission.existingPoints,
+          action: { session_id:args.plan.session_id,sequence_id:args.plan.sequence_id,ordinal:action.ordinal,action_id:action.workspace_action.action_id } });
+        visualState=reduction.state;
+        if(reduction.changed)current={...current,state:{...current.state,revision:current.state.revision+1}};
+      } catch (error) { throw new SequencePreflightError(action.ordinal, action.workspace_action.action_id, String(error)); }
+      continue;
+    }
     const execution = executeWorkspacePresentationV5({
       fold: current,
       catalog: args.catalog,
@@ -67,6 +89,13 @@ export function preflightPresentationSequence(args: {
     });
     if (execution.status === "rejected") {
       throw new SequencePreflightError(action.ordinal, action.workspace_action.action_id, execution.reason);
+    }
+    if (args.visual && world && action.workspace_action.capability === "geometry.construct") {
+      const command = JSON.parse(action.workspace_action.command_payload!);
+      world = applyDomainCommands(world, [command]);
+      const output = command.outputPointId ?? command.outputLineId;
+      // Construction bindings become complete only once every declared output exists.
+      for (const [binding, outputs] of args.visual.catalog.constructionEntries()) if (outputs.every(id => world!.geometry!.points.some(p => p.id===id) || world!.geometry!.segments.some(s=>s.id===id))) completed.add(binding);
     }
     if (execution.nextFold) {
       current = execution.nextFold;

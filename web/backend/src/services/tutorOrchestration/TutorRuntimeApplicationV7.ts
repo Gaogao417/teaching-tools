@@ -42,6 +42,7 @@ export type V7StartOutcome =
   | { kind: "payload-drift"; clientRequestId: string; committedPayloadHash: string };
 
 export interface V7StartInput {
+  readonly client_instance_id?:string;
   readonly task_id: string;
   readonly student_id: string;
   readonly assessment?: boolean;
@@ -102,6 +103,7 @@ export class TutorRuntimeApplicationV7 {
       payloadHash: startPayloadHash({
         task_id: input.task_id,
         student_id: input.student_id,
+        ...(input.client_instance_id?{client_instance_id:input.client_instance_id}:{}),
         ...(input.assessment !== undefined ? { assessment: input.assessment } : {}),
       }),
       createSession: () => {
@@ -109,6 +111,7 @@ export class TutorRuntimeApplicationV7 {
         TutorSessionOrchestratorV7.start({
           sessionId,
           studentId: input.student_id,
+          ...(input.client_instance_id?{clientInstanceId:input.client_instance_id}:{}),
           taskId: input.task_id,
           canonicalRoot: this.deps.canonicalRoot,
           bindingResolver: this.deps.bindingResolver,
