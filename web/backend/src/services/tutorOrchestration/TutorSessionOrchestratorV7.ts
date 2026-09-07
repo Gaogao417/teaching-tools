@@ -1,7 +1,7 @@
 import { VISUAL_MAX_ACTIONS } from "./presentationGeneration/VisualPresentationTools";
 import { createHash } from "node:crypto";
 import { frozenVisualGeneration, remainingVisualConstructionTools } from "./presentationGeneration/FrozenVisualGeneration";
-import { VISUAL_PRESENTER_PROMPT_VERSION } from "./presentationGeneration/PresenterPrompts";
+import { isVisualPresenterPromptVersion } from "./presentationGeneration/PresenterPrompts";
 /**
  * TutorSessionOrchestratorV7（F7 Step 4 — V7 有序交付 + 两条输入因果链）。
  *
@@ -1940,7 +1940,7 @@ export class TutorSessionOrchestratorV7 {
         const payload = event.payload as { sequence_id: string; ordinal: number; action_id?: string; kind?: string };
         const actions = plannedActionsBySequence.get(payload.sequence_id);
         const action = actions?.find((candidate) => candidate.ordinal === payload.ordinal);
-        if ([PRESENTER_PROMPT_VERSION,VISUAL_PRESENTER_PROMPT_VERSION].includes(request.presenter_pin.prompt_version)
+        if ((request.presenter_pin.prompt_version === PRESENTER_PROMPT_VERSION || isVisualPresenterPromptVersion(request.presenter_pin.prompt_version))
           && (!action || payload.kind !== action.kind
             || payload.action_id !== (action.kind === "voice" ? action.voice_action?.action_id : action.workspace_action?.action_id))) continue;
         const text = action?.kind === "voice" ? action.voice_action?.text : undefined;
@@ -1958,7 +1958,7 @@ export class TutorSessionOrchestratorV7 {
     const approvedConstructions = resolveBeatConstructions(this.binding.imported.plan.resources, this.navigator.currentBeat) ?? [];
     const availableTools = this.visibleGenerationTools(request.context);
     const visibleTools = frozen ? remainingVisualConstructionTools(availableTools, frozen.source) : availableTools;
-    const requireBoardProof = [PRESENTER_PROMPT_VERSION,VISUAL_PRESENTER_PROMPT_VERSION].includes(request.presenter_pin.prompt_version);
+    const requireBoardProof = (request.presenter_pin.prompt_version === PRESENTER_PROMPT_VERSION || isVisualPresenterPromptVersion(request.presenter_pin.prompt_version));
     const boardRequirements = requireBoardProof ? requiredBoardBindings({
       visibleTools, graph: { facts: factById, inferences: inferenceById }, alreadyPresentedBoardContent,
     }) : [];

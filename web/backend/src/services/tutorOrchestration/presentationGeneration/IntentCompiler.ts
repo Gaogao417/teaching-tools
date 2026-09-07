@@ -25,10 +25,10 @@ import type { VisibleVisualTool } from "./VisualPresentationTools";
  * 提交仍由 kernel 事务（RT4 coordinator）唯一落库。
  */
 import type { z } from "zod";
-import { PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION } from "./PresenterPrompts";
+import { PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION, isVisualPresenterPromptVersion } from "./PresenterPrompts";
 
 import { presentationPlanV4Schema } from "../../../../../shared/canonical";
-import type { DomainCommand } from "../../../../../shared/actionWorld";
+import { WorldCommandError, type DomainCommand } from "../../../../../shared/actionWorld";
 import { constructionOutputId } from "../WorkspaceActionAdjudication";
 import type { GraphFactNode, GraphInferenceNode, PlanResourceV5 } from "../../planBuild/canonicalInputs";
 import type { BuiltPresentationContext } from "./ContextBuilder";
@@ -260,7 +260,7 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
 export function compilePresentationIntents(input: IntentCompilerInput): CompiledPresentationPlanV4 | CompiledPresentationPlanV5 {
   if(input.visual){
     const pin=input.request.presenter_pin;
-    if(pin.prompt_version!==VISUAL_PRESENTER_PROMPT_VERSION||pin.context_builder_version!==VISUAL_CONTEXT_BUILDER_VERSION||pin.tool_catalog_version!==VISUAL_TOOL_CATALOG_VERSION)throw new IntentCompilerError("COMPILE_VALIDATION_FAILED","visual compiler requires the frozen visual presenter/context/tool pins");
+    if(!isVisualPresenterPromptVersion(pin.prompt_version)||pin.context_builder_version!==VISUAL_CONTEXT_BUILDER_VERSION||pin.tool_catalog_version!==VISUAL_TOOL_CATALOG_VERSION)throw new IntentCompilerError("COMPILE_VALIDATION_FAILED","visual compiler requires the frozen visual presenter/context/tool pins");
     assertRequiredBoardBindings(input.draft,requiredBoardBindings({visibleTools:input.visibleTools,graph:input.graph,alreadyPresentedBoardContent:input.alreadyPresentedBoardContent??[]}));
   }
   const maxActions = input.visual ? VISUAL_MAX_ACTIONS : 12;
@@ -305,6 +305,11 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
       if (item.text === undefined) {
         // canonical 判定已保证 speech 必带 text；此处只收窄类型（防御性 fail closed）。
         throw new IntentCompilerError("ILLEGAL_PARAM", "speech item carries no text (draft shape violated)");
+      }
+      // Format-only gate: never infer/correct the mathematical value or touch old pins.
+      if (input.request.presenter_pin.prompt_version === VISUAL_PRESENTER_PROMPT_VERSION
+        && /[零〇一二两三四五六七八九十百千万亿点负正壹贰叁肆伍陆柒捌玖拾佰仟0-9０-９]+\s*分\s*之\s*[零〇一二两三四五六七八九十百千万亿点负正壹贰叁肆伍陆柒捌玖拾佰仟0-9０-９]+/u.test(item.text)) {
+        throw new IntentCompilerError("ILLEGAL_PARAM", "speech fractions require approved LaTeX; handwritten X分之Y is forbidden for this presenter pin");
       }
       const actionId = `VA-${input.sessionId}-${serial}-G${voiceIndex}`;
       actions.push({
@@ -372,7 +377,7 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
       }
       const content = noteKind === "explanation_text"
         ? lastSpeechText
-        : renderFragmentContent(noteKind, explainBinding, input.graph, [...(input.alreadyPresentedBoardContent ?? []), ...fragments.filter(fragment => fragment.kind !== "explanation_text").map(fragment => fragment.content)], [PRESENTER_PROMPT_VERSION,VISUAL_PRESENTER_PROMPT_VERSION].includes(input.request.presenter_pin.prompt_version));
+        : renderFragmentContent(noteKind, explainBinding, input.graph, [...(input.alreadyPresentedBoardContent ?? []), ...fragments.filter(fragment => fragment.kind !== "explanation_text").map(fragment => fragment.content)], (input.request.presenter_pin.prompt_version === PRESENTER_PROMPT_VERSION || isVisualPresenterPromptVersion(input.request.presenter_pin.prompt_version)));
       // The exact approved proof is already visible: do not append another copy
       // merely because the teacher answered a follow-up. Speech remains in order.
       if (content === "" && noteKind !== "explanation_text") continue;
@@ -479,7 +484,16 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
           reveal_scope: "none",
         },
       });
-      visualCompiler?.advanceConstruction(geometryBinding.binding_id, stamped);
+      try {
+        visualCompiler?.advanceConstruction(geometryBinding.binding_id, stamped);
+      } catch (error) {
+        // Candidate domain rejection must terminate this generation durably;
+        // escaping it as an infrastructure error makes recovery reclaim it.
+        if (error instanceof WorldCommandError) {
+          throw new IntentCompilerError("ILLEGAL_TARGET", `construct ${geometryBinding.binding_id}: ${error.code}: ${error.message}`);
+        }
+        throw error;
+      }
       continue;
     }
 
