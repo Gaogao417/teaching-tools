@@ -42,3 +42,31 @@ describe("authorized ordered visual projections", () => {
     expect(() => visualMathLabel("$\\unknown{bad}$")).toThrow();
   });
 });
+
+
+describe("resolved segment attention", () => {
+  const geometry = new GeometryModel({ points: [...model.pointsList()], lines: [
+    { id: "segment-CA", kind: "segment", from: "pt-C", to: "pt-A" },
+    { id: "segment-CB", kind: "segment", from: "pt-C", to: "pt-B" },
+    { id: "bounded", kind: "parallel-line", through: "pt-D", parallelTo: "segment-CA", endPoint: "pt-F" },
+    { id: "infinite", kind: "parallel-line", through: "pt-D", parallelTo: "segment-CA" },
+  ] });
+  const focusView = (ids: string[], mode: "steady" | "pulse" = "steady"): VisualView => ({ ...view(), focus: {
+    group_id: "ratio", binding_ref: "VB105", mode, owner_key: "teach", resolved_targets: { entity_ids: ids },
+  } });
+  it.each(["steady", "pulse"] as const)("projects %s attention only from explicit segments, without inferred correspondence", mode => {
+    const scene = projectVisualScene(focusView(["segment-CA", "pt-C", "segment-CB", "pt-A", "pt-B", "segment-CA"], mode), geometry, viewport);
+    expect(scene.glyphs).toHaveLength(2);
+    expect(scene.glyphs.map(g => g.kind)).toEqual(["path", "path"]);
+    expect(new Set(scene.glyphs.map(g => g.color)).size).toBe(1);
+    expect(scene.glyphs[0]).toMatchObject({ id: "focus:ratio/segment/segment-CA", points: [{ x: 40, y: 120 }, { x: 40, y: 40 }], ownerKeys: ["teach"] });
+    expect(scene.glyphs.map(g => g.description)).toEqual(["关注线段 CA", "关注线段 CB"]);
+    expect(scene.glyphs.some(g => /[=↔]/.test(g.description))).toBe(false);
+  });
+  it("rejects a nonsegment even when it has a display endpoint", () => {
+    expect(() => projectVisualScene(focusView(["bounded", "pt-D", "pt-F"]), geometry, viewport)).toThrow(/bounded segment/);
+  });
+  it.each([["pt-A", "pt-B"], ["segment-CA", "unknown"], ["infinite"], []])("rejects unknown, point-only or unbounded targets %j", (...ids) => {
+    expect(() => projectVisualScene(focusView(ids), geometry, viewport)).toThrow();
+  });
+});

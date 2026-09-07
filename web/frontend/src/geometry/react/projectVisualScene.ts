@@ -117,7 +117,21 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
           color: colors[0], description: `△${vertices.map(name).join("")}`, kind: "path", points: vertices.map(point), closed: true });
       });
     } else {
-      throw new VisualRenderError("identity", "focus lacks explicit angle or ordered similarity targets");
+      // Plain attention targets carry actual segment IDs alongside endpoint
+      // IDs. Points provide context only: never infer a segment or pairing.
+      const ids = [...new Set(focus.resolved_targets.entity_ids)];
+      const lines = ids.filter(id => {
+        if (model.getLine(id)) return true;
+        if (model.getPoint(id)) return false;
+        throw new VisualRenderError("identity", `unknown focus target: ${id}`);
+      });
+      if (!lines.length) throw new VisualRenderError("identity", "focus has no explicit bounded segment targets");
+      for (const id of lines) {
+        const line = model.getLine(id)!;
+        if (line.kind !== "segment") throw new VisualRenderError("identity", `focus requires a bounded segment: ${id}`);
+        glyphs.push({ id: `focus:${focus.group_id}/segment/${id}`, ownerKeys: [focus.owner_key],
+          color: colors[0], description: `关注线段 ${name(line.from)}${name(line.to)}`, kind: "path", points: [point(line.from), point(line.to)] });
+      }
     }
   }
   const protectedSegments: [PixelPoint, PixelPoint][] = [];
