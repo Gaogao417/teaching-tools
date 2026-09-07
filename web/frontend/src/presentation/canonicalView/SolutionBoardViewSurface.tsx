@@ -1,15 +1,18 @@
 /** Canonical Board renderer. Animation handles and completion belong to one
- * presentation execution. Revision only identifies the rendered projection. */
+ *  presentation execution. Revision only identifies the rendered projection. */
 import { useEffect, useRef } from "react";
 import { MathText } from "../../components/math/MathText";
-import type { StudentWorkspaceViewV1 } from "./canonicalViewTypes";
+import type { SolutionBoardFragment, SolutionBoardSurface } from "./canonicalViewTypes";
 const BOARD_ENTRY_KIND_TEXT = { statement: "陈述", derivation: "推导", conclusion: "结论", question: "问题" } as const;
+/** F7 P2（view/v2）：临场解释片段的 kind 标签（EF- student-safe 投影）。 */
+const FRAGMENT_KIND_TEXT = { approved_math_note: "批注", relation_note: "关系", explanation_text: "解释" } as const;
 const REVEAL_KEYFRAMES: Keyframe[] = [
   { opacity: "0", transform: "translateY(8px)" },
   { opacity: "1", transform: "translateY(0)" },
 ];
 export interface SolutionBoardViewSurfaceProps {
-  board: StudentWorkspaceViewV1["solution_board"];
+  /** v1 兼容（无 fragments）；v2 投影携带临场解释片段（EF-）。 */
+  board: SolutionBoardSurface;
   revision?: number;
   sessionId?: string;
   execution?: { key: string; targets: readonly string[] };
@@ -30,6 +33,17 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, execution
   const { groups, mode } = board;
   const review = mode === "review";
   const entryCount = groups.reduce((total, group) => total + group.entries.length, 0);
+  /** F7 P2（view/v2）：临场解释片段（EF-）。attach_to_entry 命中的渲染在对应
+   *  条目下方；其余渲染在板书文档尾部（独立解释行）。片段节点复用
+   *  data-entry-id/reveal 动画链——board.explain 的呈现目标即 fragment_id。 */
+  const fragments = board.fragments ?? [];
+  const attachedFragments = (entryId: string): readonly SolutionBoardFragment[] =>
+    fragments.filter((fragment) => fragment.attach_to_entry === entryId);
+  const standaloneFragments = fragments.filter((fragment) => fragment.attach_to_entry === undefined
+    || !groups.some((group) => group.entries.some((entry) => entry.entry_id === fragment.attach_to_entry)));
+  const fragmentCount = fragments.length;
+  /** 片段身份 key（effect deps——数组身份逐渲染变化不触发重扫）。 */
+  const fragmentsKey = fragments.map((fragment) => fragment.fragment_id).join(",");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const runRef = useRef<RevealRun | undefined>(undefined);
   // Successful/failed rendering history persists across StrictMode effect replay.
@@ -94,7 +108,8 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, execution
     // Ordinary rerenders keep handles, but their finish handlers must schedule via this effect.
     finishRef.current = { run: current, schedule: scheduleSettled };
     if (!onSettled || revision === undefined) return () => { active = false; cancelPaint(); };
-    const ids = new Set(groups.flatMap(group => group.entries.map(entry => entry.entry_id)));
+    const ids = new Set<string>(groups.flatMap(group => group.entries.map(entry => entry.entry_id)));
+    for (const fragment of fragments) ids.add(fragment.fragment_id);
     for (const [id, handle] of current.handles) {
       if (!ids.has(id)) { current.handles.delete(id); handle.cancel(); }
     }
@@ -125,7 +140,7 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, execution
     }
     scheduleSettled();
     return () => { active = false; cancelPaint(); };
-  }, [groups, revision, sessionId, executionKey, targetsKey, onSettled]);
+  }, [groups, revision, sessionId, executionKey, targetsKey, fragmentsKey, onSettled]);
 
   useEffect(() => () => {
     const previous = runRef.current;
@@ -145,32 +160,62 @@ export function SolutionBoardViewSurface({ board, revision, sessionId, execution
       data-board-mode={mode}
     >
       <div className="solution-board-document" ref={containerRef}>
-        {entryCount === 0 ? (
+        {entryCount === 0 && fragmentCount === 0 ? (
           <p className="solution-board-empty-note">板书还没有开始——跟随老师的讲解逐步出现。</p>
         ) : (
           groups.map((group) => (
             <div key={group.group_id} className="solution-board-group" data-group-id={group.group_id}>
               {group.title ? <h3 className="solution-board-group-title">{group.title}</h3> : null}
               {group.entries.map((entry) => (
-                <div
-                  key={entry.entry_id}
-                  className={`solution-board-line${entry.state === "active" ? " is-current" : ""}`}
-                  data-entry-id={entry.entry_id}
-                  data-entry-kind={entry.kind}
-                  data-entry-state={entry.state}
-                >
-                  <span className="sr-only">{BOARD_ENTRY_KIND_TEXT[entry.kind]}：</span>
-                  <MathText value={entry.content} block />
-                  {entry.attempt_summary ? (
-                    <small className="solution-board-attempt" data-attempt-summary={entry.attempt_summary}>
-                      你的尝试：{entry.attempt_summary}
-                    </small>
-                  ) : null}
+                <div key={entry.entry_id}>
+                  <div
+                    className={`solution-board-line${entry.state === "active" ? " is-current" : ""}`}
+                    data-entry-id={entry.entry_id}
+                    data-entry-kind={entry.kind}
+                    data-entry-state={entry.state}
+                  >
+                    <span className="sr-only">{BOARD_ENTRY_KIND_TEXT[entry.kind]}：</span>
+                    <MathText value={entry.content} block />
+                    {entry.attempt_summary ? (
+                      <small className="solution-board-attempt" data-attempt-summary={entry.attempt_summary}>
+                        你的尝试：{entry.attempt_summary}
+                      </small>
+                    ) : null}
+                  </div>
+                  {attachedFragments(entry.entry_id).map((fragment) => (
+                    <div
+                      key={fragment.fragment_id}
+                      className="solution-board-line solution-board-fragment"
+                      data-entry-id={fragment.fragment_id}
+                      data-entry-kind="explanation"
+                      data-fragment-kind={fragment.kind}
+                      data-attach-to-entry={fragment.attach_to_entry}
+                    >
+                      <span className="sr-only">{FRAGMENT_KIND_TEXT[fragment.kind]}：</span>
+                      <MathText value={fragment.content} block />
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
           ))
         )}
+        {standaloneFragments.length > 0 ? (
+          <div className="solution-board-group solution-board-fragments" data-group-id="explanation-fragments">
+            {standaloneFragments.map((fragment) => (
+              <div
+                key={fragment.fragment_id}
+                className="solution-board-line solution-board-fragment"
+                data-entry-id={fragment.fragment_id}
+                data-entry-kind="explanation"
+                data-fragment-kind={fragment.kind}
+              >
+                <span className="sr-only">{FRAGMENT_KIND_TEXT[fragment.kind]}：</span>
+                <MathText value={fragment.content} block />
+              </div>
+            ))}
+          </div>
+        ) : null}
         {review ? <p className="solution-board-review-note" role="status">已完成回顾：同一份板书的只读阅读模式。</p> : null}
       </div>
     </section>

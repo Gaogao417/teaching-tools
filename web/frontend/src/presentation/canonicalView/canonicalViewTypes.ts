@@ -12,10 +12,23 @@ import type {
   coachPanelViewV1Schema,
   mainlineParticipationV1Schema,
   studentWorkspaceViewV1Schema,
+  studentWorkspaceViewV2Schema,
 } from "../../../../shared/canonical/schemas";
 
 /** view/v1 StudentWorkspaceView（学生唯一 student-safe Workspace View）。 */
 export type StudentWorkspaceViewV1 = z.infer<typeof studentWorkspaceViewV1Schema>;
+
+/** view/v2 StudentWorkspaceView（F7 P2 动态板书：solution_board 增可选 fragments）。 */
+export type StudentWorkspaceViewV2 = z.infer<typeof studentWorkspaceViewV2Schema>;
+
+/** F7 P2：HTTP 快照投影的 Workspace View（v1|v2 判别联合；消费面按 marker 收窄）。 */
+export type StudentWorkspaceViewHttp = StudentWorkspaceViewV1 | StudentWorkspaceViewV2;
+
+/** view/v2 解释片段（EF- 临场板书的 student-safe 投影；内容/绑定引用只读）。 */
+export type SolutionBoardFragment = NonNullable<StudentWorkspaceViewV2["solution_board"]["fragments"]>[number];
+
+/** Solution Board 面（v1 兼容——fragments 仅 v2 投影携带）。 */
+export type SolutionBoardSurface = StudentWorkspaceViewV2["solution_board"];
 
 /** view/v1 CoachPanelView（与 StudentWorkspaceView 同 revision 投影）。 */
 export type CoachPanelViewV1 = z.infer<typeof coachPanelViewV1Schema>;

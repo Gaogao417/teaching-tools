@@ -132,3 +132,50 @@ export function createBoardPresentationAdapter(dependencies: WorkspaceSurfaceAda
     },
   };
 }
+
+/**
+ * F7 P2（S1 R7 / 动态板书规格）：board.explain adapter——工具名与参数形状以
+ * B 的 generation/v1 presentation-tool-spec 目录为准（tool_id=board.explain；
+ * plan/v4 冻结形状：workspace_action.capability="board.explain"、
+ * command_payload=EF- 片段引用、reveal_scope>none）。完成判据与 reveal-entry
+ * 同链：真实 commit 信号（同执行身份 + workspace_revision）+ 数据级对账——
+ * EF 引用必须解析到同快照 student_workspace_view（view/v2）中已 applied 的
+ * fragment；planned-only 内容不进学生可见 View（保存≠可见），未解析即
+ * illegal_target fail closed。
+ */
+export function createBoardExplainPresentationAdapter(dependencies: WorkspaceSurfaceAdapterDependencies): PresentationToolAdapter {
+  return {
+    supports(action) {
+      return action.kind === "workspace"
+        && action.workspace_action !== undefined
+        && action.workspace_action.surface === "solution_board"
+        && action.workspace_action.capability === "board.explain";
+    },
+    async present({ delivery, snapshot, abort }) {
+      const action = delivery.action.workspace_action!;
+      const fragmentId = action.command_payload;
+      if (!dependencies.commitPort.hasRealCommitSource()) {
+        return { outcome: "awaiting-real-signal" };
+      }
+      const board = snapshot.views.student_workspace_view.solution_board;
+      const fragments = "fragments" in board ? board.fragments ?? [] : [];
+      if (typeof fragmentId !== "string" || !fragments.some((fragment) => fragment.fragment_id === fragmentId)) {
+        return {
+          outcome: "failed",
+          failureClass: "illegal_target",
+          message: `board.explain content source ${JSON.stringify(fragmentId)} does not resolve to an applied fragment in the student workspace view`,
+        };
+      }
+      const wait = await dependencies.commitPort.waitForCommit(delivery.session_id, delivery.workspace_revision ?? 0, {
+        executionKey: presentationKeyOf(delivery),
+        abort,
+        ...(dependencies.waitTimeoutMs !== undefined ? { timeoutMs: dependencies.waitTimeoutMs } : {}),
+      });
+      if (wait === "aborted") return { outcome: "interrupted" };
+      if (wait === "timeout") {
+        return { outcome: "failed", failureClass: "timeout", message: "solution_board explain fragment commit not observed within timeout" };
+      }
+      return { outcome: "presented" };
+    },
+  };
+}

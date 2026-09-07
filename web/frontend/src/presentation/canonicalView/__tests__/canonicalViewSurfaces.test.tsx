@@ -269,6 +269,55 @@ describe("SolutionBoardViewSurface（共享 canonical Board 渲染面）", () =>
   });
 });
 
+describe("F7 P2 SolutionBoardViewSurface：view/v2 解释片段（EF-）渲染", () => {
+  it("attached 片段渲染在对应条目下方、standalone 渲染在文档尾部；data-entry-id=fragment_id（reveal 动画链消费）", () => {
+    const host = render(
+      <SolutionBoardViewSurface
+        board={{
+          mode: "building",
+          groups: [{
+            group_id: "PG-01",
+            title: "板书",
+            entries: [{ entry_id: "BE-301", kind: "derivation", content: "△DAO∽△DBA", state: "visible" }],
+          }],
+          fragments: [
+            { fragment_id: "EF-0001", kind: "approved_math_note", content: "AO/DO = BO/OE", basis_refs: ["FN-20"], attach_to_entry: "BE-301" },
+            { fragment_id: "EF-0002", kind: "explanation_text", content: "把当前批准步骤拆细，逐项检查依据。", basis_refs: ["RES1"] },
+          ],
+        }}
+      />,
+    );
+    const attached = host.querySelector('[data-entry-id="EF-0001"]')!;
+    expect(attached.getAttribute("data-entry-kind")).toBe("explanation");
+    expect(attached.getAttribute("data-fragment-kind")).toBe("approved_math_note");
+    expect(attached.closest('[data-group-id="PG-01"]')).toBeTruthy();
+    expect(attached.parentElement?.querySelector('[data-entry-id="BE-301"]')).toBeTruthy();
+    const standalone = host.querySelector('[data-entry-id="EF-0002"]')!;
+    expect(standalone.closest('[data-group-id="explanation-fragments"]')).toBeTruthy();
+    expect(host.textContent).toContain("AO/DO = BO/OE");
+    expect(host.textContent).toContain("把当前批准步骤拆细");
+  });
+
+  it("attach_to_entry 指向不存在条目的片段按 standalone 渲染（不悬挂不丢失）", () => {
+    const host = render(
+      <SolutionBoardViewSurface
+        board={{
+          mode: "building",
+          groups: [],
+          fragments: [{ fragment_id: "EF-0003", kind: "relation_note", content: "蝶形相似对应边成比例", basis_refs: ["FN-20"], attach_to_entry: "BE-999" }],
+        }}
+      />,
+    );
+    expect(host.querySelector('[data-entry-id="EF-0003"]')?.closest('[data-group-id="explanation-fragments"]')).toBeTruthy();
+  });
+
+  it("v1 board（无 fragments）渲染零变化（回归）", () => {
+    const host = render(<SolutionBoardViewSurface board={{ mode: "building", groups: [] }} />);
+    expect(host.textContent).toContain("板书还没有开始");
+    expect(host.querySelector('[data-group-id="explanation-fragments"]')).toBeNull();
+  });
+});
+
 describe("Workspace 真实 commit 信号——非对称结算/动画失败/StrictMode/快速连改（复验 P1-1/3、P2-5/6）", () => {
   /** 可控 WAAPI 动画：手动 resolve/reject/cancel。 */
   function controllableAnimate() {

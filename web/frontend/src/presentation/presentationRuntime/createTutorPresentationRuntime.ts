@@ -12,7 +12,7 @@ import { TutorRuntimeHttpError, type TutorRuntimeClient, type ValidatedSessionSn
 import type { MediaSessionController } from "../audio/MediaSessionController";
 import type { NarrationController } from "../narration/NarrationController";
 import { createVoicePresentationAdapter } from "./adapters/voicePresentationAdapter";
-import { createBoardPresentationAdapter, createGeometryPresentationAdapter } from "./adapters/workspaceSurfaceAdapters";
+import { createBoardExplainPresentationAdapter, createBoardPresentationAdapter, createGeometryPresentationAdapter } from "./adapters/workspaceSurfaceAdapters";
 import { createCapabilityRegistry } from "./capabilityRegistry";
 import { PresentationRuntimeController } from "./PresentationRuntimeController";
 import type { PendingPresentationOutcomeRequest, PresentationRuntimePhase, PresentationRuntimePorts } from "./types";
@@ -46,7 +46,10 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
   const voice = createVoicePresentationAdapter({ narration: deps.narration, media: deps.media });
   const geometry = createGeometryPresentationAdapter({ commitPort });
   const board = createBoardPresentationAdapter({ commitPort });
-  const adapters = [voice, geometry, board];
+  // F7 P2（S1 R7）：动态板书解释（board.explain，EF- 内容链）——复用同一
+  // commitPort/reveal 渲染链，不建第二 Board 状态机。
+  const boardExplain = createBoardExplainPresentationAdapter({ commitPort });
+  const adapters = [voice, geometry, board, boardExplain];
   const registry = createCapabilityRegistry(adapters);
 
   const ports: PresentationRuntimePorts = {

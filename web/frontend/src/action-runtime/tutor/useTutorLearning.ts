@@ -61,7 +61,7 @@ import {
 import type { AdaptiveGenerationStatus } from "../../../../shared/tutorHttpProfile";
 import { actionMachineRegistry } from "../registry";
 import type { SolutionBoardView } from "../types";
-import type { CoachPanelViewV1, StudentWorkspaceViewV1 } from "../../presentation/canonicalView/canonicalViewTypes";
+import type { CoachPanelViewV1, SolutionBoardSurface, StudentWorkspaceViewHttp } from "../../presentation/canonicalView/canonicalViewTypes";
 import { parseRenderGeometryV1 } from "../../presentation/canonicalView/renderGeometry";
 import { presentationKeyOf } from "../../presentation/presentationRuntime/types";
 import type { WorkspaceCommitSignal } from "../../presentation/presentationRuntime/workspaceCommitPort";
@@ -259,7 +259,8 @@ export interface BoardPresentationExecution {
 export type WorkspaceSurfaceVm =
   | {
     source: "canonical";
-    view: StudentWorkspaceViewV1 | undefined;
+    /** F7 P2：HTTP 投影 v1|v2（v2 携带 solution_board.fragments）。 */
+    view: StudentWorkspaceViewHttp | undefined;
     /** render.geometry 运行时解析产物（F7 Step 7 production Canvas 数据源）。 */
     geometry: TopicGeometryModel | undefined;
     /** 真实完成信号（production Canvas commit ∧ Board reveal 稳定双结算）。 */
@@ -280,7 +281,7 @@ export interface ActiveActionFrameVm {
   boardView?: SolutionBoardView;
   /** canonical 板书面（= 快照 student_workspace_view.solution_board；页面经
    *  共享 SolutionBoardViewSurface 渲染进 Frame boardSurface 槽）。 */
-  board?: StudentWorkspaceViewV1["solution_board"];
+  board?: SolutionBoardSurface;
   /** 外部 Tutor runtime 拥有媒体/coach 时为 true：Frame 零媒体创建（F7 Step 7
    *  裁定：不 new MediaSessionController/NarrationController；媒体实例唯一
    *  属主 = 外层 PresentationRuntime）。 */
@@ -1640,16 +1641,21 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   }, [runtimeClient, runtimeSnapshot, presentationRuntime, presentationPhase, mergedCompleted, operateActive, presentation, advancePresentation, replayNarration, reviewPreviousNarration, reviewFirstNarration]);
 
   /** 当前 pending board delivery 的执行身份（F7 三次复验 P1：恢复重呈现按
-   *  sequence 身份，不按 workspace revision）。 */
+   *  sequence 身份，不按 workspace revision）。F7 P2：board.explain 的呈现
+   *  目标是 command_payload 引用的解释片段（EF-，plan/v4 冻结形状）；
+   *  board.reveal-entry 仍为 target_ids（BE-）。 */
   const boardPresentation = useMemo<BoardPresentationExecution | undefined>(() => {
     const pending = runtimeSnapshot?.pending_presentation;
     const workspaceAction = pending?.action.workspace_action;
     if (!runtimeSnapshot || !pending || !workspaceAction || workspaceAction.surface !== "solution_board") {
       return undefined;
     }
+    const targets = workspaceAction.capability === "board.explain" && typeof workspaceAction.command_payload === "string"
+      ? [workspaceAction.command_payload]
+      : workspaceAction.target_ids ?? [];
     return {
       key: presentationKeyOf(pending),
-      targets: workspaceAction.target_ids ?? [],
+      targets,
     };
   }, [runtimeSnapshot]);
 

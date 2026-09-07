@@ -88,6 +88,9 @@ export interface RuntimeSnapshotOptions {
   canvasElements?: { element_id: string; kind: string; highlighted?: boolean; annotated?: boolean; student_authored?: boolean }[];
   /** 填充 solution_board.groups（单组；board 呈现对账面）。 */
   boardEntries?: { entry_id: string; kind: string; content: string; state?: string; attempt_summary?: string }[];
+  /** F7 P2（view/v2）：填充 solution_board.fragments——视图升级为
+   *  ai_teaching_student_workspace_view/v2（board.explain 呈现对账面）。 */
+  viewFragments?: { fragment_id: string; kind: "approved_math_note" | "relation_note" | "explanation_text"; content: string; basis_refs: string[]; attach_to_entry?: string }[];
   /** 覆写 active_action 的 action_plan（构造 ExercisePlan 校验负例）。 */
   actionPlanOverride?: unknown;
   /** 覆写 active_action 的 target_ids（构造 render geometry 对账负例）。 */
@@ -183,6 +186,32 @@ export function pendingBoardPresentation(revision: number, workspaceRevision: nu
   };
 }
 
+/** F7 P2：board.explain 交付（plan/v4 冻结形状：capability=board.explain、
+ *  command_payload=EF- 片段引用、reveal_scope>none、无 target_ids）。 */
+export function pendingBoardExplainPresentation(revision: number, workspaceRevision: number, fragmentId: string): Record<string, unknown> {
+  return {
+    schema: "ai_teaching_presentation_delivery/v1",
+    session_id: RUNTIME_SESSION_ID,
+    sequence_id: "PS-0005",
+    ordinal: 0,
+    action_id: "WSA-bt05-explain",
+    action: {
+      kind: "workspace",
+      workspace_action: {
+        action_id: "WSA-bt05-explain",
+        decision_id: "TD-seed-0005",
+        surface: "solution_board",
+        capability: "board.explain",
+        origin: "tutor",
+        command_payload: fragmentId,
+        reveal_scope: "step_narration",
+      },
+    },
+    session_revision: revision,
+    workspace_revision: workspaceRevision,
+  };
+}
+
 function mainlineFor(kind: string): Record<string, unknown> {
   if (kind === "read_only_completed") return { kind: "completed" };
   if (kind === "temporarily_paused_for_inquiry") return { kind: "presenting", beat_id: "BT-02" };
@@ -229,6 +258,8 @@ export function runtimeSnapshotRaw(options: RuntimeSnapshotOptions = {}): Record
       })),
     }]
     : [];
+  /** F7 P2：viewFragments → view/v2（solution_board.fragments——EF- 投影）。 */
+  const viewVersion = options.viewFragments !== undefined && options.viewFragments.length > 0 ? 2 : 1;
   return {
     profile: "f7-tutor-runtime-http/v1",
     session_id: RUNTIME_SESSION_ID,
@@ -239,7 +270,7 @@ export function runtimeSnapshotRaw(options: RuntimeSnapshotOptions = {}): Record
     question: { artifact_id: "QT-SMV-001", question_type: "fill_blank", stem: "如图，将 △ACD 沿 AD 翻折，求 BE。" },
     views: {
       student_workspace_view: {
-        schema: "ai_teaching_student_workspace_view/v1",
+        schema: `ai_teaching_student_workspace_view/v${viewVersion}`,
         session_id: RUNTIME_SESSION_ID,
         revision: workspaceRevision,
         canvas: {
@@ -253,7 +284,17 @@ export function runtimeSnapshotRaw(options: RuntimeSnapshotOptions = {}): Record
           })),
           interaction_enabled: kind === "workspace_input",
         },
-        solution_board: { mode: "building", groups: boardGroups },
+        solution_board: {
+          mode: "building",
+          groups: boardGroups,
+          ...(viewVersion === 2 ? { fragments: options.viewFragments!.map((fragment) => ({
+            fragment_id: fragment.fragment_id,
+            kind: fragment.kind,
+            content: fragment.content,
+            basis_refs: fragment.basis_refs,
+            ...(fragment.attach_to_entry !== undefined ? { attach_to_entry: fragment.attach_to_entry } : {}),
+          })) } : {}),
+        },
         participation: participationView,
       },
       coach_panel_view: {

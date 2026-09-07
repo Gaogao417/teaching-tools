@@ -26,11 +26,12 @@ import { GeometryCanvasSurface } from "../../geometry/react/GeometryCanvas";
 import { StudentWorkspaceFrame } from "../workspace/StudentWorkspaceFrame";
 import { SolutionBoardViewSurface } from "./SolutionBoardViewSurface";
 import type { WorkspaceCommitSignal } from "../presentationRuntime/workspaceCommitPort";
-import type { StudentWorkspaceViewV1 } from "./canonicalViewTypes";
+import type { StudentWorkspaceViewHttp } from "./canonicalViewTypes";
 import type { TopicGeometryModel } from "../../../../shared/topicPractice";
 
 export interface StudentWorkspaceViewSurfaceProps {
-  view: StudentWorkspaceViewV1;
+  /** F7 P2：HTTP 投影 v1|v2（v2 携带 solution_board.fragments——临场解释板书）。 */
+  view: StudentWorkspaceViewHttp;
   /** render.geometry 的运行时解析产物；undefined = 无图示任务（明确占位）。 */
   geometry?: TopicGeometryModel;
   /** 提供时接入真实完成信号源（讲解/完成面挂载期注册）。 */

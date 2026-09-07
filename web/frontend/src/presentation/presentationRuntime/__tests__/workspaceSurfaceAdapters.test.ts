@@ -8,11 +8,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { createBoardPresentationAdapter, createGeometryPresentationAdapter } from "../adapters/workspaceSurfaceAdapters";
+import { createBoardExplainPresentationAdapter, createBoardPresentationAdapter, createGeometryPresentationAdapter } from "../adapters/workspaceSurfaceAdapters";
 import { createWorkspaceCommitPort } from "../workspaceCommitPort";
 import { presentationKeyOf } from "../types";
 import type { PendingPresentationDelivery } from "../types";
 import {
+  pendingBoardExplainPresentation,
   pendingBoardPresentation,
   pendingGeometryPresentation,
   runtimeSnapshotRaw,
@@ -40,6 +41,22 @@ function boardContext(entries: { entry_id: string; kind: string; content: string
     boardEntries: entries,
     revision: 22,
     workspaceRevision: 8,
+  }));
+  return { commitPort, adapter, snapshot, delivery: snapshot.pending_presentation as PendingPresentationDelivery };
+}
+
+/** F7 P2：board.explain（view/v2 fragments——EF- 已 applied 投影）。 */
+function boardExplainContext(fragmentId: string, withFragment: boolean) {
+  const commitPort = createWorkspaceCommitPort();
+  const adapter = createBoardExplainPresentationAdapter({ commitPort });
+  const snapshot: ValidatedSessionSnapshot = validFromRaw(runtimeSnapshotRaw({
+    pendingPresentation: pendingBoardExplainPresentation(24, 9, fragmentId),
+    boardEntries: [{ entry_id: "BE-301", kind: "derivation", content: "△DAO∽△DBA" }],
+    viewFragments: withFragment
+      ? [{ fragment_id: fragmentId, kind: "explanation_text", content: "把当前批准步骤拆细，逐项检查依据。", basis_refs: ["RES1"], attach_to_entry: "BE-301" }]
+      : [],
+    revision: 24,
+    workspaceRevision: 9,
   }));
   return { commitPort, adapter, snapshot, delivery: snapshot.pending_presentation as PendingPresentationDelivery };
 }
@@ -144,5 +161,47 @@ describe("workspace surface adapters（真实完成信号源语义）", () => {
     expect(board.supports({ kind: "workspace", workspace_action: { surface: "solution_board", capability: "board.reveal-entry" } } as never)).toBe(true);
     expect(board.supports({ kind: "workspace", workspace_action: { surface: "solution_board", capability: "board.activate-entry" } } as never)).toBe(false);
     expect(geometry.supports({ kind: "voice" } as never)).toBe(false);
+  });
+});
+
+describe("F7 P2 board.explain adapter（动态板书 EF- 内容链）", () => {
+  it("EF 引用未解析到 view/v2 fragment（planned-only/未 applied）→ failed(illegal_target)", async () => {
+    const { commitPort, adapter, snapshot, delivery } = boardExplainContext("EF-TS4242-0001", false);
+    commitPort.registerRealCommitSource();
+    const result = await adapter.present({ delivery, snapshot, abort: new AbortController().signal });
+    expect(result).toMatchObject({ outcome: "failed", failureClass: "illegal_target" });
+  });
+
+  it("EF 已 applied（view/v2 fragments 含该片段）+ 真实 commit → presented", async () => {
+    const { commitPort, adapter, snapshot, delivery } = boardExplainContext("EF-TS4242-0001", true);
+    const unregister = commitPort.registerRealCommitSource();
+    const wait = adapter.present({ delivery, snapshot, abort: new AbortController().signal });
+    commitPort.notifyRealCommitted({ executionKey: presentationKeyOf(delivery), sessionId: delivery.session_id, revision: delivery.workspace_revision! });
+    await expect(wait).resolves.toEqual({ outcome: "presented" });
+    unregister();
+  });
+
+  it("真实信号源未注册 → awaiting-real-signal（保存≠可见阶段不误报）", async () => {
+    const { adapter, snapshot, delivery } = boardExplainContext("EF-TS4242-0001", true);
+    const result = await adapter.present({ delivery, snapshot, abort: new AbortController().signal });
+    expect(result).toEqual({ outcome: "awaiting-real-signal" });
+  });
+
+  it("abort → interrupted（服务端已推进/controller 打断）", async () => {
+    const { commitPort, adapter, snapshot, delivery } = boardExplainContext("EF-TS4242-0001", true);
+    const unregister = commitPort.registerRealCommitSource();
+    const abort = new AbortController();
+    const wait = adapter.present({ delivery, snapshot, abort: abort.signal });
+    abort.abort();
+    await expect(wait).resolves.toEqual({ outcome: "interrupted" });
+    unregister();
+  });
+
+  it("supports：board.explain 三元组命中；reveal-entry 不吃 explain", () => {
+    const explain = createBoardExplainPresentationAdapter({ commitPort: createWorkspaceCommitPort() });
+    const reveal = createBoardPresentationAdapter({ commitPort: createWorkspaceCommitPort() });
+    expect(explain.supports({ kind: "workspace", workspace_action: { surface: "solution_board", capability: "board.explain" } } as never)).toBe(true);
+    expect(reveal.supports({ kind: "workspace", workspace_action: { surface: "solution_board", capability: "board.explain" } } as never)).toBe(false);
+    expect(explain.supports({ kind: "workspace", workspace_action: { surface: "solution_board", capability: "board.reveal-entry" } } as never)).toBe(false);
   });
 });

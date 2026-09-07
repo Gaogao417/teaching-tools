@@ -9,11 +9,14 @@
  */
 import type { PendingPresentationDelivery, PresentationToolAdapter } from "./types";
 
-/** 当前受支持的三元组（测试与文档对齐用；真实判定在 adapter.supports）。 */
+/** 当前受支持的三元组（测试与文档对齐用；真实判定在 adapter.supports）。
+ *  F7 P2：board.explain 按B 的 generation/v1 presentation-tool-spec 目录登记
+ *  （tool_id=board.explain；plan/v4 线上形状 capability="board.explain"）。 */
 export const SUPPORTED_PRESENTATION_CAPABILITIES: readonly string[] = [
   "voice",
   "geometry:geometry.construct",
   "solution_board:board.reveal-entry",
+  "solution_board:board.explain",
 ];
 
 export interface CapabilityRegistry {
