@@ -83,6 +83,22 @@ describe("renderer owned visual lifetime", () => {
     await registry.install(target, execution()); registry.suppress("inquiry");
     expect(host.querySelector<SVGElement>('[data-visual-id="ab"]')!.style.visibility).not.toBe("hidden");
   });
+  it("keeps mandatory length text off point names and base lines rather than accepting viewport-only placement", async () => {
+    const { host, registry } = mount();
+    const target: VisualRenderScene = { width: 300, height: 300,
+      glyphs: [{ id: "length", ownerKeys: ["main"], color: "blue", description: "OE length", kind: "label", anchor: { x: 150, y: 150 }, text: "$OE=\\frac{4}{5}$" }],
+      labelObstacles: [{ x: 120, y: 123, width: 60, height: 18 }],
+      protectedSegments: [[{ x: 0, y: 168 }, { x: 300, y: 168 }]],
+    };
+    await registry.install(target, execution());
+    const label = host.querySelector("text")!;
+    expect(label.textContent).toBe("OE=4/5");
+    const x = Number(label.getAttribute("x")), y = Number(label.getAttribute("y"));
+    const pointName = target.labelObstacles![0];
+    expect(x+30 <= pointName.x || x-30 >= pointName.x+pointName.width || y+9 <= pointName.y || y-9 >= pointName.y+pointName.height).toBe(true);
+    expect(y+9 < 168 || y-9 > 168).toBe(true);
+    expect(host.querySelectorAll("text")).toHaveLength(1);
+  });
   it("rejects unreadable labels rather than silently omitting a required mark", async () => {
     const { registry } = mount();
     await expect(registry.install({ width: 20, height: 20, glyphs: [{ id: "label", ownerKeys: ["main"], color: "black", description: "比例", kind: "label", anchor: { x: 10, y: 10 }, text: "2:3" }] }, execution())).rejects.toMatchObject({ kind: "layout" });

@@ -1,10 +1,11 @@
 import type { VisualView } from "../../../../shared/canonical/visualSchemas";
 import type { GeometryModel } from "../domain/model";
-import { VisualRenderError, type PixelPoint, type VisualGlyph, type VisualRenderScene } from "./visualRenderTypes";
+import { VisualRenderError, type PixelRect, type PixelPoint, type VisualGlyph, type VisualRenderScene } from "./visualRenderTypes";
 
 export interface VisualViewport {
   width: number;
   height: number;
+  labelObstacles?: readonly PixelRect[];
   project(point: { x: number; y: number }): PixelPoint;
 }
 const colors = ["#0369a1", "#a16207", "#7c3aed"];
@@ -119,5 +120,26 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
       throw new VisualRenderError("identity", "focus lacks explicit angle or ordered similarity targets");
     }
   }
-  return { width: viewport.width, height: viewport.height, glyphs };
+  const protectedSegments: [PixelPoint, PixelPoint][] = [];
+  for (const line of model.linesList()) {
+    if (line.kind === "segment") {
+      protectedSegments.push([point(line.from), point(line.to)]);
+      if (line.extensionPoint) protectedSegments.push([point(line.to), point(line.extensionPoint)]);
+    } else if (line.endPoint) protectedSegments.push([point(line.through), point(line.endPoint)]);
+    else {
+      const origin = model.getPoint(line.through)!;
+      const direction = model.lineDirection(line.id);
+      const a = viewport.project(origin), b = viewport.project({ x: origin.x + direction.dx, y: origin.y + direction.dy });
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      if (length) {
+        const extent = Math.hypot(viewport.width, viewport.height) * 2;
+        protectedSegments.push([{ x: a.x - (b.x-a.x)/length*extent, y: a.y - (b.y-a.y)/length*extent }, { x: a.x + (b.x-a.x)/length*extent, y: a.y + (b.y-a.y)/length*extent }]);
+      }
+    }
+  }
+  return { width: viewport.width, height: viewport.height, glyphs, protectedSegments,
+    labelObstacles: [...(viewport.labelObstacles ?? []), ...model.pointsList().map(p => {
+      const pixel = viewport.project(p); return { x: pixel.x - 6, y: pixel.y - 6, width: 12, height: 12 };
+    })] };
+
 }

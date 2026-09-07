@@ -133,7 +133,17 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
     const sceneOf = (visual: Parameters<typeof projectVisualScene>[0]) => {
       const width = visualHost.clientWidth, height = visualHost.clientHeight;
       const box = handles.board.getBoundingBox();
-      return projectVisualScene(visual, model, { width, height,
+      const origin = visualHost.getBoundingClientRect();
+      const labelObstacles = handles.board.objectsList.flatMap(element => {
+        const point = element as { elType?: string; label?: { rendNode?: Element }; rendNode?: Element };
+        if (point.elType !== "point") return [];
+        return [point.rendNode, point.label?.rendNode].flatMap(node => {
+          if (!node) return [];
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 ? [{ x: rect.left-origin.left, y: rect.top-origin.top, width: rect.width, height: rect.height }] : [];
+        });
+      });
+      return projectVisualScene(visual, model, { width, height, labelObstacles,
         project: p => ({ x: (p.x - box[0]) * width / (box[2] - box[0]), y: (box[1] - p.y) * height / (box[1] - box[3]) }) });
     };
     const visualBinding = visualRenderer?.attach({

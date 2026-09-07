@@ -206,3 +206,15 @@
   align-items: stretch;
   overflow: hidden;
 }
+
+/* Auto-height mobile rows need an explicit diagram allocation; desktop size
+   containment cannot supply intrinsic height after the workspace stacks. */
+@media (max-width: 900px) {
+  .student-workspace-frame[data-testid="canonical-student-workspace"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+  .student-workspace-frame[data-testid="canonical-student-workspace"] > .artifact-math-object {
+    height: 440px;
+  }
+}

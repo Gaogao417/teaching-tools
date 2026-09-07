@@ -22,6 +22,20 @@ const within = (r: Rect, width: number, height: number) => r.x >= MARGIN && r.y 
 const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width + 4 && a.x + a.width + 4 > b.x
   && a.y < b.y + b.height + 4 && a.y + a.height + 4 > b.y;
 
+/** Segment/rectangle clipping, used only to keep glyph text off base geometry. */
+function lineCrossesLabel(a: PixelPoint, b: PixelPoint, rect: Rect): boolean {
+  const left=rect.x-3, right=rect.x+rect.width+3, top=rect.y-3, bottom=rect.y+rect.height+3;
+  const dx=b.x-a.x, dy=b.y-a.y;
+  let start=0, end=1;
+  for(const [p,q] of [[-dx,a.x-left],[dx,right-a.x],[-dy,a.y-top],[dy,bottom-a.y]]) {
+    if(p===0) { if(q<0)return false; continue; }
+    const t=q/p;
+    if(p<0) start=Math.max(start,t); else end=Math.min(end,t);
+    if(start>end)return false;
+  }
+  return true;
+}
+
 /** Pixel-sized minor arcs only. The angle is used for placement, never a label. */
 export function minorAngleArc(vertex: PixelPoint, rays: readonly [PixelPoint, PixelPoint], radius: number): string {
   if (![vertex, ...rays].every(finite) || !(radius > 0)) throw new VisualRenderError("layout", "non-finite angle geometry");
@@ -232,7 +246,8 @@ export class VisualEffectRegistry {
     }
     if (!finite(glyph.anchor) || !glyph.text.trim()) throw new VisualRenderError("layout", "label lacks an anchor or authorized text");
     const text = node("text", { fill: glyph.color, "font-size": "16", "font-family": "system-ui, sans-serif", "text-anchor": "middle", "dominant-baseline": "middle" });
-    text.textContent = visualMathLabel(glyph.text);
+    const readable = visualMathLabel(glyph.text);
+    text.textContent = readable;
     group.appendChild(text);
     const candidates: [number, number][] = [[0, -18], [0, 18], [28, -18], [-28, -18], [28, 18], [-28, 18]];
     // Bounded deterministic search, including free space away from crowded
@@ -243,13 +258,35 @@ export class VisualEffectRegistry {
         candidates.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);
       }
     }
+    // Break only at equality boundaries: concatenating the lines retains the
+    // exact authorized expression. Never shorten ratios or shrink the font.
+    const terms = readable.split(/(?==)/);
+    const layouts = [[readable]];
+    if (terms.length > 1) {
+      const middle = Math.ceil(terms.length / 2);
+      layouts.push([terms.slice(0, middle).join(""), terms.slice(middle).join("")]);
+      if (terms.length > 2) layouts.push(terms);
+    }
+    for (const lines of layouts) {
+      text.replaceChildren();
+      if (lines.length === 1) text.textContent = lines[0];
+      else for (const line of lines) {
+        const span = node("tspan"); span.textContent = line; text.appendChild(span);
+      }
     for (const [dx, dy] of candidates) {
       text.setAttribute("x", String(glyph.anchor.x + dx)); text.setAttribute("y", String(glyph.anchor.y + dy));
+      [...text.children].forEach((span, index) => {
+        span.setAttribute("x", String(glyph.anchor.x + dx));
+        span.setAttribute("y", String(glyph.anchor.y + dy + (index - (lines.length - 1) / 2) * 20));
+      });
       const rect = this.options.measureText?.(text) ?? text.getBBox();
-      if (!(rect.width > 0 && rect.height > 0) || !within(rect, scene.width, scene.height) || labels.some(other => overlaps(rect, other))) continue;
+      if (!(rect.width > 0 && rect.height > 0) || !within(rect, scene.width, scene.height) || labels.some(other => overlaps(rect, other))
+        || scene.labelObstacles?.some(other => overlaps(rect, other))
+        || scene.protectedSegments?.some(([a,b]) => lineCrossesLabel(a,b,rect))) continue;
       labels.push(rect);
       if (dx || Math.abs(dy) > 18) group.prepend(node("path", { ...attrs, "stroke-width": "1", d: `M ${glyph.anchor.x} ${glyph.anchor.y} L ${glyph.anchor.x + dx} ${glyph.anchor.y + dy}` }));
       return;
+    }
     }
     throw new VisualRenderError("layout", `no readable placement for label ${glyph.id}`);
   }

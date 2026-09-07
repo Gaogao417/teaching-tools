@@ -19,6 +19,7 @@ export interface VisualRenderExecution extends VisualRenderIdentity {
 }
 
 export interface PixelPoint { x: number; y: number }
+export interface PixelRect extends PixelPoint { width: number; height: number }
 
 interface GlyphBase {
   id: string;
@@ -38,6 +39,9 @@ export interface VisualRenderScene {
   width: number;
   height: number;
   glyphs: readonly VisualGlyph[];
+  /** Actual point/name occupancy and base geometry: renderer layout only. */
+  labelObstacles?: readonly PixelRect[];
+  protectedSegments?: readonly (readonly [PixelPoint, PixelPoint])[];
 }
 
 export class VisualRenderError extends Error {
