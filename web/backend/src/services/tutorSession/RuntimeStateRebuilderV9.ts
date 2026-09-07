@@ -77,3 +77,65 @@ export function createV9Rebuilder(registryProvider: V9RegistryProvider): V9Rebui
     rebuildTutorRuntimeStateV9: (sessionId, options) => rebuildSessionState(codec, sessionId, options),
   };
 }
+
+// --------------------------------------------------------------------------- //
+// v9 在线链支撑件（F7 RT4 会话级接线）：事件读取 / workspace 重建 / 行分派
+// --------------------------------------------------------------------------- //
+
+import { readSessionEvents } from "./kernel/TutorSessionStoreCore";
+import { db } from "../../db/database";
+import { WorkspaceRuntimeReducerError, type WorkspaceFold } from "./WorkspaceRuntimeReducerV5";
+import { foldWorkspaceV7Events } from "./WorkspaceRuntimeReducerV7";
+import { reconcileWorkspaceCatalogPin, type WorkspaceRebuildResult } from "./WorkspaceStateRebuilderV5";
+import { workspaceRuntimeStateV1Schema } from "../../../../shared/canonical";
+import type { WorkspacePresentationCatalogV5, WorkspaceSeedOverlay } from "./WorkspacePresentationCatalogV5";
+
+/** v9 会话行事件读取（canonical v9 判定；v7/v6 行 → SESSION_VERSION_UNSUPPORTED）。 */
+export function readTutorSessionEventsV9(sessionId: string, registryProvider: V9RegistryProvider): import("./TutorSessionEventV9").StoredV9Event[] {
+  const codec = makeV9SessionCodec(registryProvider);
+  return readSessionEvents(codec, sessionId) as unknown as import("./TutorSessionEventV9").StoredV9Event[];
+}
+
+/**
+ * 重建 WorkspaceRuntimeState（v9 行）：verified stream（v9 codec）+ catalog pin
+ * 对账 + workspace fold（v9 生成事件族对 workspace 零效果，planned v4 载荷的
+ * scope 字段不参与 fold——beat 解析沿 applied 引用链）+ canonical 收口。
+ */
+export function rebuildWorkspaceRuntimeStateV9(
+  sessionId: string,
+  catalog: WorkspacePresentationCatalogV5,
+  registryProvider: V9RegistryProvider,
+  seed?: WorkspaceSeedOverlay,
+): WorkspaceRebuildResult {
+  const codec = makeV9SessionCodec(registryProvider);
+  const { events } = verifyCommittedStream(codec, sessionId) as unknown as {
+    events: import("./TutorSessionEventV9").StoredV9Event[];
+  };
+  reconcileWorkspaceCatalogPin(sessionId, catalog, events[0].payload);
+  let fold: WorkspaceFold;
+  try {
+    fold = foldWorkspaceV7Events(events as unknown as Parameters<typeof foldWorkspaceV7Events>[0], catalog, seed);
+  } catch (error) {
+    if (error instanceof WorkspaceRuntimeReducerError) {
+      throw new TutorSessionIntegrityV9Error("CORRUPT_EVENT", `[${error.code}] ${error.message}`, (error as WorkspaceRuntimeReducerError).sequence);
+    }
+    throw error;
+  }
+  const canonical = workspaceRuntimeStateV1Schema.safeParse(fold.state);
+  if (!canonical.success) {
+    throw new TutorSessionIntegrityV9Error(
+      "CORRUPT_EVENT",
+      `rebuilt workspace state fails canonical state/v1 validation: ${canonical.error.issues
+        .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+        .join("; ")}`,
+      events[events.length - 1]?.sequence,
+    );
+  }
+  return { ...fold, eventCount: events.length, lastSequence: events[events.length - 1]?.sequence ?? 1 };
+}
+
+/** 会话行 event_schema 读取（start/resume 版本分派；不存在 → undefined）。 */
+export function readSessionEventSchema(sessionId: string): string | undefined {
+  const row = db.prepare("SELECT event_schema FROM tutor_sessions WHERE session_id = ?").get(sessionId) as { event_schema?: string } | undefined;
+  return row?.event_schema;
+}

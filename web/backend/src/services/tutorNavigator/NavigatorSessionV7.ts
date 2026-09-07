@@ -21,6 +21,8 @@
 import type { ImportedApprovedPlanV5 } from "../planBuild/v5/ImportApprovedPlanV5";
 import type { PendingV7Event, StoredV7Event, V7StudentInputBody } from "../tutorSession/TutorSessionEventV7";
 import { TutorSessionKernelV7 } from "../tutorSession/TutorSessionKernelV7";
+import { TutorSessionKernelV9 } from "../tutorSession/TutorSessionKernelV9";
+import { readSessionEventSchema, readTutorSessionEventsV9, type V9RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV9";
 import type { V7RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV7";
 import { readTutorSessionEventsV7 } from "../tutorSession/WorkspaceRuntimeReducerV7";
 import type { TutorRuntimeStateV5 } from "../tutorSession/TutorRuntimeStateReducerV5";
@@ -67,6 +69,32 @@ import {
   type V7FoldContext,
 } from "../tutorSession/TutorRuntimeStateReducerV7";
 
+/**
+ * Navigator 会话壳的 kernel 结构面（F7 RT4 会话级接线）：v7（state/v2）与
+ * v9（state/v4）kernel 共用——方法签名兼容（v9 append 词表为 v7 超集），
+ * state 经 navigator 的只读 getter 按字段读取（不在此处建第二 state 真源）。
+ */
+export interface NavigatorSessionKernel {
+  readonly sessionId: string;
+  readonly revision: number;
+  /** v7 = state/v2；v9 = state/v4 超集（读取经 NavigatorOnlineState face）。 */
+  readonly state: unknown;
+  append(expectedRevision: number, events: PendingV7Event[]): { revision: number; appendedSequences: number[] };
+  assertReplayParity(): { equal: boolean; differences: unknown[] };
+  rebuild(): unknown;
+}
+
+/** v7/v9 共有的在线游标面（state/v2 ⊂ state/v4；generation 字段仅 v9 存在）。 */
+export type NavigatorOnlineState = TutorRuntimeStateV5 & {
+  presentation_cursor:
+    | { status: "idle" }
+    | { status: "awaiting_browser"; sequence_id: string; ordinal: number; action_id: string }
+    | { status: "failed"; sequence_id: string; ordinal: number; action_id: string };
+  generation_slot?: { status: "idle" } | { status: "pending" | "failed"; request_id: string };
+  generation_requests?: unknown[];
+  workspace_revision: number;
+};
+
 /** v7 会话壳的公共输入（binding 由编排层经 resolver 唯一解析后拆开注入）。 */
 export interface NavigatorV7SessionInput {
   readonly sessionId: string;
@@ -75,6 +103,12 @@ export interface NavigatorV7SessionInput {
   readonly registryProvider: V7RegistryProvider;
   readonly gateProvider?: GateAdjudicationProvider;
   readonly modelTimeoutMs?: number;
+  /**
+   * F7 RT4：会话事件合同版本（缺省 v7 = 既有行为；'v9' = 生成生命周期会话，
+   * start 必须携带 presenterGenerationPin）。resume 按会话行 event_schema 分派，
+   * 本字段缺省时以行值为准。
+   */
+  readonly eventSchema?: "v7" | "v9";
 }
 
 export interface NavigatorV7StartInput extends NavigatorV7SessionInput {
@@ -96,6 +130,17 @@ export interface NavigatorV7StartInput extends NavigatorV7SessionInput {
       prompt_version: string;
       adjudicator_version: string;
     };
+  };
+  /**
+   * F7 RT4（v9 会话）：Presenter 生成 pin（state/v4 pinned_plan 必填；与判题链
+   * model_gate_pin、教学策略链 policy_profile 分开）。提供即启用 v9 会话。
+   */
+  readonly presenterGenerationPin?: {
+    provider: string;
+    model_id: string;
+    prompt_version: string;
+    context_builder_version: string;
+    tool_catalog_version: string;
   };
 }
 
@@ -259,23 +304,34 @@ export class NavigatorSessionV7 {
   readonly sessionId: string;
   readonly plan: NavigatorPlanV5;
   private readonly registryProvider: V7RegistryProvider;
-  private kernelRef: TutorSessionKernelV7;
+  private kernelRef: NavigatorSessionKernel;
   private readonly adjudicator: ModelGateAdjudicatorV5;
   private inquiryBeatId: string | undefined;
   private readonly imported: ImportedApprovedPlanV5;
+  private readonly schemaVersion: "v7" | "v9";
 
-  private constructor(input: NavigatorV7SessionInput, kernel: TutorSessionKernelV7) {
+  private constructor(input: NavigatorV7SessionInput, kernel: NavigatorSessionKernel, schemaVersion: "v7" | "v9") {
     this.sessionId = input.sessionId;
     this.plan = input.plan;
     this.imported = input.imported;
     this.registryProvider = input.registryProvider;
     this.kernelRef = kernel;
+    this.schemaVersion = schemaVersion;
     this.adjudicator = new ModelGateAdjudicatorV5(input.gateProvider ?? new UnavailableGateProvider(), {
       ...(input.modelTimeoutMs !== undefined ? { timeoutMs: input.modelTimeoutMs } : {}),
     });
   }
 
-  /** 启动 v7 会话：kernel.start（原子 pin + event_schema='v7' + session_mode）+ 起步 execute_beat 决策。 */
+  /** 会话事件合同版本（编排层 v9 生成路径判定；start 冻结、resume 按行值）。 */
+  get eventSchema(): "v7" | "v9" {
+    return this.schemaVersion;
+  }
+
+  /**
+   * 启动会话：kernel.start（原子 pin + event_schema + session_mode）+ 起步
+   * execute_beat 决策。F7 RT4：提供 presenterGenerationPin ⇒ v9 会话（生成
+   * 生命周期；state/v4）；否则 v7（既有行为零变化）。
+   */
   static start(input: NavigatorV7StartInput): NavigatorSessionV7 {
     const payload = {
       ...buildSessionStartedPayload(input.plan, {
@@ -290,14 +346,28 @@ export class NavigatorSessionV7 {
       ...(input.sessionStartedPins?.model_gate_pin
         ? { model_gate_pin: input.sessionStartedPins.model_gate_pin }
         : {}),
+      ...(input.presenterGenerationPin
+        ? { presenter_generation_pin: input.presenterGenerationPin }
+        : {}),
     };
+    if (input.presenterGenerationPin) {
+      const kernel = TutorSessionKernelV9.start({
+        sessionId: input.sessionId,
+        studentId: input.studentId,
+        sessionStarted: payload as unknown as Parameters<typeof TutorSessionKernelV9.start>[0]["sessionStarted"],
+        occurred_at: nowIso(),
+      }, input.registryProvider as unknown as V9RegistryProvider);
+      const session = new NavigatorSessionV7(input, kernel, "v9");
+      session.commitDecisions(1, [{ kind: "session_start" }]);
+      return session;
+    }
     const kernel = TutorSessionKernelV7.start({
       sessionId: input.sessionId,
       studentId: input.studentId,
       sessionStarted: payload as unknown as Parameters<typeof TutorSessionKernelV7.start>[0]["sessionStarted"],
       occurred_at: nowIso(),
     }, input.registryProvider);
-    const session = new NavigatorSessionV7(input, kernel);
+    const session = new NavigatorSessionV7(input, kernel, "v7");
     session.commitDecisions(1, [{ kind: "session_start" }]);
     return session;
   }
@@ -308,6 +378,25 @@ export class NavigatorSessionV7 {
    * 零模型调用。
    */
   static resume(input: NavigatorV7SessionInput): NavigatorSessionV7 {
+    // F7 RT4：按会话行 event_schema 分派（v7 行 → v7 kernel；v9 行 → v9 kernel；
+    // v5/v6 行 → SESSION_VERSION_UNSUPPORTED。半升级组合显式拒绝，不迁移）。
+    const rowSchema = readSessionEventSchema(input.sessionId);
+    const useV9 = (input.eventSchema ?? rowSchema) === "v9";
+    if (useV9) {
+      const kernel = TutorSessionKernelV9.resume(input.sessionId, input.registryProvider as unknown as V9RegistryProvider, {
+        expectedTutorPlanRef: input.plan.tutor_plan_ref,
+      });
+      const events = readTutorSessionEventsV9(input.sessionId, input.registryProvider as unknown as V9RegistryProvider);
+      verifyGateAttributionAgainstPlanV7(
+        input.plan,
+        input.imported.plan.resources,
+        events as unknown as readonly StoredV7Event[],
+        input.registryProvider(events[0]?.payload ?? {}),
+      );
+      const session = new NavigatorSessionV7(input, kernel, "v9");
+      session.inquiryBeatId = reconstructInquiryBeatId(events as unknown as readonly StoredV5Event[]);
+      return session;
+    }
     const kernel = TutorSessionKernelV7.resume(input.sessionId, input.registryProvider, {
       expectedTutorPlanRef: input.plan.tutor_plan_ref,
     });
@@ -318,14 +407,15 @@ export class NavigatorSessionV7 {
       events,
       input.registryProvider(events[0]?.payload ?? {}),
     );
-    const session = new NavigatorSessionV7(input, kernel);
+    const session = new NavigatorSessionV7(input, kernel, "v7");
     session.inquiryBeatId = reconstructInquiryBeatId(events as unknown as readonly StoredV5Event[]);
     return session;
   }
 
-  get state(): TutorRuntimeStateV5 {
-    // v7 state = state/v2（v1 全字段 + presentation_cursor；决策引擎只读 v1 面）。
-    return this.kernelRef.state as unknown as TutorRuntimeStateV5;
+  get state(): NavigatorOnlineState {
+    // v7 state = state/v2；v9 = state/v4 超集（决策引擎只读 v1/v2 面；编排层
+    // 另读 presentation_cursor/generation_slot）。
+    return this.kernelRef.state as NavigatorOnlineState;
   }
 
   get revision(): number {
@@ -333,12 +423,22 @@ export class NavigatorSessionV7 {
   }
 
   get events(): StoredV7Event[] {
+    // v9 行经 v9 reader（canonical v9 判定）；返回形状对编排层读取面兼容
+    //（共享事件逐字段同形；v9 生成事件族由 GenerationCoordinator 消费）。
+    if (this.schemaVersion === "v9") {
+      return readTutorSessionEventsV9(this.sessionId, this.registryProvider as unknown as V9RegistryProvider) as unknown as StoredV7Event[];
+    }
     return readTutorSessionEventsV7(this.sessionId, this.registryProvider);
   }
 
-  /** F2 事实内核（只读暴露：V7 orchestrator 在此驱动 presentation/命令事件；本类不改其行为）。 */
-  get kernel(): TutorSessionKernelV7 {
+  /** F2 事实内核（只读暴露：V7 orchestrator 在此驱动 presentation/命令/生成事件；本类不改其行为）。 */
+  get kernel(): NavigatorSessionKernel {
     return this.kernelRef;
+  }
+
+  /** 全量重建（快照/对账用）——在线 face（v7=state/v2；v9=state/v4 超集）。 */
+  rebuildState(): NavigatorOnlineState {
+    return this.kernelRef.rebuild() as NavigatorOnlineState;
   }
 
   /** 当前导航 Beat（inquiry 打开时为 inquiry Beat，否则主线 Beat）。 */
