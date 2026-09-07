@@ -263,6 +263,7 @@ export function LearnPage() {
         studentId={studentName}
         restoreSessionId={restoreSessionId}
         runtimeClient={tutorRuntimeHttp}
+        acceptanceMode={acceptanceMode}
         onLegacy={() => undefined}
       />
     );

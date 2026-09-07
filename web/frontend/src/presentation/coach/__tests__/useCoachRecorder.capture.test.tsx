@@ -74,6 +74,36 @@ describe("useCoachRecorder capture lease (ADR-005 §Exclusive media session)", (
     media.dispose();
   });
 
+  /** F7 P3（FM-1-4）：设备不可用与权限拒绝分类提示；均零录音零上报。 */
+  it.each([
+    ["NotFoundError", "未检测到可用的麦克风设备，请检查设备连接或改用文字提问。"],
+    ["OverconstrainedError", "未检测到可用的麦克风设备，请检查设备连接或改用文字提问。"],
+    ["NotReadableError", "麦克风暂时无法使用（可能被其他应用占用），请稍后再试或改用文字提问。"],
+  ])("device failure %s → 设备类提示（非权限文案），lease 释放、无 onAudio", async (errorName, message) => {
+    const media = new MediaSessionController();
+    const failure = new DOMException("device", errorName);
+    stubGetUserMedia(() => Promise.reject(failure));
+
+    const onAudio = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onError = vi.fn();
+    function DeviceHarness() {
+      const { toggle } = useCoachRecorder({ disabled: false, media, onAudio, onError });
+      return <button type="button" data-testid="toggle" onClick={() => { void toggle(); }} />;
+    }
+    await act(async () => root.render(<DeviceHarness />));
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-testid="toggle"]')!.click(); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(onError).toHaveBeenCalledWith(message);
+    expect(onAudio).not.toHaveBeenCalled();
+    expect(media.getCaptureOwner()).toBeUndefined();
+    await act(async () => root.unmount());
+    document.body.removeChild(container);
+    media.dispose();
+  });
+
   it("does not call getUserMedia while a live session holds the mic (capture mutex)", async () => {
     const media = new MediaSessionController();
     const liveLease = media.acquireCapture("live");

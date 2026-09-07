@@ -25,6 +25,23 @@ function recordingMimeType(): string | undefined {
     .find((mimeType) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mimeType));
 }
 
+/**
+ * getUserMedia 失败分类（F7 P3 / FM-1-3、FM-1-4）：权限拒绝与设备不可用是
+ * 不同的故障（fault matrix F1），同一条「没有权限」文案会误导无设备/设备忙的
+ * 用户。按 DOMException name 分类；未知失败保持权限文案（不静默、不伪造空
+ * 音频继续）。三类都零录音零上报（catch 路径不产生 onAudio）。
+ */
+export function recorderStartErrorMessage(failure: unknown): string {
+  const name = failure instanceof Error || failure instanceof DOMException ? failure.name : "";
+  if (name === "NotFoundError" || name === "DevicesNotFoundError" || name === "OverconstrainedError") {
+    return "未检测到可用的麦克风设备，请检查设备连接或改用文字提问。";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError" || name === "AbortError") {
+    return "麦克风暂时无法使用（可能被其他应用占用），请稍后再试或改用文字提问。";
+  }
+  return "没有获得麦克风权限，请允许录音或改用文字提问。";
+}
+
 export function useCoachRecorder(options: {
   /** 实例标识（诊断/测试定位双 mic 接线：coach=assistance 通道、answer=mainline 通道）。 */
   owner?: "coach" | "answer";
@@ -138,7 +155,7 @@ export function useCoachRecorder(options: {
       options.onRecordingStart?.();
       if (options.interruptPlaybackOnStart) options.media?.stop("narration");
       timer.current = window.setTimeout(stop, MAX_RECORDING_MS);
-    } catch {
+    } catch (failure) {
       // Permission denied / device error: release the lease so the mic is free
       // and surface a user-facing message without throwing into the training path.
       acquiredStream?.getTracks().forEach((track) => track.stop());
@@ -152,7 +169,7 @@ export function useCoachRecorder(options: {
       stream.current = null;
       setRecording(false);
       releaseLease();
-      options.onError("没有获得麦克风权限，请允许录音或改用文字提问。");
+      options.onError(recorderStartErrorMessage(failure));
     } finally {
       if (live()) starting.current = false;
     }
