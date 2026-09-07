@@ -25,10 +25,12 @@ The runner builds backend first (no stale dist acceptance), typechecks frontend,
 
 The independent tests assert desired behavior: no expected-failure annotation, skip, or assertion that a bug should exist. They were checked against 59b8432: all three handshake cases and four context negative cases fail by assertions; the authorized context control passes. On 976c7a6 they pass. Other B cases are the actual rework regression suites, not new independent proofs of every implementation detail.
 
+## Additional S2 rework coverage
+
+The runner now includes R1's second distinct question, R2's actual child-process exit and expired-lease takeover, late-owner fencing, pending explicit recovery, background database scanning, and R3 epoch rollback. Dynamic board tests cover execution/rebuild and a real v9 session's planned → applied → outcome chain. v7 tests cover publication, anchored import and materialization in a temporary root.
+
 ## Scope limits
 
-This gate is **boundary regression**, not S2/G7 acceptance. Media/HTTP/model ports are controlled for race determinism; this does not establish actual microphone, ASR, live provider, or full HTTP/browser generation integration. Board preflight's rejection test only proves fail-closed behavior, not dynamic board availability. Approved v7 publication/consumption and actual board execution need separate positive journeys.
+This gate remains deterministic boundary regression. Model/media ports are controlled; it does not establish real microphone, ASR or live provider quality. The v7 publication test uses conspicuously synthetic test approval, never changes production assets, and cannot replace human review of the real candidate. Browser/provider and real approved-asset evidence must be recorded separately for the applicable project milestone.
 
-Worker concurrency in this runner uses two kernel instances in one process. It does not prove process crash/lease expiry/takeover; current coordinator declines an already-claimed running request, so restart recovery remains an explicit uncovered obligation. Do not mark all lifecycle acceptance complete from a green run.
-
-Product repairs and their original regression tests were committed separately before this harness. This directory contains only the independent assertions, runner, config and documentation.
+The original harness was committed separately from product fixes. These runner additions exercise the subsequent S2 repairs without treating test-only assets as approved production content.

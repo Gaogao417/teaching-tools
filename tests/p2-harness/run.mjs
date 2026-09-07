@@ -13,7 +13,7 @@ function run(name,command,args,cwd,required=[]){
  const log=(r.stdout||'')+(r.stderr||'');writeFileSync(resolve(out,name+'.log'),log);
  const missing=required.filter(x=>!log.includes(x));
  const skipped=/(?:# skipped [1-9]|# todo [1-9]|\d+ skipped|\d+ todo|^ok .*# SKIP\b|^ok .*# TODO\b)/im.test(log);
- const empty=name.includes('handshake')||name==='frontend-regression' ? !/Tests\s+\d+ passed/.test(log) : false;
+ const empty=name.includes('handshake')||name==='frontend-regression'||name==='dynamic-board-execution' ? !/Tests\s+\d+ passed/.test(log) : false;
  const ok=r.status===0&&!r.error&&!missing.length&&!skipped&&!empty;
  results.push({name,ok,exit:r.status,error:r.error?.message,missing,skipped,empty});
  console.log(`${ok?'PASS':'FAIL'} ${name}`);return ok;
@@ -22,17 +22,22 @@ const be=resolve(repo,'web/backend'),fe=resolve(repo,'web/frontend');
 const build=run('backend-build','npm',['run','build'],be);
 if(build){
  for(const [file,required] of [
- ['generationCoordinator',['B2 parallel drive','B2 confirmed commit rollback','B2 lost commit acknowledgement','B2 cancel during']],
- ['v9GenerationSession',['B1 online prompt','B3 resume with a changed','B4 retry_recovery after']],
+ ['generationCoordinator',['B2 parallel drive','B2 confirmed commit rollback','B2 lost commit acknowledgement','B2 cancel during','R3 kernel rejects','R2 independent process dies','R2 expired owner']],
+ ['v9GenerationSession',['B1 online prompt','B3 resume with a changed','B4 retry_recovery after','R2 retry_recovery preserves']],
  ['presentationContextBuilder',['B5 core group','B5 region fine fact','B5 resource group','B6 core inference']],
- ['presentationGenerationPipeline',['B7 dashscope with a missing','B7 dashscope with both']]]){
+ ['presentationGenerationPipeline',['B7 dashscope with a missing','B7 dashscope with both']],
+ ['generationRecoveryWorker',['background generation recovery uses the real database']],
+ ['generationRecoveryRegressions',['illegal compiled basis fails once']],
+ ['v9DynamicBoardSession',['real v9 dynamic board','v7 snapshot retains','v9 crash after planned','real v9 board binding reveals only']]]){
  run(file,process.execPath,['--test-reporter=tap',resolve(be,`dist/backend/src/services/tutorOrchestration/__tests__/${file}.test.js`)],be,required);
  }
+ run('v7-publication',process.execPath,[resolve(be,'dist/backend/src/services/planBuild/__tests__/planBuildV7.test.js')],be,['PASS real v5 compatibility']);
+ run('dynamic-board-execution',process.execPath,[resolve(be,'node_modules/vitest/vitest.mjs'),'run','src/services/tutorSession/__tests__/dynamicBoardExecution.vitest.ts','src/transport/http/__tests__/v9GenerationSnapshotReadOnly.vitest.ts','--reporter=verbose'],be);
  run('independent-context',process.execPath,[resolve(repo,'tests/p2-harness/context.cjs')],be);
 }
 run('frontend-typecheck','npm',['run','typecheck'],fe);
 run('independent-handshake',process.execPath,[resolve(fe,'node_modules/vitest/vitest.mjs'),'run','--config',resolve(repo,'tests/p2-harness/vitest.config.mjs'),'--reporter=verbose'],fe,['control 409','control 403','pending natural-ended']);
 run('frontend-regression',process.execPath,[resolve(fe,'node_modules/vitest/vitest.mjs'),'run','src/action-runtime/tutor/__tests__/useTutorLearning.bargeInRecording.test.tsx','src/action-runtime/tutor/__tests__/useTutorLearning.generation.test.tsx','--reporter=verbose'],fe,['P2-A A1','P2-A A2']);
-const summary={revision:spawnSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).stdout.trim(),results,ok:results.every(r=>r.ok),limitations:['Scripted model/HTTP/media ports; not real provider, microphone or ASR acceptance','Dynamic board execution, v7 publication and worker restart remain separate acceptance obligations']};
+const summary={revision:spawnSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).stdout.trim(),results,ok:results.every(r=>r.ok),limitations:['Scripted model/HTTP/media ports; not real provider, microphone or ASR acceptance','v7 publication tests use explicitly synthetic approval in temporary roots; real reviewed asset publication and provider/browser journeys remain separate']};
 writeFileSync(resolve(out,'summary.json'),JSON.stringify(summary,null,2)+'\n');
 console.log(`Evidence: ${out}`);process.exitCode=summary.ok?0:1;
