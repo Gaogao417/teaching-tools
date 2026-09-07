@@ -118,6 +118,9 @@ export class PresentationRuntimeController {
   private outcomeInFlight = false;
   /** 在途请求身份（区分「同一请求已在途」与「新 token 被挡」）。 */
   private inFlightRequest: PendingPresentationOutcomeRequest | undefined;
+  /** 在途请求的结算记录（F7 P2-A 返工 A2）：被挡下 token 的补发挂在本请求
+   *  finally——awaitDispatchSettled 等待它以取到补发产生的新记录。 */
+  private inFlightRecord: OutcomeDispatchRecord | undefined;
   /** 当前 token 曾被在途请求挡下、尚未发出过——旧请求结束后补发（二次复验
    *  P1-4）。网络失败保留的 token 不置此标记：不自动循环重试。 */
   private outcomeDispatchQueued = false;
@@ -226,14 +229,28 @@ export class PresentationRuntimeController {
    * outcome 上报**结算**（PLAN §3 Step 8：先上报 interrupted 并采用新
    * snapshot，再提交显式 control.barge_in）。
    *
-   * - "no-active-delivery"：无活跃可中断交付（idle/paused/outcome 在途/生成中
-   *   无活跃 delivery）——不伪造 interrupted outcome（本阶段生成取消语义未冻结）；
+   * - "no-active-delivery"：无活跃可中断交付（idle/paused/executing 不可中断
+   *   动作/生成中无活跃 delivery）——不伪造 interrupted outcome（本阶段生成
+   *   取消语义未冻结）；
+   * - outcome-pending（F7 P2-A 返工 A2）：有未决回执 ≠ 无交付——等待**原**
+   *   outcome 上报结算（复用 OutcomeDispatchRecord settlement，不建第二状态
+   *   机）：accepted 且快照采用 → 按 "reported" 返回真实 outcome（自然结束
+   *   先胜出即 presented，不补造 interrupted）；拒绝/网络失败/被丢弃 →
+   *   "failed"（调用方可见提示并不放行）；
    * - "reported"：当前 outcome 已被接受且响应快照成功采用（含 aborted 竞态下自然播完的
    *   presented——服务端游标同样已知推进，由调用方决定是否继续 ③）；
    * - "failed"：回执拒绝、网络失败、采用失败或迟到被丢弃——调用方不得提交 ③。
    */
   async interruptCurrentSettled(): Promise<InterruptSettleResult> {
-    if (this.disposed || !this.canInterrupt()) return { status: "no-active-delivery" };
+    if (this.disposed) return { status: "no-active-delivery" };
+    if (this.state.kind === "outcome-pending") {
+      const key = keyOfRequest(this.state.request);
+      const dispatch = await this.awaitDispatchSettled(key);
+      return dispatch !== undefined && dispatch.result === "accepted"
+        ? { status: "reported", outcome: dispatch.outcome }
+        : { status: "failed" };
+    }
+    if (!this.canInterrupt()) return { status: "no-active-delivery" };
     let key: string;
     if (this.state.kind === "awaiting-gesture") {
       key = this.state.execution.key;
@@ -252,6 +269,24 @@ export class PresentationRuntimeController {
     return dispatch.result === "accepted"
       ? { status: "reported", outcome: dispatch.outcome }
       : { status: "failed" };
+  }
+
+  /** 等待指定请求的 outcome 结算记录落定（F7 P2-A 返工 A2）：accepted/
+   *  rejected/network-failed 是终态；"stale" 不是结算——请求被另一在途
+   *  outcome 挡下未发出（补发挂在旧请求 finally 中创建的新记录）时，等待
+   *  在途记录结束后取新记录；token 已被换键/释放（迟到被丢弃、服务端已
+   *  推进）则不再有结算可等 → 返回 undefined（fail closed，不放行 ③）。 */
+  private async awaitDispatchSettled(key: string): Promise<OutcomeDispatchRecord | undefined> {
+    for (;;) {
+      const dispatch = this.lastDispatch;
+      if (this.disposed || dispatch === undefined || dispatch.key !== key) return undefined;
+      await dispatch.promise; // 在途/已结算均等待其落定（已 resolved 时立即返回）
+      if (dispatch.result !== "stale") return dispatch;
+      if (this.state.kind !== "outcome-pending" || keyOfRequest(this.state.request) !== key) return undefined;
+      const blocking = this.inFlightRecord;
+      if (blocking === undefined || blocking === dispatch) return undefined;
+      await blocking.promise; // 补发在 blocking 的 finally 中同步登记新记录，回到循环头取
+    }
   }
 
   /** autoplay 解锁（用户手势）后的续播。 */
@@ -430,6 +465,7 @@ export class PresentationRuntimeController {
     }
     this.outcomeInFlight = true;
     this.inFlightRequest = request;
+    this.inFlightRecord = record;
     const epoch = this.epoch;
     /** 请求身份守卫（复验 P1-2）：只有当本请求仍是当前挂起的 outcome token
      *  时，其响应/异常才允许触碰状态——adopt 换键/释放后到达的旧响应不得
@@ -492,6 +528,7 @@ export class PresentationRuntimeController {
     } finally {
       this.outcomeInFlight = false;
       this.inFlightRequest = undefined;
+      this.inFlightRecord = undefined;
       // 补发被挡下的当前 token（只补发从未成功发出的请求；请求身份以当下
       // state 为准——期间再换键则自然发最新 token）。
       if (this.outcomeDispatchQueued && !this.disposed) {

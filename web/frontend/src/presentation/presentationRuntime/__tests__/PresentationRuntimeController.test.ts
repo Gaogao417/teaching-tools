@@ -601,4 +601,112 @@ describe("PresentationRuntimeController（queue head / 去重 / outcome 幂等�
     controller.dispose();
   });
 
+  // ------------------------------------------------------------------ //
+  // F7 P2-A 返工 A2：interruptCurrentSettled 进入时 outcome-pending——
+  // 有未决回执 ≠ 无交付（等待原回执结算，不补造 interrupted）。
+  // ------------------------------------------------------------------ //
+
+  it("P2-A A2：outcome-pending（自然 ended 回执在途）→ 门等待原回执；接受并采用 → reported(presented)", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    let resolve!: (snapshot: ValidatedSessionSnapshot) => void;
+    harness.ports.reportOutcome = (request) => {
+      harness.requests.push(request);
+      return new Promise((done) => { resolve = done; });
+    };
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    voice.resolvePresent(0, { outcome: "presented" });
+    await vi.waitFor(() => expect(harness.states).toContain("outcome-pending"));
+    let settled = false;
+    const settling = controller.interruptCurrentSettled().then((result) => { settled = true; return result; });
+    await Promise.resolve();
+    // 回执未决：门不得结算、不得把 outcome-pending 当无交付放行。
+    expect(settled).toBe(false);
+    expect(harness.requests).toHaveLength(1);
+    resolve(validFromRaw(runtimeSnapshotRaw({ revision: 13 })));
+    expect(await settling).toEqual({ status: "reported", outcome: "presented" });
+    // 等待的是**原**回执——不补造第二份 outcome。
+    expect(harness.requests).toHaveLength(1);
+    controller.dispose();
+  });
+
+  it("P2-A A2：outcome-pending → 回执拒绝（definitive 409）→ failed，不补造 interrupted", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    let reject!: (failure: Error) => void;
+    harness.ports.reportOutcome = (request) => {
+      harness.requests.push(request);
+      return new Promise((_done, fail) => { reject = fail; });
+    };
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    voice.resolvePresent(0, { outcome: "presented" });
+    await vi.waitFor(() => expect(harness.states).toContain("outcome-pending"));
+    const settling = controller.interruptCurrentSettled();
+    reject(DEFINITIVE());
+    expect(await settling).toEqual({ status: "failed" });
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.notices.some((message) => message.includes("被拒绝"))).toBe(true);
+    controller.dispose();
+  });
+
+  it("P2-A A2：outcome-pending → 回执接受但采用门禁拒绝 → failed（过期/被丢弃不放行）", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    let resolve!: (snapshot: ValidatedSessionSnapshot) => void;
+    harness.ports.reportOutcome = (request) => {
+      harness.requests.push(request);
+      return new Promise((done) => { resolve = done; });
+    };
+    harness.ports.adoptOutcomeSnapshot = (snapshot, expectedSessionId) => {
+      harness.adoptResults.push(expectedSessionId);
+      void snapshot;
+      return false;
+    };
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    voice.resolvePresent(0, { outcome: "presented" });
+    await vi.waitFor(() => expect(harness.states).toContain("outcome-pending"));
+    const settling = controller.interruptCurrentSettled();
+    resolve(validFromRaw(runtimeSnapshotRaw({ revision: 13 })));
+    expect(await settling).toEqual({ status: "failed" });
+    expect(harness.requests).toHaveLength(1);
+    expect(harness.adoptResults).toEqual(["TS-99000801"]);
+    controller.dispose();
+  });
+
+  it("P2-A A2：outcome 未决且被另一在途回执挡下（补发挂在其 finally）→ 等待补发结算，不提前 fail", async () => {
+    const voice = fakeAdapter();
+    const harness = fakePorts();
+    const deferreds: Array<(snapshot: ValidatedSessionSnapshot) => void> = [];
+    harness.ports.reportOutcome = (request) => {
+      harness.requests.push(request);
+      return new Promise((done) => { deferreds.push(done); });
+    };
+    const controller = makeController([voice], harness);
+    controller.adopt(snapshotWithVoicePending(12));
+    // R1（presented）在途。
+    voice.resolvePresent(0, { outcome: "presented" });
+    await vi.waitFor(() => expect(harness.requests).toHaveLength(1));
+    // 服务端推进到新交付（换键）：旧 token 释放、执行新动作 → R2 被 R1 挡下未发出。
+    controller.adopt(validFromRaw(runtimeSnapshotRaw({
+      pendingPresentation: { ...pendingVoicePresentation(13), sequence_id: "PS-0002" },
+      revision: 13,
+    })));
+    voice.resolvePresent(1, { outcome: "interrupted" });
+    await vi.waitFor(() => expect(harness.states).toContain("outcome-pending"));
+    let settled = false;
+    const settling = controller.interruptCurrentSettled().then((result) => { settled = true; return result; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    // R1 结束 → finally 补发 R2（新结算记录）→ 接受并采用。
+    deferreds[0]!(validFromRaw(runtimeSnapshotRaw({ revision: 14 })));
+    await vi.waitFor(() => expect(deferreds).toHaveLength(2));
+    deferreds[1]!(validFromRaw(runtimeSnapshotRaw({ revision: 15 })));
+    expect(await settling).toEqual({ status: "reported", outcome: "interrupted" });
+    expect(harness.requests).toHaveLength(2);
+    controller.dispose();
+  });
+
 });

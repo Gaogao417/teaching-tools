@@ -35,8 +35,8 @@ export function useCoachRecorder(options: {
   media?: MediaSessionController;
   /** F7 P2（R5 裁定时序）：录音启动前置门——真实录音开始前先完成 barge-in
    *  握手（①中断 adapter ②interrupted outcome+采用新 snapshot ③control.
-   *  barge_in）。返回 false（等待失败）则不占麦克风、不开录。异常按 false
-   *  处理（调用方已给出可见提示）。 */
+   *  barge_in）。返回 false（等待失败）则不占麦克风、不开录。异常同样按
+   *  false 处理并经 onError 给出可见提示（hardening：不静默吞异常）。 */
   beforeStart?: () => Promise<boolean>;
   /** F7 Step 8：录音真正开始（MediaRecorder.start 已生效）时回调——通道锁定
    *  与 {sessionId, revision} 捕获点（录音开始后 revision 变化不得悄悄更新
@@ -82,7 +82,14 @@ export function useCoachRecorder(options: {
       // 不录音（此时尚未占用任何资源，直接返回）。
       let gate = true;
       if (options.beforeStart) {
-        try { gate = await options.beforeStart(); } catch { gate = false; }
+        try {
+          gate = await options.beforeStart();
+        } catch {
+          // hardening（P2-A 返工附带）：门异常不放行（不占麦克风），但不再
+          // 静默吞掉——给出可见提示，与 settle.failed 的提示路径一致。
+          gate = false;
+          options.onError("录音前的打断握手出现问题，请再试一次或改用文字输入。");
+        }
       }
       if (!live()) return;
       if (!gate) return;

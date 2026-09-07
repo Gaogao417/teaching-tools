@@ -4,7 +4,8 @@
  * - beforeStart 在 getUserMedia/占麦克风**之前**执行（先 barge-in 再录音）；
  * - 返回 false（等待失败）→ 不占 mic、不 getUserMedia、不开录、不触发
  *   onRecordingStart（不捕获通道/revision）；
- * - beforeStart 抛异常按 false 处理（调用方已给出可见提示）；
+ * - beforeStart 抛异常按 false 处理，并经 onError 给出可见提示（hardening：
+ *   不静默吞异常，也不误用权限拒绝文案）；
  * - beforeStart 为 true → 既有链路不变（lease → getUserMedia → start →
  *   onRecordingStart → interruptPlaybackOnStart 兜底停播）。
  */
@@ -82,12 +83,14 @@ it("beforeStart 先于 getUserMedia 执行；false → 零 mic 占用、零开�
   await h.unmount(); h.media.dispose();
 });
 
-it("beforeStart 抛异常按 false 处理（不落入权限拒绝文案）", async () => {
+it("beforeStart 抛异常按 false 处理 + 可见提示（hardening：不静默吞，也不落入权限拒绝文案）", async () => {
   const h = await setup(async () => { throw new Error("unexpected"); });
   await act(async () => { h.start(); });
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   expect(h.getUserMedia).not.toHaveBeenCalled();
-  expect(h.onError).not.toHaveBeenCalled();
+  // 异常路径的可见提示与 settle.failed 的提示路径一致（P2-A 返工附带加固）。
+  expect(h.onError).toHaveBeenCalledTimes(1);
+  expect(h.onError).toHaveBeenCalledWith("录音前的打断握手出现问题，请再试一次或改用文字输入。");
   expect(h.media.getCaptureOwner()).toBeUndefined();
   await h.unmount(); h.media.dispose();
 });

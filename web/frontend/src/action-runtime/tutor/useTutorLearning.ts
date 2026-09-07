@@ -535,15 +535,27 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const sameBrowserInput = (left: StudentBrowserInput, right: StudentBrowserInput): boolean =>
     left.kind === right.kind && JSON.stringify(left) === JSON.stringify(right);
 
-  const submitRuntimeInput = useCallback(async (input: StudentBrowserInput): Promise<void> => {
-    if (!runtimeClient) return;
+  /** 输入提交的可区分结算（F7 P2-A 返工 A1）：HTTP 请求结束 ≠ 回执被接受
+   *  ——录音门（prepareRecordingStart ③ control.barge_in）必须区分「明确成功
+   *  且响应快照已采用」与被拒/网络失败/采用失败；普通 UI 调用方仍走 void
+   *  包装（失败提示已在内部呈现，无需读结果）。 */
+  type RuntimeInputSettlement =
+    | "adopted" // 回执 2xx 且响应快照通过采用门禁——唯一放行语义
+    | "rejected" // 4xx 确定性拒绝（token 已释放；确定拒绝不盲重试）
+    | "network-failed" // 网络/5xx（token 保留，同键幂等重试）
+    | "adoption-failed" // 回执快照未过采用门禁（protocol error 已呈现）
+    | "busy" // 上一输入结果未确认且非同输入重试（不得叠加第二输入）
+    | "stale" // 会话代际已换（提示不覆盖新会话；本次结果作废）
+    | "skipped"; // 无 canonical client/快照（legacy 链等，无门语义）
+  const submitRuntimeInputSettled = useCallback(async (input: StudentBrowserInput): Promise<RuntimeInputSettlement> => {
+    if (!runtimeClient) return "skipped";
     const current = runtimeSnapshotRef.current;
-    if (!current) return;
+    if (!current) return "skipped";
     const pending = pendingInputRef.current;
     const retry = pending && pending.sessionId === current.session_id && sameBrowserInput(pending.input, input);
     if (pending && !retry) {
       setProtocolError("上一输入结果尚未确认，请重试原输入并恢复同步");
-      return;
+      return "busy";
     }
     const clientRequestId = retry
       ? pending.clientRequestId
@@ -554,15 +566,24 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     setTurnPending(true);
     try {
       const response = await runtimeClient.submitStudentInput(operation.sessionId, operation.input, operation.revision, clientRequestId);
-      if (adoptRuntimeSnapshot(response, operation.sessionId, epoch) && pendingInputRef.current === operation) pendingInputRef.current = undefined;
+      if (adoptRuntimeSnapshot(response, operation.sessionId, epoch) && pendingInputRef.current === operation) {
+        pendingInputRef.current = undefined;
+        return "adopted";
+      }
+      return "adoption-failed";
     } catch (turnError) {
-      if (epoch !== runtimeEpochRef.current) return;
+      if (epoch !== runtimeEpochRef.current) return "stale";
       if (isDefinitiveInputFailure(turnError) && pendingInputRef.current === operation) pendingInputRef.current = undefined;
       handleRuntimeError(turnError);
+      return isDefinitiveInputFailure(turnError) ? "rejected" : "network-failed";
     } finally {
       if (runtimeMountedRef.current && epoch === runtimeEpochRef.current) setTurnPending(false);
     }
   }, [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError]);
+
+  const submitRuntimeInput = useCallback(async (input: StudentBrowserInput): Promise<void> => {
+    await submitRuntimeInputSettled(input);
+  }, [submitRuntimeInputSettled]);
 
   /** actor 消费 evaluation 后的原子采用（spec §4.6 第 5 步；组件经 onEvaluation
    *  回调触发）。consume-once；拒绝旧 session 与迟到（低 revision）响应。 */
@@ -1308,11 +1329,18 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const resumeFromInterrupt = useCallback(() => setInterrupted(false), []);
 
   /**
-   * F7 P2（R5 裁定时序）：**先 barge-in 再录音**——真实录音开始前完成
+   * F7 P2（R5 裁定时序 + P2-A 返工）：**先 barge-in 再录音**——真实录音开始前完成
    * ①中断 Voice adapter ②interrupted outcome 上报并采用新 snapshot ③显式
-   * control.barge_in（复用 bargeIn 的 ①②③ 链）；等待失败（回执拒绝/网络
-   * 失败/采用失败）**不开始录音**（返回 false，给出可见提示）。无活跃可中断
-   * 交付（idle/生成中无 delivery）时直接放行——录音与在播讲解的互斥由
+   * control.barge_in；等待失败（回执拒绝/网络失败/采用失败）**不开始录音**
+   * （返回 false，给出可见提示）。③ 的 control 是门的一部分（P2-A A1）：
+   * 仅「回执被接受且响应快照成功采用」（submitRuntimeInputSettled ===
+   * "adopted"）才放行——被拒/网络失败/采用失败一律 false + 可见提示，
+   * 幂等 token 按 pendingInputRef 规则保留（同键重试）；**不**以 ASR stale
+   * 防护兜底放行（stale 防护只保护提交链，不是放行条件）。② 前的 outcome
+   * 未决（P2-A A2）由 interruptCurrentSettled 处理：等待原 outcome 回执结算
+   * （接受并采用 → 继续 ③；拒绝/网络失败/被丢弃 → failed），不把「暂时没有
+   * executing」当无交付放行，也不补造 interrupted。无活跃交付且无未决
+   * outcome → 直接放行（规格明文）——录音与在播讲解的互斥由
    * interruptPlaybackOnStart（录音开始打断在播 narration，capture-first 兜底）
    * 与媒体 session 挂起规则（录音期间到达的 narration 停队首延迟起播）保证。
    * 录音通道/快照捕获仍发生在真实录音开始时（lockRecordingChannel——对
@@ -1322,18 +1350,23 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     if (!runtimeClient) return true;
     const controller = presentationRuntime?.controller;
     if (!controller) return true;
-    if (!controller.canInterrupt()) return true; // 无活跃可中断交付：直接按当前合法入口录音
     const settle = await controller.interruptCurrentSettled();
-    if (settle.status === "reported" && (settle.outcome === "interrupted" || settle.outcome === "presented")) {
-      await submitControl("barge_in"); // ③ 控制失败不阻断录音：ASR stale 防护兜底（捕获 revision 漂移 → 草稿）
-      return true;
-    }
     if (settle.status === "failed") {
       setRuntimeFailureNotice("打断没有成功，稍后再试录音，或先点「打断」重试。");
       return false;
     }
-    return true; // no-active-delivery（竞态下自然结束）：无待打断交付，直接录音
-  }, [runtimeClient, presentationRuntime, submitControl]);
+    if (settle.status === "no-active-delivery") return true; // 无活跃交付且无未决 outcome：直接按当前合法入口录音（规格明文）
+    if (settle.outcome !== "interrupted" && settle.outcome !== "presented") {
+      return true; // reported+failed：失败 outcome 已被接受并采用，无在播交付、无未决回执——放行（恢复另走 retry_recovery）
+    }
+    // ③ control.barge_in：仅明确成功（accepted-and-adopted）才放行录音（A1）。
+    const control = await submitRuntimeInputSettled({ kind: "control", command: "barge_in" });
+    if (control !== "adopted") {
+      setRuntimeFailureNotice("打断未被接受，录音没有开始；请稍后重试或先点「打断」。");
+      return false;
+    }
+    return true;
+  }, [runtimeClient, presentationRuntime, submitRuntimeInputSettled]);
 
   const adoptExperience = useCallback(
     (next: TutorExperienceResponse, generation: number) => {

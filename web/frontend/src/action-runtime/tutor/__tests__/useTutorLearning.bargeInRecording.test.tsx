@@ -6,7 +6,12 @@
  *   随后的 lockRecordingChannel 对 barge-in 后采用的新快照捕获最新 revision；
  * - ②结算失败（409 拒绝）→ 返回 false + 可见提示、零 control（等待失败不录音）；
  * - 无活跃可中断交付（idle/生成中无 delivery）→ 直接 true，零 outcome 零
- *   control（不伪造 interrupted）。
+ *   control（不伪造 interrupted）；
+ * - P2-A 返工 A1：③ control 被拒（403/409）或网络失败 → 返回 false + 可见
+ *   提示、不盲重试——HTTP 结束≠回执被接受，仅 accepted-and-adopted 放行；
+ * - P2-A 返工 A2：outcome 未决（自然 ended 回执在途）时门不得提前结算——
+ *   等待原回执：接受并采用 → 继续 ③（control 接受 → true）；回执拒绝 →
+ *   false + 可见提示、零 control（不补造 interrupted）。
  */
 import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
@@ -218,5 +223,140 @@ describe("useTutorLearning P2：mic→barge-in→capture 因果链（R5 裁定�
     expect(allowed).toBe(true);
     expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+  });
+
+  // ---- P2-A 返工（独立验收反例回归）：control 门与 outcome 未决 ---- //
+
+  it.each([403, 409])(
+    "P2-A A1：③ control %s 被拒 → prepareRecordingStart resolve false、可见提示、录音不开始（不靠 ASR stale 兜底放行）",
+    async (status) => {
+      const { client, mocks } = makeClient();
+      mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+      // ② interrupted outcome：接受并采用（rev 13）→ 允许进入 ③。
+      mocks.reportPresentationOutcome.mockResolvedValueOnce(validRuntimeSnapshot({ revision: 13 }));
+      // ③ control.barge_in：HTTP 403/409 = 确定性拒绝——不得放行录音。
+      mocks.submitStudentInput.mockRejectedValueOnce(
+        new TutorRuntimeHttpError(status, status === 409 ? "REVISION_CONFLICT" : "FORBIDDEN", "control rejected"),
+      );
+      harness = mountHarness(client);
+      await act(async () => { await harness.tutor().start(); });
+      await act(async () => {
+        await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "presenting" && tutor.runtimePresentationPhase.kind === "voice");
+      });
+      let allowed = true;
+      await act(async () => { allowed = await harness.tutor().prepareRecordingStart(); });
+      expect(allowed).toBe(false);
+      // 门真的走到了 ③（② 已接受并采用，control 以 rev 13 提交）——失败发生在 control。
+      expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+      expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+      expect(mocks.submitStudentInput).toHaveBeenCalledWith(
+        RUNTIME_SESSION_ID,
+        { kind: "control", command: "barge_in" },
+        13,
+        expect.any(String),
+      );
+      expect(harness.tutor().runtimeFailureNotice).toContain("录音没有开始");
+    },
+  );
+
+  it("P2-A A1：③ control 网络失败（5xx）→ false + 可见提示，且不盲重试（幂等 token 留待同键恢复）", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    mocks.reportPresentationOutcome.mockResolvedValueOnce(validRuntimeSnapshot({ revision: 13 }));
+    mocks.submitStudentInput.mockRejectedValueOnce(new TutorRuntimeHttpError(503, "RUNTIME_UNAVAILABLE", "network"));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "presenting" && tutor.runtimePresentationPhase.kind === "voice");
+    });
+    let allowed = true;
+    await act(async () => { allowed = await harness.tutor().prepareRecordingStart(); });
+    expect(allowed).toBe(false);
+    // 网络失败不自动重放（服务端状态未知——同键重试由用户/恢复链触发）。
+    expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+    expect(harness.tutor().runtimeFailureNotice).toContain("录音没有开始");
+  });
+
+  it("P2-A A2：outcome 未决（自然 ended 回执在途）→ 门等待结算；接受并采用 + control 接受 → true", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    let resolveOutcome!: (snapshot: ReturnType<typeof validRuntimeSnapshot>) => void;
+    mocks.reportPresentationOutcome.mockReturnValue(new Promise((settle) => { resolveOutcome = settle; }));
+    // ③ control.barge_in：接受（rev 14 answer_input——可录音）。
+    mocks.submitStudentInput.mockResolvedValueOnce(validRuntimeSnapshot({ participationKind: "answer_input", revision: 14 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "presenting" && tutor.runtimePresentationPhase.kind === "voice");
+    });
+    // 自然播放结束先胜出：真实 presented 回执在途（outcome-pending）。
+    await act(async () => {
+      mediaHarness.emitPlayback({ type: "ended", owner: "narration", generation: mediaHarness.state.generation });
+    });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "outcome-pending");
+    });
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+    let settled = false;
+    let allowed: boolean | undefined;
+    let gate: Promise<boolean> | undefined;
+    await act(async () => {
+      gate = harness.tutor().prepareRecordingStart().then((value) => { settled = true; allowed = value; return value; });
+      await Promise.resolve();
+    });
+    // 回执未决：门不得结算，③ control 不得先行。
+    expect(settled).toBe(false);
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    // 回执接受并采用（rev 13）→ 门继续 ③；control 接受并采用 → 放行录音。
+    await act(async () => {
+      resolveOutcome(validRuntimeSnapshot({ revision: 13 }));
+      allowed = await gate;
+    });
+    expect(allowed).toBe(true);
+    expect(mocks.reportPresentationOutcome.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.submitStudentInput.mock.invocationCallOrder[0]);
+    expect(mocks.submitStudentInput).toHaveBeenCalledWith(
+      RUNTIME_SESSION_ID,
+      { kind: "control", command: "barge_in" },
+      13,
+      expect.any(String),
+    );
+  });
+
+  it("P2-A A2：outcome 未决 → 回执拒绝 → false + 可见提示、零 control（不补造 interrupted）", async () => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, revision: 12 }));
+    let rejectOutcome!: (failure: unknown) => void;
+    mocks.reportPresentationOutcome.mockReturnValue(new Promise((_settle, fail) => { rejectOutcome = fail; }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "presenting" && tutor.runtimePresentationPhase.kind === "voice");
+    });
+    await act(async () => {
+      mediaHarness.emitPlayback({ type: "ended", owner: "narration", generation: mediaHarness.state.generation });
+    });
+    await act(async () => {
+      await waitForTutor(harness, (tutor) => tutor.runtimePresentationPhase.phase === "outcome-pending");
+    });
+    let settled = false;
+    let allowed: boolean | undefined;
+    let gate: Promise<boolean> | undefined;
+    await act(async () => {
+      gate = harness.tutor().prepareRecordingStart().then((value) => { settled = true; allowed = value; return value; });
+      await Promise.resolve();
+    });
+    // 回执未决：门不得结算、control 不得先行。
+    expect(settled).toBe(false);
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    // 回执被拒（409 确定性拒绝）→ 门失败：可见提示、不放行录音。
+    await act(async () => {
+      rejectOutcome(new TutorRuntimeHttpError(409, "REVISION_CONFLICT", "rejected"));
+      allowed = await gate;
+    });
+    expect(allowed).toBe(false);
+    expect(mocks.reportPresentationOutcome).toHaveBeenCalledTimes(1);
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    expect(harness.tutor().runtimeFailureNotice).toContain("打断没有成功");
   });
 });
