@@ -268,6 +268,23 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
           {tutor.runtimeFailureNotice ?? `上一轮未生效（${tutor.runtimeTurnFailure}），请重试。`}
         </p>
       ) : null}
+      {/* F7 P2（S1/生成生命周期规格）：generation pending/failed 状态——pending 只读
+          轮询驱动（GET snapshot 零模型调用）；waiting_retry 显示重试进度；failed 提供
+          重新尝试（既有 control.retry_recovery，服务端新预算）。新任务取代后本视图
+          随快照自动切换，不显示旧任务提示。 */}
+      {tutor.runtimeGeneration.kind === "pending" ? (
+        <p className="tutor-learn-notice" role="status" data-testid="tutor-generation-status" data-generation-phase={tutor.runtimeGeneration.phase}>
+          {tutor.runtimeGeneration.phase === "waiting_retry"
+            ? `讲解生成超时/暂不可用，正在重试（第 ${tutor.runtimeGeneration.attempt}/${Math.max(tutor.runtimeGeneration.maxAttempts - 1, 1)} 次）`
+            : "正在生成讲解…"}
+        </p>
+      ) : null}
+      {tutor.runtimeGeneration.kind === "failed" ? (
+        <p className="tutor-learn-notice" role="status" data-testid="tutor-generation-status" data-generation-phase="failed">
+          讲解生成失败（{tutor.runtimeGeneration.errorClass}），可重新尝试。
+          <button type="button" className="btn btn-ghost" data-testid="tutor-generation-retry" disabled={busy} onClick={tutor.retryGeneration}>重新尝试</button>
+        </p>
+      ) : null}
       {restartOffered ? (
         <p className="tutor-learn-notice" role="status" data-testid="tutor-restart-offered">
           学习会话已失效（可能是服务重启）。

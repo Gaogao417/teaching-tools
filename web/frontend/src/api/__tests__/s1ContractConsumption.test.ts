@@ -6,8 +6,12 @@ import manifest from "../../../../shared/canonical/fixtures/fixtures-manifest.js
 import { runtimeSnapshotRaw } from "../../action-runtime/tutor/__tests__/runtimeSnapshotFixture";
 
 const fixtures = import.meta.glob("../../../../shared/canonical/fixtures/*.json", { eager: true, import: "default" });
-const wave = /(?:tutor-plan-bundle\.v6|tutor-runtime-state\.v3|tutor-session-event\.v8|tutor-policy-decision\.v2|presentation-plan\.v3|presentation-draft\.|presentation-tool-spec\.|workspace-runtime-state\.v2|student-workspace-view\.v2)/;
-describe("P1 S1 frontend contract consumption (product integration remains P2)", () => {
+/** P1 候选波 + P2 终态波（增补 33：v3/v6/v8 候选名 → v4/v7/v9 终名 + generation/v2）。 */
+const wave = /(?:tutor-plan-bundle\.(?:v6|v7)|tutor-runtime-state\.(?:v3|v4)|tutor-session-event\.(?:v8|v9)|tutor-policy-decision\.v2|presentation-plan\.(?:v3|v4)|presentation-draft\.|presentation-tool-spec\.|workspace-runtime-state\.v2|student-workspace-view\.v2)/;
+const casePayload = (name: string): Record<string, unknown> =>
+  cases.find((entry) => entry.name === name)!.payload as Record<string, unknown>;
+
+describe("P2 S1 frontend contract consumption (composed decoder wiring)", () => {
   it.each(cases)("HTTP fields: $name", ({ payload, valid }) => {
     expect(adaptivePresentationSnapshotFieldsSchema.safeParse(payload).success).toBe(valid);
   });
@@ -16,8 +20,50 @@ describe("P1 S1 frontend contract consumption (product integration remains P2)",
     expect(payload).toBeDefined();
     expect(validatePayload(payload).ok).toBe(entry.expect_schema === "valid");
   });
-  it("does not accidentally enable pending in the current online snapshot parser", () => {
-    const candidate = cases.find((entry) => entry.name === "pending-approved")!.payload;
-    expect(parseSessionSnapshotHttp({ ...runtimeSnapshotRaw(), ...candidate }).ok).toBe(false);
+
+  // ---- 组合接线（S1 §1：P2 在同一次接线中组合字段 schema + 一致性门禁 +
+  // decoder/view-model；不再保留「在线 parser 拒绝 pending」的迁移期断言）----
+
+  it("composed online parser accepts a legal pending projection (no delivery mounted)", () => {
+    expect(parseSessionSnapshotHttp({ ...runtimeSnapshotRaw(), ...casePayload("pending-approved") }).ok).toBe(true);
+  });
+  it("composed online parser accepts idle/failed/waiting_retry legal projections", () => {
+    for (const name of ["idle-no-active-scope", "failed-timeout", "waiting-retry", "retry-budget-exhausted"]) {
+      expect(parseSessionSnapshotHttp({ ...runtimeSnapshotRaw(), ...casePayload(name) }).ok).toBe(true);
+    }
+  });
+  it("snapshots without the generation projection keep parsing (server not yet upgraded)", () => {
+    expect(parseSessionSnapshotHttp(runtimeSnapshotRaw()).ok).toBe(true);
+  });
+  it("composed online parser rejects forged/illegal projections (missing fields, leaks, budget violations)", () => {
+    for (const entry of cases.filter((entry) => !entry.valid)) {
+      const result = parseSessionSnapshotHttp({ ...runtimeSnapshotRaw(), ...entry.payload });
+      expect(result.ok).toBe(false);
+    }
+  });
+  it("composed online parser rejects an unpaired projection (generation without scope)", () => {
+    const { scope, ...projection } = casePayload("pending-approved");
+    expect(scope).toBeDefined();
+    expect(parseSessionSnapshotHttp({ ...runtimeSnapshotRaw(), ...projection }).ok).toBe(false);
+  });
+  it("pending generation must not carry a pending delivery (mirror rule 5 / S1 R1)", () => {
+    const raw = runtimeSnapshotRaw({ pendingPresentation: true });
+    const result = parseSessionSnapshotHttp({ ...raw, ...casePayload("pending-approved") });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.errors.some((message) => message.includes("generation-pending"))).toBe(true);
+  });
+  it("pending generation must not mount an active action (S1 R1)", () => {
+    const raw = runtimeSnapshotRaw({ participationKind: "workspace_input" });
+    expect(parseSessionSnapshotHttp({ ...raw, ...casePayload("pending-approved") }).ok).toBe(false);
+  });
+  it("active action mounting requires generation idle (failed blocks mounting, S1 R1)", () => {
+    const raw = runtimeSnapshotRaw({ participationKind: "workspace_input" });
+    const result = parseSessionSnapshotHttp({ ...raw, ...casePayload("failed-timeout") });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.errors.some((message) => message.includes("generation-mount"))).toBe(true);
+  });
+  it("idle generation does not block an ordinary pending delivery", () => {
+    const raw = runtimeSnapshotRaw({ pendingPresentation: true });
+    expect(parseSessionSnapshotHttp({ ...raw, ...casePayload("idle-no-active-scope") }).ok).toBe(true);
   });
 });

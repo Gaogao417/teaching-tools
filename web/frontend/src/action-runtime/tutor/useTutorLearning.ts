@@ -58,6 +58,7 @@ import {
   type TutorRuntimeClient,
   type ValidatedSessionSnapshot,
 } from "../../api/tutorRuntimeClient";
+import type { AdaptiveGenerationStatus } from "../../../../shared/tutorHttpProfile";
 import { actionMachineRegistry } from "../registry";
 import type { SolutionBoardView } from "../types";
 import type { CoachPanelViewV1, StudentWorkspaceViewV1 } from "../../presentation/canonicalView/canonicalViewTypes";
@@ -72,6 +73,38 @@ import type { TaskId } from "../../../../shared/contracts";
 export interface ActionRuntimeTransport {
   submitEvidence(request: ActionEvaluationRequest): Promise<ActionEvaluationResponse>;
 }
+
+/**
+ * F7 P2（S1 R1/R8）：generation 状态 view-model——单一来源 = 已验证快照的
+ * 可选 generation 投影。服务端未投影（旧 projector）= "unprojected"，UI 不
+ * 显示生成状态、不轮询；pending 期间只读轮询 GET snapshot（零模型调用）；
+ * failed 提供「重新尝试」入口（走既有 control.retry_recovery，服务端以新
+ * 预算创建新任务——生成生命周期规格 Failure semantics）。
+ */
+export type RuntimeGenerationVm =
+  | { kind: "unprojected" }
+  | { kind: "idle" }
+  | { kind: "pending"; phase: "running" | "waiting_retry"; attempt: number; maxAttempts: number; retryAt?: string }
+  | { kind: "failed"; errorClass: string; requestId: string };
+
+function runtimeGenerationVmOf(generation: AdaptiveGenerationStatus | undefined): RuntimeGenerationVm {
+  if (generation === undefined) return { kind: "unprojected" };
+  if (generation.status === "idle") return { kind: "idle" };
+  if (generation.status === "pending") {
+    return {
+      kind: "pending",
+      phase: generation.phase,
+      attempt: generation.attempt,
+      maxAttempts: generation.max_attempts,
+      ...(generation.retry_at !== undefined ? { retryAt: generation.retry_at } : {}),
+    };
+  }
+  return { kind: "failed", errorClass: generation.error_class, requestId: generation.request_id };
+}
+
+/** generation pending 只读轮询的节奏（工程默认；waiting_retry 对齐 retry_at）。 */
+const GENERATION_POLL_BASE_MS = 2000;
+const GENERATION_POLL_MAX_MS = 15000;
 
 export type TutorPhase =
   | "starting"
@@ -679,6 +712,67 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     lastPresentationAdoptedRef.current = runtimeSnapshot;
     presentationRuntime.controller.adopt(runtimeSnapshot);
   }, [runtimeClient, presentationRuntime, runtimeSnapshot]);
+
+  // ---- F7 P2（S1 R8 + s1-http-media-handshake 规格 Interfaces）：generation
+  // pending 只读轮询。snapshot GET 只读（verified rebuild、零模型调用）；仅
+  // pending 时轮询；退避并对齐 waiting_retry 的 retry_at；卸载/切会话/离开
+  // pending 即停；迟到查询不得回退当前合法 revision（adopt 门禁已拒低
+  // revision）。ProtocolParseError → recoverable protocol error 停轮；404/409
+  // → 停轮并显式错误；网络/5xx → 保留最后合法快照按退避重试（不写 error——
+  // 后台读失败不进入恢复态）。已提交未交付结果经同一 adopt 流程恢复呈现。
+  useEffect(() => {
+    const generation = runtimeSnapshot?.generation;
+    if (!runtimeClient || !runtimeSnapshot || !generation || generation.status !== "pending") return;
+    const sessionId = runtimeSnapshot.session_id;
+    const epoch = runtimeEpochRef.current;
+    let cancelled = false;
+    let timer: number | undefined;
+    const initialDelayMs = (): number => {
+      if (generation.phase === "waiting_retry" && generation.retry_at !== undefined) {
+        const retryAt = Date.parse(generation.retry_at);
+        if (Number.isFinite(retryAt)) {
+          return Math.max(GENERATION_POLL_BASE_MS, Math.min(retryAt - Date.now() + 250, GENERATION_POLL_MAX_MS));
+        }
+      }
+      return GENERATION_POLL_BASE_MS;
+    };
+    const stillPending = (): boolean => {
+      const current = runtimeSnapshotRef.current;
+      return runtimeMountedRef.current
+        && epoch === runtimeEpochRef.current
+        && current !== undefined
+        && current.session_id === sessionId
+        && current.generation?.status === "pending";
+    };
+    const poll = async (delayMs: number): Promise<void> => {
+      if (!stillPending() || cancelled) return;
+      try {
+        const fresh = await runtimeClient.restore(sessionId);
+        if (cancelled || !stillPending()) return;
+        if (adoptRuntimeSnapshot(fresh, sessionId, epoch)) return; // 新快照重触发本 effect 排下一轮
+      } catch (failure) {
+        if (cancelled || !stillPending()) return;
+        if (failure instanceof ProtocolParseError) {
+          setProtocolError(failure.message);
+          return;
+        }
+        if (failure instanceof TutorRuntimeHttpError && (failure.status === 404 || failure.status === 409)) {
+          handleRuntimeError(failure);
+          return;
+        }
+        // 网络/5xx：退避后重试（下方统一排程）。
+      }
+      if (cancelled || !stillPending()) return;
+      const nextDelayMs = Math.min(delayMs * 2, GENERATION_POLL_MAX_MS);
+      timer = window.setTimeout(() => void poll(nextDelayMs), delayMs);
+    };
+    const firstDelayMs = initialDelayMs();
+    timer = window.setTimeout(() => void poll(firstDelayMs), firstDelayMs);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [runtimeClient, runtimeSnapshot, adoptRuntimeSnapshot, handleRuntimeError]);
 
   // 浏览器阻止自动播放 → 沿用重播提示机制（不新造）。
   useEffect(() => {
@@ -1426,6 +1520,16 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     return turn && turn.status !== "committed" ? turn.failure?.failure_class : undefined;
   }, [runtimeSnapshot]);
 
+  /** F7 P2（S1 R1）：generation 状态 view-model（快照单一来源派生）。 */
+  const runtimeGeneration = useMemo<RuntimeGenerationVm>(
+    () => runtimeGenerationVmOf(runtimeSnapshot?.generation),
+    [runtimeSnapshot],
+  );
+
+  /** failed 后的显式重新尝试（生成生命周期规格）：走既有 control.retry_recovery
+   *  ——服务端以当前合法状态和新预算创建新任务，不修改旧失败记录。 */
+  const retryGeneration = useCallback(() => { void submitControl("retry_recovery"); }, [submitControl]);
+
   // ---- 统一 UI view-model 派生（controller 边界完成数据源分派）----
   const mergedCompleted = runtimeClient
     ? (runtimeSnapshot?.completed ?? false)
@@ -1615,6 +1719,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     runtimeCompleted: runtimeSnapshot?.completed ?? false,
     runtimeTurnFailure,
     runtimeFailureNotice,
+    /** F7 P2（S1）：generation 状态 view-model + failed 重新尝试入口。 */
+    runtimeGeneration,
+    retryGeneration,
     /** recoverable protocol error（保留最后一份合法 snapshot；retrySync 显式重对账）。 */
     protocolError,
     /** VS1 remediation-2：拍点只读展示（turn/restore 同源 state）。 */
