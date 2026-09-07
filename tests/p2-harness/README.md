@@ -34,3 +34,7 @@ The runner now includes R1's second distinct question, R2's actual child-process
 This gate remains deterministic boundary regression. Model/media ports are controlled; it does not establish real microphone, ASR or live provider quality. The v7 publication test uses conspicuously synthetic test approval, never changes production assets, and cannot replace human review of the real candidate. Browser/provider and real approved-asset evidence must be recorded separately for the applicable project milestone.
 
 The original harness was committed separately from product fixes. These runner additions exercise the subsequent S2 repairs without treating test-only assets as approved production content.
+
+### Teach 理解衔接增量（2026-09-07）
+
+新增 `teachFollowAlongSession` 与 `follow-along-semantics` 阶段：真实 v3 候选临时导入、六拍自然反馈、动态板书、事件重建、输入幂等、误解/继续/过期输入拒绝及旧练习隔离。候选批准与模型输出在此为明确的测试输入；真实模型质量单独记录于 PRDS `mvp/foundation/f7/evidence/teach-follow-along-2026-09-07/`，不能由此 harness 代替。
