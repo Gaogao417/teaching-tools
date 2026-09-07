@@ -445,3 +445,95 @@ test("B2 cancel during the in-flight model call: the late candidate never commit
 });
 
 void sqlitePath;
+
+test("R3 kernel rejects an epoch rollback atomically", () => {
+  const kernel = startKernel(freshSessionId());
+  const request = reserve(kernel).request;
+  const appendEpoch = (attempt: number, epoch: number) => kernel.append(kernel.revision, [{
+    event_type: "presentation_generation_attempt_started", payload: { ...request, attempt, epoch },
+    occurred_at: at(), causation_sequence: 1, idempotency_key: `epoch-review-${epoch}`,
+  }] as never);
+  appendEpoch(1, 2);
+  appendEpoch(2, 10);
+  const revision = kernel.revision;
+  assert.throws(() => appendEpoch(3, 3), /epoch/);
+  assert.equal(kernel.revision, revision);
+  assert.equal(kernel.state.generation_requests[0].epoch, 10);
+  assert.equal(kernel.assertReplayParity().equal, true);
+});
+
+test("R2 independent process dies after claim; expired lease resumes attempt 2 with the original context", async () => {
+  const kernel = startKernel(freshSessionId());
+  const request = reserve(kernel).request;
+  const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+  const path = require("node:path") as typeof import("node:path");
+  const child = `
+    const {TutorSessionKernelV9}=require(${JSON.stringify(path.resolve(__dirname,'../../tutorSession/TutorSessionKernelV9.js'))});
+    const {syntheticRegistry}=require(${JSON.stringify(path.resolve(__dirname,'../../tutorSession/__tests__/v6KernelSupport.js'))});
+    const {driveGeneration}=require(${JSON.stringify(path.resolve(__dirname,'../presentationGeneration/GenerationCoordinator.js'))});
+    const k=TutorSessionKernelV9.resume(${JSON.stringify(kernel.sessionId)},()=>syntheticRegistry());
+    const access={sessionId:k.sessionId,get revision(){return k.revision},get state(){return k.state},append:(r,e)=>k.append(r,e)};
+    driveGeneration(access,{buildAndRun:async()=>{console.log('entered-model');process.exit(0)}},{causationSequence:1,now:()=>new Date(1000),leaseMs:45000}).catch(e=>{console.error(e);process.exit(1)});
+  `;
+  const stdout = execFileSync(process.execPath, ['-e', child], {env:{...process.env,SQLITE_PATH:sqlitePath},encoding:'utf8',timeout:10000});
+  assert.match(stdout, /entered-model/);
+  const resumed = TutorSessionKernelV9.resume(kernel.sessionId, registryProvider());
+  assert.equal(resumed.state.generation_requests[0].epoch, 2);
+  let calls = 0;
+  const result = await driveGeneration(accessOf(resumed), {buildAndRun:async(snapshot)=>{
+    calls++;
+    assert.equal(snapshot.attempt,2);
+    assert.equal(snapshot.epoch,3);
+    assert.deepEqual(snapshot.context,request.context);
+    return {candidate:candidateFor(resumed,request.request_id) as never};
+  }}, {causationSequence:1,now:()=>new Date(46001),sleep:noWaitSleep});
+  assert.equal(result.kind,'committed');
+  assert.equal(calls,1);
+  assert.equal(resumed.state.generation_requests[0].attempt,2);
+});
+
+test("R2 expired claimant exhausts the frozen budget without a fourth model call", async () => {
+  const kernel = startKernel(freshSessionId());
+  const request = reserve(kernel).request;
+  kernel.append(kernel.revision,[{event_type:'presentation_generation_attempt_started',payload:{...request,attempt:2,epoch:2},occurred_at:at(),causation_sequence:1,idempotency_key:'exhaust-claim-02'}] as never);
+  const second = kernel.state.generation_requests[0];
+  kernel.append(kernel.revision,[{event_type:'presentation_generation_attempt_started',payload:{...second,attempt:3,epoch:3},occurred_at:at(),causation_sequence:1,idempotency_key:'exhaust-claim-03'}] as never);
+  let calls=0;
+  const result=await driveGeneration(accessOf(kernel),{buildAndRun:async()=>{calls++;throw new Error('must not call')}},{causationSequence:1});
+  assert.deepEqual(result,{kind:'failed',errorClass:'RETRY_EXHAUSTED'});
+  assert.equal(calls,0);
+  assert.equal(kernel.state.generation_requests[0].attempt,3);
+});
+
+
+test("R2 expired owner is fenced when its model returns after a replacement commits", async () => {
+  const kernel = startKernel(freshSessionId());
+  reserve(kernel);
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let oldCalls = 0;
+  const old = driveGeneration(accessOf(kernel), {buildAndRun: async request => {
+    oldCalls++;
+    const candidate = structuredClone(candidateFor(kernel, request.request_id));
+    await pending;
+    return {candidate: candidate as never};
+  }}, {causationSequence: 1, now: () => new Date(1000), leaseMs: 45_000,
+    refresh: () => accessOf(TutorSessionKernelV9.resume(kernel.sessionId, registryProvider()))});
+  assert.equal(oldCalls, 1);
+  const replacement = TutorSessionKernelV9.resume(kernel.sessionId, registryProvider());
+  let newCalls = 0;
+  const result = await driveGeneration(accessOf(replacement), {buildAndRun: async request => {
+    newCalls++;
+    return {candidate: candidateFor(replacement, request.request_id) as never};
+  }}, {causationSequence: 1, now: () => new Date(46_001)});
+  assert.equal(result.kind, "committed");
+  const committedRevision = replacement.revision;
+  release();
+  const lateResult = await old;
+  if (lateResult.kind === "committed") assert.equal(lateResult.sequence.generation?.epoch, 3, "same sequence id must not return the stale owner candidate");
+  const restored = TutorSessionKernelV9.resume(kernel.sessionId, registryProvider());
+  assert.equal(restored.revision, committedRevision, "late owner must append zero events");
+  assert.equal(restored.state.generation_requests[0].epoch, 3);
+  assert.equal(newCalls, 1);
+  assert.equal(oldCalls, 1);
+});

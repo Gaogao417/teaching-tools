@@ -12,11 +12,13 @@
  * INTEGRITY_FAILURE 类错误 + 零 snapshot（服务端 revision 已前进而浏览器看到
  * 旧题图，正是此前 GeometryCanvas 异常最危险的漂移来源，不得静默回退）。
  */
+import { tutorRuntimeStateV4Schema } from "../../../../shared/canonical";
 import { applyDomainCommands } from "../../../../shared/actionWorld";
 import { parseSessionSnapshotHttp, TUTOR_RUNTIME_HTTP_PROFILE, type SessionSnapshotHttpV1 } from "../../../../shared/tutorHttpProfile";
 import type { WorkspaceFold } from "../tutorSession/WorkspaceRuntimeReducerV5";
 import type { V7TurnResult } from "../tutorNavigator/NavigatorSessionV7";
 import type { TutorSessionOrchestratorV7 } from "./TutorSessionOrchestratorV7";
+import { projectGenerationSnapshotFields } from "./presentationGeneration/GenerationSnapshotProjection";
 
 /** render 合成失败（流/内容损坏——fail closed；路由映射 503 无快照）。 */
 export class V7RenderProjectionError extends Error {
@@ -88,6 +90,9 @@ export function projectHttpSnapshotV1(args: {
   const fold = orchestrator.workspaceFold();
   const geometry = composeRenderGeometryV7(fold, orchestrator.sessionCatalog.baseGeometry);
   const payload = {
+    ...(orchestrator.eventSchema === "v9"
+      ? projectGenerationSnapshotFields(tutorRuntimeStateV4Schema.parse(orchestrator.rebuildRuntimeState()))
+      : {}),
     profile: TUTOR_RUNTIME_HTTP_PROFILE,
     session_id: service.session_id,
     task_id: service.task_id,

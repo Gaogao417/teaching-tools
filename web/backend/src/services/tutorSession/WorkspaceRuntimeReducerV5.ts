@@ -31,7 +31,7 @@
  * （ADR-007 不变量 4），decision/action Beat 必须等于当前 Beat。
  */
 import type { z } from "zod";
-import { workspaceRuntimeStateV1Schema } from "../../../../shared/canonical";
+import { workspaceRuntimeStateV1Schema, workspaceRuntimeStateV2Schema } from "../../../../shared/canonical";
 import {
   applyDomainCommands,
   isDomainCommand,
@@ -54,7 +54,7 @@ import {
 } from "./WorkspacePresentationCatalogV5";
 
 /** state/v1 WorkspaceRuntimeState（canonical Zod 推导类型，唯一形状）。 */
-export type WorkspaceRuntimeStateV5 = z.infer<typeof workspaceRuntimeStateV1Schema>;
+export type WorkspaceRuntimeStateV5 = z.infer<typeof workspaceRuntimeStateV1Schema> | z.infer<typeof workspaceRuntimeStateV2Schema>;
 
 /** 流不变量违反（重建 fail closed 分类）。 */
 export class WorkspaceRuntimeReducerError extends Error {
@@ -98,6 +98,7 @@ export interface PendingStudentCommandBody {
 
 export interface WorkspaceFoldContext {
   /** tutor 已提交构图/标注命令（world 组合与 dry-run 的真源序列）。 */
+  fragmentSources?: ReadonlyMap<string, { source_sequence_id: string; content_hash: string }>;
   tutorCommands: DomainCommand[];
   /** 学生草稿命令（student_authored 世界）。 */
   draftCommands: DomainCommand[];
@@ -302,6 +303,7 @@ function cloneState(state: WorkspaceRuntimeStateV5): WorkspaceRuntimeStateV5 {
 
 function cloneContext(context: WorkspaceFoldContext): WorkspaceFoldContext {
   return {
+    ...context,
     tutorCommands: [...context.tutorCommands],
     draftCommands: [...context.draftCommands],
     pendingTutorActions: new Map(context.pendingTutorActions),
@@ -469,7 +471,7 @@ export function applyWorkspaceEffect(args: WorkspaceEffectArgs): { fold: Workspa
   // 先前 sequence 的 applied 落定（浏览器 failed/interrupted 后 retry_recovery
   // 重新呈现该动作）。零效果、零 revision（changed=false）；mode/causation 校验
   // 已过，target 存在性仍校验。v5 流不产生 presentation_only 动作，行为零影响。
-  if (spec.origin === "tutor" && asTutorAction(args.action).presentation_only === true) {
+  if (spec.origin === "tutor" && asTutorAction(args.action).presentation_only === true && spec.effect !== "board_explain_tutor") {
     const tutorAction = asTutorAction(args.action);
     const targets = tutorAction.target_ids ?? [];
     if (spec.surface === "solution_board") {
@@ -606,6 +608,42 @@ export function applyWorkspaceEffect(args: WorkspaceEffectArgs): { fold: Workspa
         commitGeometryCommand(label, "student");
       }
       return { fold: next, changed: true };
+    }
+    case "board_explain_tutor": {
+      const action = asTutorAction(args.action);
+      const fragments = state.schema === "ai_teaching_workspace_runtime_state/v2"
+        ? state.solution_board.explanation_fragments ?? [] : [];
+      const fragment = fragments.find((item) => item.fragment_id === action.command_payload);
+      if (!fragment) throw new WorkspaceTransitionRejectedError("missing persisted explanation fragment");
+      if (!["step_narration", "intermediate_result", "final_result"].includes(action.reveal_scope)) {
+        throw new WorkspaceTransitionRejectedError("board.explain requires a content reveal_scope");
+      }
+      const boardRefs = new Set([...fragment.basis_refs.filter((id) => id.startsWith("BE-")),
+        ...(fragment.attach_to_entry ? [fragment.attach_to_entry] : []), ...(action.target_ids ?? [])]);
+      for (const id of boardRefs) {
+        const entry = boardEntryById(catalog, id);
+        if (!entry) throw new WorkspaceTransitionRejectedError(`unknown explanation board binding ${id}`);
+        if (entry.revealRequirement === "final" || action.reveal_scope === "final_result") {
+          const authorization = authorizeBoardRevealBinding({ catalog, ledger: context.gateLedger, entryId: id });
+          if (action.reveal_scope !== "final_result" || !authorization.allowed) {
+            throw new WorkspaceTransitionRejectedError(authorization.reason ?? "final explanation requires final_result authorization");
+          }
+        }
+      }
+      if (action.reveal_scope === "final_result" && boardRefs.size === 0) {
+        throw new WorkspaceTransitionRejectedError("final explanation requires a bound Board resource");
+      }
+      for (const id of fragment.basis_refs.filter((id) => /^(pt-|seg-|line-|label-|val-)/.test(id))) {
+        if (!known.has(id)) throw new WorkspaceTransitionRejectedError(`explanation dependency does not exist: ${id}`);
+      }
+      if (action.presentation_only && !fragment.visible) {
+        throw new WorkspaceTransitionRejectedError("presentation_only cannot expose a hidden fragment");
+      }
+      if (state.schema === "ai_teaching_workspace_runtime_state/v2") {
+        state.solution_board.explanation_fragments = fragments.map((item) =>
+          item.fragment_id === fragment.fragment_id ? { ...item, visible: true } : item);
+      }
+      return { fold: next, changed: !fragment.visible };
     }
     case "board_reveal_tutor": {
       const action = asTutorAction(args.action);

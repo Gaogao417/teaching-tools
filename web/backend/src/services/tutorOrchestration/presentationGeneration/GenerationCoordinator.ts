@@ -21,12 +21,13 @@
  * 模型调用永远在 kernel append 事务之外；lease 不授予提交资格（epoch/CAS
  * 唯一裁决——本版进程内 worker，无外部队列依赖）。
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type { PendingV9Event, V9GenerationEventPayload } from "../../tutorSession/TutorSessionEventV9";
 import type { TutorRuntimeStateV9 } from "../../tutorSession/TutorRuntimeStateReducerV9";
 import type { CompiledPresentationPlanV4 } from "./IntentCompiler";
 import { PresenterGenerationError } from "./GeneratorPort";
+import { claimGenerationLease, renewGenerationLease, releaseGenerationLease, GENERATION_LEASE_MS, GENERATION_HEARTBEAT_MS } from "./GenerationLease";
 
 /** 生成重试预算（规格 Interfaces：max_retries=2 ⇒ 3 次调用；30s 超时；1s/3s 退避；按请求冻结）。 */
 export interface GenerationRetryPolicy {
@@ -196,6 +197,8 @@ export interface DriveDeps {
   /** CAS 冲突后的重读（真实 kernel：refresh 后重取 access）。 */
   readonly refresh?: () => GenerationKernelAccess;
   readonly signal?: AbortSignal;
+  /** Injectable scheduling duration for deterministic expiry tests; production default 45s. */
+  readonly leaseMs?: number;
 }
 
 export type DriveOutcome =
@@ -248,21 +251,38 @@ export async function driveGeneration(
       payload,
       occurred_at: nowIso(),
       causation_sequence: deps.causationSequence,
-      idempotency_key: `gen:${access.sessionId}:${request.request_id}:attempt:${attempt}`,
+      idempotency_key: `gen:${access.sessionId}:${request.request_id}:attempt:${attempt}:epoch:${epoch}`,
     };
   };
 
-  /**
-   * 认领 CAS：任何失败（含非 REVISION_CONFLICT 的竞态归约错误）⇒ 重读权威状态，
-   * 由循环顶重判（终态/他人认领/重试认领）。refresh 自身抛出（存储不可达）则上抛。
-   */
+  const owner = randomUUID();
+  let leaseRequestId: string | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
   const appendClaim = (events: PendingV9Event[]): boolean => {
+    const payload = events[0].payload as V9GenerationEventPayload;
     try {
-      access.append(access.revision, events);
-      return true;
-    } catch {
+      const claimed = claimGenerationLease({ sessionId: access.sessionId,
+        requestId: payload.request_id, owner, epoch: payload.epoch,
+        now: now().getTime(), leaseMs: deps.leaseMs ?? GENERATION_LEASE_MS,
+        commit: () => { access.append(access.revision, events); return true; },
+      });
+      if (claimed) {
+        leaseRequestId = payload.request_id;
+        if (!heartbeat) {
+          heartbeat = setInterval(() => {
+            try { if (leaseRequestId) renewGenerationLease(access.sessionId, leaseRequestId, owner, now().getTime()); }
+            catch { /* Storage failure cannot grant ownership. Commit rechecks kernel CAS. */ }
+          }, GENERATION_HEARTBEAT_MS);
+          heartbeat.unref();
+        }
+      }
+      return claimed;
+    } catch (error) {
       access = deps.refresh?.() ?? access;
-      return false;
+      // A concurrent winner is normal. Unchanged state means a storage/validation error.
+      const current = recordOf(payload.request_id);
+      if (current?.epoch === payload.epoch || current?.status !== "pending") return false;
+      throw error;
     }
   };
 
@@ -290,7 +310,8 @@ export async function driveGeneration(
 
   /** 查证路径的 committed 视图：优先返回持有候选（id 相同=本 worker 的候选已入库）；他人先交的序列只回身份/成因摘要（交付层按 sequence_id 从 committed 流重读正文）。 */
   const verifiedSequence = (record: PendingRequestView, candidate: CompiledPresentationPlanV4): CompiledPresentationPlanV4 => {
-    if (record.sequence_id !== undefined && record.sequence_id === candidate.sequence_id) return candidate;
+    if (record.sequence_id !== undefined && record.sequence_id === candidate.sequence_id
+      && record.epoch === candidate.generation?.epoch && record.attempt === candidate.generation?.attempt) return candidate;
     return {
       sequence_id: record.sequence_id ?? "",
       decision_id: record.decision_id,
@@ -309,6 +330,7 @@ export async function driveGeneration(
   // 本驱动循环经 CAS attempt_started 认领到的 ownership token（attempt/epoch）。
   let owned: { attempt: number; epoch: number } | undefined;
 
+  try {
   for (;;) {
     if (deps.signal?.aborted) {
       // 取消信号只中断等待；权威取消由 invalidated 事件落库（调用方）。
@@ -330,6 +352,7 @@ export async function driveGeneration(
       // 同一上下文和 request，但使用新 attempt/epoch）。
       const claim = { attempt: request.attempt + 1, epoch: request.epoch + 1 };
       if (appendClaim([attemptStartedEvent(request, claim.attempt, claim.epoch)])) owned = claim;
+      else return { kind: "superseded" };
       continue;
     }
     // running：认领门（规格 :26/:38/:52）。
@@ -343,11 +366,23 @@ export async function driveGeneration(
         // 以 attempt_started 提升 epoch 建立 ownership token；CAS 失败方本轮退出。
         const claim = { attempt: 1, epoch: 2 };
         if (appendClaim([attemptStartedEvent(request, claim.attempt, claim.epoch)])) owned = claim;
+        else return { kind: "superseded" };
         continue;
       }
-      // 已被其他 worker 认领（epoch>=2 且非本循环所立）：并行认领最多一个有效
-      // owner——本轮退让，零模型调用、不消耗在途调用的预算。
-      return { kind: "superseded" };
+      // A released/expired owner may be replaced; the lost call remains consumed.
+      if (request.attempt >= request.max_attempts) {
+        const payload = { ...request, status: "failed", error_class: "RETRY_EXHAUSTED" } as V9GenerationEventPayload;
+        delete payload.phase;
+        delete payload.retry_at;
+        const failed = { event_type: "presentation_generation_failed", payload, occurred_at: nowIso(),
+          causation_sequence: deps.causationSequence, idempotency_key: `gen:${access.sessionId}:${request.request_id}:exhausted:${request.epoch}` } as PendingV9Event;
+        if (!appendClaim([failed])) return { kind: "superseded" };
+        return { kind: "failed", errorClass: "RETRY_EXHAUSTED" };
+      }
+      const claim = { attempt: request.attempt + 1, epoch: request.epoch + 1 };
+      if (!appendClaim([attemptStartedEvent(request, claim.attempt, claim.epoch)])) return { kind: "superseded" };
+      owned = claim;
+      continue;
     }
     // —— 认领有效：事务外调用模型 ——
     const snapshot = request as unknown as V9GenerationEventPayload;
@@ -417,5 +452,9 @@ export async function driveGeneration(
     }
     if (!submitted) throw submitFailure;
     return { kind: "committed", sequence: candidate };
+  }
+  } finally {
+    if (heartbeat) clearInterval(heartbeat);
+    if (leaseRequestId) releaseGenerationLease(access.sessionId, leaseRequestId, owner);
   }
 }

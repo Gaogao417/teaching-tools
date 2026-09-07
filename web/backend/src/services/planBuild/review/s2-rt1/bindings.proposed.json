@@ -1,0 +1,97 @@
+[
+  {
+    "binding_id": "VB-01",
+    "binding_kind": "geometry",
+    "purpose": "BT-04 复用 RES7 批准构造输出 pt-O；按既有构造顺序消费",
+    "geometry_target": "pt-O",
+    "semantic_role": "second-similarity-construction",
+    "allowed_template_ids": [
+      "pt-O"
+    ]
+  },
+  {
+    "binding_id": "VB-02",
+    "binding_kind": "geometry",
+    "purpose": "BT-04 复用 RES7 批准构造输出 seg-AO；按既有构造顺序消费",
+    "geometry_target": "seg-AO",
+    "semantic_role": "second-similarity-construction",
+    "allowed_template_ids": [
+      "seg-AO"
+    ]
+  },
+  {
+    "binding_id": "VB-03",
+    "binding_kind": "geometry",
+    "purpose": "BT-04 复用 RES7 批准构造输出 seg-DO；按既有构造顺序消费",
+    "geometry_target": "seg-DO",
+    "semantic_role": "second-similarity-construction",
+    "allowed_template_ids": [
+      "seg-DO"
+    ]
+  },
+  {
+    "binding_id": "VB-04",
+    "binding_kind": "geometry",
+    "purpose": "BT-04 复用 RES7 批准构造输出 seg-BO；按既有构造顺序消费",
+    "geometry_target": "seg-BO",
+    "semantic_role": "second-similarity-construction",
+    "allowed_template_ids": [
+      "seg-BO"
+    ]
+  },
+  {
+    "binding_id": "VB-05",
+    "binding_kind": "geometry",
+    "purpose": "BT-04 复用 RES7 批准构造输出 seg-OE；按既有构造顺序消费",
+    "geometry_target": "seg-OE",
+    "semantic_role": "second-similarity-construction",
+    "allowed_template_ids": [
+      "seg-OE"
+    ]
+  },
+  {
+    "binding_id": "VB-06",
+    "binding_kind": "explanation",
+    "purpose": "BT-04 解释依据 IF-08（仅上下文扩充，不推进 Gate）",
+    "basis_refs": {
+      "fact_ids": [
+        "FN-02",
+        "FN-04",
+        "FN-12"
+      ],
+      "inference_ids": [
+        "IF-08"
+      ]
+    },
+    "presentation_resource": "RES7"
+  },
+  {
+    "binding_id": "VB-07",
+    "binding_kind": "explanation",
+    "purpose": "BT-04 解释依据 IF-09（仅上下文扩充，不推进 Gate）",
+    "basis_refs": {
+      "fact_ids": [
+        "FN-01",
+        "FN-02",
+        "FN-03",
+        "FN-04",
+        "FN-12",
+        "FN-13"
+      ],
+      "inference_ids": [
+        "IF-09"
+      ]
+    },
+    "presentation_resource": "RES4"
+  },
+  {
+    "binding_id": "VB-08",
+    "binding_kind": "board",
+    "purpose": "BT-04 GT-04 通过后才允许揭示第二组相似条目；不宣称数值填写证明推理掌握",
+    "board_entry_id": "BE-14",
+    "reveal_after_gate": {
+      "protocol_id": "PR-SMV-001",
+      "gate_id": "GT-04"
+    }
+  }
+]

@@ -1,0 +1,861 @@
+{
+  "schema": "ai_teaching_tutor_plan_bundle/v7",
+  "artifact_id": "TP-SMV-009",
+  "version": "v12",
+  "status": "Draft",
+  "question_ref": {
+    "artifact_id": "QT-SMV-001",
+    "version": "v3",
+    "content_hash": "sha256:e8dc1fb849904d7d388c8589516d1d833e60d28d255a8ff9b3eda540b80187c1"
+  },
+  "approach_set_ref": {
+    "artifact_id": "AS-SMV-001",
+    "version": "v6",
+    "content_hash": "sha256:5439919899b8b9604b027bb1a0a457884e6e6c0fc80c40366a47304314d5e807"
+  },
+  "solution_graph_ref": {
+    "artifact_id": "RG-SMV-001",
+    "version": "v8",
+    "content_hash": "sha256:2bc516468e9cc8c4033f96277d810f96752a7cb41269f1f0eb0735c2da507c25"
+  },
+  "policy_profile_ref": {
+    "artifact_id": "PP-SMV-001",
+    "version": "v1",
+    "content_hash": "sha256:c717980cb3e4d06aa4da915aa9e5207c138dea8524f92dbda7df4c1483bb0f69"
+  },
+  "default_resolution_profile_id": "RP-01",
+  "resolution_profiles": [
+    {
+      "profile_id": "RP-01",
+      "learner_description": "需要显式看到相似依据、点序和计算断点的学生",
+      "default_view": "beat",
+      "available_views": [
+        "chunk",
+        "beat",
+        "fine"
+      ],
+      "chunk_ids": [
+        "CH-01",
+        "CH-02",
+        "CH-03"
+      ]
+    },
+    {
+      "profile_id": "RP-02",
+      "learner_description": "能自行补足局部运算、优先看整体策略的学生",
+      "default_view": "chunk",
+      "available_views": [
+        "chunk",
+        "beat",
+        "fine"
+      ],
+      "chunk_ids": [
+        "CH-01",
+        "CH-02",
+        "CH-03"
+      ]
+    }
+  ],
+  "chunk_graph": {
+    "entry_chunk_id": "CH-01",
+    "completion_chunk_ids": [
+      "CH-03"
+    ],
+    "edges": [
+      {
+        "from_chunk_id": "CH-01",
+        "to_chunk_id": "CH-02",
+        "on": "complete"
+      },
+      {
+        "from_chunk_id": "CH-02",
+        "to_chunk_id": "CH-03",
+        "on": "complete"
+      }
+    ]
+  },
+  "solution_regions": [
+    {
+      "region_id": "SR-01",
+      "label": "证明 △CAD 与 △CBA 子母型相似",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-05",
+          "FN-06"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      },
+      "local_protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v9",
+          "content_hash": "sha256:f798dbc953f401a59ab6000c3c7d2a1dda82a04c81341356ca7b5624428b19b1"
+        }
+      ]
+    },
+    {
+      "region_id": "SR-02",
+      "label": "由第一组相似求基础线段",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-06",
+          "FN-07",
+          "FN-08",
+          "FN-09",
+          "FN-10"
+        ],
+        "inference_ids": [
+          "IF-03",
+          "IF-04",
+          "IF-05",
+          "IF-06"
+        ]
+      },
+      "local_protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v9",
+          "content_hash": "sha256:f798dbc953f401a59ab6000c3c7d2a1dda82a04c81341356ca7b5624428b19b1"
+        }
+      ]
+    },
+    {
+      "region_id": "SR-03",
+      "label": "证明 △DAO 与 △DBA 子母型相似",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04",
+          "FN-08",
+          "FN-10",
+          "FN-11",
+          "FN-12",
+          "FN-13",
+          "FN-14",
+          "FN-15",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-07",
+          "IF-08",
+          "IF-09",
+          "IF-10",
+          "IF-11",
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      },
+      "local_protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v9",
+          "content_hash": "sha256:f798dbc953f401a59ab6000c3c7d2a1dda82a04c81341356ca7b5624428b19b1"
+        }
+      ]
+    },
+    {
+      "region_id": "SR-04",
+      "label": "证明 △BOE 与 △AOD 蝶形相似",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-08",
+          "FN-12",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-16",
+          "IF-17",
+          "IF-18",
+          "IF-19"
+        ]
+      },
+      "local_protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v9",
+          "content_hash": "sha256:f798dbc953f401a59ab6000c3c7d2a1dda82a04c81341356ca7b5624428b19b1"
+        }
+      ]
+    },
+    {
+      "region_id": "SR-05",
+      "label": "替代：新等腰三角形与二倍角",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04",
+          "FN-11",
+          "FN-23",
+          "FN-24",
+          "FN-25",
+          "FN-26",
+          "FN-27",
+          "FN-28",
+          "FN-29"
+        ],
+        "inference_ids": [
+          "IF-20",
+          "IF-21",
+          "IF-22",
+          "IF-23",
+          "IF-24",
+          "IF-25",
+          "IF-26"
+        ]
+      }
+    }
+  ],
+  "chunks": [
+    {
+      "chunk_id": "CH-01",
+      "part_id": "1",
+      "title": "第一组子母型相似：建立前置长度",
+      "instructional_intent": "证明第一组子母型相似并求 AD、CD、BD",
+      "entry_state": "学生能定位题设对象",
+      "exit_understanding": "学生能说明 △CAD∽△CBA 的对应关系并算出三条关键长度",
+      "source_subgraph_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-05",
+          "FN-06",
+          "FN-07",
+          "FN-08",
+          "FN-09",
+          "FN-10"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02",
+          "IF-03",
+          "IF-04",
+          "IF-05",
+          "IF-06"
+        ]
+      },
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-001",
+          "version": "v10",
+          "content_hash": "sha256:b43b5f2e54bffe96d36fd61c554502225db2eb155672f3f0e828fba15a1fdfcf"
+        },
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v9",
+          "content_hash": "sha256:f798dbc953f401a59ab6000c3c7d2a1dda82a04c81341356ca7b5624428b19b1"
+        }
+      ],
+      "teacher_narration_refs": [
+        "RES1",
+        "RES2"
+      ],
+      "presentation_groups": [
+        {
+          "group_id": "PG-01",
+          "label": "证明 △CAD 与 △CBA 子母型相似",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-01",
+              "FN-02",
+              "FN-03",
+              "FN-05",
+              "FN-06",
+              "FN-07",
+              "FN-08",
+              "FN-09",
+              "FN-10"
+            ],
+            "inference_ids": [
+              "IF-01",
+              "IF-02",
+              "IF-03",
+              "IF-04",
+              "IF-05",
+              "IF-06"
+            ]
+          }
+        },
+        {
+          "group_id": "PG-02",
+          "label": "相似比与前置长度",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-01",
+              "FN-02",
+              "FN-03",
+              "FN-05",
+              "FN-06",
+              "FN-07",
+              "FN-08",
+              "FN-09",
+              "FN-10"
+            ],
+            "inference_ids": [
+              "IF-01",
+              "IF-02",
+              "IF-03",
+              "IF-04",
+              "IF-05",
+              "IF-06"
+            ]
+          }
+        }
+      ],
+      "expandable_region_ids": [
+        "SR-01",
+        "SR-02"
+      ],
+      "resource_ids": [
+        "RES1",
+        "RES2"
+      ]
+    },
+    {
+      "chunk_id": "CH-02",
+      "part_id": "1",
+      "title": "第二组子母型相似：把翻折接入长度链",
+      "instructional_intent": "证明第二组子母型相似并求 AO、DO、BO、OE",
+      "entry_state": "AD、BD 已知",
+      "exit_understanding": "学生能解释第二组相似和 AO、DO、BO、OE 的来源",
+      "source_subgraph_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04",
+          "FN-08",
+          "FN-10",
+          "FN-11",
+          "FN-12",
+          "FN-13",
+          "FN-14",
+          "FN-15",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-07",
+          "IF-08",
+          "IF-09",
+          "IF-10",
+          "IF-11",
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      },
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-001",
+          "version": "v10",
+          "content_hash": "sha256:b43b5f2e54bffe96d36fd61c554502225db2eb155672f3f0e828fba15a1fdfcf"
+        },
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v9",
+          "content_hash": "sha256:f798dbc953f401a59ab6000c3c7d2a1dda82a04c81341356ca7b5624428b19b1"
+        }
+      ],
+      "teacher_narration_refs": [
+        "RES3",
+        "RES4"
+      ],
+      "presentation_groups": [
+        {
+          "group_id": "PG-03",
+          "label": "证明 △DAO 与 △DBA 子母型相似",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-01",
+              "FN-02",
+              "FN-03",
+              "FN-04",
+              "FN-08",
+              "FN-10",
+              "FN-11",
+              "FN-12",
+              "FN-13",
+              "FN-14",
+              "FN-15",
+              "FN-16",
+              "FN-17",
+              "FN-18",
+              "FN-19"
+            ],
+            "inference_ids": [
+              "IF-07",
+              "IF-08",
+              "IF-09",
+              "IF-10",
+              "IF-11",
+              "IF-12",
+              "IF-13",
+              "IF-14",
+              "IF-15"
+            ]
+          }
+        },
+        {
+          "group_id": "PG-04",
+          "label": "相似比与点序计算",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-01",
+              "FN-02",
+              "FN-03",
+              "FN-04",
+              "FN-08",
+              "FN-10",
+              "FN-11",
+              "FN-12",
+              "FN-13",
+              "FN-14",
+              "FN-15",
+              "FN-16",
+              "FN-17",
+              "FN-18",
+              "FN-19"
+            ],
+            "inference_ids": [
+              "IF-07",
+              "IF-08",
+              "IF-09",
+              "IF-10",
+              "IF-11",
+              "IF-12",
+              "IF-13",
+              "IF-14",
+              "IF-15"
+            ]
+          }
+        }
+      ],
+      "expandable_region_ids": [
+        "SR-03"
+      ],
+      "resource_ids": [
+        "RES3",
+        "RES4",
+        "RES7",
+        "RES8"
+      ]
+    },
+    {
+      "chunk_id": "CH-03",
+      "part_id": "1",
+      "title": "蝶形相似：收束到 BE",
+      "instructional_intent": "证明蝶形相似并求 BE",
+      "entry_state": "AO、DO、BO、OE 已知",
+      "exit_understanding": "学生能说明 △BOE∽△AOD 并独立推出 BE",
+      "source_subgraph_refs": {
+        "fact_ids": [
+          "FN-08",
+          "FN-12",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-16",
+          "IF-17",
+          "IF-18",
+          "IF-19"
+        ]
+      },
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-001",
+          "version": "v10",
+          "content_hash": "sha256:b43b5f2e54bffe96d36fd61c554502225db2eb155672f3f0e828fba15a1fdfcf"
+        },
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v9",
+          "content_hash": "sha256:f798dbc953f401a59ab6000c3c7d2a1dda82a04c81341356ca7b5624428b19b1"
+        }
+      ],
+      "teacher_narration_refs": [
+        "RES5",
+        "RES6"
+      ],
+      "presentation_groups": [
+        {
+          "group_id": "PG-05",
+          "label": "证明 △BOE 与 △AOD 蝶形相似",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-08",
+              "FN-12",
+              "FN-16",
+              "FN-17",
+              "FN-18",
+              "FN-19",
+              "FN-20",
+              "FN-21",
+              "FN-22",
+              "FN-23"
+            ],
+            "inference_ids": [
+              "IF-16",
+              "IF-17",
+              "IF-18",
+              "IF-19"
+            ]
+          }
+        },
+        {
+          "group_id": "PG-06",
+          "label": "对应边比例与结论",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-08",
+              "FN-12",
+              "FN-16",
+              "FN-17",
+              "FN-18",
+              "FN-19",
+              "FN-20",
+              "FN-21",
+              "FN-22",
+              "FN-23"
+            ],
+            "inference_ids": [
+              "IF-16",
+              "IF-17",
+              "IF-18",
+              "IF-19"
+            ]
+          }
+        }
+      ],
+      "expandable_region_ids": [
+        "SR-04",
+        "SR-05"
+      ],
+      "resource_ids": [
+        "RES5",
+        "RES6"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "resource_id": "RES1",
+      "kind": "voice_seed",
+      "beat_ref": "BT-01",
+      "source": "authored",
+      "content": "先圈出等腰、等角、翻折三类条件。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04"
+        ],
+        "inference_ids": []
+      }
+    },
+    {
+      "resource_id": "RES2",
+      "kind": "diagnostic_probe",
+      "beat_ref": "BT-02",
+      "source": "authored",
+      "content": "这里是哪种结构？指出构成第一组子母型的两个三角形。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-05",
+          "FN-06"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES3",
+      "kind": "voice_seed",
+      "beat_ref": "BT-04",
+      "source": "authored",
+      "content": "这里又出现了哪一组子母型？指出两个三角形即可。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04",
+          "FN-12",
+          "FN-13",
+          "FN-14"
+        ],
+        "inference_ids": [
+          "IF-09",
+          "IF-10"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES4",
+      "kind": "support",
+      "beat_ref": "BT-04",
+      "source": "authored",
+      "content": "把 AO、DO 的比例计算与 BO、OE 的线段差分开写。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-08",
+          "FN-10",
+          "FN-11",
+          "FN-12",
+          "FN-14",
+          "FN-15",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-11",
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES5",
+      "kind": "diagnostic_probe",
+      "beat_ref": "BT-05",
+      "source": "authored",
+      "content": "最后是哪种蝶形相似？指出对应的两个三角形。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-08",
+          "FN-12",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-16",
+          "IF-17",
+          "IF-18",
+          "IF-19"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES6",
+      "kind": "voice_seed",
+      "beat_ref": "BT-06",
+      "source": "authored",
+      "content": "请用三句话复述两组子母型相似和蝶形相似各自解决了什么。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-05",
+          "FN-06",
+          "FN-08",
+          "FN-13",
+          "FN-14",
+          "FN-20",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-02",
+          "IF-10",
+          "IF-17",
+          "IF-19"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES7",
+      "kind": "workspace",
+      "beat_ref": "BT-04",
+      "source": "authored",
+      "content": "{\"presentation\":\"construct-second-similarity-workspace\",\"constructions\":[{\"type\":\"intersect-lines\",\"firstLineId\":\"segment-AE\",\"secondLineId\":\"segment-BC\",\"outputPointId\":\"pt-O\"},{\"type\":\"construct-carrier\",\"fromPointId\":\"A\",\"toPointId\":\"pt-O\",\"outputLineId\":\"seg-AO\"},{\"type\":\"construct-carrier\",\"fromPointId\":\"D\",\"toPointId\":\"pt-O\",\"outputLineId\":\"seg-DO\"},{\"type\":\"construct-carrier\",\"fromPointId\":\"B\",\"toPointId\":\"pt-O\",\"outputLineId\":\"seg-BO\"},{\"type\":\"construct-carrier\",\"fromPointId\":\"pt-O\",\"toPointId\":\"E\",\"outputLineId\":\"seg-OE\"}]}",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-12"
+        ],
+        "inference_ids": [
+          "IF-08"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES8",
+      "kind": "action_template",
+      "beat_ref": "BT-04",
+      "source": "authored",
+      "content": "{\"actionId\":\"tp:TP-SMV-009:1:mark-segment-values-bt04\",\"sourceStepId\":\"BT-04\",\"kind\":\"mark-segment-values\",\"version\":1,\"title\":\"标注第二组子母型的四段长度\",\"instruction\":\"在画布上依次选中 AO、DO、BO、OE，并填入由 △DAO∽△DBA 求得的长。\",\"input\":{\"labels\":[],\"availableSegmentIds\":[\"seg-AO\",\"seg-DO\",\"seg-BO\",\"seg-OE\"],\"requiredCount\":4,\"autoFocusSequence\":true},\"teachingInput\":{\"labels\":[{\"segmentId\":\"seg-AO\",\"displayName\":\"AO\",\"valueLatex\":\"\\\\frac{16}{5}\"},{\"segmentId\":\"seg-DO\",\"displayName\":\"DO\",\"valueLatex\":\"\\\\frac{32}{15}\"},{\"segmentId\":\"seg-BO\",\"displayName\":\"BO\",\"valueLatex\":\"\\\\frac{6}{5}\"},{\"segmentId\":\"seg-OE\",\"displayName\":\"OE\",\"valueLatex\":\"\\\\frac{4}{5}\"}]},\"capabilities\":[\"similarity.mark-known-segments\"],\"answerSlots\":[{\"id\":\"values\",\"label\":\"四段长度\",\"kind\":\"text\",\"required\":true,\"placeholder\":\"选中线段并填入长度\"}],\"submitOnComplete\":true}",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      }
+    }
+  ],
+  "build_provenance": {
+    "provider": "deterministic-rules",
+    "model_id": "none",
+    "workflow_version": "prepare-plan-v7-candidate/1",
+    "run_id": "candidate-TP-SMV-009-v12",
+    "built_at": "2026-09-07T13:37:57.271Z",
+    "runtime_registry_version": "action-runtime-registry/v5@32f7ae75600a",
+    "compiler_version": "tutor-plan-compiler/v5@0.1.0",
+    "materializer_version": "tutor-plan-materializer/v5@0.1.0"
+  },
+  "content_hash": "sha256:a491b3facacafbe031f50f697652df6d47ff369a0af12b35137921574f0af20b",
+  "artifact_uri": "artifact://tutor-plan/TP-SMV-009@v12",
+  "resource_bindings": [
+    {
+      "binding_id": "VB-01",
+      "binding_kind": "geometry",
+      "purpose": "BT-04 复用 RES7 批准构造输出 pt-O；按既有构造顺序消费",
+      "geometry_target": "pt-O",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "pt-O"
+      ]
+    },
+    {
+      "binding_id": "VB-02",
+      "binding_kind": "geometry",
+      "purpose": "BT-04 复用 RES7 批准构造输出 seg-AO；按既有构造顺序消费",
+      "geometry_target": "seg-AO",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "seg-AO"
+      ]
+    },
+    {
+      "binding_id": "VB-03",
+      "binding_kind": "geometry",
+      "purpose": "BT-04 复用 RES7 批准构造输出 seg-DO；按既有构造顺序消费",
+      "geometry_target": "seg-DO",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "seg-DO"
+      ]
+    },
+    {
+      "binding_id": "VB-04",
+      "binding_kind": "geometry",
+      "purpose": "BT-04 复用 RES7 批准构造输出 seg-BO；按既有构造顺序消费",
+      "geometry_target": "seg-BO",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "seg-BO"
+      ]
+    },
+    {
+      "binding_id": "VB-05",
+      "binding_kind": "geometry",
+      "purpose": "BT-04 复用 RES7 批准构造输出 seg-OE；按既有构造顺序消费",
+      "geometry_target": "seg-OE",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "seg-OE"
+      ]
+    },
+    {
+      "binding_id": "VB-06",
+      "binding_kind": "explanation",
+      "purpose": "BT-04 解释依据 IF-08（仅上下文扩充，不推进 Gate）",
+      "basis_refs": {
+        "fact_ids": [
+          "FN-02",
+          "FN-04",
+          "FN-12"
+        ],
+        "inference_ids": [
+          "IF-08"
+        ]
+      },
+      "presentation_resource": "RES7"
+    },
+    {
+      "binding_id": "VB-07",
+      "binding_kind": "explanation",
+      "purpose": "BT-04 解释依据 IF-09（仅上下文扩充，不推进 Gate）",
+      "basis_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04",
+          "FN-12",
+          "FN-13"
+        ],
+        "inference_ids": [
+          "IF-09"
+        ]
+      },
+      "presentation_resource": "RES4"
+    },
+    {
+      "binding_id": "VB-08",
+      "binding_kind": "board",
+      "purpose": "BT-04 GT-04 通过后才允许揭示第二组相似条目；不宣称数值填写证明推理掌握",
+      "board_entry_id": "BE-14",
+      "reveal_after_gate": {
+        "protocol_id": "PR-SMV-001",
+        "gate_id": "GT-04"
+      }
+    }
+  ]
+}

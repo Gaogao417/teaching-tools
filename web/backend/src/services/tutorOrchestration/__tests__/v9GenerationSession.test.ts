@@ -316,6 +316,16 @@ test("B1 online prompt assembly carries the student question and already-present
   assert.ok(JSON.stringify(presenter.payloads).includes(question), "payload must carry the student question verbatim");
   assert.equal(second.student_stuck_point?.text, question);
   assert.ok(second.already_presented.length >= 1, "after a delivered presentation already_presented must be non-empty");
+  const nextCursor = orchestrator.rebuildRuntimeState().presentation_cursor;
+  assert.equal(nextCursor.status, "awaiting_browser");
+  orchestrator.reportPresentationOutcome({sequence_id:nextCursor.sequence_id,ordinal:nextCursor.ordinal,action_id:nextCursor.action_id,outcome:"presented",client_request_id:"cr-r1-second-ended"});
+  const followup = "为什么折叠以后这两个角相等？";
+  await orchestrator.submitStudentInput({input:{kind:"utterance",channel:"assistance",text:followup},client_request_id:"cr-r1-second-question"},{});
+  assert.equal(orchestrator.hasPendingGeneration(),true);
+  await orchestrator.drivePendingGeneration();
+  const third = presenter.payloads.at(-1) as {student_stuck_point:{text:string}};
+  assert.equal(third.student_stuck_point.text,followup,"revision cutoff must retain the latest question after multi-event batches");
+
 });
 
 test("B3 resume with a changed presenter pin is refused fail-closed (explicit error, zero events, zero model calls)", async () => {
@@ -403,3 +413,17 @@ test("B4 retry_recovery without any failure stays refused (fail closed)", async 
 
 void sqlitePath;
 void at;
+
+
+test("R2 retry_recovery preserves a pending request and its frozen budget instead of cancelling it", async () => {
+  const presenter = new ScriptedPresenterPort();
+  const session = startV9(freshSessionId(), presenter);
+  const before = structuredClone(session.rebuildRuntimeState().generation_requests);
+  const turn = await session.submitStudentInput({ input: {kind: "control", command: "retry_recovery"}, client_request_id: "r2-pending-recovery" }, {});
+  assert.equal(turn.presentations[0]?.generation?.status, "pending");
+  assert.deepEqual(session.rebuildRuntimeState().generation_requests, before);
+  assert.equal(presenter.calls, 0);
+  assert.equal(session.events.filter(event => String(event.event_type) === "presentation_generation_invalidated").length, 0);
+  assert.equal((await session.drivePendingGeneration()).kind, "committed");
+  assert.equal(presenter.calls, 1);
+});

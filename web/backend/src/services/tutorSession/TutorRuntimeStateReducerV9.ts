@@ -121,17 +121,21 @@ function applyGenerationEventV9(state: TutorRuntimeStateV9, event: StoredV9Event
     }
     case "presentation_generation_attempt_started": {
       const record = requirePendingRecord(generation.requests, next.generation_slot, payload, event.sequence);
-      if (payload.attempt !== record.attempt && payload.attempt !== record.attempt + 1) {
+      // requested(1,1) is only the reservation baseline. Every subsequent
+      // ownership claim represents another consumed call, including takeover.
+      const firstClaim = record.attempt === 1 && record.epoch === 1
+        && payload.attempt === 1 && payload.epoch === 2;
+      if (!firstClaim && payload.attempt !== record.attempt + 1) {
         throw new RuntimeStateReducerV9Error(
           "GENERATION_BUDGET_INVALID",
-          `sequence ${event.sequence}: attempt_started attempt=${payload.attempt} is neither the registered attempt ${record.attempt} nor its successor (budget consumption must be atomic and monotonic)`,
+          `sequence ${event.sequence}: attempt_started attempt=${payload.attempt} must consume the successor of registered attempt ${record.attempt} (only initial reservation 1/1 → claim 1/2 may retain attempt)`,
           event.sequence,
         );
       }
-      if (payload.epoch < payload.attempt) {
+      if (payload.epoch < payload.attempt || payload.epoch <= record.epoch) {
         throw new RuntimeStateReducerV9Error(
           "GENERATION_BUDGET_INVALID",
-          `sequence ${event.sequence}: epoch ${payload.epoch} must fence attempt ${payload.attempt}`,
+          `sequence ${event.sequence}: epoch ${payload.epoch} must exceed previous epoch ${record.epoch} and fence attempt ${payload.attempt}`,
           event.sequence,
         );
       }

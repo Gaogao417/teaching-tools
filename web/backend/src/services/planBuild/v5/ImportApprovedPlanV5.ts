@@ -1,3 +1,5 @@
+import { validatePlanV7WorkspaceBindings } from "../v7/ValidatePlanV7WorkspaceBindings";
+import type { WorkspacePresentationCatalogV5 } from "../../tutorSession/WorkspacePresentationCatalogV5";
 /**
  * F4 多分辨率补救（2026-09-01）tools plan importer（planning/v5）：Runtime 侧
  * 消费 Approved 多分辨率 Plan 的唯一入口。
@@ -61,7 +63,7 @@ export type ImportPlanV5Result =
 export function importApprovedPlanV5(
   deps: CanonicalRegistries,
   tpId: string,
-  options: { snapshot?: ReturnType<typeof buildRuntimeRegistrySnapshot> } = {},
+  options: { snapshot?: ReturnType<typeof buildRuntimeRegistrySnapshot>; workspaceCatalog?: WorkspacePresentationCatalogV5 } = {},
 ): ImportPlanV5Result {
   const errors: string[] = [];
   // v5 供应链 fail closed：loader 层启用 canonical schema 校验 + registry 锚定三方对账
@@ -116,9 +118,7 @@ export function importApprovedPlanV5(
   const materialized = materializeTutorPlanV5(payload, inputs);
   if (!materialized.ok) return { ok: false, errors: materialized.errors };
 
-  return {
-    ok: true,
-    imported: {
+  const imported: ImportedApprovedPlanV5 = {
       plan: payload,
       truth: truth.payload,
       approachSet: approachSet.payload,
@@ -129,6 +129,10 @@ export function importApprovedPlanV5(
       projection_hash: materialized.projection_hash,
       materializer_version: MATERIALIZER_V5_VERSION,
       runtime_registry_version: snapshot.runtime_registry_version,
-    },
   };
+  try {
+    const bindingErrors = validatePlanV7WorkspaceBindings(imported, options.workspaceCatalog);
+    if (bindingErrors.length) return { ok: false, errors: bindingErrors };
+  } catch (error) { return { ok: false, errors: [String(error)] }; }
+  return { ok: true, imported };
 }

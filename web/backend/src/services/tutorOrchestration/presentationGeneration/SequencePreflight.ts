@@ -1,3 +1,4 @@
+import { registerWorkspaceExplanationFragmentsV5 } from "../../tutorSession/WorkspaceExplanationFragmentsV5";
 /**
  * SequencePreflight（F7 RT3 — 整段顺序依赖预演；动态板书事实链规格）。
  *
@@ -46,7 +47,12 @@ export function preflightPresentationSequence(args: {
   readonly catalog: WorkspacePresentationCatalogV5;
   readonly plan: CompiledPresentationPlanV4;
 }): PreflightResult {
-  let current = isolateFold(args.fold);
+  let current: WorkspaceFold;
+  try {
+    current = registerWorkspaceExplanationFragmentsV5(isolateFold(args.fold), args.plan);
+  } catch (error) {
+    throw new SequencePreflightError(0, args.plan.sequence_id, `fragment registration rejected: ${String(error)}`);
+  }
   for (const action of args.plan.actions) {
     if (action.kind !== "workspace" || !action.workspace_action) continue;
     const execution = executeWorkspacePresentationV5({
@@ -56,6 +62,7 @@ export function preflightPresentationSequence(args: {
         schema: "ai_teaching_workspace_surface_action/v1" as const,
         session_id: args.plan.session_id,
         ...action.workspace_action,
+        beat_id: args.plan.scope.kind === "approved" ? args.plan.scope.beat_id : args.plan.scope.anchor.beat_id,
       },
     });
     if (execution.status === "rejected") {

@@ -1,0 +1,10 @@
+{
+  "status": "PENDING_HUMAN_REVIEW",
+  "source": {
+    "artifact_id": "TP-SMV-009",
+    "version": "v11",
+    "content_hash": "sha256:5224d6164198c074e5aa50a0072eebbb01e07f35e14a212c3914315e7e950bd2"
+  },
+  "candidate_hash": "sha256:a491b3facacafbe031f50f697652df6d47ff369a0af12b35137921574f0af20b",
+  "note": "No approval inherited. Review this exact content_hash before publication; no registry was modified."
+}

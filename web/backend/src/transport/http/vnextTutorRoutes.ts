@@ -93,7 +93,7 @@ function vNextTaskIds(): string[] {
     .filter(Boolean);
 }
 
-function createApplication(): TutorRuntimeApplicationV7 {
+export function createApplication(): TutorRuntimeApplicationV7 {
   // F7 RT4：TUTOR_VNEXT_GENERATION=1 显式启用 v9 生成会话（presenter 端口注入；
   // 模型键缺失时端口构造成功、调用时如实 provider_failure——不以 stub 冒充）。
   // 缺省 off ⇒ v7 既有链零变化；snapshot 线格式本轮不变（generation 字段组合

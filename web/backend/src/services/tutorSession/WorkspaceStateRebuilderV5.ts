@@ -141,6 +141,10 @@ export function compareWorkspaceStatesSemantically(
   };
   compare("session_id", left.session_id, right.session_id);
   compare("revision", left.revision, right.revision);
+  compare("schema", left.schema, right.schema);
+  compare("solution_board.explanation_fragments",
+    left.schema === "ai_teaching_workspace_runtime_state/v2" ? left.solution_board.explanation_fragments : undefined,
+    right.schema === "ai_teaching_workspace_runtime_state/v2" ? right.solution_board.explanation_fragments : undefined);
   compare("geometry.committed_element_ids", left.geometry.committed_element_ids, right.geometry.committed_element_ids);
   compare("geometry.draft_element_ids", left.geometry.draft_element_ids, right.geometry.draft_element_ids);
   compare("geometry.interaction_mode", left.geometry.interaction_mode, right.geometry.interaction_mode);

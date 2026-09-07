@@ -8,10 +8,8 @@
  * input_digest/presenter_pin/私有判分——严格拒绝多余字段（shared
  * adaptivePresentationSnapshotFieldsSchema 判定）。
  *
- * 边界（S1 §1「当前在线边界」）：在线 parseSessionSnapshotHttp 仍拒绝候选新
- * 字段——组合字段 schema+projector+前端 decoder 属联合接线（P3，A/B 同一版本）。
- * 本模块是**服务端投影真源**：输入 state/v4，输出冻结字段形状；联合接线时
- * snapshot envelope 增补这两个字段并沿用同一判定（不再另造 DTO）。
+ * 正式 HTTP serializer V7HttpSnapshotProjector 在 v9 分支复用本投影，
+ * generation/scope 成对经过共享 HTTP parser 校验；GET 只读取重建状态。
  */
 import { adaptivePresentationSnapshotFieldsSchema } from "../../../../../shared/tutorHttpProfile";
 import type { TutorRuntimeStateV9 } from "../../tutorSession/TutorRuntimeStateReducerV9";

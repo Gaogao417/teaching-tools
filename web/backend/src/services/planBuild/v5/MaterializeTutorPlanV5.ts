@@ -52,6 +52,7 @@ export interface MaterializationV5Inputs {
 export type ValidationV5Outcome = { ok: true } | { ok: false; errors: string[] };
 
 export interface RuntimeProjectionV5 {
+  resource_bindings?: TutorPlanV5Payload["resource_bindings"];
   plan_ref: { artifact_id: string; version: string; content_hash: string };
   solution_graph_ref: { artifact_id: string; version: string; content_hash: string };
   default_resolution_profile_id: string;
@@ -250,6 +251,28 @@ export function validateApprovedPlanV5(
         errors.push(`protocol ${protocol.protocol_id} content_hash 与内容不一致（漂移或被篡改）`);
       }
       referencedProtocols.set(protocol.protocol_id, protocol);
+    }
+  }
+
+  // v7 bindings retain the Approved payload hash; cross-artifact refs resolve here.
+  for (const binding of plan.resource_bindings ?? []) {
+    if (binding.binding_kind === "board") {
+      const protocol = inputs.protocols.get(binding.reveal_after_gate.protocol_id);
+      if (!protocol?.beats.some(beat => beat.completion_evidence.gate?.gate_id === binding.reveal_after_gate.gate_id)) {
+        errors.push(`binding ${binding.binding_id}: unknown reveal gate ${binding.reveal_after_gate.gate_id}`);
+      }
+    }
+    if (binding.binding_kind === "explanation") {
+      for (const id of binding.basis_refs.fact_ids) {
+        if (!graph.facts.some(fact => fact.fact_id === id)) errors.push(`binding ${binding.binding_id}: unknown fact ${id}`);
+      }
+      for (const id of binding.basis_refs.inference_ids) {
+        const inference = graph.inferences.find(item => item.inference_id === id);
+        if (!inference) errors.push(`binding ${binding.binding_id}: unknown inference ${id}`);
+        else for (const factId of [...inference.premises, inference.conclusion]) {
+          if (!binding.basis_refs.fact_ids.includes(factId)) errors.push(`binding ${binding.binding_id}: inference ${id} missing basis fact ${factId}`);
+        }
+      }
     }
   }
 
@@ -599,6 +622,7 @@ export function projectApprovedPlanV5(
   inputs: MaterializationV5Inputs,
 ): { projection: RuntimeProjectionV5; projection_hash: string } {
   const projection: RuntimeProjectionV5 = {
+    ...(plan.schema === "ai_teaching_tutor_plan_bundle/v7" ? { resource_bindings: structuredClone(plan.resource_bindings ?? []) } : {}),
     plan_ref: {
       artifact_id: plan.artifact_id,
       version: plan.version,

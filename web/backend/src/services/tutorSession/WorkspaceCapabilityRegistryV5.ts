@@ -139,6 +139,7 @@ export type WorkspaceCapabilityEffect =
   | "geometry_foreground_tutor" // tutor 高亮（presentation-only，零状态效果）
   | "geometry_draft_student" // 学生构图/标注 → draft
   | "geometry_mark_known_student" // 学生标记已知线段（set-segment-label 草稿）
+  | "board_explain_tutor"
   | "board_reveal_tutor" // hidden→visible（reveal_scope/truth 边界校验）
   | "board_activate_tutor" // visible→active（至多一个 active）
   | "board_attempt_student" // attempt none→attempted
@@ -163,6 +164,7 @@ export interface WorkspaceCapabilitySpec {
 const UNLOCKED_MODES: readonly WorkspaceInteractionMode[] = ["free", "construction"];
 
 const REGISTRY: ReadonlyArray<WorkspaceCapabilitySpec> = [
+  { capability: "board.explain", surface: "solution_board", origin: "tutor", effect: "board_explain_tutor", allowedInteractionModes: UNLOCKED_MODES },
   { capability: "geometry.construct", surface: "geometry", origin: "tutor", effect: "geometry_construct_tutor", allowedInteractionModes: UNLOCKED_MODES },
   { capability: "geometry.annotate", surface: "geometry", origin: "tutor", effect: "geometry_annotate_tutor", allowedInteractionModes: UNLOCKED_MODES },
   { capability: "geometry.accept-draft", surface: "geometry", origin: "tutor", effect: "geometry_accept_draft_tutor", allowedInteractionModes: UNLOCKED_MODES },

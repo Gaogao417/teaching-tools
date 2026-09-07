@@ -87,7 +87,7 @@ import { db } from "../../db/database";
 import { WorkspaceRuntimeReducerError, type WorkspaceFold } from "./WorkspaceRuntimeReducerV5";
 import { foldWorkspaceV7Events } from "./WorkspaceRuntimeReducerV7";
 import { reconcileWorkspaceCatalogPin, type WorkspaceRebuildResult } from "./WorkspaceStateRebuilderV5";
-import { workspaceRuntimeStateV1Schema } from "../../../../shared/canonical";
+import { workspaceRuntimeStateV1Schema, workspaceRuntimeStateV2Schema } from "../../../../shared/canonical";
 import type { WorkspacePresentationCatalogV5, WorkspaceSeedOverlay } from "./WorkspacePresentationCatalogV5";
 
 /** v9 会话行事件读取（canonical v9 判定；v7/v6 行 → SESSION_VERSION_UNSUPPORTED）。 */
@@ -121,7 +121,7 @@ export function rebuildWorkspaceRuntimeStateV9(
     }
     throw error;
   }
-  const canonical = workspaceRuntimeStateV1Schema.safeParse(fold.state);
+  const canonical = (fold.state.schema === "ai_teaching_workspace_runtime_state/v2" ? workspaceRuntimeStateV2Schema : workspaceRuntimeStateV1Schema).safeParse(fold.state);
   if (!canonical.success) {
     throw new TutorSessionIntegrityV9Error(
       "CORRUPT_EVENT",

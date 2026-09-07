@@ -17,7 +17,7 @@
  * 不输出（不虚构；f3-scope-ledger「语义比较与 ephemeral 边界」）。
  */
 import type { z } from "zod";
-import { studentWorkspaceViewV1Schema } from "../../../../shared/canonical";
+import { studentWorkspaceViewV1Schema, studentWorkspaceViewV2Schema } from "../../../../shared/canonical";
 import { elementKindFromId } from "./WorkspaceCapabilityRegistryV5";
 import type { WorkspacePresentationCatalogV5 } from "./WorkspacePresentationCatalogV5";
 import type { WorkspaceRuntimeStateV5 } from "./WorkspaceRuntimeReducerV5";
@@ -131,4 +131,19 @@ export function projectStudentWorkspaceViewV5(
     );
   }
   return view;
+}
+
+/** v9 student-safe projection: planned bodies stay server-side until applied. */
+export function projectStudentWorkspaceViewV9(
+  workspace: WorkspaceRuntimeStateV5,
+  catalog: WorkspacePresentationCatalogV5,
+  participation: MainlineParticipationSlice,
+): z.infer<typeof studentWorkspaceViewV2Schema> {
+  const base = projectStudentWorkspaceViewV5(workspace, catalog, participation);
+  const fragments = workspace.schema === "ai_teaching_workspace_runtime_state/v2"
+    ? workspace.solution_board.explanation_fragments ?? [] : [];
+  return studentWorkspaceViewV2Schema.parse({ ...base, schema: "ai_teaching_student_workspace_view/v2",
+    solution_board: { ...base.solution_board, fragments: fragments.filter((fragment) => fragment.visible)
+      .map(({ visible: _visible, origin_generation: _origin, ...content }) => content) },
+  });
 }

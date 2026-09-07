@@ -1,3 +1,4 @@
+import { registerWorkspaceExplanationFragmentsV5 } from "./WorkspaceExplanationFragmentsV5";
 /**
  * WorkspaceRuntimeReducer v7（F7 Step 4 — v7 事件流的 workspace fold）。
  *
@@ -19,7 +20,7 @@
  *   等于当前）；validated/delivered/outcome/superseded/student_input_recorded
  *   零 workspace 状态效果。
  */
-import { workspaceRuntimeStateV1Schema } from "../../../../shared/canonical";
+import { workspaceRuntimeStateV1Schema, workspaceRuntimeStateV2Schema } from "../../../../shared/canonical";
 import type { StoredV7Event, V7PresentationOrderedAction, V7StudentWorkspaceCommandRecordedPayload } from "./TutorSessionEventV7";
 import { verifyCommittedStream } from "./kernel/RuntimeStateRebuilderCore";
 import { readSessionEvents } from "./kernel/TutorSessionStoreCore";
@@ -109,7 +110,7 @@ export function applyWorkspaceV7Event(
       return withLineage({ state: fold.state, context }, lineage);
     }
     case "presentation_sequence_planned": {
-      const payload = event.payload as unknown as { sequence_id: string; beat_id: string; actions: V7PresentationOrderedAction[] };
+      const payload = event.payload as unknown as { sequence_id: string; beat_id?: string; scope?: { kind: string; beat_id?: string; anchor?: { beat_id: string } }; actions: V7PresentationOrderedAction[] };
       if (lineage.sequences.has(payload.sequence_id)) {
         throw new WorkspaceRuntimeReducerError(
           "WORKSPACE_STREAM_INVARIANT",
@@ -118,8 +119,10 @@ export function applyWorkspaceV7Event(
         );
       }
       const sequences = new Map(lineage.sequences);
-      sequences.set(payload.sequence_id, { actions: payload.actions, beatId: payload.beat_id, appliedOrdinals: new Set<number>() });
-      const delegated = applyWorkspaceV5Event(fold, asV5Event(event), catalog);
+      sequences.set(payload.sequence_id, { actions: payload.actions, beatId: payload.beat_id ?? payload.scope?.beat_id ?? payload.scope?.anchor?.beat_id ?? "", appliedOrdinals: new Set<number>() });
+      const prepared = registerWorkspaceExplanationFragmentsV5(fold,
+        event.payload as unknown as Parameters<typeof registerWorkspaceExplanationFragmentsV5>[1]);
+      const delegated = applyWorkspaceV5Event(prepared, asV5Event(event), catalog);
       return withLineage(delegated, { sequences });
     }
     case "presentation_action_applied": {
@@ -277,7 +280,7 @@ export function rebuildWorkspaceRuntimeStateV7(
     }
     throw error;
   }
-  const canonical = workspaceRuntimeStateV1Schema.safeParse(fold.state);
+  const canonical = (fold.state.schema === "ai_teaching_workspace_runtime_state/v2" ? workspaceRuntimeStateV2Schema : workspaceRuntimeStateV1Schema).safeParse(fold.state);
   if (!canonical.success) {
     throw new TutorSessionIntegrityV7Error(
       "CORRUPT_EVENT",

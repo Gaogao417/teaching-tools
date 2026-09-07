@@ -6,11 +6,11 @@
  * 1. v9 start/resume 往返（presenter pin 必填；event_schema='v9'；state/v4）；
  *    v7 会话行 → SESSION_VERSION_UNSUPPORTED（半升级组合显式拒绝）；
  *    session_started 缺 presenter pin → 初始态 fail closed；
- * 2. 预约→调用→提交：requested(attempt=1/epoch=1) → attempt_started →
+ * 2. 预约→调用→提交：requested(attempt=1/epoch=1) → attempt_started(1/epoch=2) →
  *    planned(v4, generation) ⇒ request committed(sequence_id) + slot 原子回 idle
  *    （同一事件收口）；rebuild 幂等（零模型参与的纯重放）；
  * 3. 超时自动重试：attempt_started(1) → retry_scheduled(1, waiting_retry,
- *    retry_at) → attempt_started(2/epoch=2) → planned(attempt=2) 提交；
+ *    retry_at) → attempt_started(2/epoch=3) → planned(attempt=2) 提交；
  * 4. 预算耗尽：retry 后 attempt_started(2) → failed(RETRY_EXHAUSTED,
  *    attempt=max) ⇒ slot=failed；attempt<max 时 RETRY_EXHAUSTED 被拒；
  * 5. 取消：pending → invalidated(cancel_reason) ⇒ request cancelled + slot idle；
@@ -247,11 +247,13 @@ test("v7 session rows are refused by the v9 reader (no half-upgraded online chai
 test("reserve -> call -> commit: planned(v4+generation) commits the request and atomically clears the slot", () => {
   const sessionId = freshSessionId();
   const kernel = startKernel(sessionId);
-  const request = requestSnapshot(kernel);
+  const reservation = requestSnapshot(kernel);
+  // Reservation is a budget baseline; first worker ownership gets a new epoch.
+  const request = { ...reservation, epoch: 2 };
   kernel.append(kernel.revision, [
     {
       event_type: "presentation_generation_requested",
-      payload: request,
+      payload: reservation,
       occurred_at: at(),
       causation_sequence: 1,
       idempotency_key: `gr:${sessionId}:1`,
@@ -264,13 +266,15 @@ test("reserve -> call -> commit: planned(v4+generation) commits the request and 
   kernel.append(kernel.revision, [
     {
       event_type: "presentation_generation_attempt_started",
-      payload: { ...request, attempt: 1, epoch: 1 },
+      payload: { ...request, attempt: 1, epoch: 2 },
       occurred_at: at(),
       causation_sequence: 1,
       idempotency_key: `ga:${sessionId}:1:1`,
     },
   ]);
 
+  assert.equal(kernel.state.generation_requests[0].attempt, 1);
+  assert.equal(kernel.state.generation_requests[0].epoch, 2);
   const planned = plannedPayloadV4(kernel, request);
   kernel.append(kernel.revision, [
     {
@@ -294,12 +298,48 @@ test("reserve -> call -> commit: planned(v4+generation) commits the request and 
   assert.equal(parity.equal, true, JSON.stringify(parity.differences));
 });
 
+test("attempt ownership requires a strictly newer epoch; equal/backward claims append nothing", () => {
+  const sessionId = freshSessionId();
+  const kernel = startKernel(sessionId);
+  const reservation = requestSnapshot(kernel);
+  kernel.append(kernel.revision, [
+    { event_type: "presentation_generation_requested", payload: reservation, occurred_at: at(), causation_sequence: 1, idempotency_key: `gr:${sessionId}:1` },
+  ]);
+  function rejectClaim(epoch: number, attempt = 1) {
+    const before = structuredClone(kernel.state);
+    const revision = kernel.revision;
+    expectReducerFailure(() => kernel.append(revision, [
+      { event_type: "presentation_generation_attempt_started", payload: { ...reservation, epoch, attempt }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga-reject:${sessionId}:${revision}:${epoch}` },
+    ]), "GENERATION_BUDGET_INVALID");
+    assert.equal(kernel.revision, revision);
+    assert.deepEqual(kernel.state, before);
+    assert.deepEqual(TutorSessionKernelV9.resume(sessionId, registryProvider()).state, before);
+  }
+  rejectClaim(1); // Even the first claim cannot reuse the reservation epoch.
+  kernel.append(kernel.revision, [
+    { event_type: "presentation_generation_attempt_started", payload: { ...reservation, epoch: 2 }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:2` },
+  ]);
+  rejectClaim(2); // Same epoch under a different event identity is not another owner.
+  rejectClaim(1); // Fencing cannot roll back to the reservation token.
+  rejectClaim(3); // New epoch alone cannot buy another call without consuming budget.
+  assert.equal(kernel.state.generation_requests[0].attempt, 1);
+  assert.equal(kernel.state.generation_requests[0].epoch, 2);
+  kernel.append(kernel.revision, [
+    { event_type: "presentation_generation_attempt_started", payload: { ...reservation, attempt: 2, epoch: 3 }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:2:3` },
+  ]);
+  rejectClaim(4, 2); // Takeover at a later attempt must consume its successor too.
+  assert.equal(kernel.state.generation_requests[0].attempt, 2);
+  assert.equal(kernel.state.generation_requests[0].epoch, 3);
+});
+
 test("timeout auto-retry: waiting_retry then attempt 2 commits (same request, new attempt/epoch)", () => {
   const sessionId = freshSessionId();
   const kernel = startKernel(sessionId);
-  const request = requestSnapshot(kernel);
+  const reservation = requestSnapshot(kernel);
+  // Reservation is a budget baseline; first worker ownership gets a new epoch.
+  const request = { ...reservation, epoch: 2 };
   kernel.append(kernel.revision, [
-    { event_type: "presentation_generation_requested", payload: request, occurred_at: at(), causation_sequence: 1, idempotency_key: `gr:${sessionId}:1` },
+    { event_type: "presentation_generation_requested", payload: reservation, occurred_at: at(), causation_sequence: 1, idempotency_key: `gr:${sessionId}:1` },
     { event_type: "presentation_generation_attempt_started", payload: { ...request }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:1` },
   ]);
   const retryAt = new Date(Date.parse(at()) + 1_000).toISOString();
@@ -315,12 +355,12 @@ test("timeout auto-retry: waiting_retry then attempt 2 commits (same request, ne
   assert.equal(kernel.state.generation_requests[0].phase, "waiting_retry");
   assert.equal(kernel.state.generation_requests[0].retry_at, retryAt);
 
-  const attempt2 = { ...request, attempt: 2, epoch: 2 };
+  const attempt2 = { ...request, attempt: 2, epoch: 3 };
   kernel.append(kernel.revision, [
     { event_type: "presentation_generation_attempt_started", payload: attempt2, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:2` },
   ]);
   assert.equal(kernel.state.generation_requests[0].attempt, 2);
-  assert.equal(kernel.state.generation_requests[0].epoch, 2);
+  assert.equal(kernel.state.generation_requests[0].epoch, 3);
 
   const planned = plannedPayloadV4(kernel, attempt2);
   kernel.append(kernel.revision, [
@@ -334,9 +374,11 @@ test("timeout auto-retry: waiting_retry then attempt 2 commits (same request, ne
 test("RETRY_EXHAUSTED caps the budget: failure at max attempts only", () => {
   const sessionId = freshSessionId();
   const kernel = startKernel(sessionId);
-  const request = requestSnapshot(kernel);
+  const reservation = requestSnapshot(kernel);
+  // Reservation is a budget baseline; first worker ownership gets a new epoch.
+  const request = { ...reservation, epoch: 2 };
   kernel.append(kernel.revision, [
-    { event_type: "presentation_generation_requested", payload: request, occurred_at: at(), causation_sequence: 1, idempotency_key: `gr:${sessionId}:1` },
+    { event_type: "presentation_generation_requested", payload: reservation, occurred_at: at(), causation_sequence: 1, idempotency_key: `gr:${sessionId}:1` },
     { event_type: "presentation_generation_attempt_started", payload: { ...request }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:1` },
   ]);
   // attempt 1 失败但预算未耗尽 → RETRY_EXHAUSTED 非法（只能先 retry 或以他类失败）。
@@ -356,15 +398,15 @@ test("RETRY_EXHAUSTED caps the budget: failure at max attempts only", () => {
       payload: { ...request, phase: "waiting_retry", retry_at: at() },
       occurred_at: at(), causation_sequence: 1, idempotency_key: `grs:${sessionId}:1`,
     },
-    { event_type: "presentation_generation_attempt_started", payload: { ...request, attempt: 2, epoch: 2 }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:2` },
+    { event_type: "presentation_generation_attempt_started", payload: { ...request, attempt: 2, epoch: 3 }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:2` },
     {
       event_type: "presentation_generation_retry_scheduled",
-      payload: { ...request, attempt: 2, epoch: 2, phase: "waiting_retry", retry_at: at() },
+      payload: { ...request, attempt: 2, epoch: 3, phase: "waiting_retry", retry_at: at() },
       occurred_at: at(), causation_sequence: 1, idempotency_key: `grs:${sessionId}:2`,
     },
-    { event_type: "presentation_generation_attempt_started", payload: { ...request, attempt: 3, epoch: 3 }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:3` },
+    { event_type: "presentation_generation_attempt_started", payload: { ...request, attempt: 3, epoch: 4 }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:3` },
   ]);
-  const exhausted = { ...request, attempt: 3, epoch: 3, status: "failed" as const, error_class: "RETRY_EXHAUSTED" };
+  const exhausted = { ...request, attempt: 3, epoch: 4, status: "failed" as const, error_class: "RETRY_EXHAUSTED" };
   delete exhausted.phase;
   kernel.append(kernel.revision, [
     { event_type: "presentation_generation_failed", payload: exhausted, occurred_at: at(), causation_sequence: 1, idempotency_key: `gf:${sessionId}:1:3` },
@@ -409,19 +451,21 @@ test("cancellation is a normal control outcome: invalidated clears the slot, lat
 test("fencing: planned candidate with stale attempt/epoch or drifted pin/digest never commits", () => {
   const sessionId = freshSessionId();
   const kernel = startKernel(sessionId);
-  const request = requestSnapshot(kernel);
+  const reservation = requestSnapshot(kernel);
+  // Reservation is a budget baseline; first worker ownership gets a new epoch.
+  const request = { ...reservation, epoch: 2 };
   kernel.append(kernel.revision, [
-    { event_type: "presentation_generation_requested", payload: request, occurred_at: at(), causation_sequence: 1, idempotency_key: `gr:${sessionId}:1` },
+    { event_type: "presentation_generation_requested", payload: reservation, occurred_at: at(), causation_sequence: 1, idempotency_key: `gr:${sessionId}:1` },
     { event_type: "presentation_generation_attempt_started", payload: { ...request }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:1` },
     {
       event_type: "presentation_generation_retry_scheduled",
       payload: { ...request, phase: "waiting_retry", retry_at: at() },
       occurred_at: at(), causation_sequence: 1, idempotency_key: `grs:${sessionId}:1`,
     },
-    { event_type: "presentation_generation_attempt_started", payload: { ...request, attempt: 2, epoch: 2 }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:2` },
+    { event_type: "presentation_generation_attempt_started", payload: { ...request, attempt: 2, epoch: 3 }, occurred_at: at(), causation_sequence: 1, idempotency_key: `ga:${sessionId}:1:2` },
   ]);
-  // 旧 epoch=1 的候选在 epoch=2 后提交 → GENERATION_SLOT_MISMATCH 零提交。
-  const stale = plannedPayloadV4(kernel, { ...request, attempt: 1, epoch: 1 });
+  // 旧 epoch=2 的候选在 epoch=3 后提交 → GENERATION_SLOT_MISMATCH 零提交。
+  const stale = plannedPayloadV4(kernel, { ...request, attempt: 1, epoch: 2 });
   expectReducerFailure(
     () => kernel.append(kernel.revision, [
       { event_type: "presentation_sequence_planned", payload: stale, occurred_at: at(), causation_sequence: 1, idempotency_key: `ps-stale:${sessionId}` },
@@ -429,7 +473,7 @@ test("fencing: planned candidate with stale attempt/epoch or drifted pin/digest 
     "GENERATION_SLOT_MISMATCH",
   );
   // pin/digest 漂移的伪造候选 → GENERATION_REQUEST_STATE_INVALID。
-  const forged = plannedPayloadV4(kernel, { ...request, attempt: 2, epoch: 2, input_digest: SHA("forged") });
+  const forged = plannedPayloadV4(kernel, { ...request, attempt: 2, epoch: 3, input_digest: SHA("forged") });
   expectReducerFailure(
     () => kernel.append(kernel.revision, [
       { event_type: "presentation_sequence_planned", payload: forged, occurred_at: at(), causation_sequence: 1, idempotency_key: `ps-forged:${sessionId}` },

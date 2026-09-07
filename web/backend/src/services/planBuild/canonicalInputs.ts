@@ -27,6 +27,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
 
+import type { z } from "zod";
+import { tutorPlanBundleV7Schema } from "../../../../shared/canonical";
+
 import { validatePayload } from "../../../../shared/canonical";
 
 const CONTENT_HASH_EXCLUDED_BASE = new Set([
@@ -459,7 +462,9 @@ export interface PlanResourceV5 {
 }
 
 export interface TutorPlanV5Payload {
-  schema: "ai_teaching_tutor_plan_bundle/v5";
+  /** Historical API name; consumes frozen v5 and v7 without schema conversion. */
+  schema: "ai_teaching_tutor_plan_bundle/v5" | "ai_teaching_tutor_plan_bundle/v7";
+  resource_bindings?: z.infer<typeof tutorPlanBundleV7Schema>["resource_bindings"];
   artifact_id: string;
   version: string;
   status: string;
@@ -595,6 +600,15 @@ function loadCurrentApproved<T extends { content_hash: string; status: string; s
   const current = registry.current;
   const payload = readVersionPayload<T>(registryRoot, artifactId, current);
   if (!payload) return { ok: false, errors: [`${artifactId}@${current}: 版本文件缺失`] };
+  // version/identity are not covered by the content hash exclusion rules.
+  // Compare the actual payload to the registry location as well as its hash.
+  if (options.anchored) {
+    const identity = payload as unknown as Record<string, unknown>;
+    const id = identity.artifact_id ?? identity.graph_id ?? identity.protocol_id;
+    if (id !== artifactId || identity.version !== current) {
+      return { ok: false, errors: [`${artifactId}@${current}: payload identity/version disagrees with registry`] };
+    }
+  }
   if (payload.status !== "Approved") {
     return { ok: false, errors: [`${artifactId}@${current}: status=${payload.status}，只有 Approved 可消费`] };
   }
@@ -800,7 +814,7 @@ export function loadCurrentPlanV4(
 /**
  * F4 多分辨率补救（2026-09-01）：装载 current Approved TutorPlan v5
  * （planning/v5 resolution profiles → chunk graph → regions → fine refs）。
- * 与 v4 按 schema 常量分道（同 v3/v4 先例），互不误读对方的 current_version。
+ * 历史函数名保留；接受冻结 v7，保留原 schema、绑定与 hash，拒绝 v6。
  */
 export function loadCurrentPlanV5(
   inputs: CanonicalRegistries,
@@ -813,10 +827,11 @@ export function loadCurrentPlanV5(
     { anchored: inputs.anchored },
   );
   if (!result.ok) return result;
-  if (result.payload.schema !== "ai_teaching_tutor_plan_bundle/v5") {
+  if (result.payload.schema !== "ai_teaching_tutor_plan_bundle/v5"
+    && result.payload.schema !== "ai_teaching_tutor_plan_bundle/v7") {
     return {
       ok: false,
-      errors: [`${tpId}: 期望 tutor_plan_bundle/v5（F4 多分辨率供应链只开放 v5），实际 ${result.payload.schema}`],
+      errors: [`${tpId}: 期望 tutor_plan_bundle/v5 或 v7（v6 不属于冻结消费链），实际 ${result.payload.schema}`],
     };
   }
   return result;

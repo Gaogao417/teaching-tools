@@ -439,7 +439,7 @@ test("preflight: voice-only segment passes with zero workspace effects", () => {
   assert.equal(result.resultingWorkspaceRevision, fold.state.revision);
 });
 
-test("preflight: unregistered capability (board.explain) fails closed on an isolated fold", () => {
+test("preflight: board.explain without committed decision causation fails closed on an isolated fold", () => {
   const draft = draftOf([
     { type: "speech", text: "记一条关系。", basis_refs: ["FN-14"] },
     { type: "tool_intent", tool: "board.explain", args: { binding_ref: "VB-02", params: { note_kind: "relation_note" } } },
@@ -448,7 +448,7 @@ test("preflight: unregistered capability (board.explain) fails closed on an isol
   const fold = foldModule.initialWorkspaceFold(SESSION, golden.catalog);
   assert.throws(
     () => preflightPresentationSequence({ fold, catalog: golden.catalog, plan: compiled }),
-    (error: unknown) => error instanceof Error && /capability/.test(error.message),
+    (error: unknown) => error instanceof Error && /wrong-decision-causation/.test(error.message),
   );
   // 真实 fold 零污染（隔离副本预演）。
   assert.equal(fold.state.revision, 0);
