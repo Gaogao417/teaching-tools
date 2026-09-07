@@ -1,0 +1,74 @@
+{
+  "$comment": "F7 RT4 生成状态 HTTP 投影正反例（B 轨服务端真源 GenerationSnapshotProjection.ts 产出；A 轨 decoder 与服务端同一版本消费）。字段契约 = S1 冻结 adaptivePresentationSnapshotFieldsSchema（web/shared/tutorHttpProfile.ts）。联合接线（P3）时 snapshot envelope 增补 generation+scope 两字段；此前在线 parser 拒绝候选新字段的行为保持不变（S1 §1）。positive = 服务端投影合法输出；negative = 投影/decoder 必须拒绝（不下发 epoch/reservation_revision/input_digest/presenter_pin；running 带 retry_at；waiting_retry 缺 retry_at；idle 混入请求字段）。",
+  "positive": [
+    {
+      "case": "idle",
+      "fields": { "generation": { "status": "idle" }, "scope": null }
+    },
+    {
+      "case": "pending-running",
+      "fields": {
+        "generation": { "status": "pending", "request_id": "GR-TS0042-0001", "phase": "running", "attempt": 1, "max_attempts": 3 },
+        "scope": { "kind": "approved", "protocol_id": "PR-SMV-001", "beat_id": "BT-04" }
+      }
+    },
+    {
+      "case": "pending-waiting-retry",
+      "fields": {
+        "generation": { "status": "pending", "request_id": "GR-TS0042-0001", "phase": "waiting_retry", "attempt": 1, "max_attempts": 3, "retry_at": "2026-09-07T12:00:01.000Z" },
+        "scope": { "kind": "approved", "protocol_id": "PR-SMV-001", "beat_id": "BT-04" }
+      }
+    },
+    {
+      "case": "failed-retry-exhausted",
+      "fields": {
+        "generation": { "status": "failed", "request_id": "GR-TS0042-0001", "attempt": 3, "max_attempts": 3, "error_class": "RETRY_EXHAUSTED" },
+        "scope": { "kind": "approved", "protocol_id": "PR-SMV-001", "beat_id": "BT-04" }
+      }
+    },
+    {
+      "case": "failed-draft-invalid",
+      "fields": {
+        "generation": { "status": "failed", "request_id": "GR-TS0042-0002", "attempt": 1, "max_attempts": 3, "error_class": "draft_invalid" },
+        "scope": { "kind": "approved", "protocol_id": "PR-SMV-001", "beat_id": "BT-04" }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "case": "running-with-retry-at",
+      "reason": "running 禁带 retry_at",
+      "fields": { "generation": { "status": "pending", "request_id": "GR-TS0042-0001", "phase": "running", "attempt": 1, "max_attempts": 3, "retry_at": "2026-09-07T12:00:01.000Z" }, "scope": { "kind": "approved", "protocol_id": "PR-SMV-001", "beat_id": "BT-04" } }
+    },
+    {
+      "case": "waiting-retry-without-retry-at",
+      "reason": "waiting_retry 必带 ISO retry_at 且 attempt<max_attempts",
+      "fields": { "generation": { "status": "pending", "request_id": "GR-TS0042-0001", "phase": "waiting_retry", "attempt": 1, "max_attempts": 3 }, "scope": { "kind": "approved", "protocol_id": "PR-SMV-001", "beat_id": "BT-04" } }
+    },
+    {
+      "case": "idle-with-request-fields",
+      "reason": "idle 禁止 request/attempt/内部字段混入",
+      "fields": { "generation": { "status": "idle", "request_id": "GR-TS0042-0001" }, "scope": null }
+    },
+    {
+      "case": "epoch-leak",
+      "reason": "隐私边界：不下发 epoch",
+      "fields": { "generation": { "status": "pending", "request_id": "GR-TS0042-0001", "phase": "running", "attempt": 1, "max_attempts": 3, "epoch": 2 }, "scope": { "kind": "approved", "protocol_id": "PR-SMV-001", "beat_id": "BT-04" } }
+    },
+    {
+      "case": "reservation-revision-leak",
+      "reason": "隐私边界：不下发 reservation_revision",
+      "fields": { "generation": { "status": "pending", "request_id": "GR-TS0042-0001", "phase": "running", "attempt": 1, "max_attempts": 3, "reservation_revision": 12 }, "scope": { "kind": "approved", "protocol_id": "PR-SMV-001", "beat_id": "BT-04" } }
+    },
+    {
+      "case": "attempt-exceeds-budget",
+      "reason": "attempt≤max_attempts",
+      "fields": { "generation": { "status": "pending", "request_id": "GR-TS0042-0001", "phase": "running", "attempt": 4, "max_attempts": 3 }, "scope": { "kind": "approved", "protocol_id": "PR-SMV-001", "beat_id": "BT-04" } }
+    },
+    {
+      "case": "pending-without-scope",
+      "reason": "pending/failed 必有 scope",
+      "fields": { "generation": { "status": "pending", "request_id": "GR-TS0042-0001", "phase": "running", "attempt": 1, "max_attempts": 3 }, "scope": null }
+    }
+  ]
+}
