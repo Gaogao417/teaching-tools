@@ -65,6 +65,7 @@ vi.mock("../../../presentation/audio/MediaSessionController", () => ({
       mediaHarness.markIdle();
     }
     dispose() {}
+    setNarrationHoldDuringCapture() {}
     replay() { return Promise.resolve(mediaHarness.markPlaying()); }
   },
 }));

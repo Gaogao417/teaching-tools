@@ -674,7 +674,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     });
     setPresentationRuntime(runtime);
     return () => {
-      runtime.controller.dispose();
+      runtime.dispose();
       setPresentationRuntime(undefined);
       lastPresentationAdoptedRef.current = undefined;
     };
@@ -683,7 +683,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   useEffect(() => {
     return () => {
       // 顺序兜底（幂等）：无论 effect 声明序如何，停播前 controller 必已失效。
-      presentationRuntimeRef.current?.controller.dispose();
+      presentationRuntimeRef.current?.dispose();
       narration.stop();
       media.dispose();
     };
@@ -774,10 +774,13 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     };
   }, [runtimeClient, runtimeSnapshot, adoptRuntimeSnapshot, handleRuntimeError]);
 
-  // 浏览器阻止自动播放 → 沿用重播提示机制（不新造）。
+  // 浏览器阻止自动播放 → 沿用重播提示机制（不新造）；F7 P2（S1 裁定①）：
+  // narration 因录音占用挂起（延迟起播）→ 状态面驱动提示。
+  const [narrationHeldForCapture, setNarrationHeldForCapture] = useState(false);
   useEffect(() => {
     return media.subscribe((state) => {
       if (state.status === "blocked-by-autoplay") setAutoplayBlocked(true);
+      setNarrationHeldForCapture(state.status === "held-for-capture");
     });
   }, [media]);
 
@@ -1303,6 +1306,34 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
 
   const resumeFromInterrupt = useCallback(() => setInterrupted(false), []);
 
+  /**
+   * F7 P2（R5 裁定时序）：**先 barge-in 再录音**——真实录音开始前完成
+   * ①中断 Voice adapter ②interrupted outcome 上报并采用新 snapshot ③显式
+   * control.barge_in（复用 bargeIn 的 ①②③ 链）；等待失败（回执拒绝/网络
+   * 失败/采用失败）**不开始录音**（返回 false，给出可见提示）。无活跃可中断
+   * 交付（idle/生成中无 delivery）时直接放行——录音与在播讲解的互斥由
+   * interruptPlaybackOnStart（录音开始打断在播 narration，capture-first 兜底）
+   * 与媒体 session 挂起规则（录音期间到达的 narration 停队首延迟起播）保证。
+   * 录音通道/快照捕获仍发生在真实录音开始时（lockRecordingChannel——对
+   * barge-in 后采用的新快照捕获最新 revision）。
+   */
+  const prepareRecordingStart = useCallback(async (): Promise<boolean> => {
+    if (!runtimeClient) return true;
+    const controller = presentationRuntime?.controller;
+    if (!controller) return true;
+    if (!controller.canInterrupt()) return true; // 无活跃可中断交付：直接按当前合法入口录音
+    const settle = await controller.interruptCurrentSettled();
+    if (settle.status === "reported" && (settle.outcome === "interrupted" || settle.outcome === "presented")) {
+      await submitControl("barge_in"); // ③ 控制失败不阻断录音：ASR stale 防护兜底（捕获 revision 漂移 → 草稿）
+      return true;
+    }
+    if (settle.status === "failed") {
+      setRuntimeFailureNotice("打断没有成功，稍后再试录音，或先点「打断」重试。");
+      return false;
+    }
+    return true; // no-active-delivery（竞态下自然结束）：无待打断交付，直接录音
+  }, [runtimeClient, presentationRuntime, submitControl]);
+
   const adoptExperience = useCallback(
     (next: TutorExperienceResponse, generation: number) => {
       generationRef.current = generation;
@@ -1722,6 +1753,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     /** F7 P2（S1）：generation 状态 view-model + failed 重新尝试入口。 */
     runtimeGeneration,
     retryGeneration,
+    /** F7 P2（S1 裁定①/R5）：媒体挂起状态 + 先 barge-in 再录音的录音前置门。 */
+    narrationHeldForCapture,
+    prepareRecordingStart,
     /** recoverable protocol error（保留最后一份合法 snapshot；retrySync 显式重对账）。 */
     protocolError,
     /** VS1 remediation-2：拍点只读展示（turn/restore 同源 state）。 */

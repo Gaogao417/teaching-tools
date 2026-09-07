@@ -20,6 +20,10 @@ export interface CaptureLease {
 export type MediaSessionState =
   | { status: "idle" }
   | { status: "loading" | "playing"; owner: MediaOwner; replayKey?: string }
+  /** F7 P2（S1 裁定①）：录音占用麦克风期间，narration 播放按挂起语义延迟起播
+   *  （delivered≠presented——交付已在服务端记录，浏览器真实呈现等 capture
+   *  释放后自动开始）。仅在 setNarrationHoldDuringCapture(true) 启用后出现。 */
+  | { status: "held-for-capture"; owner: MediaOwner; replayKey?: string }
   | { status: "blocked-by-autoplay"; owner: MediaOwner; replayKey?: string }
   | { status: "error"; owner: MediaOwner; message: string };
 
@@ -67,6 +71,10 @@ export class MediaSessionController {
   private streamHandle?: StreamHandle;
   // ADR-005 §Exclusive media session: at most one capture owner holds the mic.
   private captureOwner?: CaptureOwner;
+  /** F7 P2（S1 裁定①）：capture 占用期间挂起的 narration 播放（单槽——与
+   *  playUrl 接管语义一致：新挂起顶替旧挂起并为旧代数补发 stopped）。 */
+  private narrationHoldEnabled = false;
+  private heldNarration?: { handle: UrlHandle; autoplay: boolean; generation: number };
 
   constructor(private readonly telemetry?: (mark: MediaTelemetryMark) => void) {}
 
@@ -110,6 +118,50 @@ export class MediaSessionController {
    * recording and a live session can each play audio through this controller
    * while never sharing the microphone.
    */
+  /**
+   * F7 P2（S1 裁定①）：启用「录音占用麦克风期间挂起 narration 播放」——与
+   *  interruptPlaybackOnStart 合并为媒体 session 单一互斥规则：录音开始时
+   *  正在播的 narration 被打断（既有兜底）；录音期间**到达**的 narration
+   *  （生成/呈现期间交付的新 voice）停在队首挂起，capture 释放后自动起播
+   *  （delivered≠presented 天然支持延迟起播）。只作用于 owner=narration 的
+   *  playUrl（coach-turn/live 流媒体不受影响）；禁用时冲刷现存挂起。
+   */
+  setNarrationHoldDuringCapture(enabled: boolean): void {
+    this.narrationHoldEnabled = enabled;
+    if (!enabled) this.startHeldNarration();
+  }
+
+  /** 当前是否有因 capture 占用而挂起的 narration（诊断/测试）。 */
+  hasHeldNarration(): boolean { return this.heldNarration !== undefined; }
+
+  private dropHeldNarration(): void {
+    const held = this.heldNarration;
+    if (!held) return;
+    this.heldNarration = undefined;
+    this.emitPlayback({ type: "stopped", owner: held.handle.owner, generation: held.generation });
+  }
+
+  private startHeldNarration(): void {
+    const held = this.heldNarration;
+    if (!held) return;
+    this.heldNarration = undefined;
+    void this.startUrlPlayback(held.handle, held.autoplay, held.generation).catch(() => undefined);
+  }
+
+  private holdNarrationForCapture(owner: MediaOwner, url: string, options: { autoplay: boolean; replayKey?: string; correlationId?: string }): number {
+    // 预留本次播放的 generation：等待者立即绑定；起播沿用同一代数，stopped/
+    // blocked/error/ended 事件按该代数发射（挂起被顶替/被停止时补发 stopped，
+    // 等待者不悬挂）。
+    const generation = ++this.generation;
+    this.dropHeldNarration();
+    const handle: UrlHandle = { owner, url, replayKey: options.replayKey, correlationId: options.correlationId };
+    this.heldNarration = { handle, autoplay: options.autoplay, generation };
+    if (options.replayKey) this.replayHandles.set(options.replayKey, handle);
+    // 聚合状态只在无活跃播放时表达挂起（活跃 coach-turn/live 的状态不被覆盖）。
+    if (this.active === undefined) this.setState({ status: "held-for-capture", owner, replayKey: options.replayKey });
+    return generation;
+  }
+
   acquireCapture(owner: CaptureOwner): CaptureLease | null {
     if (this.captureOwner) return null;
     this.captureOwner = owner;
@@ -119,45 +171,63 @@ export class MediaSessionController {
       release: () => {
         if (released) return;
         released = true;
-        if (this.captureOwner === owner) this.captureOwner = undefined;
+        if (this.captureOwner === owner) {
+          this.captureOwner = undefined;
+          // S1 裁定①：麦克风释放 → 挂起的 narration 自动起播（延迟起播）。
+          this.startHeldNarration();
+        }
       },
     };
   }
 
   /** Release the capture lease if `owner` currently holds it. Idempotent. */
   releaseCapture(owner: CaptureOwner): void {
-    if (this.captureOwner === owner) this.captureOwner = undefined;
+    if (this.captureOwner === owner) {
+      this.captureOwner = undefined;
+      this.startHeldNarration();
+    }
   }
 
   /** The owner currently holding the microphone, if any. */
   getCaptureOwner(): CaptureOwner | undefined { return this.captureOwner; }
 
-  /** 开始一次 URL 播放；resolve 值为本次播放的 generation（供等待者绑定）。 */
+  /** 开始一次 URL 播放；resolve 值为本次播放的 generation（供等待者绑定）。
+   *  F7 P2（S1 裁定①）：capture 占用 + 持久启用时，narration 播放改为挂起
+   *  （预留 generation、release 后自动起播）——互斥规则与 interruptPlayback
+   *  OnStart 同属本 session，不新增第二媒体状态机/队列。 */
   async playUrl(owner: MediaOwner, url: string, options: { autoplay: boolean; replayKey?: string; correlationId?: string } = { autoplay: true }): Promise<number> {
+    if (this.narrationHoldEnabled && owner === "narration" && this.captureOwner !== undefined) {
+      return this.holdNarrationForCapture(owner, url, options);
+    }
     const generation = ++this.generation;
+    return this.startUrlPlayback({ owner, url, replayKey: options.replayKey, correlationId: options.correlationId }, options.autoplay, generation);
+  }
+
+  /** URL 播放的公共启动体（playUrl 与挂起释放后的延迟起播共用同一代数与
+   *  接管语义）。 */
+  private async startUrlPlayback(handle: UrlHandle, autoplay: boolean, generation: number): Promise<number> {
     this.externalStop?.();
     this.externalStop = undefined;
     this.queue = [];
     this.abortStream();
     this.supersedeActive();
     this.stopAudio();
-    const handle = { owner, url, replayKey: options.replayKey, correlationId: options.correlationId };
     this.active = handle;
     this.activeGeneration = generation;
-    if (options.replayKey) this.replayHandles.set(options.replayKey, handle);
+    if (handle.replayKey) this.replayHandles.set(handle.replayKey, handle);
     const audio = this.ensureAudio();
-    audio.src = url;
-    this.setState({ status: "loading", owner, replayKey: options.replayKey });
+    audio.src = handle.url;
+    this.setState({ status: "loading", owner: handle.owner, replayKey: handle.replayKey });
     this.mark(handle, "requested");
-    if (!options.autoplay) return generation;
+    if (!autoplay) return generation;
     try {
       await audio.play();
-      if (generation === this.generation) this.notifyAudioStarted(owner);
+      if (generation === this.generation) this.notifyAudioStarted(handle.owner);
     } catch {
       if (generation === this.generation) {
-        this.setState({ status: "blocked-by-autoplay", owner, replayKey: options.replayKey });
+        this.setState({ status: "blocked-by-autoplay", owner: handle.owner, replayKey: handle.replayKey });
         this.mark(handle, "blocked-by-autoplay");
-        this.emitPlayback({ type: "blocked", owner, generation });
+        this.emitPlayback({ type: "blocked", owner: handle.owner, generation });
       }
     }
     return generation;
@@ -329,12 +399,22 @@ export class MediaSessionController {
   }
 
   stop(owner?: MediaOwner): void {
-    if (owner && this.active?.owner !== owner) return;
-    if (this.active) {
+    const activeMatches = !owner || this.active?.owner === owner;
+    const heldMatches = !owner || this.heldNarration?.handle.owner === owner;
+    if (owner && !activeMatches && !heldMatches) return;
+    if (this.active && activeMatches) {
       const stoppedOwner = this.active.owner;
       const stoppedGeneration = this.activeGeneration;
       this.mark(this.active, "cancelled");
       this.emitPlayback({ type: "stopped", owner: stoppedOwner, generation: stoppedGeneration });
+    }
+    // F7 P2（S1 裁定①）：挂起中的 narration 被 stop（打断/销毁/顶替）也要为
+    // 其预留代数补发 stopped——等待者不悬挂。
+    if (this.heldNarration && heldMatches) this.dropHeldNarration();
+    if (!activeMatches) {
+      // 活跃播放属其他 owner（仅清理了挂起）：不触碰其播放/代数/队列。
+      if (this.state.status === "held-for-capture") this.setState({ status: "idle" });
+      return;
     }
     this.generation += 1;
     this.queue = [];
@@ -350,6 +430,8 @@ export class MediaSessionController {
   dispose(): void {
     this.stop();
     this.captureOwner = undefined;
+    this.heldNarration = undefined;
+    this.narrationHoldEnabled = false;
     this.listeners.clear();
     this.playbackListeners.clear();
     this.replayHandles.clear();

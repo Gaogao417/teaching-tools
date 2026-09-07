@@ -36,6 +36,9 @@ export interface TutorPresentationRuntimeDependencies {
 export interface TutorPresentationRuntime {
   controller: PresentationRuntimeController;
   commitPort: WorkspaceCommitPort;
+  /** F7 P2（S1 裁定①）：销毁 = controller 失效 + 停用 narration 挂起互斥
+   *  （媒体 session 属主是 useTutorLearning，实例不在此销毁）。 */
+  dispose(): void;
 }
 
 export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDependencies): TutorPresentationRuntime {
@@ -66,5 +69,17 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
   };
 
   const controller = new PresentationRuntimeController(registry, adapters, ports);
-  return { controller, commitPort };
+  // F7 P2（S1 裁定①）：媒体 session 单一互斥——录音占用麦克风期间到达的
+  // narration 播放挂起（delivered≠presented 延迟起播），capture 释放后自动起播；
+  // 与 recorder 的 interruptPlaybackOnStart（录音开始打断在播 narration）同属
+  // 本 session 的互斥规则。canonical runtime 生命周期内启用，销毁时停用。
+  deps.media.setNarrationHoldDuringCapture(true);
+  return {
+    controller,
+    commitPort,
+    dispose() {
+      deps.media.setNarrationHoldDuringCapture(false);
+      controller.dispose();
+    },
+  };
 }

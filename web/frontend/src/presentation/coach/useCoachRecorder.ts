@@ -33,12 +33,20 @@ export function useCoachRecorder(options: {
    *  (ADR-005 §Exclusive media session). When provided, a capture lease is
    *  acquired before `getUserMedia` and released on stop/failure. */
   media?: MediaSessionController;
+  /** F7 P2（R5 裁定时序）：录音启动前置门——真实录音开始前先完成 barge-in
+   *  握手（①中断 adapter ②interrupted outcome+采用新 snapshot ③control.
+   *  barge_in）。返回 false（等待失败）则不占麦克风、不开录。异常按 false
+   *  处理（调用方已给出可见提示）。 */
+  beforeStart?: () => Promise<boolean>;
   /** F7 Step 8：录音真正开始（MediaRecorder.start 已生效）时回调——通道锁定
    *  与 {sessionId, revision} 捕获点（录音开始后 revision 变化不得悄悄更新
    *  捕获值）。权限拒绝/设备失败不触发。 */
   onRecordingStart?: () => void;
   /** F7 Step 8：录音与 Voice 播放共享同一媒体 session 的互斥——录音开始即
-   *  停止当前 narration 播放（canonical；legacy 缺省不改变行为）。 */
+   *  停止当前 narration 播放（canonical；legacy 缺省不改变行为）。F7 P2 后
+   *  与挂起规则（录音期间到达的 narration 停队首延迟起播）合并为媒体 session
+   *  单一互斥；本路径保留为 capture-first 兜底（barge-in 握手竞态/不可中断
+   *  narration 在播时生效）。 */
   interruptPlaybackOnStart?: boolean;
   /** capture lease 被占（双 mic 互斥/实时通话占用）时的提示文案。 */
   captureBusyMessage?: string;
@@ -65,20 +73,28 @@ export function useCoachRecorder(options: {
     if (options.disabled || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       options.onError("这个浏览器暂不支持录音，请先用文字提问。"); return;
     }
-    // ADR-005 §Exclusive media session: acquire the mic before getUserMedia.
-    // A live session holding the mic denies this — the recorder MUST NOT call
-    // getUserMedia in that case (capture is mutually exclusive, not just UI-disabled).
-    const captureLease = options.media?.acquireCapture("coach-turn") ?? null;
-    if (options.media && !captureLease) {
-      options.onError(options.captureBusyMessage ?? "实时通话正在进行，无法同时录音，请先结束通话。");
-      return;
-    }
-    lease.current = captureLease;
     starting.current = true;
     const attemptEpoch = epoch.current;
     const live = () => attemptEpoch === epoch.current;
     let acquiredStream: MediaStream | undefined;
     try {
+      // F7 P2（R5 裁定时序）：先完成 barge-in 握手再占麦克风/开录；等待失败
+      // 不录音（此时尚未占用任何资源，直接返回）。
+      let gate = true;
+      if (options.beforeStart) {
+        try { gate = await options.beforeStart(); } catch { gate = false; }
+      }
+      if (!live()) return;
+      if (!gate) return;
+      // ADR-005 §Exclusive media session: acquire the mic before getUserMedia.
+      // A live session holding the mic denies this — the recorder MUST NOT call
+      // getUserMedia in that case (capture is mutually exclusive, not just UI-disabled).
+      const captureLease = options.media?.acquireCapture("coach-turn") ?? null;
+      if (options.media && !captureLease) {
+        options.onError(options.captureBusyMessage ?? "实时通话正在进行，无法同时录音，请先结束通话。");
+        return;
+      }
+      lease.current = captureLease;
       const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       acquiredStream = mediaStream;
       if (!live()) {

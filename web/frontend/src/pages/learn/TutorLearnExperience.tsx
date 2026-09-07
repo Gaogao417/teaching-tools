@@ -153,6 +153,9 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     owner: "coach",
     disabled: asrBusy || tutor.speechAsrBusy || !tutor.sessionId || !tutor.coachControls.canHelp,
     media: tutor.mediaSession,
+    // R5 裁定时序（F7 P2）：先 barge-in 再录音——等待失败不开录；无活跃可中断
+    // 交付时直接按当前合法入口录音（legacy 链无此握手）。
+    beforeStart: runtimeClient ? () => tutor.prepareRecordingStart() : undefined,
     interruptPlaybackOnStart: runtimeClient ? true : undefined,
     captureBusyMessage: runtimeClient ? "已有录音进行中，请先停止当前录音。" : undefined,
     onRecordingStart: () => { coachCaptureRef.current = tutor.lockRecordingChannel("assistance"); },
@@ -293,6 +296,11 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
       ) : null}
       {notice ? <p className="tutor-learn-notice" role="status">{notice}</p> : null}
       {tutor.speechNotice ? <p className="tutor-learn-notice" role="status" data-testid="tutor-speech-notice">{tutor.speechNotice}</p> : null}
+      {/* F7 P2（S1 裁定① delivered≠presented）：录音占用麦克风期间到达的讲解
+          挂起（延迟起播），capture 释放后自动播放——如实告知，不伪称正在讲解。 */}
+      {tutor.narrationHeldForCapture ? (
+        <p className="topic-coach-recording" role="status" data-testid="tutor-narration-held"><span />录音进行中，讲解将在录音结束后自动播放。</p>
+      ) : null}
       {pres.reviewing ? <p className="topic-coach-recording" role="status"><span />正在回看上一段讲解…</p> : null}
       {asrBusy || tutor.speechAsrBusy ? <p className="topic-coach-recording" role="status"><span />正在识别你的话…</p> : null}
     </>
@@ -462,6 +470,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
             onSubmit={controls.onSubmit}
             busy={busy}
             media={tutor.mediaSession}
+            beforeStart={runtimeClient ? () => tutor.prepareRecordingStart() : undefined}
             lockChannel={() => tutor.lockRecordingChannel("mainline")}
             transcribe={(capture, audio) => tutor.transcribeRecording(capture, audio)}
             onNotice={setNotice}
@@ -642,12 +651,14 @@ function studentNameSafe(studentId: string): string {
  *   （录音互斥 + 录音打断播放）；
  * - 仅 canonical participation=answer 时挂载（legacy 链无此形态）。
  */
-function MainlineAnswerComposer({ draft, onDraftChange, onSubmit, busy, media, lockChannel, transcribe, onNotice }: {
+function MainlineAnswerComposer({ draft, onDraftChange, onSubmit, busy, media, beforeStart, lockChannel, transcribe, onNotice }: {
   draft: string;
   onDraftChange: (value: string) => void;
   onSubmit: (text: string) => void;
   busy: boolean;
   media: MediaSessionController;
+  /** R5 裁定时序（F7 P2）：先 barge-in 再录音（等待失败不开录）。 */
+  beforeStart?: () => Promise<boolean>;
   lockChannel: () => RecordingChannelCapture | undefined;
   transcribe: (capture: RecordingChannelCapture, audio: { dataUrl: string; mimeType?: string; durationMs?: number }) => Promise<void>;
   onNotice: (message: string) => void;
@@ -657,6 +668,7 @@ function MainlineAnswerComposer({ draft, onDraftChange, onSubmit, busy, media, l
     owner: "answer",
     disabled: busy,
     media,
+    beforeStart,
     interruptPlaybackOnStart: true,
     captureBusyMessage: "已有录音进行中，请先停止当前录音。",
     onRecordingStart: () => { captureRef.current = lockChannel(); },
