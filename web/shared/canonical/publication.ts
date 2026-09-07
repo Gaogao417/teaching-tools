@@ -23,6 +23,7 @@ export const PUBLISHABLE_SCHEMAS: ReadonlySet<string> = new Set([
   "ai_teaching_teaching_protocol/v1",
   "ai_teaching_tutor_plan_bundle/v4",
   "ai_teaching_teaching_protocol/v2",
+  "ai_teaching_teaching_protocol/v3",
   "ai_teaching_tutor_plan_bundle/v5",
   // F7 RT0 集中合同波（2026-09-07）：planning/v6（refinement_spec + resource_bindings）
   "ai_teaching_tutor_plan_bundle/v6",

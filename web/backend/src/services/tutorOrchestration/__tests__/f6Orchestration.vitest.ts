@@ -15,7 +15,7 @@ import * as importerModule from "../../planBuild/v5/ImportApprovedPlanV5";
 import type { PlanResourceV4, ProtocolBeatPayload } from "../../planBuild/canonicalInputs";
 import type { StructuredModelPort, StructuredCompletionRequest } from "../../tutorIntelligence/structuredModelPort";
 import { StructuredModelError } from "../../tutorIntelligence/structuredModelPort";
-import { ModelGateAdjudicatorV5 } from "../../tutorNavigator/ModelGateAdjudicatorV5";
+import { ModelGateAdjudicatorV5, LEGACY_MODEL_GATE_ADJUDICATOR_VERSION, LEGACY_GATE_ADJUDICATION_SYSTEM_PROMPT } from "../../tutorNavigator/ModelGateAdjudicatorV5";
 import { buildNavigatorPlan } from "../../tutorNavigator/NavigatorPlanV5";
 import type { NavigatorDecision } from "../../tutorNavigator/TutorNavigatorV5";
 import { buildGoldenWorkspaceCatalogV5, GOLDEN_CATALOG_TASK_ID } from "../GoldenWorkspaceCatalog";
@@ -62,6 +62,15 @@ function importedGoldenPlan(): importerModule.ImportedApprovedPlanV5 {
   return result.imported;
 }
 
+it("historical Gate pin executes the exact legacy prompt", async () => {
+  const port = new FakeStructuredModelPort(async () => ({}));
+  const provider = new StructuredModelGateProvider(port, {promptVersion: LEGACY_MODEL_GATE_ADJUDICATOR_VERSION});
+  await provider.adjudicate("{}");
+  expect(port.requests[0].systemPrompt).toBe(LEGACY_GATE_ADJUDICATION_SYSTEM_PROMPT);
+  expect(port.requests[0].promptVersion).toBe(LEGACY_MODEL_GATE_ADJUDICATOR_VERSION);
+  expect(provider.modelGatePin().adjudicator_version).toBe(LEGACY_MODEL_GATE_ADJUDICATOR_VERSION);
+});
+
 describe("F6 StructuredModelGateProvider（生产模型接线：复用 StructuredModelPort，不建第三套）", () => {
   it("适配器经 port 完成一次结构化调用并保留薄边界校验（不绕过 validateAdjudicationResponse）", async () => {
     const port = new FakeStructuredModelPort(async () => ({
@@ -85,7 +94,7 @@ describe("F6 StructuredModelGateProvider（生产模型接线：复用 Structure
     };
     const result = await adjudicator.adjudicate(context);
     expect(port.requests).toHaveLength(1);
-    expect(port.requests[0].promptVersion).toBe("model-gate-adjudicator/v5");
+    expect(port.requests[0].promptVersion).toBe("model-gate-adjudicator/v5-follow-along-1");
     expect(port.requests[0].userPayload).toEqual(context);
     expect(result.verdict).toBe("pass");
     expect(result.matched_gate_id).toBe("GT-03");
@@ -119,8 +128,8 @@ describe("F6 StructuredModelGateProvider（生产模型接线：复用 Structure
     expect(provider.modelGatePin()).toEqual({
       provider: "structured-model/deepseek-compatible",
       model_id: "deepseek-v4-flash",
-      prompt_version: "model-gate-adjudicator/v5",
-      adjudicator_version: "model-gate-adjudicator/v5",
+      prompt_version: "model-gate-adjudicator/v5-follow-along-1",
+      adjudicator_version: "model-gate-adjudicator/v5-follow-along-1",
     });
     expect(provider.name).toBe("structured-model/deepseek-compatible");
   });

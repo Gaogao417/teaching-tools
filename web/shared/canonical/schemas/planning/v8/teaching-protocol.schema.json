@@ -1,0 +1,567 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ai-teaching.dev/planning/v8/teaching-protocol.schema.json",
+  "title": "TeachingProtocol v3",
+  "description": "ADR-007 + PRD 03 多分辨率补救。Beat 是教学导航单位，不是数学推理真源；每个 Beat 必须显式引用最高分辨率 ReviewedSolutionGraph 的 Fact 与 Inference，并声明它在教学中的角色、抽象层级和认知过程。Runtime 可以聚焦或展开这些已批准引用，但不得自行发明图节点。跨字段引用、唯一性和 gate 约束由双语言镜像与 materializer fail closed。 C0：可选 confirmation_target=follow_along 仅表示理解衔接确认；无标记保留 v2 语义，不改变 support_boundary。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "protocol_id",
+    "version",
+    "status",
+    "question_ref",
+    "solution_graph_ref",
+    "protocol_kind",
+    "entry_beat_id",
+    "beats",
+    "content_hash",
+    "artifact_uri"
+  ],
+  "$defs": {
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "version",
+        "content_hash"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+$"
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "solutionRefs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fact_ids",
+        "inference_ids"
+      ],
+      "properties": {
+        "fact_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^FN-[0-9]{1,3}$"
+          }
+        },
+        "inference_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^IF-[0-9]{1,3}$"
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema": {
+      "const": "ai_teaching_teaching_protocol/v3"
+    },
+    "protocol_id": {
+      "type": "string",
+      "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^v[0-9]+$"
+    },
+    "status": {
+      "enum": [
+        "Draft",
+        "InReview",
+        "Approved",
+        "Stale",
+        "Disabled",
+        "Superseded"
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_id",
+        "approved_at"
+      ],
+      "properties": {
+        "reviewer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "review_note": {
+          "type": "string"
+        }
+      }
+    },
+    "question_ref": {
+      "$ref": "#/$defs/artifactRef"
+    },
+    "solution_graph_ref": {
+      "$ref": "#/$defs/artifactRef"
+    },
+    "protocol_kind": {
+      "enum": [
+        "mainline",
+        "inquiry",
+        "scaffold",
+        "verification"
+      ]
+    },
+    "entry_beat_id": {
+      "type": "string",
+      "pattern": "^BT-[0-9]{1,3}$"
+    },
+    "beats": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "beat_id",
+          "role",
+          "purpose",
+          "solution_refs",
+          "abstraction_level",
+          "cognitive_process",
+          "cognitive_activity",
+          "completion_evidence",
+          "participation",
+          "pacing",
+          "presentation_intent",
+          "support_boundary",
+          "transitions"
+        ],
+        "properties": {
+          "beat_id": {
+            "type": "string",
+            "pattern": "^BT-[0-9]{1,3}$"
+          },
+          "part_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,2}$"
+          },
+          "role": {
+            "enum": [
+              "orientation",
+              "construction",
+              "reasoning",
+              "practice",
+              "verification",
+              "summary",
+              "local_inquiry"
+            ]
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          },
+          "solution_refs": {
+            "$ref": "#/$defs/solutionRefs"
+          },
+          "abstraction_level": {
+            "enum": [
+              "A0_object",
+              "A1_relation",
+              "A2_strategy",
+              "A3_structure"
+            ]
+          },
+          "cognitive_process": {
+            "enum": [
+              "retrieve",
+              "match",
+              "execute",
+              "monitor"
+            ]
+          },
+          "cognitive_activity": {
+            "enum": [
+              "attend",
+              "recall",
+              "relate",
+              "apply",
+              "verify",
+              "explain"
+            ]
+          },
+          "accepted_alternatives": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "common_deviations": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "completion_evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "evidence_kind"
+            ],
+            "properties": {
+              "evidence_kind": {
+                "enum": [
+                  "student_answer",
+                  "workspace_command",
+                  "student_confirmation",
+                  "narration_completed",
+                  "explicit_gate_pass",
+                  "tutor_observed"
+                ]
+              },
+              "gate": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "gate_id",
+                  "requirement"
+                ],
+                "properties": {
+                  "gate_id": {
+                    "type": "string",
+                    "pattern": "^GT-[0-9]{1,3}$"
+                  },
+                  "requirement": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "capability": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "graph_fact_id": {
+                    "type": "string",
+                    "pattern": "^FN-[0-9]{1,3}$"
+                  }
+                }
+              },
+              "confirmation_target": {
+                "enum": [
+                  "follow_along"
+                ]
+              }
+            }
+          },
+          "participation": {
+            "enum": [
+              "listen",
+              "answer",
+              "operate",
+              "confirm",
+              "continue"
+            ]
+          },
+          "pacing": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "wait_policy"
+            ],
+            "properties": {
+              "wait_policy": {
+                "enum": [
+                  "student_driven",
+                  "bounded_wait"
+                ]
+              },
+              "max_wait_seconds": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 3600
+              }
+            }
+          },
+          "presentation_intent": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "voice",
+              "workspace_surfaces"
+            ],
+            "properties": {
+              "voice": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "narrate",
+                    "question",
+                    "feedback"
+                  ]
+                }
+              },
+              "workspace_surfaces": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "geometry",
+                    "solution_board"
+                  ]
+                }
+              }
+            }
+          },
+          "resource_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^RES[0-9]{1,3}$"
+            }
+          },
+          "support_boundary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "may_reveal_answer",
+              "may_reveal_intermediate",
+              "max_support"
+            ],
+            "properties": {
+              "may_reveal_answer": {
+                "const": false
+              },
+              "may_reveal_intermediate": {
+                "type": "boolean"
+              },
+              "max_support": {
+                "enum": [
+                  "orient",
+                  "foreground",
+                  "name_strategy",
+                  "specify_operation",
+                  "provide_intermediate_conclusion"
+                ]
+              }
+            }
+          },
+          "transitions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "to_beat",
+                "on"
+              ],
+              "properties": {
+                "to_beat": {
+                  "type": "string",
+                  "pattern": "^BT-[0-9]{1,3}$"
+                },
+                "on": {
+                  "enum": [
+                    "gate_satisfied",
+                    "evidence_collected",
+                    "student_request",
+                    "timeout",
+                    "tutor_discretion"
+                  ]
+                }
+              }
+            }
+          },
+          "inquiry_branch": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "inquiry_protocol_ref",
+              "return_beat_id",
+              "expand_region_id"
+            ],
+            "properties": {
+              "inquiry_protocol_ref": {
+                "$ref": "#/$defs/artifactRef"
+              },
+              "return_beat_id": {
+                "type": "string",
+                "pattern": "^BT-[0-9]{1,3}$"
+              },
+              "expand_region_id": {
+                "type": "string",
+                "pattern": "^SR-[0-9]{1,3}$"
+              },
+              "trigger": {
+                "enum": [
+                  "ask_question",
+                  "request_scaffold",
+                  "request_rephrase",
+                  "unclear",
+                  "out_of_bound"
+                ]
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "completion_evidence": {
+                  "properties": {
+                    "evidence_kind": {
+                      "enum": [
+                        "student_answer",
+                        "workspace_command",
+                        "student_confirmation",
+                        "explicit_gate_pass"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "completion_evidence": {
+                  "required": [
+                    "gate"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "pacing": {
+                  "properties": {
+                    "wait_policy": {
+                      "const": "bounded_wait"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "pacing": {
+                  "required": [
+                    "max_wait_seconds"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "completion_evidence": {
+                  "required": [
+                    "confirmation_target"
+                  ]
+                }
+              },
+              "required": [
+                "completion_evidence"
+              ]
+            },
+            "then": {
+              "properties": {
+                "completion_evidence": {
+                  "required": [
+                    "gate"
+                  ],
+                  "properties": {
+                    "evidence_kind": {
+                      "const": "student_confirmation"
+                    }
+                  }
+                },
+                "participation": {
+                  "const": "confirm"
+                },
+                "role": {
+                  "not": {
+                    "enum": [
+                      "practice",
+                      "verification"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "artifact_uri": {
+      "type": "string",
+      "pattern": "^artifact://teaching-protocol/PR-[A-Z0-9]+-[0-9]{3,}@v[0-9]+$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "Approved"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "approval"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "protocol_kind": {
+            "const": "verification"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "beats": {
+            "items": {
+              "properties": {
+                "completion_evidence": {
+                  "not": {
+                    "required": [
+                      "confirmation_target"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

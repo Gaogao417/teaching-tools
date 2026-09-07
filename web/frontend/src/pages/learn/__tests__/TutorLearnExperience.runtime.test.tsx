@@ -281,3 +281,58 @@ describe("TutorLearnExperience（canonical Runtime 数据源）", () => {
     expect(notice?.textContent).toContain("STALE_REVISION");
   });
 });
+
+
+describe("C3 Teach confirm：自然语言反馈与便利确认并存", () => {
+  it.each(["这一步懂了，继续", "我理解这里用了对应边成比例", "这里还没听懂", "懂了，所以这两条边是相等的", "这个比例怎么来的？", "不会算，你算给我看", "跳过这一段"])("原话提交后等待服务端裁决：%s", async (text) => {
+    const { client, mocks } = makeClient();
+    const snapshot = validRuntimeSnapshot({ participationKind: "confirm_input", revision: 12 });
+    mocks.start.mockResolvedValue(snapshot);
+    // 服务端保留当前参与模式，前端不能因含“懂了”等词自行推进。
+    mocks.submitStudentInput.mockResolvedValue(snapshot);
+    mount(client); await settle();
+    const input = container!.querySelector<HTMLInputElement>('[aria-label="理解反馈输入"]');
+    expect(input).not.toBeNull();
+    expect(container!.querySelector('[data-testid="tutor-feedback-mic"]')).not.toBeNull();
+    expect(container!.querySelector('[data-testid="tutor-confirm-input"]')).not.toBeNull();
+    expect(container!.querySelector('[data-testid="tutor-submit-answer"]')).toBeNull();
+    await act(async () => { setInputValue(input!, text); });
+    await act(async () => { container!.querySelector<HTMLButtonElement>('[data-testid="tutor-submit-feedback"]')!.click(); });
+    await settle();
+    expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+    expect(mocks.submitStudentInput).toHaveBeenCalledWith(RUNTIME_SESSION_ID,
+      { kind: "utterance", channel: "mainline", text }, 12, expect.any(String));
+    expect(mocks.submitActionEvidence).not.toHaveBeenCalled();
+    expect(mocks.submitWorkspaceCommand).not.toHaveBeenCalled();
+    expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
+    expect(container!.querySelector('[aria-label="理解反馈输入"]')).not.toBeNull();
+  });
+
+  it("confirm 的独立提问入口仍可用，原话走 assistance", async () => {
+    const { client, mocks } = makeClient();
+    const snapshot = validRuntimeSnapshot({ participationKind: "confirm_input", revision: 12 });
+    mocks.start.mockResolvedValue(snapshot); mocks.submitStudentInput.mockResolvedValue(snapshot);
+    mount(client); await settle();
+    const input = container!.querySelector<HTMLInputElement>('.topic-coach-question input')!;
+    expect(input).not.toBeNull(); expect(input.disabled).toBe(false);
+    await act(async () => { setInputValue(input, "为什么能列这个比例？"); });
+    const send = container!.querySelector<HTMLButtonElement>('button[aria-label="发送问题"]')!;
+    expect(send.disabled).toBe(false);
+    await act(async () => { send.click(); }); await settle();
+    expect(mocks.submitStudentInput).toHaveBeenCalledWith(RUNTIME_SESSION_ID,
+      { kind: "utterance", channel: "assistance", text: "为什么能列这个比例？" }, 12, expect.any(String));
+  });
+
+  it.each(["answer_input", "workspace_input", "listen_only", "continue_input", "read_only_completed"])("不向 %s 全局开放 Teach 确认入口", async (participationKind) => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind, revision: 12 }));
+    mount(client); await settle();
+    expect(container!.querySelector('[data-testid="tutor-feedback-mic"]')).toBeNull();
+    expect(container!.querySelector('[data-testid="tutor-submit-feedback"]')).toBeNull();
+    expect(container!.querySelector('[data-testid="tutor-confirm-input"]')).toBeNull();
+    if (participationKind === "answer_input") expect(container!.querySelector('[data-testid="tutor-submit-answer"]')).not.toBeNull();
+    if (participationKind === "workspace_input") expect(container!.querySelector(".geometry-canvas, .action-runtime-frame, .action-runtime-workspace")).not.toBeNull();
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    expect(mocks.submitActionEvidence).not.toHaveBeenCalled();
+  });
+});

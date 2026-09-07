@@ -183,7 +183,15 @@ function presetIntentOfInput(input: V7StudentInputBody): IntentKind | undefined 
 }
 
 /** 模型裁决 → IntentKind（无法归类 → undefined，不伪造）。 */
-function deriveIntentFromAdjudication(adjudication: { response_kind: string }): IntentKind | undefined {
+function deriveIntentFromAdjudication(
+  adjudication: { response_kind: string; verdict?: string },
+  followAlong = false,
+): IntentKind | undefined {
+  if (followAlong && (adjudication.response_kind === "understanding_confirmation" || adjudication.response_kind === "restatement")) {
+    if (adjudication.verdict === "pass") return "confirm";
+    if (adjudication.verdict === "fail") return "request_scaffold";
+    return undefined;
+  }
   switch (adjudication.response_kind) {
     case "final_answer":
     case "alternate_path":
@@ -334,6 +342,10 @@ export class NavigatorSessionV7 {
    * 生命周期；state/v4）；否则 v7（既有行为零变化）。
    */
   static start(input: NavigatorV7StartInput): NavigatorSessionV7 {
+    if (input.sessionMode === "assessment" && [input.plan.mainline, ...input.plan.branches.values()]
+      .some((protocol) => [...protocol.beats.values()].some((beat) => beat.completion_evidence.confirmation_target === "follow_along"))) {
+      throw new Error("follow_along is a Teach protocol; assessment requires separately approved verification evidence");
+    }
     const payload = {
       ...buildSessionStartedPayload(input.plan, {
         sessionId: input.sessionId,
@@ -507,18 +519,21 @@ export class NavigatorSessionV7 {
     }
 
     // mainline utterance：channel 只是入口事实——intent 由模型裁决推导。
-    if (intentKind === undefined) {
+    const followAlong = this.currentBeat.completion_evidence.confirmation_target === "follow_along";
+    const interpretFollowAlong = followAlong && (input.input.kind === "utterance"
+      || intentKind === "confirm" || intentKind === "continue");
+    if (intentKind === undefined || interpretFollowAlong) {
       const adjudication = await this.adjudicator.adjudicate(
         buildGateAdjudicationContext({
           plan: this.plan,
           beat: this.currentBeat,
           events: priorEvents as unknown as Parameters<typeof buildGateAdjudicationContext>[0]["events"],
           ...(this.state.reasoning_focus ? { reasoningFocus: this.state.reasoning_focus } : {}),
-          studentInput: { intent_kind: "utterance", text: text ?? "" },
+          studentInput: { intent_kind: input.input.kind === "utterance" ? "utterance" : (intentKind ?? "utterance"), text: text ?? "" },
           factRelevanceScore: interpretationMatchScore,
         }),
       );
-      const derived = deriveIntentFromAdjudication(adjudication);
+      const derived = deriveIntentFromAdjudication(adjudication, followAlong);
       if (derived === undefined) {
         // 无法归类：不落 intent——unclear 假设 → 澄清/安全 fallback。
         const modelFailure = adjudication.degraded_reason
@@ -1095,6 +1110,22 @@ export function verifyGateAttributionAgainstPlanV7(
               `sequence ${event.sequence}: satisfied gate ${gate.gate_id}@${gate.beat_id} evidence_sequence=${String(gate.evidence_sequence)} points at ${evidence.event_type} which is not admissible student evidence for evidence_kind=${evidenceKind}; forged pass, resume refused`,
               event.sequence,
             );
+          }
+          if (beat.completion_evidence.confirmation_target === "follow_along") {
+            const interpretation = events.find((candidate) =>
+              candidate.event_type === "semantic_interpretation_recorded"
+              && candidate.causation_sequence === evidence.causation_sequence
+              && candidate.sequence < evidence.sequence
+              && candidate.state_revision === evidence.state_revision);
+            const semanticIntent = (interpretation?.payload as { intent?: string } | undefined)?.intent;
+            const rawInput = events.find((candidate) => candidate.sequence === evidence.causation_sequence);
+            if ((evidence.payload as { intent_kind?: string }).intent_kind !== "confirm"
+              || rawInput?.event_type !== "student_input_recorded"
+              || event.causation_sequence !== evidence.sequence
+              || (semanticIntent !== "confirm:follow_along:self_reported" && semanticIntent !== "confirm:follow_along:expressed")) {
+              throw new NavigatorResumeIntegrityError("GATE_EVIDENCE_FORGED",
+                `sequence ${event.sequence}: follow-along gate requires the same input's interpreted understanding confirmation`, event.sequence);
+            }
           }
           if (evidenceKind === "workspace_command") {
             // F7 replay 对账（因果链 2，v7）：satisfied workspace gate 必须能由

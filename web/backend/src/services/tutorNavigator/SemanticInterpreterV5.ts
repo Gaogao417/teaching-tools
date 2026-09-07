@@ -31,11 +31,11 @@
  * reasoning_alignment），不持久化模型私有推理（ADR-007 不变量 5）。
  */
 import { regionInferenceIds, type NavigatorBeatView, type NavigatorPlanV5 } from "./NavigatorPlanV5";
-import type { GateAdjudicationResult } from "./ModelGateAdjudicatorV5";
+import { MODEL_GATE_ADJUDICATOR_VERSION, type GateAdjudicationResult } from "./ModelGateAdjudicatorV5";
 
 export const INTERPRETER_V5_VERSION = "semantic-interpreter/v5-deterministic";
 /** 模型并轨路径的 interpreter_version（事件流可区分裁决人）。 */
-export const MODEL_INTERPRETER_V5_VERSION = "model-gate-adjudicator/v5";
+export const MODEL_INTERPRETER_V5_VERSION = MODEL_GATE_ADJUDICATOR_VERSION;
 
 export type IntentKind =
   | "submit_answer"
@@ -256,6 +256,10 @@ export function interpretStudentInput(
     );
   }
 
+  if (beat.completion_evidence.confirmation_target === "follow_along" && (input.intent_kind === "confirm" || input.intent_kind === "continue")) {
+    return { intent: input.intent_kind, reasoning_location: "unknown", confidence: 0.9, interpreter_version: INTERPRETER_V5_VERSION, in_bound: true };
+  }
+
   switch (input.intent_kind) {
     case "confirm":
     case "continue":
@@ -342,6 +346,7 @@ const CONFIDENCE_BY_KIND: Record<GateAdjudicationResult["response_kind"], number
   question: 0.8,
   help_request: 0.8,
   restatement: 0.4,
+  understanding_confirmation: 0.8,
   mixed_or_ambiguous: 0.3,
 };
 
@@ -374,6 +379,36 @@ export function hypothesisFromAdjudication(
   // 与 matched_variant_id（graph_fact_refs 词表要求 FN- 形状）。
   const factRefs = adjudication.grounding_refs.filter((ref) => plan.facts.has(ref));
   const primaryFact = factRefs[0];
+
+  const followsCurrent = beat.completion_evidence.confirmation_target === "follow_along"
+    && beat.completion_evidence.evidence_kind === "student_confirmation"
+    && beat.completion_evidence.gate !== undefined
+    && adjudication.matched_gate_id === beat.completion_evidence.gate.gate_id;
+  const confirmationKind = adjudication.response_kind === "understanding_confirmation" || adjudication.response_kind === "restatement";
+  if (followsCurrent && confirmationKind && adjudication.verdict === "pass" && !adjudication.degraded_reason
+      && input.intent_kind !== "continue"
+      && (adjudication.reasoning_location === "aligned" || (adjudication.response_kind === "understanding_confirmation" && adjudication.reasoning_location === "unknown"))) {
+    const selfReported = adjudication.response_kind === "understanding_confirmation";
+    return {
+      intent: `confirm:follow_along:${selfReported ? "self_reported" : "expressed"}`,
+      reasoning_location: selfReported ? "unknown" : "aligned",
+      confidence: selfReported ? CONFIDENCE_BY_KIND.understanding_confirmation : 0.85,
+      interpreter_version: MODEL_INTERPRETER_V5_VERSION,
+      ...(!selfReported && factRefs.length ? { grounding_refs: [...factRefs] } : {}),
+      in_bound: true,
+      gate_assessment: gateAssessment,
+    };
+  }
+
+  // A malformed/stale pass must not fall through to an answer/mastery hypothesis.
+  if (beat.completion_evidence.confirmation_target === "follow_along" && adjudication.verdict === "pass") {
+    return {
+      intent: input.intent_kind, reasoning_location: "unknown", confidence: 0.3,
+      interpreter_version: MODEL_INTERPRETER_V5_VERSION, in_bound: true,
+      reasoning_alignment: { kind: "unclear_reasoning" },
+      gate_assessment: { ...gateAssessment, verdict: "unclear" },
+    };
+  }
 
   switch (adjudication.response_kind) {
     case "final_answer": {
@@ -497,7 +532,22 @@ export function hypothesisFromAdjudication(
         gate_assessment: gateAssessment,
       };
     }
+    case "understanding_confirmation": {
+      return {
+        intent: `${input.intent_kind}:understanding_confirmation`, reasoning_location: adjudication.reasoning_location,
+        confidence: 0.4, interpreter_version: MODEL_INTERPRETER_V5_VERSION, in_bound: true,
+        gate_assessment: { ...gateAssessment, verdict: gateAssessment.verdict === "pass" ? "unclear" : gateAssessment.verdict },
+      };
+    }
     case "restatement": {
+      if (beat.completion_evidence.confirmation_target === "follow_along" && adjudication.verdict === "fail") {
+        return {
+          intent: `${input.intent_kind}:restatement`, reasoning_location: adjudication.reasoning_location,
+          confidence: 0.7, interpreter_version: MODEL_INTERPRETER_V5_VERSION,
+          ...(factRefs.length ? { grounding_refs: [...factRefs], reasoning_focus: focusOn(beat.part_id, factRefs), reasoning_alignment: incorrectReasoningAlignment(factRefs) } : { reasoning_alignment: { kind: "unclear_reasoning" } }),
+          in_bound: true, gate_assessment: gateAssessment,
+        };
+      }
       // 复述题目/资料：非完成证据（verdict 由模型给 not_applicable；服务端
       // response_kind_not_evidence 守卫已保证不得 pass）。
       return {
@@ -508,7 +558,7 @@ export function hypothesisFromAdjudication(
         ...(factRefs.length ? { grounding_refs: [...factRefs] } : {}),
         reasoning_alignment: { kind: "unclear_reasoning" },
         in_bound: true,
-        gate_assessment: gateAssessment,
+        gate_assessment: { ...gateAssessment, verdict: gateAssessment.verdict === "pass" ? "unclear" : gateAssessment.verdict },
       };
     }
     case "mixed_or_ambiguous":

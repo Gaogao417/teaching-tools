@@ -185,7 +185,7 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
     harness?.unmount();
   });
 
-  it("lockRecordingChannel：录音开始时锁定通道并捕获 session/revision；mainline 仅 answer_input、assistance 按 availability、完成态关闭", async () => {
+  it("lockRecordingChannel：录音开始时锁定通道并捕获 session/revision；mainline 仅 answer/confirm、assistance 按 availability、完成态关闭", async () => {
     const { client, mocks } = makeClient();
     mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 12 }));
     harness = mountHarness(client);
@@ -195,10 +195,10 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
     expect(harness.tutor().lockRecordingChannel("assistance")).toEqual({ captureId: expect.any(String), channel: "assistance", sessionId: RUNTIME_SESSION_ID, revision: 12 });
     expect(harness.tutor().mediaSession).toBeDefined();
 
-    // mainline：participation 离开 answer_input 即不合法。
+    // C3：confirm_input 也可从独立主线入口录音理解反馈。
     mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 13 }));
     await act(async () => { await harness.tutor().submitControl("confirm"); });
-    expect(harness.tutor().lockRecordingChannel("mainline")).toBeUndefined();
+    expect(harness.tutor().lockRecordingChannel("mainline")).toBeDefined();
     expect(harness.tutor().lockRecordingChannel("assistance")).toBeDefined();
 
     // assistance：coach assistance_available=false → 不合法。
@@ -295,7 +295,7 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
     expect(harness.tutor().speechPendingTranscript).toEqual({ source: expect.objectContaining({ captureId: expect.any(String) }), channel: "mainline", text: "另一会话里的话" });
   });
 
-  it("stale：原通道不再合法（answer_input → confirm_input，revision 不变）→ 草稿，零自动提交", async () => {
+  it("stale：主线参与任务已改变（answer_input → confirm_input，revision 不变）→ 草稿，零自动提交", async () => {
     const { client, mocks } = makeClient();
     mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 12 }));
     harness = mountHarness(client);
@@ -309,6 +309,32 @@ describe("useTutorLearning Step 8：录音 + ASR + stale 防护", () => {
     await act(async () => { await harness.tutor().transcribeRecording(capture, AUDIO); });
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
     expect(harness.tutor().speechPendingTranscript).toEqual({ source: expect.objectContaining({ captureId: expect.any(String) }), channel: "mainline", text: "通道已换的话" });
+  });
+
+  it.each([
+    ["confirm_input", 13], ["answer_input", 12], ["workspace_input", 12], ["continue_input", 12],
+  ])("C3 confirm 录音后状态变为 %s/rev%s：原话仅回填草稿，不成为新任务证据", async (kind, revision) => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 12 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    const capture = harness.tutor().lockRecordingChannel("mainline");
+    expect(capture).toBeDefined();
+    mocks.restore.mockResolvedValue(validRuntimeSnapshot({ participationKind: String(kind), revision: Number(revision) }));
+    await act(async () => { await harness.tutor().retrySync(); });
+    mocks.transcribe.mockResolvedValue(asrResult("这一步听懂了，继续", 12));
+    await act(async () => { await harness.tutor().transcribeRecording(capture!, AUDIO); });
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
+    expect(harness.tutor().speechPendingTranscript).toMatchObject({ channel: "mainline", text: "这一步听懂了，继续" });
+  });
+
+  it.each(["workspace_input", "continue_input", "listen_only"])("C3 不开放 %s 的主线录音", async (participationKind) => {
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind, revision: 12 }));
+    harness = mountHarness(client);
+    await act(async () => { await harness.tutor().start(); });
+    expect(harness.tutor().lockRecordingChannel("mainline")).toBeUndefined();
+    expect(mocks.submitStudentInput).not.toHaveBeenCalled();
   });
 
   it("stale：ASR observed_revision 与捕获不一致 → 草稿，零自动提交", async () => {

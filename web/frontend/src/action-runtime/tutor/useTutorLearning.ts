@@ -181,14 +181,14 @@ export interface SpeechPendingTranscript {
 }
 
 /** 录音通道在当前快照下是否合法：
- *  - mainline：answer_input 的独立 affordance（spec §4.8「不能共用一个 mic
- *    后猜意图」）——participation 离开 answer_input 即不再合法；
+ *  - mainline：answer_input 作答或 confirm_input 理解反馈的独立入口；
+ *    不把 Teach 自述入口开放到 workspace_input/continue_input/listen_only；
  *  - assistance：Coach 通道按合同可用（listen_only 仍开放，US-03）；
  *  - 完成态一律关闭。 */
 function recordingChannelLegal(channel: "mainline" | "assistance", snapshot: ValidatedSessionSnapshot): boolean {
   if (snapshot.completed || snapshot.views.participation.kind === "read_only_completed") return false;
   return channel === "mainline"
-    ? snapshot.views.participation.kind === "answer_input"
+    ? ["answer_input", "confirm_input"].includes(snapshot.views.participation.kind)
     : snapshot.views.coach_panel_view.assistance_available !== false;
 }
 
@@ -202,7 +202,7 @@ function recordingChannelLegal(channel: "mainline" | "assistance", snapshot: Val
 export type ParticipationControls =
   | { kind: "listen" }
   | { kind: "answer"; onSubmit: (text: string) => void }
-  /** 唯一 typed CTA：canonical=control.confirm/continue（testId 供 e2e 锚点）；
+  /** 便利 typed CTA：canonical=control.confirm/continue（testId 供 e2e 锚点）；
    *  legacy=讲解门「明白，继续」（TopicTeachingConfirm 复合布局：恒挂确认组、
    *  answerVisible 时并行主线表单——原 actionEnd 行为零改动）。confused 仅
    *  legacy 讲解门形态携带（assistance 提问入口）。 */
@@ -215,6 +215,8 @@ export type ParticipationControls =
       confusedDisabled?: boolean;
       confused?: () => void;
       answer?: { onSubmit: (text: string) => void };
+      /** confirm_input 的自然语言理解反馈；后端解释原话，不在前端判 Gate。 */
+      feedback?: { onSubmit: (text: string) => void };
     }
   | { kind: "inquiry"; canReturn: boolean; onReturn: () => void }
   | { kind: "workspace_wait" }
@@ -1067,13 +1069,14 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   // ---- F7 Step 8：录音 + 通道锁定 + ASR（canonical 链；spec §2.9/§4.8）----
   const [speechAsrBusy, setSpeechAsrBusy] = useState(false);
   const activeSpeechCaptureRef = useRef<RecordingChannelCapture | undefined>(undefined);
+  const speechParticipationRef = useRef<ValidatedSessionSnapshot["views"]["participation"]["kind"] | undefined>(undefined);
   const consumedSpeechCaptureRef = useRef<RecordingChannelCapture | undefined>(undefined);
   const [speechPendingTranscript, setSpeechPendingTranscript] = useState<SpeechPendingTranscript | undefined>();
   const [speechNotice, setSpeechNotice] = useState<string | undefined>();
 
   /** 录音真正开始时锁定通道并捕获 {sessionId, revision}（不可变捕获——录音
    *  开始后 outcome/control 导致的 revision 变化不得悄悄更新捕获值）。
-   *  通道在当前快照下不合法（mainline≠answer_input / assistance 关闭 / 完成
+   *  通道在当前快照下不合法（mainline 非 answer/confirm / assistance 关闭 / 完成
    *  态）或无快照时返回 undefined——该录音不得进入提交链。 */
   const lockRecordingChannel = useCallback(
     (channel: "mainline" | "assistance"): RecordingChannelCapture | undefined => {
@@ -1082,6 +1085,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       if (!current || !recordingChannelLegal(channel, current)) return undefined;
       const capture = { captureId: newRuntimeRequestId(), channel, sessionId: current.session_id, revision: current.revision };
       activeSpeechCaptureRef.current = capture;
+      speechParticipationRef.current = current.views.participation.kind;
       consumedSpeechCaptureRef.current = undefined;
       setSpeechAsrBusy(false);
       setSpeechPendingTranscript(undefined);
@@ -1127,7 +1131,8 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
           || current.revision !== capture.revision
           || asr.sessionId !== capture.sessionId
           || asr.observedRevision !== capture.revision
-          || !recordingChannelLegal(capture.channel, current);
+          || !recordingChannelLegal(capture.channel, current)
+          || (capture.channel === "mainline" && current.views.participation.kind !== speechParticipationRef.current);
         if (stale) {
           setSpeechPendingTranscript({ source: capture, channel: capture.channel, text: transcript });
           return;
@@ -1608,7 +1613,8 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       if (runtimeSnapshot?.completed || kind === "read_only_completed") return { kind: "completed" };
       switch (kind) {
         case "confirm_input":
-          return { kind: "cta", label: "确认", onSubmit: () => { void submitControl("confirm"); }, testId: "tutor-confirm-input", understoodDisabled: turnPending };
+          return { kind: "cta", label: "确认", onSubmit: () => { void submitControl("confirm"); }, testId: "tutor-confirm-input", understoodDisabled: turnPending,
+            feedback: { onSubmit: (text: string) => { void submitUtterance("mainline", text); } } };
         case "continue_input":
           return { kind: "cta", label: "继续", onSubmit: () => { void submitControl("continue"); }, testId: "tutor-continue-input", understoodDisabled: turnPending };
         case "answer_input":

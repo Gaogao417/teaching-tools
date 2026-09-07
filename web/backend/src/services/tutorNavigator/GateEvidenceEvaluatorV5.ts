@@ -131,6 +131,18 @@ export function evaluateGateEvidence(
     if (input.narration_attempted_as_evidence || input.timeout_attempted_as_evidence) {
       return { satisfied: false, reason: "requires_student_evidence" };
     }
+    if (beat.completion_evidence.confirmation_target === "follow_along") {
+      const assessment = input.model_assessment;
+      // This opt-in is understanding feedback, not a generic control acknowledgement.
+      // Require the model result and its exact current student-intent anchor together.
+      if (!assessment) return { satisfied: false, reason: "answer_not_adjudicated" };
+      if (assessment.verdict !== "pass" || assessment.matched_gate_id !== gate?.gate_id
+        || assessment.evidence_sequence === undefined
+        || !input.confirmation_sequences.includes(assessment.evidence_sequence)) {
+        return { satisfied: false, reason: "answer_not_matching" };
+      }
+      return { satisfied: true, evidence_sequence: assessment.evidence_sequence };
+    }
     switch (kind) {
       case "student_answer":
         return assessStudentAnswer(beat, input);

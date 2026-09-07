@@ -49,7 +49,7 @@ export interface NavigatorBeatView {
   readonly graph_fact_refs: readonly string[];
   readonly inference_refs: readonly string[];
   readonly cognitive_activity: ProtocolBeatPayload["cognitive_activity"];
-  readonly completion_evidence: ProtocolBeatPayload["completion_evidence"];
+  readonly completion_evidence: import("../planBuild/canonicalInputs").ProtocolBeatV2Payload["completion_evidence"];
   readonly participation: ProtocolBeatPayload["participation"];
   readonly pacing: ProtocolBeatPayload["pacing"];
   readonly resource_ids: readonly string[];

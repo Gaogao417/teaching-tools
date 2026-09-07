@@ -166,7 +166,7 @@ function draftOf(items: unknown[]): { schema: "ai_teaching_presentation_draft/v2
 
 test("prompt versions are frozen and presenter payload carries tools/basis/budget", () => {
   assert.equal(STUCK_POINT_PROMPT_VERSION, "stuck-point-locator/v1");
-  assert.equal(PRESENTER_PROMPT_VERSION, "presenter-interleaved/v1");
+  assert.equal(PRESENTER_PROMPT_VERSION, "presenter-interleaved/v2-follow-along");
   const prompt = buildPresenterPrompt({
     context: builtContext(),
     instructionalGoal: "讲解第二组子母型相似",

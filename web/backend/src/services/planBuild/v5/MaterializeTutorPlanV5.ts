@@ -72,6 +72,7 @@ export interface RuntimeProjectionV5 {
     protocols: Array<{
       artifact_id: string;
       version: string;
+      schema?: TeachingProtocolV2Payload["schema"];
       protocol_kind: TeachingProtocolV2Payload["protocol_kind"];
       entry_beat_id: string;
       beats: Array<{
@@ -81,6 +82,7 @@ export interface RuntimeProjectionV5 {
         graph_fact_refs: string[];
         inference_refs: string[];
         participation: string;
+        completion_evidence?: TeachingProtocolV2Payload["beats"][number]["completion_evidence"];
         gate?: { gate_id: string; requirement: string; graph_fact_id?: string; capability?: string };
         support_boundary: TeachingProtocolV2Payload["beats"][number]["support_boundary"];
         transitions: Array<{ to_beat: string; on: string }>;
@@ -672,6 +674,7 @@ export function projectApprovedPlanV5(
           {
             artifact_id: protocol.protocol_id,
             version: protocol.version,
+            ...(protocol.schema === "ai_teaching_teaching_protocol/v3" ? { schema: protocol.schema } : {}),
             protocol_kind: protocol.protocol_kind,
             entry_beat_id: protocol.entry_beat_id,
             beats: protocol.beats.map((beat) => ({
@@ -681,6 +684,7 @@ export function projectApprovedPlanV5(
               graph_fact_refs: [...beat.solution_refs.fact_ids],
               inference_refs: [...beat.solution_refs.inference_ids],
               participation: beat.participation,
+              ...(protocol.schema === "ai_teaching_teaching_protocol/v3" ? { completion_evidence: structuredClone(beat.completion_evidence) } : {}),
               gate: beat.completion_evidence.gate
                 ? {
                     gate_id: beat.completion_evidence.gate.gate_id,

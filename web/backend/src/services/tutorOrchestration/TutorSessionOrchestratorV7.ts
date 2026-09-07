@@ -1686,6 +1686,8 @@ export class TutorSessionOrchestratorV7 {
     const prompt = buildPresenterPrompt({
       context,
       instructionalGoal: this.navigator.currentBeat.purpose,
+      completionTarget: this.navigator.currentBeat.completion_evidence.confirmation_target,
+      promptVersion: request.presenter_pin.prompt_version,
       currentGranularity: "beat",
       alreadyPresented,
       stuckPoint,
@@ -1843,10 +1845,11 @@ export class TutorSessionOrchestratorV7 {
     // 新状态（cancel_reason=revision_changed；正常控制语义，非系统故障）。
     if (this.hasPendingGeneration()) {
       cancelGeneration(this.generationKernelAccess(), "revision_changed", this.generationCausationSequence());
+      this.refreshWrappers();
     }
     // stale revision：revision_conflict failure 事实（canonical runtime_failure 封闭
     // 枚举）——零教学决策、零 presentation 推进。
-    this.appendViaKernel(current, [
+    this.appendViaKernel(this.navigator.revision, [
       {
         event_type: "runtime_failure",
         payload: {

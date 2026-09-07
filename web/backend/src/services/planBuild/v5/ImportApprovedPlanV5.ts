@@ -81,6 +81,7 @@ export function importApprovedPlanV5(
   const graph = loadApprovedSolutionGraph(registries, payload.solution_graph_ref.artifact_id);
   if (!graph.ok) return { ok: false, errors: graph.errors };
 
+  // Historical loader name reads both protocol/v2 and protocol/v3; preserves markers.
   // 协议集：chunk 引用 + beats 的 inquiry 分支引用（两轮固定点，与 v4 同口径）。
   const protocolIds = new Set<string>();
   for (const ref of payload.chunks.flatMap((chunk) => chunk.protocol_refs)) protocolIds.add(ref.artifact_id);

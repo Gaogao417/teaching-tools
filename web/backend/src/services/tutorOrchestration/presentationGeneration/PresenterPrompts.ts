@@ -14,7 +14,8 @@ import type { BuiltPresentationContext } from "./ContextBuilder";
 import type { VisibleToolInstance } from "./PresentationToolCatalog";
 
 export const STUCK_POINT_PROMPT_VERSION = "stuck-point-locator/v1";
-export const PRESENTER_PROMPT_VERSION = "presenter-interleaved/v1";
+export const LEGACY_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v1";
+export const PRESENTER_PROMPT_VERSION = "presenter-interleaved/v2-follow-along";
 
 /** 卡点定位 system prompt（版本 STUCK_POINT_PROMPT_VERSION）。 */
 export const STUCK_POINT_SYSTEM_PROMPT = [
@@ -37,7 +38,7 @@ export interface StuckPointUserPayload {
 }
 
 /** Presenter system prompt（版本 PRESENTER_PROMPT_VERSION）。 */
-export const PRESENTER_SYSTEM_PROMPT = [
+export const LEGACY_PRESENTER_SYSTEM_PROMPT = [
   "你是数学讲解 Presenter。基于教师已批准的推理依据，为当前教学任务生成一段有界讲解：语音与工具意图交织。",
   "硬性规则：",
   "1. 只使用 allowed_knowledge 中列出的批准依据（basis_refs 引用其 ref）；不得引入未列出的事实、不得猜测数值。",
@@ -50,9 +51,17 @@ export const PRESENTER_SYSTEM_PROMPT = [
   "8. 若依据不足以完成讲解，输出 items 为空数组之外的最小合法段并在 speech 中说明需要教师补充——不得编造依据。",
 ].join("\n");
 
+export const PRESENTER_SYSTEM_PROMPT = LEGACY_PRESENTER_SYSTEM_PROMPT + "\n" + [
+  "9. student_stuck_point 是最近的学生原话，可能是确认或问题，不代表学生一定卡住；先结合 instructional_goal 与 already_presented 理解。",
+  "10. 仅当 completion_target=follow_along：目标是把当前关系讲明白、让学生跟得上。学生请求老师演算时，用批准依据演示计算及 tools 中允许的图形/板书动作，不把填数、自己算对或点击控件设为听课前提。",
+  "11. 理解衔接允许学生自述听懂或陈述自己的理解；不要要求标准答案。若当前原话已充分表达理解，不重复同义盘问；若有具体问题或误解，先解释该断点，再用简短自然的问题确认是否接上。",
+  "12. 你不能自行宣布学生掌握、写 Gate verdict 或推进 Beat。未标记的练习/验证任务仍遵守其原有作答目标；工具权限和答案边界不因理解衔接而扩大。",
+].join("\n");
+
 /** Presenter user payload（服务端组装；工具可见性交集已由目录计算）。 */
 export interface PresenterUserPayload {
   readonly instructional_goal: string;
+  readonly completion_target?: "follow_along";
   readonly allowed_knowledge: readonly { readonly ref: string; readonly kind: "fact" | "inference" | "resource"; readonly text: string }[];
   readonly current_granularity: string;
   readonly already_presented: readonly string[];
@@ -62,6 +71,7 @@ export interface PresenterUserPayload {
     readonly description: string;
     readonly parameters: ReadonlyArray<{ readonly name: string; readonly value_type: string; readonly required: boolean; readonly allowed_values?: readonly string[] }>;
     readonly binding_refs: readonly string[];
+    readonly bindings?: readonly { readonly binding_ref: string; readonly purpose: string; readonly geometry_target?: string; readonly allowed_template_ids?: readonly string[]; readonly basis_refs?: { readonly fact_ids: readonly string[]; readonly inference_ids: readonly string[] } }[];
   }[];
   readonly output_budget: { readonly max_items: number; readonly max_speech_chars: number };
 }
@@ -69,6 +79,8 @@ export interface PresenterUserPayload {
 export interface PresenterPromptInput {
   readonly context: BuiltPresentationContext;
   readonly instructionalGoal: string;
+  readonly completionTarget?: "follow_along";
+  readonly promptVersion?: string;
   readonly currentGranularity: string;
   readonly alreadyPresented: readonly string[];
   readonly stuckPoint: { readonly text: string; readonly locatedRefs: readonly string[] } | null;
@@ -85,6 +97,7 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
 } {
   const payload: PresenterUserPayload = {
     instructional_goal: input.instructionalGoal,
+    ...(input.completionTarget ? { completion_target: input.completionTarget } : {}),
     allowed_knowledge: input.context.basis.map((item) => ({ ref: item.ref, kind: item.kind, text: item.text })),
     current_granularity: input.currentGranularity,
     already_presented: [...input.alreadyPresented],
@@ -101,8 +114,19 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
         ...(parameter.allowed_values !== undefined ? { allowed_values: [...parameter.allowed_values] } : {}),
       })),
       binding_refs: instance.bindings.map((binding) => binding.binding_id),
+      ...(input.promptVersion !== LEGACY_PRESENTER_PROMPT_VERSION ? { bindings: instance.bindings.map((binding) => ({
+        binding_ref: binding.binding_id, purpose: binding.purpose,
+        ...(binding.binding_kind === "geometry" ? { geometry_target: binding.geometry_target, allowed_template_ids: [...binding.allowed_template_ids] } : {}),
+        ...(binding.binding_kind === "explanation" ? { basis_refs: binding.basis_refs } : {}),
+      })) } : {}),
     })),
     output_budget: { max_items: input.maxItems, max_speech_chars: input.maxSpeechChars },
   };
-  return { systemPrompt: PRESENTER_SYSTEM_PROMPT, promptVersion: PRESENTER_PROMPT_VERSION, userPayload: payload };
+  const legacy = input.promptVersion === LEGACY_PRESENTER_PROMPT_VERSION;
+  if (input.promptVersion && !legacy && input.promptVersion !== PRESENTER_PROMPT_VERSION) {
+    throw new Error(`unsupported Presenter prompt version: ${input.promptVersion}`);
+  }
+  if (legacy && input.completionTarget) throw new Error("follow_along requires the current Presenter prompt");
+  return { systemPrompt: legacy ? LEGACY_PRESENTER_SYSTEM_PROMPT : PRESENTER_SYSTEM_PROMPT,
+    promptVersion: legacy ? LEGACY_PRESENTER_PROMPT_VERSION : PRESENTER_PROMPT_VERSION, userPayload: payload };
 }

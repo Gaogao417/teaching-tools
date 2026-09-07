@@ -139,7 +139,7 @@ describe("TutorLearnExperience Step 8：canonical 双 mic 接线", () => {
     unmount();
   });
 
-  it("mainline answer mic：answer_input 独立 affordance（confirm_input 不渲染）；与 Coach mic 共享同一媒体 session 实例", async () => {
+  it("mainline mic：answer_input 作答与 confirm_input 理解反馈独立文案；与 Coach mic 共享同一媒体 session 实例", async () => {
     const { client, mocks } = makeClient();
     mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "answer_input", revision: 12 }));
     const { container, unmount } = mountExperience(client);
@@ -156,12 +156,13 @@ describe("TutorLearnExperience Step 8：canonical 双 mic 接线", () => {
     expect(answer.media).toBe(coach.media);
     unmount();
 
-    // confirm_input：answer mic 不渲染。
+    // confirm_input：复用主线媒体链，呈现理解反馈入口。
     const second = makeClient();
     second.mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 12 }));
     const mounted = mountExperience(second.client);
     await waitForDom(mounted.container, () => mounted.container.querySelector("[data-testid='tutor-confirm-input']") !== null);
     expect(mounted.container.querySelector("[data-testid='tutor-answer-mic']")).toBeNull();
+    expect(mounted.container.querySelector("[data-testid='tutor-feedback-mic']")).not.toBeNull();
     mounted.unmount();
   });
 
@@ -258,5 +259,30 @@ describe("TutorLearnExperience Step 8：canonical 双 mic 接线", () => {
     expect(mocks.submitStudentInput).not.toHaveBeenCalled();
     expect(container.querySelector("[data-testid='tutor-error']")).toBeNull();
     unmount();
+  });
+});
+
+
+describe("C3 Teach 语音理解反馈", () => {
+  it.each(["这一步听懂了，继续", "我还是没懂这个比例", "懂了，所以这两条边是相等的"])("confirm_input ASR 沿 mainline 传原话：%s", async (text) => {
+    vi.clearAllMocks();
+    const { client, mocks } = makeClient();
+    mocks.start.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 12 }));
+    mocks.transcribe.mockResolvedValue(asrResult(text, 12));
+    mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 13 }));
+    const { container, unmount } = mountExperience(client);
+    try {
+      await waitForDom(container, () => container.querySelector("[data-testid='tutor-feedback-mic']") !== null);
+      const feedback = recorderOptionsRegistry["answer"];
+      expect(feedback.disabled).toBe(false);
+      expect(feedback.media).toBe(recorderOptionsRegistry["coach"].media);
+      await act(async () => { feedback.onRecordingStart?.(); feedback.onAudio({ dataUrl: "data:audio/webm;base64,AAAA", mimeType: "audio/webm" }); });
+      await waitForDom(container, () => mocks.submitStudentInput.mock.calls.length > 0);
+      expect(mocks.submitStudentInput).toHaveBeenCalledTimes(1);
+      expect(mocks.submitStudentInput).toHaveBeenCalledWith(RUNTIME_SESSION_ID,
+        { kind: "utterance", channel: "mainline", text }, 12, expect.any(String));
+      expect(mocks.submitActionEvidence).not.toHaveBeenCalled();
+      expect(mocks.reportPresentationOutcome).not.toHaveBeenCalled();
+    } finally { unmount(); }
   });
 });

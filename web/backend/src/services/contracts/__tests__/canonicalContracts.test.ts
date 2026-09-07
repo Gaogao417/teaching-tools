@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     // +tutor_plan_bundle/v6、tutor_runtime_state/v3、tutor_session_event/v8、tutor_policy_decision/v2、
     // presentation_plan/v3、presentation_draft/v1、presentation_tool_spec/v1、workspace_runtime_state/v2、
     // student_workspace_view/v2。
-    assert.equal(bySchema.size, 63); // +5 simplified-context successor contracts
+    assert.equal(bySchema.size, 64); // C0: +teaching_protocol/v3
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -141,6 +141,51 @@ async function main(): Promise<void> {
         assert.equal(typeof message, "string");
         assert.ok(message.length > 0, entry.file);
       }
+    }
+  });
+
+  await runTest("C0 unmarked v3 retains v2 semantics across role/kind/evidence/participation", () => {
+    const base = loadFixture("teaching-protocol.v2.positive.json") as any;
+    for (const protocol_kind of ["mainline", "inquiry", "scaffold", "verification"]) {
+      for (const role of ["orientation", "construction", "reasoning", "practice", "verification", "summary", "local_inquiry"]) {
+        for (const evidence_kind of ["student_answer", "workspace_command", "student_confirmation", "narration_completed", "explicit_gate_pass", "tutor_observed"]) {
+          for (const participation of ["listen", "answer", "operate", "confirm", "continue"]) {
+            const payload = structuredClone(base);
+            payload.protocol_kind = protocol_kind;
+            Object.assign(payload.beats[0], { role, participation });
+            payload.beats[0].completion_evidence.evidence_kind = evidence_kind;
+            assert.equal(canonical.validatePayload(payload).ok, true);
+            payload.schema = "ai_teaching_teaching_protocol/v3";
+            const before = structuredClone(payload);
+            assert.equal(canonical.validatePayload(payload).ok, true);
+            assert.deepEqual(payload, before);
+          }
+        }
+      }
+    }
+  });
+
+  await runTest("C0 v3 retains predecessor integrity and publication gates", () => {
+    const base = loadFixture("teaching-protocol.v3.positive.mainline-follow-along.json") as any;
+    const mutations: Array<(p: any) => void> = [
+      (p) => { p.beats.push(structuredClone(p.beats[0])); },
+      (p) => { p.entry_beat_id = "BT-99"; },
+      (p) => { p.beats[0].transitions[0].to_beat = "BT-99"; },
+      (p) => { p.beats[0].inquiry_branch.return_beat_id = "BT-99"; },
+      (p) => { delete p.beats[0].pacing.max_wait_seconds; },
+      (p) => { delete p.beats[1].completion_evidence.gate; },
+      (p) => { p.beats[0].support_boundary.may_reveal_answer = true; },
+      (p) => { delete p.beats[0].solution_refs.inference_ids; },
+      (p) => { delete p.approval; },
+    ];
+    for (const mutate of mutations) {
+      const payload = structuredClone(base);
+      mutate(payload);
+      assert.equal(canonical.validatePayload(payload).ok, false);
+    }
+    assert.equal(canonical.teachingProtocolV3Schema.parse(base).beats[0].completion_evidence.confirmation_target, "follow_along");
+    for (const status of ["Draft", "InReview", "Stale", "Disabled", "Superseded"]) {
+      assert.ok(canonical.validateForPublication({ ...base, status }).some((issue) => issue.code === "not_approved"));
     }
   });
 
@@ -248,6 +293,7 @@ async function main(): Promise<void> {
       "teachingProtocolV1Schema",
       "tutorPlanBundleV4Schema",
       "teachingProtocolV2Schema",
+      "teachingProtocolV3Schema",
       "tutorPlanBundleV5Schema",
       "studentIntentV1Schema",
       "tutorPolicyDecisionV1Schema",

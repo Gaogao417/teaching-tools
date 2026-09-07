@@ -26,6 +26,8 @@ import { StructuredModelError } from "../tutorIntelligence/structuredModelPort";
 import {
   GATE_ADJUDICATION_SYSTEM_PROMPT,
   MODEL_GATE_ADJUDICATOR_VERSION,
+  LEGACY_MODEL_GATE_ADJUDICATOR_VERSION,
+  LEGACY_GATE_ADJUDICATION_SYSTEM_PROMPT,
   type GateAdjudicationProvider,
 } from "../tutorNavigator/ModelGateAdjudicatorV5";
 
@@ -65,7 +67,7 @@ export class StructuredModelGateProvider implements GateAdjudicationProvider {
       provider: this.name,
       model_id: this.port.modelId,
       prompt_version: this.promptVersion,
-      adjudicator_version: MODEL_GATE_ADJUDICATOR_VERSION,
+      adjudicator_version: this.promptVersion === LEGACY_MODEL_GATE_ADJUDICATOR_VERSION ? LEGACY_MODEL_GATE_ADJUDICATOR_VERSION : MODEL_GATE_ADJUDICATOR_VERSION,
     };
   }
 
@@ -80,7 +82,7 @@ export class StructuredModelGateProvider implements GateAdjudicationProvider {
     let result: { value: unknown };
     try {
       result = await this.port.complete<unknown>({
-        systemPrompt: GATE_ADJUDICATION_SYSTEM_PROMPT,
+        systemPrompt: this.promptVersion === LEGACY_MODEL_GATE_ADJUDICATOR_VERSION ? LEGACY_GATE_ADJUDICATION_SYSTEM_PROMPT : GATE_ADJUDICATION_SYSTEM_PROMPT,
         promptVersion: this.promptVersion,
         userPayload: context,
         timeoutMs: 30_000,

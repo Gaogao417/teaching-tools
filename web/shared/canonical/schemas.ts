@@ -2628,6 +2628,49 @@ export const teachingProtocolV2Schema = z
     }
   });
 
+// planning/v8: v2 successor with explicit follow-along confirmation only.
+const teachingBeatV3Schema = teachingBeatV2Schema.innerType().extend({
+  completion_evidence: teachingBeatV2Schema.innerType().shape.completion_evidence.extend({
+    confirmation_target: z.literal("follow_along").optional(),
+  }),
+});
+
+export const teachingProtocolV3Schema = teachingProtocolV2Schema.innerType().extend({
+  schema: z.literal("ai_teaching_teaching_protocol/v3"),
+  beats: z.array(teachingBeatV3Schema).min(1),
+}).superRefine((value, ctx) => {
+  // A read-only projection for validation; never migrate or mutate the caller.
+  const predecessor = teachingProtocolV2Schema.safeParse({
+    ...value,
+    schema: "ai_teaching_teaching_protocol/v2",
+    beats: value.beats.map((beat) => {
+      const { confirmation_target: _target, ...completion_evidence } = beat.completion_evidence;
+      return { ...beat, completion_evidence };
+    }),
+  });
+  if (!predecessor.success) {
+    for (const issue of predecessor.error.issues) ctx.addIssue(issue);
+  }
+  value.beats.forEach((beat, index) => {
+    if (beat.completion_evidence.confirmation_target !== "follow_along") return;
+    if (beat.completion_evidence.evidence_kind !== "student_confirmation") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["beats", index, "completion_evidence", "evidence_kind"], message: "follow_along requires student_confirmation" });
+    }
+    if (!beat.completion_evidence.gate) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["beats", index, "completion_evidence", "gate"], message: "follow_along requires gate" });
+    }
+    if (beat.participation !== "confirm") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["beats", index, "participation"], message: "follow_along requires participation=confirm" });
+    }
+    if (beat.role === "practice" || beat.role === "verification") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["beats", index, "role"], message: "follow_along forbids practice/verification role" });
+    }
+    if (value.protocol_kind === "verification") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["protocol_kind"], message: "verification protocol forbids follow_along" });
+    }
+  });
+});
+
 const tutorPlanV5ResourceSchema = z
   .object({
     resource_id: resourceIdPattern,

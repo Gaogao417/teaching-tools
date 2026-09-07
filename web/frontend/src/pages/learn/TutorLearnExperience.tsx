@@ -459,6 +459,22 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
               onUnderstood={controls.onSubmit}
             />
           </div>
+        ) : controls.feedback ? (
+          <div className="action-row tutor-participation-row">
+            <MainlineAnswerComposer
+              purpose="feedback"
+              draft={answerDraft}
+              onDraftChange={setAnswerDraft}
+              onSubmit={controls.feedback.onSubmit}
+              busy={busy}
+              media={tutor.mediaSession}
+              beforeStart={() => tutor.prepareRecordingStart()}
+              lockChannel={() => tutor.lockRecordingChannel("mainline")}
+              transcribe={(capture, audio) => tutor.transcribeRecording(capture, audio)}
+              onNotice={setNotice}
+            />
+            <button type="button" className="btn btn-primary" data-testid={controls.testId ?? "tutor-confirm-input"} disabled={controls.understoodDisabled ?? busy} onClick={controls.onSubmit}>{controls.label}</button>
+          </div>
         ) : (
           <button type="button" className="btn btn-primary" data-testid={controls.testId ?? "tutor-confirm-input"} disabled={controls.understoodDisabled ?? busy} onClick={controls.onSubmit}>{controls.label}</button>
         );
@@ -642,16 +658,17 @@ function studentNameSafe(studentId: string): string {
 }
 
 /**
- * F7 Step 8：mainline answer composer（canonical answer_input 的独立入口）。
+ * 主线输入：answer_input 作答或 confirm_input 理解反馈，共用原话/录音链。
  *
  * - 文字与语音共用同一 mainline 通道（utterance(channel=mainline)）；
  * - answer mic 是独立 affordance（spec §4.8：不与 Coach mic 共用一个 mic 后
  *   猜意图）——录音真正开始时锁定 mainline 并捕获 {sessionId, revision}；
  * - 与 Voice 播放共享外层 PresentationRuntime 的同一 MediaSessionController
  *   （录音互斥 + 录音打断播放）；
- * - 仅 canonical participation=answer 时挂载（legacy 链无此形态）。
+ * - 仅 canonical participation=answer/confirm 时挂载（legacy 链无此形态）。
  */
-function MainlineAnswerComposer({ draft, onDraftChange, onSubmit, busy, media, beforeStart, lockChannel, transcribe, onNotice }: {
+function MainlineAnswerComposer({ purpose = "answer", draft, onDraftChange, onSubmit, busy, media, beforeStart, lockChannel, transcribe, onNotice }: {
+  purpose?: "answer" | "feedback";
   draft: string;
   onDraftChange: (value: string) => void;
   onSubmit: (text: string) => void;
@@ -663,9 +680,10 @@ function MainlineAnswerComposer({ draft, onDraftChange, onSubmit, busy, media, b
   transcribe: (capture: RecordingChannelCapture, audio: { dataUrl: string; mimeType?: string; durationMs?: number }) => Promise<void>;
   onNotice: (message: string) => void;
 }) {
+  const feedback = purpose === "feedback";
   const captureRef = useRef<RecordingChannelCapture | undefined>(undefined);
   const recorder = useCoachRecorder({
-    owner: "answer",
+    owner: "answer", // 同一主线录音 owner；purpose 不改变通道或媒体状态机。
     disabled: busy,
     media,
     beforeStart,
@@ -676,7 +694,7 @@ function MainlineAnswerComposer({ draft, onDraftChange, onSubmit, busy, media, b
       const capture = captureRef.current;
       captureRef.current = undefined; // consume-once：下一次录音必须重新捕获
       if (!capture) {
-        onNotice("当前不能用语音回答，请用文字输入。");
+        onNotice("当前不能提交这段语音，请用文字输入。");
         return;
       }
       void transcribe(capture, audio);
@@ -687,32 +705,33 @@ function MainlineAnswerComposer({ draft, onDraftChange, onSubmit, busy, media, b
     <form
       className="tutor-participation"
       data-testid="tutor-participation"
-      aria-label="回答老师"
+      aria-label={feedback ? "反馈这一步的理解" : "回答老师"}
       onSubmit={(event) => {
         event.preventDefault();
         const trimmed = draft.trim();
-        if (!trimmed) return;
+        if (!trimmed || busy) return;
         onDraftChange("");
         onSubmit(trimmed);
       }}
     >
       <input
         value={draft}
-        placeholder="说说这一步你是怎么想的"
-        aria-label="回答输入"
+        placeholder={feedback ? "说说你是否跟上，或哪里还没懂" : "说说这一步你是怎么想的"}
+        aria-label={feedback ? "理解反馈输入" : "回答输入"}
+        disabled={busy}
         onChange={(event) => onDraftChange(event.target.value)}
       />
       <button
         type="button"
         className={`topic-coach-mic${recorder.recording ? " is-recording" : ""}`}
-        data-testid="tutor-answer-mic"
-        aria-label={recorder.recording ? "结束录音回答" : "语音回答"}
+        data-testid={feedback ? "tutor-feedback-mic" : "tutor-answer-mic"}
+        aria-label={recorder.recording ? "结束录音回答" : feedback ? "语音反馈理解" : "语音回答"}
         disabled={busy}
         onClick={() => { void recorder.toggle(); }}
       >
         <span className="material-symbols-outlined">{recorder.recording ? "stop_circle" : "mic"}</span>
       </button>
-      <button type="submit" data-testid="tutor-submit-answer" disabled={!draft.trim() || busy}>回答</button>
+      <button type="submit" data-testid={feedback ? "tutor-submit-feedback" : "tutor-submit-answer"} disabled={!draft.trim() || busy}>{feedback ? "发送反馈" : "回答"}</button>
       {recorder.recording ? (
         <p className="topic-coach-recording" role="status" data-testid="tutor-answer-recording"><span />正在录音回答，点停止后发送（最长 45 秒）</p>
       ) : null}

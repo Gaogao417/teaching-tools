@@ -1,0 +1,153 @@
+{
+  "schema": "ai_teaching_teaching_protocol/v3",
+  "protocol_id": "PR-SMV-001",
+  "version": "v3",
+  "status": "Approved",
+  "approval": {
+    "reviewer_id": "fixture:contract-test",
+    "approved_at": "2026-09-07T00:00:00Z",
+    "review_note": "Synthetic contract fixture only; not a publication approval."
+  },
+  "question_ref": {
+    "artifact_id": "QT-SMV-001",
+    "version": "v2",
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "solution_graph_ref": {
+    "artifact_id": "RG-SMV-001",
+    "version": "v3",
+    "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "protocol_kind": "mainline",
+  "entry_beat_id": "BT-01",
+  "beats": [
+    {
+      "beat_id": "BT-01",
+      "part_id": "1",
+      "role": "reasoning",
+      "purpose": "识别第一组子母型相似并说明对应关系",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-04",
+          "FN-05"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      },
+      "abstraction_level": "A2_strategy",
+      "cognitive_process": "match",
+      "cognitive_activity": "relate",
+      "accepted_alternatives": [
+        "先写两组对应角，再给出 AA"
+      ],
+      "common_deviations": [
+        "对应顶点顺序写反"
+      ],
+      "completion_evidence": {
+        "evidence_kind": "student_confirmation",
+        "gate": {
+          "gate_id": "GT-01",
+          "requirement": "学生说明相似依据和对应关系",
+          "graph_fact_id": "FN-05"
+        },
+        "confirmation_target": "follow_along"
+      },
+      "participation": "answer",
+      "pacing": {
+        "wait_policy": "bounded_wait",
+        "max_wait_seconds": 180
+      },
+      "presentation_intent": {
+        "voice": [
+          "question"
+        ],
+        "workspace_surfaces": [
+          "geometry",
+          "solution_board"
+        ]
+      },
+      "resource_ids": [
+        "RES1"
+      ],
+      "support_boundary": {
+        "may_reveal_answer": false,
+        "may_reveal_intermediate": true,
+        "max_support": "name_strategy"
+      },
+      "transitions": [
+        {
+          "to_beat": "BT-02",
+          "on": "gate_satisfied"
+        }
+      ],
+      "inquiry_branch": {
+        "inquiry_protocol_ref": {
+          "artifact_id": "PR-SMV-002",
+          "version": "v3",
+          "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "return_beat_id": "BT-01",
+        "expand_region_id": "SR-01",
+        "trigger": "unclear"
+      }
+    },
+    {
+      "beat_id": "BT-02",
+      "part_id": "1",
+      "role": "verification",
+      "purpose": "完成蝶形相似并核验 BE",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-20",
+          "FN-21"
+        ],
+        "inference_ids": [
+          "IF-20"
+        ]
+      },
+      "abstraction_level": "A1_relation",
+      "cognitive_process": "monitor",
+      "cognitive_activity": "verify",
+      "completion_evidence": {
+        "evidence_kind": "student_answer",
+        "gate": {
+          "gate_id": "GT-02",
+          "requirement": "学生给出 BE 并说明比例来源",
+          "graph_fact_id": "FN-21"
+        }
+      },
+      "participation": "answer",
+      "pacing": {
+        "wait_policy": "student_driven"
+      },
+      "presentation_intent": {
+        "voice": [
+          "question",
+          "feedback"
+        ],
+        "workspace_surfaces": [
+          "solution_board"
+        ]
+      },
+      "resource_ids": [
+        "RES2"
+      ],
+      "support_boundary": {
+        "may_reveal_answer": false,
+        "may_reveal_intermediate": true,
+        "max_support": "specify_operation"
+      },
+      "transitions": [
+        {
+          "to_beat": "BT-02",
+          "on": "gate_satisfied"
+        }
+      ]
+    }
+  ],
+  "content_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "artifact_uri": "artifact://teaching-protocol/PR-SMV-001@v3"
+}

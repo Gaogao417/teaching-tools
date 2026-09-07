@@ -410,7 +410,7 @@ export interface ProtocolBeatV2Payload {
   cognitive_activity: "attend" | "recall" | "relate" | "apply" | "verify" | "explain";
   accepted_alternatives?: string[];
   common_deviations?: string[];
-  completion_evidence: ProtocolBeatPayload["completion_evidence"];
+  completion_evidence: ProtocolBeatPayload["completion_evidence"] & { confirmation_target?: "follow_along" };
   participation: ProtocolBeatPayload["participation"];
   pacing: ProtocolBeatPayload["pacing"];
   presentation_intent: ProtocolBeatPayload["presentation_intent"];
@@ -426,7 +426,8 @@ export interface ProtocolBeatV2Payload {
 }
 
 export interface TeachingProtocolV2Payload {
-  schema: "ai_teaching_teaching_protocol/v2";
+  /** Historical API name; preserves v2 or approved protocol/v3 exactly. */
+  schema: "ai_teaching_teaching_protocol/v2" | "ai_teaching_teaching_protocol/v3";
   protocol_id: string;
   version: string;
   status: string;
@@ -439,6 +440,9 @@ export interface TeachingProtocolV2Payload {
   content_hash: string;
   artifact_uri: string;
 }
+
+/** C0 protocol/v3 internal reader shape; canonical definition stays in PRDS. */
+export type TeachingProtocolV3Payload = Omit<TeachingProtocolV2Payload, "schema"> & { schema: "ai_teaching_teaching_protocol/v3" };
 
 /** v1/v2 协议 Beat 的统一读法（导航/目录/Presenter 只读消费，不改写 payload）。 */
 export type ProtocolBeatAnyPayload = ProtocolBeatPayload | ProtocolBeatV2Payload;
@@ -849,10 +853,11 @@ export function loadApprovedTeachingProtocolV2(
     { anchored: inputs.anchored },
   );
   if (!result.ok) return result;
-  if (result.payload.schema !== "ai_teaching_teaching_protocol/v2") {
+  if (result.payload.schema !== "ai_teaching_teaching_protocol/v2"
+    && result.payload.schema !== "ai_teaching_teaching_protocol/v3") {
     return {
       ok: false,
-      errors: [`${prId}: 期望 teaching_protocol/v2（v5 plan 的协议必须是 v2），实际 ${result.payload.schema}`],
+      errors: [`${prId}: 期望 teaching_protocol/v2 或 v3（按原 schema/标记消费），实际 ${result.payload.schema}`],
     };
   }
   return result;
