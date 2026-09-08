@@ -22,7 +22,11 @@ async function main() {
     const model = request.model_id || process.env.TEACHING_PLAN_MODEL || "qwen-plus";
     const key = process.env.DASHSCOPE_API_KEY;
     if (!key) throw new Error("DASHSCOPE_API_KEY missing");
-    const response = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
+    // Model endpoint follows the same OpenAI-compatible contract as the MVP
+    // DashScopeStructuredModel; local deterministic acceptance runs may point
+    // it at a local endpoint instead of the real provider.
+    const baseUrl = process.env.TEACHING_PLAN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1";
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(180000), body: JSON.stringify({ model, temperature: 0, response_format: { type: "json_object" },
         messages: [{ role: "system", content: `面向${request.student_context?.region ?? "上海市"}${request.student_context?.grade ?? "九年级（初三）"}学生，使用该阶段常见数学知识和表达。生成待独立AI验收的教学计划，严格JSON {plan,protocols}，遵守提供的canonical schemas。只使用提供的Approved题目、解法、讲法、讲法组合、工具能力和资源目录。保持教师策略，不从答案猜节奏。Plan/Protocol均Draft且不含approval。只使用request提供的plan_id/plan_version和protocol_versions分配。content_hash允许留占位，程序将确定性计算；所有引用必须用输入中的实际ID与version。覆盖细图推理，完成门槛不把播放完成当学生掌握。不得编造资源target/geometry。如有previous_candidate和validation_errors，修复这些问题并返回完整候选。` },

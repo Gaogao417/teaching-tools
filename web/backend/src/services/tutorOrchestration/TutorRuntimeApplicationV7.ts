@@ -76,12 +76,12 @@ export class TutorRuntimeApplicationV7 {
 
   /** route policy 面（与 availability 端点同源；F7 = golden allowlist）。 */
   resolvableTaskIds(): readonly string[] {
-    return resolvableTaskIds();
+    return resolvableTaskIds(this.deps.canonicalRoot);
   }
 
   /** 绑定解析可用性（availability 端点；无副作用——不创建会话）。 */
   taskEnabled(taskId: string): boolean {
-    return resolvableTaskIds().includes(taskId);
+    return resolvableTaskIds(this.deps.canonicalRoot).includes(taskId);
   }
 
   /**

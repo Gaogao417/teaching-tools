@@ -25,6 +25,13 @@ import {
   buildSessionPinnedCapabilityRegistry,
   type SessionPinnedCapabilityRegistry,
 } from "../tutorSession/SessionPinnedCapabilityRegistry";
+import {
+  listPublishedTaskIds,
+  loadPublishedTaskBinding,
+  loadPublishedWorkspaceCatalog,
+  publishedCatalogPin,
+  type PublishedTaskBinding,
+} from "./PublishedProductionBinding";
 import type { V6RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV6";
 import type { V7RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV7";
 import type { WorkspacePresentationCatalogV5 } from "../tutorSession/WorkspacePresentationCatalogV5";
@@ -87,14 +94,16 @@ function declaredConstructionOutputIds(imported: ImportedApprovedPlanV5): string
   return [...new Set(outputs)];
 }
 
-/** 唯一绑定解析（start 与 restore 共用；unknown task fail closed）。 */
+/** 唯一绑定解析（start 与 restore 共用；unknown task fail closed）。
+
+ * golden 绑定表（F7 冻结）之外，允许消费**生产 driver 发布进本 canonical
+ * root** 的 vnext-task-bindings.yaml（F4 题图/生产补强）：catalog 来自生产
+ * 发布文件（全量校验），restore 按 pin 对账；缺发布物 → UNKNOWN_TASK，
+ * 无 allowlist/默认回退。 */
 function resolveBinding(canonicalRoot: string, taskId: string, importer: typeof importApprovedPlanV5, pinnedCatalog?: unknown, mode?: "teaching" | "assessment"): TutorTaskBinding {
   const entry = TASK_BINDINGS.get(taskId);
   if (!entry) {
-    throw new TutorTaskBindingError(
-      "UNKNOWN_TASK",
-      `task ${taskId} has no pinned task binding (F7 supports the golden task only; no allowlist/default fallback)`,
-    );
+    return resolvePublishedBinding(canonicalRoot, taskId, importer, pinnedCatalog, mode);
   }
   const imported = importer({ canonicalRoot, anchored: true }, entry.tpId);
   if (!imported.ok) {
@@ -116,6 +125,65 @@ function resolveBinding(canonicalRoot: string, taskId: string, importer: typeof 
     taskId,
     tpId: entry.tpId,
     scenarioId: entry.scenarioId,
+    imported: imported.imported,
+    plan,
+    golden,
+    registry,
+    question: {
+      artifact_id: plan.question.artifact_id,
+      question_type: plan.question.question_type,
+      stem: plan.question.stem,
+    },
+  };
+}
+
+/** 生产发布绑定的解析（catalog 全量校验 + restore pin 对账；fail closed）。 */
+function resolvePublishedBinding(canonicalRoot: string, taskId: string, importer: typeof importApprovedPlanV5, pinnedCatalog: unknown, mode?: "teaching" | "assessment"): TutorTaskBinding {
+  let published: PublishedTaskBinding;
+  try {
+    const found = loadPublishedTaskBinding(canonicalRoot, taskId);
+    if (!found) {
+      throw new TutorTaskBindingError(
+        "UNKNOWN_TASK",
+        `task ${taskId} has no pinned task binding (golden or published production binding required; no allowlist/default fallback)`,
+      );
+    }
+    published = found;
+  } catch (error) {
+    if (error instanceof TutorTaskBindingError) throw error;
+    throw new TutorTaskBindingError("UNKNOWN_TASK", `published binding for task ${taskId} is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const imported = importer({ canonicalRoot, anchored: true }, published.tpId);
+  if (!imported.ok) {
+    throw new TutorTaskBindingError(
+      "PLAN_IMPORT_FAILED",
+      `approved plan import failed for published task ${taskId} (fail closed): ${imported.errors.join("; ")}`,
+    );
+  }
+  const plan = buildNavigatorPlan(imported.imported);
+  let catalog: WorkspacePresentationCatalogV5;
+  try {
+    catalog = loadPublishedWorkspaceCatalog(canonicalRoot, published.catalogPath, taskId);
+  } catch (error) {
+    throw new TutorTaskBindingError("PLAN_IMPORT_FAILED", `published workspace catalog for task ${taskId} failed validation (fail closed): ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (mode === "assessment") catalog = { ...catalog, initialInteractionMode: "locked" };
+  if (pinnedCatalog !== undefined) {
+    const pin = pinnedCatalog as { content_hash?: unknown };
+    if (typeof pin.content_hash !== "string" || pin.content_hash !== publishedCatalogPin(catalog).content_hash) {
+      throw new TutorTaskBindingError(
+        "CATALOG_PIN_MISMATCH",
+        `session_started workspace_catalog_pin does not match the published task catalog (fail closed; zero events, zero state change)`,
+      );
+    }
+  }
+  const factEntryIds = new Map(imported.imported.graph.facts.map((fact, index) => [fact.fact_id, `BE-${String(index + 1).padStart(2, "0")}`]));
+  const golden: GoldenWorkspaceCatalog = { catalog, factEntryIds };
+  const registry = buildSessionPinnedCapabilityRegistry(golden, declaredConstructionOutputIds(imported.imported));
+  return {
+    taskId,
+    tpId: published.tpId,
+    scenarioId: published.scenarioId,
     imported: imported.imported,
     plan,
     golden,
@@ -275,6 +343,13 @@ function assertPinnedRefMatches(
 }
 
 /** 支持 start 显式选择的任务清单（availability 面；绑定解析仍走 fail-closed 表）。 */
-export function resolvableTaskIds(): readonly string[] {
-  return [...TASK_BINDINGS.keys()];
+export function resolvableTaskIds(canonicalRoot?: string): readonly string[] {
+  const ids = [...TASK_BINDINGS.keys()];
+  if (canonicalRoot) {
+    // F4 production roots additionally expose tasks published via
+    // vnext-task-bindings.yaml; corrupted manifests fail closed.
+    const published = listPublishedTaskIds(canonicalRoot);
+    for (const id of published) if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
 }
