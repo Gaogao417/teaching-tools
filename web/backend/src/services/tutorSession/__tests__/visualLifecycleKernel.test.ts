@@ -70,6 +70,33 @@ test('H16 DB abort inside delivery rolls back invalidation, barrier and action t
   try {assert.throws(()=>kernel.append(revision,cleanup(kernel)),/visual injected fault/);} finally {db.exec('DROP TRIGGER visual_delivery_fault');}
   assert.equal(history(kernel).length,2);assert.equal(kernel.revision,revision);assert.equal(kernel.rebuild().visual_barrier,null);
 });
+for (const boundary of ['invalidation','cleanup-planned'] as const) {
+  test(`H16 DB abort at ${boundary} leaves zero partial facts and the same batch can retry`,()=>{
+    const kernel=start(),revision=kernel.revision,batch=cleanup(kernel);
+    const beforeEvents=structuredClone(history(kernel)),beforeState=structuredClone(kernel.state);
+    const predicate=boundary==='invalidation'
+      ? "NEW.event_type='workspace_visual_owners_invalidated'"
+      : "NEW.event_type='presentation_sequence_planned' AND json_extract(NEW.payload_json, '$.purpose')='visual-reconcile'";
+    db.exec(`CREATE TRIGGER visual_atomic_boundary_fault BEFORE INSERT ON tutor_session_events WHEN ${predicate} BEGIN SELECT RAISE(ABORT, 'visual atomic boundary fault'); END`);
+    try { assert.throws(()=>kernel.append(revision,batch),/visual atomic boundary fault/); }
+    finally { db.exec('DROP TRIGGER visual_atomic_boundary_fault'); }
+    assert.equal(kernel.revision,revision);
+    assert.deepEqual(history(kernel),beforeEvents);
+    assert.deepEqual(kernel.state,beforeState);
+    assert.deepEqual(kernel.state.visual_barrier,beforeState.visual_barrier);
+    assert.deepEqual(kernel.state.presentation_cursor,beforeState.presentation_cursor);
+    assert.deepEqual(kernel.rebuild(),beforeState);
+    assert.deepEqual(TutorSessionKernelV10.resume(kernel.sessionId,provider).state,beforeState);
+    kernel.append(revision,batch);
+    const delta=history(kernel).slice(beforeEvents.length);
+    for(const type of ['workspace_visual_owners_invalidated','visual_barrier_changed','presentation_sequence_planned','presentation_action_delivered'])
+      assert.equal(delta.filter(e=>e.event_type===type).length,1,type);
+    assert.equal(delta.filter(e=>e.event_type==='presentation_action_outcome_recorded').length,0);
+    assert.equal(kernel.state.visual_barrier?.status,'awaiting-cleanup');
+    assert.equal(kernel.state.presentation_cursor.status,'awaiting_browser');
+    assert.deepEqual(kernel.rebuild(),kernel.state);
+  });
+}
 test('H17 two real kernel instances at one revision commit exactly one cleanup',()=>{
   const kernel=start(),other=TutorSessionKernelV10.resume(kernel.sessionId,provider),revision=kernel.revision;
   kernel.append(revision,cleanup(kernel));assert.throws(()=>other.append(revision,cleanup(other)),/revision/i);

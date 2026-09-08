@@ -25,6 +25,7 @@
  *   （revision_conflict 等）是 committed 事实，随 turn.failure 透出（HTTP 200）；
  * - 错误保持稳定 error.code（spec §2.1 表）；4xx/5xx 不构造学生 correct/wrong。
  */
+import Database from "better-sqlite3";
 import { VisualLifecycleError } from "../../services/tutorSession/TutorRuntimeStateReducerV10";
 import { TutorSessionEventStoreV9Error, TutorSessionIntegrityV9Error } from "../../services/tutorSession/TutorSessionEventV9";
 import { Router } from "express";
@@ -129,6 +130,14 @@ function toHttpError(error: unknown, res: { status: (code: number) => { json: (b
   const emit = (status: number, code: string, message: string): void => {
     res.status(status).json(errorEnvelopeHttpV1Schema.parse({ error: { code, message } }));
   };
+  // SQLite WAL writers can contend before the event CAS is acquired. Only
+  // genuine driver contention is retryable; corruption/I/O and lookalike
+  // application errors retain their ordinary failure mapping. Never replay here.
+  if (error instanceof Error && error instanceof Database.SqliteError && "code" in error
+    && (error.code === "SQLITE_BUSY" || error.code === "SQLITE_BUSY_SNAPSHOT")) {
+    emit(409, "REVISION_CONFLICT", "Concurrent database write conflict; refresh and reconcile using the same request key.");
+    return;
+  }
   if (error instanceof z.ZodError) {
     emit(400, "BAD_REQUEST", error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
     return;
