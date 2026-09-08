@@ -1,0 +1,175 @@
+{
+  "schema": "ai_teaching_presentation_draft/v2",
+  "request_id": "GR-TS-178885487638701-0002",
+  "items": [
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-102",
+        "params": {
+          "form": "angle-arcs",
+          "lifetime": "teaching-scope",
+          "group": "g"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-102",
+        "params": {
+          "group": "g",
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "我们先看第一对角：角ACD等于角ACB，因为D在BC上，所以角ACD和角ACB其实是同一个角。",
+      "basis_refs": [
+        "FN-05",
+        "VB-102"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-103",
+        "params": {
+          "form": "angle-arcs",
+          "lifetime": "teaching-scope",
+          "group": "g"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-103",
+        "params": {
+          "group": "g",
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "再看第二对角：角DAC等于角ABC。这两对角分别相等，就满足AA判定相似的条件。",
+      "basis_refs": [
+        "FN-05",
+        "VB-103"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "board.explain",
+      "args": {
+        "binding_ref": "VB-07",
+        "params": {
+          "note_kind": "approved_math_note"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "接下来我们把两组对应角对齐，得到第一组子母型相似：三角形CAD相似于三角形CBA。",
+      "basis_refs": [
+        "FN-06",
+        "IF-02",
+        "VB-104"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-104",
+        "params": {
+          "form": "paired-sides",
+          "lifetime": "teaching-scope",
+          "group": "g"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-104",
+        "params": {
+          "group": "g",
+          "pair_index": 0,
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "对应边第一对：CA对应CB。",
+      "basis_refs": [
+        "FN-06",
+        "VB-104"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-104",
+        "params": {
+          "group": "g",
+          "pair_index": 1,
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "第二对：AD对应BA。",
+      "basis_refs": [
+        "FN-06",
+        "VB-104"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-104",
+        "params": {
+          "group": "g",
+          "pair_index": 2,
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "第三对：CD对应CA。这样对应关系就清楚了。",
+      "basis_refs": [
+        "FN-06",
+        "VB-104"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.clear-visual",
+      "args": {
+        "params": {
+          "group": "g"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "这一步用来把已知边和待求边连起来，不必先独立证明也能继续听。你跟上这一步了吗？",
+      "basis_refs": [
+        "RES2"
+      ]
+    }
+  ]
+}

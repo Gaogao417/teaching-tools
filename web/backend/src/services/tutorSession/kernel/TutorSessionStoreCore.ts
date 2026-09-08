@@ -1,3 +1,4 @@
+import {appendGenerationCompanion,verifyGenerationCompanions,type GenerationCompanion} from '../GenerationCompanionStore';
 /**
  * TutorSessionEventStore core（F7 Step 2 — 版本无关存储内核）。
  *
@@ -246,6 +247,7 @@ export function appendSessionEvents<S, C>(
   sessionId: string,
   expectedRevision: number,
   events: PendingSessionEvent[],
+  companion?:GenerationCompanion,
 ): { revision: number; appendedSequences: number[] } {
   if (!Array.isArray(events) || events.length === 0) {
     throw codec.makeStoreError("VALIDATION_FAILED", "events must be a non-empty array");
@@ -273,6 +275,7 @@ export function appendSessionEvents<S, C>(
     // session_started pin 重解析（append 边界自证）。
     const committed = readSessionEvents(codec, sessionId);
     const foldContext = codec.resolveFoldContext(committed[0].payload);
+    verifyGenerationCompanions(sessionId,foldContext as import('../GenerationCompanionStore').CompanionValidationContext);
     let candidateState = codec.foldCommitted(committed, foldContext);
     const beforeState = candidateState;
     const candidateBatch: StoredSessionEvent[] = [];
@@ -319,6 +322,7 @@ export function appendSessionEvents<S, C>(
       appended.push(sequence);
     });
     codec.validateBatchEnd?.(beforeState, candidateBatch, candidateState, foldContext);
+    appendGenerationCompanion(sessionId,candidateBatch,companion,foldContext as import('../GenerationCompanionStore').CompanionValidationContext,committed);
     bumpRevisionStatement.run(sessionId);
     return { revision: nextRevision, appendedSequences: appended };
   });

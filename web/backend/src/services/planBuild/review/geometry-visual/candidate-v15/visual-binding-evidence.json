@@ -1,0 +1,112 @@
+[
+  {
+    "binding_id": "VB-101",
+    "fact_id": "FN-03",
+    "approved_statement": "$\\angle DAC=\\angle ACD$"
+  },
+  {
+    "binding_id": "VB-102",
+    "fact_id": "FN-05",
+    "approved_statement": "$\\angle ACD=\\angle ACB$ 且 $\\angle DAC=\\angle ABC$"
+  },
+  {
+    "binding_id": "VB-103",
+    "fact_id": "FN-05",
+    "approved_statement": "$\\angle ACD=\\angle ACB$ 且 $\\angle DAC=\\angle ABC$"
+  },
+  {
+    "binding_id": "VB-104",
+    "fact_id": "FN-06",
+    "approved_statement": "$\\triangle CAD\\sim\\triangle CBA$（第一组子母型相似）"
+  },
+  {
+    "binding_id": "VB-105",
+    "fact_id": "FN-07",
+    "approved_statement": "$CA:CB=AD:BA=CD:CA=2:3$"
+  },
+  {
+    "binding_id": "VB-106",
+    "fact_id": "FN-08",
+    "approved_statement": "$AD=\\frac{8}{3}$"
+  },
+  {
+    "binding_id": "VB-107",
+    "fact_id": "FN-09",
+    "approved_statement": "$CD=\\frac{8}{3}$"
+  },
+  {
+    "binding_id": "VB-108",
+    "fact_id": "FN-10",
+    "approved_statement": "$BD=\\frac{10}{3}$"
+  },
+  {
+    "binding_id": "VB-109",
+    "fact_id": "FN-13",
+    "approved_statement": "$\\angle DAO=\\angle DBA$ 且 $\\angle ADO=\\angle BDA$"
+  },
+  {
+    "binding_id": "VB-110",
+    "fact_id": "FN-13",
+    "approved_statement": "$\\angle DAO=\\angle DBA$ 且 $\\angle ADO=\\angle BDA$"
+  },
+  {
+    "binding_id": "VB-111",
+    "fact_id": "FN-14",
+    "approved_statement": "$\\triangle DAO\\sim\\triangle DBA$（第二组子母型相似）"
+  },
+  {
+    "binding_id": "VB-112",
+    "fact_id": "FN-16",
+    "approved_statement": "$DO=\\frac{32}{15}$"
+  },
+  {
+    "binding_id": "VB-113",
+    "fact_id": "FN-17",
+    "approved_statement": "$AO=\\frac{16}{5}$"
+  },
+  {
+    "binding_id": "VB-114",
+    "fact_id": "FN-18",
+    "approved_statement": "$BO=\\frac65$"
+  },
+  {
+    "binding_id": "VB-115",
+    "fact_id": "FN-19",
+    "approved_statement": "$OE=\\frac45$"
+  },
+  {
+    "binding_id": "VB-116",
+    "fact_id": "FN-20",
+    "approved_statement": "$BO:AO=OE:OD=3:8$，且 $\\angle BOE=\\angle AOD$"
+  },
+  {
+    "binding_id": "VB-117",
+    "fact_id": "FN-21",
+    "approved_statement": "$\\triangle BOE\\sim\\triangle AOD$（蝶形相似）"
+  },
+  {
+    "binding_id": "VB-118",
+    "fact_id": "FN-22",
+    "approved_statement": "$BE:AD=3:8$"
+  },
+  {
+    "binding_id": "VB-119",
+    "fact_id": "FN-23",
+    "approved_statement": "$BE=1$"
+  },
+  {
+    "binding_id": "VB-120",
+    "fact_id": "FN-01",
+    "approved_statement": "$AB=AC=4$",
+    "derived_relation": "∠ABC=∠ACB",
+    "derivation": "由AB=AC，按等腰三角形底角定理得到∠ABC=∠ACB。",
+    "reviewed_inference": {
+      "inference_id": "IF-01",
+      "derivation": "由等腰底角、题设等角及图中同一直线关系合并得到两对对应角。"
+    },
+    "classification": "derived-not-problem-given",
+    "runtime_basis_refs": [
+      "FN-01"
+    ]
+  }
+]

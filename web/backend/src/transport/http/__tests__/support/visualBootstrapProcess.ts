@@ -22,7 +22,7 @@ const presenter:PresenterGeneratorPort={provider:'visual-http-test-only',modelId
     const payload=request.userPayload as {required_board_bindings?:Array<{binding_ref:string}>};
     return {latencyMs:1,draft:{schema:'ai_teaching_presentation_draft/v2',request_id:request.request_id,items:[
       {type:'tool_intent',tool:'geometry.annotate',args:{binding_ref:'VB-101',params:{form:'angle-arcs',lifetime:'teaching-scope'}}},
-      {type:'speech',text:'我们先看题目给出的两个相等角。',basis_refs:['FN-03']},
+      {type:'tool_intent',tool:'geometry.emphasize',args:{binding_ref:'VB-101',params:{group:'given',mode:'steady'}}},{type:'speech',text:'我们先看题目给出的两个相等角。',basis_refs:['FN-03']},
       ...(payload.required_board_bindings??[]).map(b=>({type:'tool_intent' as const,tool:'board.explain',args:{binding_ref:b.binding_ref,params:{note_kind:'approved_math_note'}}})),
     ]}};
   }};

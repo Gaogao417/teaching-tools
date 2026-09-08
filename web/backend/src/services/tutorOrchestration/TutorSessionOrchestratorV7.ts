@@ -1,3 +1,9 @@
+import {lowerAdjacentVisualBlock,BOUNDED_VISUAL_LOWERING_POLICY} from './presentationGeneration/BoundedVisualLowering';
+import {resolveVisualSpeechUses} from './presentationGeneration/VisualCoverageValidator';
+import {usesBoundedVisualLowering} from './presentationGeneration/PresenterPrompts';
+import type {GenerationCompanion} from '../tutorSession/GenerationCompanionStore';
+import { createVisualRepairAdvisor, type VisualRepairFeedback } from "./presentationGeneration/VisualRepairAdvice";
+import { usesVisualRepairAdvice } from "./presentationGeneration/PresenterPrompts";
 import { selectGivenAngleMarks } from "./KnownGivenAngleProjection";
 import { projectionReadStamp, registerSnapshotProjection } from "./V7SnapshotProjectionContext";
 import { VISUAL_MAX_ACTIONS } from "./presentationGeneration/VisualPresentationTools";
@@ -68,7 +74,7 @@ import type { StoredV9Event, V9GenerationEventPayload, V9PresentationSequencePla
 import { buildPresentationContext, DEFAULT_CONTEXT_POLICY, PresentationContextError, type BuiltPresentationContext } from "./presentationGeneration/ContextBuilder";
 import { PresenterGenerationError, type PresenterGeneratorPort } from "./presentationGeneration/GeneratorPort";
 import { cancelGeneration, driveGeneration, reserveGeneration, type DriveOutcome, type GenerationKernelAccess } from "./presentationGeneration/GenerationCoordinator";
-import { IntentCompilerError, compilePresentationIntentsForPreflight, VisualObligationQualityError, type CompiledPresentationCandidate, type CompiledPresentationPlanV4 } from "./presentationGeneration/IntentCompiler";
+import { IntentCompilerError, compilePresentationIntentsForPreflight, VisualObligationQualityError, type IntentCompilerInput, type CompiledPresentationCandidate, type CompiledPresentationPlanV4 } from "./presentationGeneration/IntentCompiler";
 import { buildPresenterPrompt, PRESENTER_PROMPT_VERSION, type PresentedBoardNote } from "./presentationGeneration/PresenterPrompts";
 import { requiredBoardBindings, assertRequiredBoardBindings } from "./presentationGeneration/BoardProofCompleteness";
 import { visiblePresentationTools, type PresentationResourceBinding } from "./presentationGeneration/PresentationToolCatalog";
@@ -1732,8 +1738,8 @@ export class TutorSessionOrchestratorV7 {
       get state(): never {
         return navigator().rebuildState() as never;
       },
-      append: (expectedRevision: number, events: never[]) =>
-        this.appendViaKernel(expectedRevision, events as never) as never,
+      append: (expectedRevision: number, events: never[],companion?:GenerationCompanion) =>
+        this.appendViaKernel(expectedRevision, events as never,companion) as never,
     };
   }
 
@@ -1929,9 +1935,13 @@ export class TutorSessionOrchestratorV7 {
         `session ${this.sessionId} carries a pending generation but the restoring process provided no presenter port (fail closed; provide the presenter model to drive)`,
       );
     }
+    const repairAdvisor = createVisualRepairAdvisor();
     const outcome = await driveGeneration(this.generationKernelAccess(), {
+      onRetryScheduled: (request,error) => {
+        if (usesVisualRepairAdvice(request.presenter_pin.prompt_version) && error instanceof VisualObligationQualityError) repairAdvisor.remember(request,error.issues,error.previousSpeech,error.previousCandidate);
+      },
       buildAndRun: async (request) => {
-        try { return { candidate: await this.buildAndRunGeneration(request as never) }; }
+        try { return { candidate: await this.buildAndRunGeneration(request as never, usesVisualRepairAdvice(request.presenter_pin.prompt_version) ? repairAdvisor.take(request) : undefined) }; }
         catch (error) {
           if (error instanceof IntentCompilerError) throw new PresenterGenerationError("draft_invalid", error.message, false);
           if (error instanceof SequencePreflightError) throw new PresenterGenerationError("preflight_failed", error.message, false);
@@ -1986,7 +1996,7 @@ export class TutorSessionOrchestratorV7 {
    * 单次内容管线（RT2 冻结上下文复算 + RT3 提示词/模型/编译/预演）。
    * 上下文不可复现 ⇒ context_irreproducible（不自动重试——非模型故障）。
    */
-  private async buildAndRunGeneration(request: V9GenerationEventPayload): Promise<CompiledPresentationCandidate> {
+  private async buildAndRunGeneration(request: V9GenerationEventPayload, repairFeedback?: VisualRepairFeedback): Promise<CompiledPresentationCandidate> {
     if (!this.presenterGenerator) throw new PresenterGenerationError("internal_error", "presenter port missing", false);
     const graph = this.binding.imported.graph;
     const factById = new Map(graph.facts.map((fact) => [fact.fact_id, fact]));
@@ -2110,10 +2120,10 @@ export class TutorSessionOrchestratorV7 {
       request_id: request.request_id,
       systemPrompt: prompt.systemPrompt,
       promptVersion: prompt.promptVersion,
-      userPayload: prompt.userPayload,
+      userPayload: repairFeedback && usesVisualRepairAdvice(request.presenter_pin.prompt_version) ? {...prompt.userPayload,repair_feedback:repairFeedback} : prompt.userPayload,
       timeoutMs: request.timeout_ms,
     });
-    const {plan: compiled, visualCoverageIssues} = compilePresentationIntentsForPreflight({
+    const compilationInput:IntentCompilerInput = {
       sessionId: this.sessionId,
       sequenceSerial: this.countPlanned() + 1,
       decisionId: request.decision_id,
@@ -2143,13 +2153,30 @@ export class TutorSessionOrchestratorV7 {
         const evaluation = this.rebuildWorkspace().context.gateLedger.evaluations.get(`${gate_id}@${gateBeat.beat_id}`);
         return evaluation?.satisfied === true;
       },
-    });
+    };
+    let {plan:compiled,visualCoverageIssues,itemActionMapping}=compilePresentationIntentsForPreflight(compilationInput);
     preflightPresentationSequence({ fold: frozen?.source.workspace ?? this.rebuildWorkspace(), catalog: this.catalog, plan: compiled, ...(frozen?{visual:frozen.visual}:{}) });
+    let internalCompanion:GenerationCompanion|undefined;
+    if(usesBoundedVisualLowering(request.presenter_pin.prompt_version)) {
+      if(!frozen)throw new IntentCompilerError('COMPILE_VALIDATION_FAILED','v15 requires frozen visual context');
+      const resolved=resolveVisualSpeechUses({speeches:draft.items.flatMap((item,ordinal)=>item.type==='speech'?[{ordinal,basis_refs:item.basis_refs}]:[]),bindings:frozen.visual.requirements.map(r=>frozen.visual.catalog.get(r.binding_ref)),inferences:inferenceById});
+      const lowered=lowerAdjacentVisualBlock(draft,visualCoverageIssues,new Map(resolved.uses.map(u=>[u.ordinal,u.binding_ref])));
+      if(lowered.moves.length){
+        const transformed=compilePresentationIntentsForPreflight({...compilationInput,draft:lowered.draft});
+        compiled=transformed.plan;
+        itemActionMapping=transformed.itemActionMapping;
+        preflightPresentationSequence({fold:frozen.source.workspace,catalog:this.catalog,plan:compiled,visual:frozen.visual});
+        visualCoverageIssues=transformed.visualCoverageIssues.map(issue=>({...issue,...(issue.draft_item_index!==undefined?{draft_item_index:lowered.sourceIndices[issue.draft_item_index]}:{})}));
+      }
+      internalCompanion={policy_version:BOUNDED_VISUAL_LOWERING_POLICY,original_draft:structuredClone(draft),lowered_draft:lowered.draft,original_digest:lowered.original_digest,lowered_digest:lowered.lowered_digest,source_indices:lowered.sourceIndices,moves:lowered.moves,
+        item_action_mapping:lowered.sourceIndices.map((original_item_index,final_item_index)=>({original_item_index,final_item_index,action_ordinals:itemActionMapping[final_item_index].action_ordinals})),
+        compiler_actions:compiled.actions.slice(itemActionMapping.reduce((n,m)=>n+m.action_ordinals.length,0)).map(action=>({action_ordinal:action.ordinal,source:'compiler-close' as const})),final_actions_digest:visualHash(compiled.actions)};
+    }
     // Deterministic authority and execution failures must win over repairable
     // board omissions. Both checks remain pre-commit and have no live effects.
-    if (visualCoverageIssues.length) throw new VisualObligationQualityError(visualCoverageIssues);
+    if (visualCoverageIssues.length) throw new VisualObligationQualityError(visualCoverageIssues, draft.items.flatMap((item,draft_item_index)=>item.type==="speech"?[{draft_item_index,basis_refs:item.basis_refs,text:item.text}]:[]), draft.items);
     if (requireBoardProof) assertRequiredBoardBindings(draft, boardRequirements);
-    return compiled;
+    return internalCompanion?{...compiled,internalCompanion}:compiled;
   }
 
   // ------------------------------------------------------------------ //
@@ -2172,10 +2199,11 @@ export class TutorSessionOrchestratorV7 {
   private appendViaKernel(
     expectedRevision: number,
     events: PendingV7Event[],
+    companion?:GenerationCompanion,
   ): { revision: number; appendedSequences: number[] } {
     const batch=this.eventSchema === "v10" ? events.map(e=>e.event_type === "presentation_sequence_planned"
       ? {...e,payload:{...(e.payload as Record<string,unknown>),purpose:(e.payload as {purpose?:string}).purpose ?? "teaching"}} : e) : events;
-    const result = this.navigator.kernel.append(expectedRevision, batch);
+    const result = this.navigator.kernel.append(expectedRevision, batch,companion);
     return { revision: result.revision, appendedSequences: result.appendedSequences };
   }
 

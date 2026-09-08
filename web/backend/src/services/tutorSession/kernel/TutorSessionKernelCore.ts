@@ -1,3 +1,4 @@
+import {verifyGenerationCompanions,type GenerationCompanion} from '../GenerationCompanionStore';
 /**
  * TutorSessionKernel core（F7 Step 2 — 版本无关在线内核）。
  *
@@ -80,6 +81,7 @@ export class TutorSessionKernelCore<S, C> {
         stream.events[stream.events.length - 1]?.sequence,
       );
     }
+    verifyGenerationCompanions(sessionId,foldContext as import('../GenerationCompanionStore').CompanionValidationContext);
     return new TutorSessionKernelCore(codec, sessionId, state, foldContext);
   }
 
@@ -96,12 +98,12 @@ export class TutorSessionKernelCore<S, C> {
    * 拒绝 ⇒ 整批不落库）成功后，把本批提交的 canonical 事件行读回，经同一
    * reducer 折叠（在线=逐批增量，重建=全量重放，同一函数）。
    */
-  append(expectedRevision: number, events: PendingSessionEvent[]): {
+  append(expectedRevision: number, events: PendingSessionEvent[], companion?:GenerationCompanion): {
     revision: number;
     appendedSequences: number[];
     state: S;
   } {
-    const result = appendSessionEvents(this.codec, this.sessionId, expectedRevision, events);
+    const result = appendSessionEvents(this.codec, this.sessionId, expectedRevision, events,companion);
     const committed = readSessionEvents(this.codec, this.sessionId);
     const batch = committed.filter((event) => result.appendedSequences.includes(event.sequence));
     if (batch.length !== result.appendedSequences.length) {
@@ -118,6 +120,7 @@ export class TutorSessionKernelCore<S, C> {
 
   /** 全量重建（启动/恢复/对账用；gap/corruption/hash fail closed）。 */
   rebuild(): S {
+    verifyGenerationCompanions(this.sessionId,this.foldContext as import('../GenerationCompanionStore').CompanionValidationContext);
     return rebuildSessionState(this.codec, this.sessionId);
   }
 

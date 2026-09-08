@@ -1,3 +1,4 @@
+import type {GenerationCompanion} from './GenerationCompanionStore';
 import { TutorSessionKernelCore } from './kernel/TutorSessionKernelCore';
 import type { StartSessionInput } from './kernel/TutorSessionStoreCore';
 import type { PendingSessionEvent } from './kernel/sessionKernelTypes';
@@ -17,7 +18,7 @@ export class TutorSessionKernelV10 {
   get sessionId() { return this.core.sessionId; }
   get state() { return this.core.state; }
   get revision() { return this.core.revision; }
-  append(revision:number,events:PendingSessionEvent[]) { return this.core.append(revision,events); }
+  append(revision:number,events:PendingSessionEvent[],companion?:GenerationCompanion) { return this.core.append(revision,events,companion); }
   rebuild() { return this.core.rebuild(); }
   assertReplayParity() { return this.core.assertReplayParity(); }
 }

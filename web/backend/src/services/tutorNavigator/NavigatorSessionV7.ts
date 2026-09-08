@@ -1,3 +1,4 @@
+import type {GenerationCompanion} from '../tutorSession/GenerationCompanionStore';
 /**
  * NavigatorSessionV7（F7 Step 4 — V7 Session Kernel 上的 Navigator 会话壳）。
  *
@@ -83,7 +84,7 @@ export interface NavigatorSessionKernel {
   readonly revision: number;
   /** v7 = state/v2；v9 = state/v4 超集（读取经 NavigatorOnlineState face）。 */
   readonly state: unknown;
-  append(expectedRevision: number, events: PendingV7Event[]): { revision: number; appendedSequences: number[] };
+  append(expectedRevision: number, events: PendingV7Event[],companion?:GenerationCompanion): { revision: number; appendedSequences: number[] };
   assertReplayParity(): { equal: boolean; differences: unknown[] };
   rebuild(): unknown;
 }

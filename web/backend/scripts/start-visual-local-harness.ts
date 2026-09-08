@@ -43,14 +43,15 @@ async function main(){
   for(const [index,r]of requirements.entries()){
    const binding=bindings.find(b=>b.binding_id===r.binding_ref);if(!binding)throw new Error('missing binding');
    if(binding.relation.type==='similarity'){
-    for(const pair_index of r.required_pair_indices)intent('geometry.emphasize',{binding_ref:r.binding_ref,params:{group:`pair${index}`,pair_index,mode:'pulse'}});
-    items.push({type:'speech',text:'请看图中逐对指认的对应边，它们是对应关系，不表示长度相等。',basis_refs:binding.basis_refs});
-    intent('geometry.clear-visual',{params:{group:`pair${index}`}});
+    for(const pair_index of r.required_pair_indices)intent('geometry.emphasize',{binding_ref:r.binding_ref,params:{group:'teaching',pair_index,mode:'pulse'}});
+    items.push({type:'speech',text:'请看图中逐对指认的对应边，它们是对应关系，不表示长度相等。',basis_refs:[...binding.basis_refs,r.binding_ref]});
    }else{
     for(const form of r.forms)intent('geometry.annotate',{binding_ref:r.binding_ref,params:{form,lifetime:'teaching-scope'}});
-    items.push({type:'speech',text:binding.purpose,basis_refs:binding.basis_refs});
+    intent('geometry.emphasize',{binding_ref:r.binding_ref,params:{group:'teaching',mode:'pulse'}});
+    items.push({type:'speech',text:binding.purpose,basis_refs:[...binding.basis_refs,r.binding_ref]});
    }
   }
+  if(requirements.length)intent('geometry.clear-visual',{params:{group:'teaching'}});
   for(const b of payload.required_board_bindings??[])intent('board.explain',{binding_ref:b.binding_ref,params:{note_kind:'approved_math_note'}});
   if(!items.length)items.push({type:'speech',text:'这一步先到这里，你可以说说是否跟上。',basis_refs:[payload.allowed_knowledge[0].ref]});
   return{latencyMs:1,draft:{schema:'ai_teaching_presentation_draft/v2',request_id:request.request_id,items}};

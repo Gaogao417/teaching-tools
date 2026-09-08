@@ -61,7 +61,7 @@ it('v7 use-in-reasoning retains steady; a pulse after speech cannot cure late co
  const c=compiler(),view=projectVisualView(emptyVisualState(),new VisualBindingCatalog(source()),auth());
  const req:VisualRequirement={scope:owner.scope,binding_ref:'VB-2',forms:['paired-sides'],required_pair_indices:[0],trigger:'introduce'};
  const actions=['steady','pulse'].map((mode,i)=>c.compile({tool_id:'geometry.emphasize',binding_ref:'VB-2',params:{group:'pairs',pair_index:0,mode}},i*2,`WSA-${i}`));
- expect(validateVisualCoverage([req],actions,view,[{binding_ref:'VB-2',ordinal:1}],{requireEntryPulse:true})).toContainEqual({binding_ref:'VB-2',code:'late-visual',pair_index:0});
+ expect(validateVisualCoverage([req],actions,view,[{binding_ref:'VB-2',ordinal:1}],{requireEntryPulse:true})).toContainEqual({binding_ref:'VB-2',code:'late-visual',pair_index:0,speech_ordinal:1});
  expect(validateVisualCoverage([req],actions,view,[{binding_ref:'VB-2',ordinal:1}])).toEqual([]);
 });
 it('v5/v6 exact prompts, factory pins and payload remain readable; only v7 carries fact roles',()=>{

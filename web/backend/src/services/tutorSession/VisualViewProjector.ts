@@ -1,3 +1,4 @@
+import {verifyCompanionSemantic} from './GenerationCompanionSemantic';
 import { visualScopeAllows, visualScopeKey } from "./VisualBindingCatalog";
 import { resolveVisualInquiryEntryBeat } from "./VisualBindingAuthority";
 import { preflightPresentationSequence } from "../tutorOrchestration/presentationGeneration/SequencePreflight";
@@ -319,6 +320,7 @@ export function createVisualRegistryProvider(
       return boundBridge??(boundBridge=createPinnedVisualWorkspaceBridge({...input,sessionId}));
     };
     const visual:ReturnType<typeof createPinnedVisualWorkspaceBridge>={catalogHash:input.catalogHash,
+      validateGenerationCompanion:(body,payload,history)=>verifyCompanionSemantic(input,body,payload,history),
       resolveInquiryEntryBeat: id=>resolveVisualInquiryEntryBeat(input.imported,id),
       generationAt:events=>forEvents(events).generationAt(events),
       projectAt:events=>forEvents(events).projectAt(events),foldAt:events=>forEvents(events).foldAt(events),

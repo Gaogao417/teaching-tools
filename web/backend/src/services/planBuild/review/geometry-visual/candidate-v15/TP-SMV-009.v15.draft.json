@@ -1,0 +1,1983 @@
+{
+  "artifact_id": "TP-SMV-009",
+  "version": "v15",
+  "status": "Draft",
+  "question_ref": {
+    "artifact_id": "QT-SMV-001",
+    "version": "v3",
+    "content_hash": "sha256:e8dc1fb849904d7d388c8589516d1d833e60d28d255a8ff9b3eda540b80187c1"
+  },
+  "approach_set_ref": {
+    "artifact_id": "AS-SMV-001",
+    "version": "v6",
+    "content_hash": "sha256:5439919899b8b9604b027bb1a0a457884e6e6c0fc80c40366a47304314d5e807"
+  },
+  "solution_graph_ref": {
+    "artifact_id": "RG-SMV-001",
+    "version": "v8",
+    "content_hash": "sha256:2bc516468e9cc8c4033f96277d810f96752a7cb41269f1f0eb0735c2da507c25"
+  },
+  "policy_profile_ref": {
+    "artifact_id": "PP-SMV-001",
+    "version": "v1",
+    "content_hash": "sha256:c717980cb3e4d06aa4da915aa9e5207c138dea8524f92dbda7df4c1483bb0f69"
+  },
+  "default_resolution_profile_id": "RP-01",
+  "resolution_profiles": [
+    {
+      "profile_id": "RP-01",
+      "learner_description": "需要显式看到相似依据、点序和计算断点的学生；粒度仅用于上下文与表达选择，各拍理解衔接均保留，不跳过确认。",
+      "default_view": "beat",
+      "available_views": [
+        "chunk",
+        "beat",
+        "fine"
+      ],
+      "chunk_ids": [
+        "CH-01",
+        "CH-02",
+        "CH-03"
+      ]
+    },
+    {
+      "profile_id": "RP-02",
+      "learner_description": "能自行补足局部运算、优先看整体策略的学生；粒度仅用于上下文与表达选择，各拍理解衔接均保留，不跳过确认。",
+      "default_view": "chunk",
+      "available_views": [
+        "chunk",
+        "beat",
+        "fine"
+      ],
+      "chunk_ids": [
+        "CH-01",
+        "CH-02",
+        "CH-03"
+      ]
+    }
+  ],
+  "chunk_graph": {
+    "entry_chunk_id": "CH-01",
+    "completion_chunk_ids": [
+      "CH-03"
+    ],
+    "edges": [
+      {
+        "from_chunk_id": "CH-01",
+        "to_chunk_id": "CH-02",
+        "on": "complete"
+      },
+      {
+        "from_chunk_id": "CH-02",
+        "to_chunk_id": "CH-03",
+        "on": "complete"
+      }
+    ]
+  },
+  "solution_regions": [
+    {
+      "region_id": "SR-01",
+      "label": "证明 △CAD 与 △CBA 子母型相似",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-05",
+          "FN-06"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      },
+      "local_protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        }
+      ]
+    },
+    {
+      "region_id": "SR-02",
+      "label": "由第一组相似求基础线段",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-06",
+          "FN-07",
+          "FN-08",
+          "FN-09",
+          "FN-10"
+        ],
+        "inference_ids": [
+          "IF-03",
+          "IF-04",
+          "IF-05",
+          "IF-06"
+        ]
+      },
+      "local_protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        }
+      ]
+    },
+    {
+      "region_id": "SR-03",
+      "label": "证明 △DAO 与 △DBA 子母型相似",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04",
+          "FN-08",
+          "FN-10",
+          "FN-11",
+          "FN-12",
+          "FN-13",
+          "FN-14",
+          "FN-15",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-07",
+          "IF-08",
+          "IF-09",
+          "IF-10",
+          "IF-11",
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      },
+      "local_protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        }
+      ]
+    },
+    {
+      "region_id": "SR-04",
+      "label": "证明 △BOE 与 △AOD 蝶形相似",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-08",
+          "FN-12",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-16",
+          "IF-17",
+          "IF-18",
+          "IF-19"
+        ]
+      },
+      "local_protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        }
+      ]
+    },
+    {
+      "region_id": "SR-05",
+      "label": "替代：新等腰三角形与二倍角",
+      "fine_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04",
+          "FN-11",
+          "FN-23",
+          "FN-24",
+          "FN-25",
+          "FN-26",
+          "FN-27",
+          "FN-28",
+          "FN-29"
+        ],
+        "inference_ids": [
+          "IF-20",
+          "IF-21",
+          "IF-22",
+          "IF-23",
+          "IF-24",
+          "IF-25",
+          "IF-26"
+        ]
+      }
+    }
+  ],
+  "chunks": [
+    {
+      "chunk_id": "CH-01",
+      "part_id": "1",
+      "title": "第一组子母型相似：建立前置长度",
+      "instructional_intent": "Teach 讲解：证明第一组子母型相似并求 AD、CD、BD；确认学生接上，不强制独立作答。",
+      "entry_state": "学生能定位题设对象",
+      "exit_understanding": "学生针对当前关键关系的自述跟上或相关正确复述；不代表独立掌握。",
+      "source_subgraph_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-05",
+          "FN-06",
+          "FN-07",
+          "FN-08",
+          "FN-09",
+          "FN-10"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02",
+          "IF-03",
+          "IF-04",
+          "IF-05",
+          "IF-06"
+        ]
+      },
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-001",
+          "version": "v11",
+          "content_hash": "sha256:8da11a9977c2da199a58f2e47cdf62e9106f6ddf38cc3c4a5a42b64b986a7acd"
+        },
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        }
+      ],
+      "teacher_narration_refs": [
+        "RES1",
+        "RES2",
+        "RES3"
+      ],
+      "presentation_groups": [
+        {
+          "group_id": "PG-01",
+          "label": "证明 △CAD 与 △CBA 子母型相似",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-01",
+              "FN-02",
+              "FN-03",
+              "FN-05",
+              "FN-06",
+              "FN-07",
+              "FN-08",
+              "FN-09",
+              "FN-10"
+            ],
+            "inference_ids": [
+              "IF-01",
+              "IF-02",
+              "IF-03",
+              "IF-04",
+              "IF-05",
+              "IF-06"
+            ]
+          }
+        },
+        {
+          "group_id": "PG-02",
+          "label": "相似比与前置长度",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-01",
+              "FN-02",
+              "FN-03",
+              "FN-05",
+              "FN-06",
+              "FN-07",
+              "FN-08",
+              "FN-09",
+              "FN-10"
+            ],
+            "inference_ids": [
+              "IF-01",
+              "IF-02",
+              "IF-03",
+              "IF-04",
+              "IF-05",
+              "IF-06"
+            ]
+          }
+        }
+      ],
+      "expandable_region_ids": [
+        "SR-01",
+        "SR-02"
+      ],
+      "resource_ids": [
+        "RES1",
+        "RES2",
+        "RES3"
+      ]
+    },
+    {
+      "chunk_id": "CH-02",
+      "part_id": "1",
+      "title": "第二组子母型相似：把翻折接入长度链",
+      "instructional_intent": "Teach 讲解：证明第二组子母型相似并求 AO、DO、BO、OE；确认学生接上，不强制独立作答。",
+      "entry_state": "AD、BD 已知",
+      "exit_understanding": "学生针对当前关键关系的自述跟上或相关正确复述；不代表独立掌握。",
+      "source_subgraph_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04",
+          "FN-08",
+          "FN-10",
+          "FN-11",
+          "FN-12",
+          "FN-13",
+          "FN-14",
+          "FN-15",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-07",
+          "IF-08",
+          "IF-09",
+          "IF-10",
+          "IF-11",
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      },
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-001",
+          "version": "v11",
+          "content_hash": "sha256:8da11a9977c2da199a58f2e47cdf62e9106f6ddf38cc3c4a5a42b64b986a7acd"
+        },
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        }
+      ],
+      "teacher_narration_refs": [
+        "RES4"
+      ],
+      "presentation_groups": [
+        {
+          "group_id": "PG-03",
+          "label": "证明 △DAO 与 △DBA 子母型相似",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-01",
+              "FN-02",
+              "FN-03",
+              "FN-04",
+              "FN-08",
+              "FN-10",
+              "FN-11",
+              "FN-12",
+              "FN-13",
+              "FN-14",
+              "FN-15",
+              "FN-16",
+              "FN-17",
+              "FN-18",
+              "FN-19"
+            ],
+            "inference_ids": [
+              "IF-07",
+              "IF-08",
+              "IF-09",
+              "IF-10",
+              "IF-11",
+              "IF-12",
+              "IF-13",
+              "IF-14",
+              "IF-15"
+            ]
+          }
+        },
+        {
+          "group_id": "PG-04",
+          "label": "相似比与点序计算",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-01",
+              "FN-02",
+              "FN-03",
+              "FN-04",
+              "FN-08",
+              "FN-10",
+              "FN-11",
+              "FN-12",
+              "FN-13",
+              "FN-14",
+              "FN-15",
+              "FN-16",
+              "FN-17",
+              "FN-18",
+              "FN-19"
+            ],
+            "inference_ids": [
+              "IF-07",
+              "IF-08",
+              "IF-09",
+              "IF-10",
+              "IF-11",
+              "IF-12",
+              "IF-13",
+              "IF-14",
+              "IF-15"
+            ]
+          }
+        }
+      ],
+      "expandable_region_ids": [
+        "SR-03"
+      ],
+      "resource_ids": [
+        "RES4",
+        "RES7"
+      ]
+    },
+    {
+      "chunk_id": "CH-03",
+      "part_id": "1",
+      "title": "蝶形相似：收束到 BE",
+      "instructional_intent": "Teach 讲解：证明蝶形相似并求 BE；确认学生接上，不强制独立作答。",
+      "entry_state": "AO、DO、BO、OE 已知",
+      "exit_understanding": "学生针对当前关键关系的自述跟上或相关正确复述；不代表独立掌握。",
+      "source_subgraph_refs": {
+        "fact_ids": [
+          "FN-08",
+          "FN-12",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-16",
+          "IF-17",
+          "IF-18",
+          "IF-19"
+        ]
+      },
+      "protocol_refs": [
+        {
+          "artifact_id": "PR-SMV-001",
+          "version": "v11",
+          "content_hash": "sha256:8da11a9977c2da199a58f2e47cdf62e9106f6ddf38cc3c4a5a42b64b986a7acd"
+        },
+        {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        }
+      ],
+      "teacher_narration_refs": [
+        "RES5",
+        "RES6"
+      ],
+      "presentation_groups": [
+        {
+          "group_id": "PG-05",
+          "label": "证明 △BOE 与 △AOD 蝶形相似",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-08",
+              "FN-12",
+              "FN-16",
+              "FN-17",
+              "FN-18",
+              "FN-19",
+              "FN-20",
+              "FN-21",
+              "FN-22",
+              "FN-23"
+            ],
+            "inference_ids": [
+              "IF-16",
+              "IF-17",
+              "IF-18",
+              "IF-19"
+            ]
+          }
+        },
+        {
+          "group_id": "PG-06",
+          "label": "对应边比例与结论",
+          "fine_refs": {
+            "fact_ids": [
+              "FN-08",
+              "FN-12",
+              "FN-16",
+              "FN-17",
+              "FN-18",
+              "FN-19",
+              "FN-20",
+              "FN-21",
+              "FN-22",
+              "FN-23"
+            ],
+            "inference_ids": [
+              "IF-16",
+              "IF-17",
+              "IF-18",
+              "IF-19"
+            ]
+          }
+        }
+      ],
+      "expandable_region_ids": [
+        "SR-04",
+        "SR-05"
+      ],
+      "resource_ids": [
+        "RES5",
+        "RES6"
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "resource_id": "RES1",
+      "kind": "voice_seed",
+      "beat_ref": "BT-01",
+      "source": "authored",
+      "content": "先看等腰、等角和翻折条件，再找到要讨论的 BE。你可以告诉我哪里已跟上、哪里还需要定位。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04"
+        ],
+        "inference_ids": []
+      }
+    },
+    {
+      "resource_id": "RES2",
+      "kind": "voice_seed",
+      "beat_ref": "BT-02",
+      "source": "authored",
+      "content": "我们把两组对应角对齐，得到第一组子母型相似。这一步用来把已知边和待求边连起来；不必先独立证明才能继续听。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-05",
+          "FN-06"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES3",
+      "kind": "voice_seed",
+      "beat_ref": "BT-03",
+      "source": "authored",
+      "content": "我来演示相似比怎样带出 AD、CD，再用整段减去 CD 得到 BD。你只需反馈比例方向和线段差是否接上，不必提交数值。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-06",
+          "FN-07",
+          "FN-08",
+          "FN-09",
+          "FN-10"
+        ],
+        "inference_ids": [
+          "IF-03",
+          "IF-04",
+          "IF-05",
+          "IF-06"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES4",
+      "kind": "voice_seed",
+      "beat_ref": "BT-04",
+      "source": "authored",
+      "content": "先看 O 的位置和第二组相似，再把比例计算与线段差分开讲。AO、DO、BO、OE 可由老师演示，不把画布填数当作继续听讲的门槛。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-08",
+          "FN-10",
+          "FN-11",
+          "FN-12",
+          "FN-13",
+          "FN-14",
+          "FN-15",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-10",
+          "IF-11",
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES5",
+      "kind": "voice_seed",
+      "beat_ref": "BT-05",
+      "source": "authored",
+      "content": "先把两组对应边比例与夹角放在一起，再接到 BE 与 AD 的比例。这里关心你是否接上推理，不要求自己算出答案后老师才讲方法。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-08",
+          "FN-12",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-16",
+          "IF-17",
+          "IF-18",
+          "IF-19"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES6",
+      "kind": "voice_seed",
+      "beat_ref": "BT-06",
+      "source": "authored",
+      "content": "我们回看整条路线。你可以说哪里已经连起来，也可以用自己的话讲一段；已有清楚反馈时不再要求重复同义确认。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-06",
+          "FN-08",
+          "FN-10",
+          "FN-14",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-19"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES7",
+      "kind": "workspace",
+      "beat_ref": "BT-04",
+      "source": "authored",
+      "content": "{\"presentation\":\"construct-second-similarity-workspace\",\"constructions\":[{\"type\":\"intersect-lines\",\"firstLineId\":\"segment-AE\",\"secondLineId\":\"segment-BC\",\"outputPointId\":\"pt-O\"},{\"type\":\"construct-carrier\",\"fromPointId\":\"A\",\"toPointId\":\"pt-O\",\"outputLineId\":\"seg-AO\"},{\"type\":\"construct-carrier\",\"fromPointId\":\"D\",\"toPointId\":\"pt-O\",\"outputLineId\":\"seg-DO\"},{\"type\":\"construct-carrier\",\"fromPointId\":\"B\",\"toPointId\":\"pt-O\",\"outputLineId\":\"seg-BO\"},{\"type\":\"construct-carrier\",\"fromPointId\":\"pt-O\",\"toPointId\":\"E\",\"outputLineId\":\"seg-OE\"}]}",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-12"
+        ],
+        "inference_ids": [
+          "IF-08"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES9",
+      "kind": "diagnostic_probe",
+      "beat_ref": "BT-01",
+      "source": "authored",
+      "content": "可选诊断方向（不是必过步骤）：先定位学生卡在主线的哪一个细图区域。原诊断提示「学生指出当前卡住的细图事实或推理依据」仅用于选择解释方向，不作为额外作答门槛。只在与本次学生问题/返回锚点相关时选用，已有断点不再追问定位；用当前上下文的批准依据解释，不把资源引用当新增事实展示授权。一次相关自述或有效复述可结束本次补讲，不逐项确认。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04"
+        ],
+        "inference_ids": []
+      }
+    },
+    {
+      "resource_id": "RES10",
+      "kind": "diagnostic_probe",
+      "beat_ref": "BT-01",
+      "source": "authored",
+      "content": "可选诊断方向（不是必过步骤）：若卡在第一组相似，只展开两对角与 AA。原诊断提示「学生能指出一组正确对应角或对应顶点」仅用于选择解释方向，不作为额外作答门槛。只在与本次学生问题/返回锚点相关时选用，已有断点不再追问定位；用当前上下文的批准依据解释，不把资源引用当新增事实展示授权。一次相关自述或有效复述可结束本次补讲，不逐项确认。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-05",
+          "FN-06"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES11",
+      "kind": "diagnostic_probe",
+      "beat_ref": "BT-01",
+      "source": "authored",
+      "content": "可选诊断方向（不是必过步骤）：若卡在第二组相似，只展开两对角与 AA。原诊断提示「学生能说出 △DAO 与 △DBA 的两组对应角」仅用于选择解释方向，不作为额外作答门槛。只在与本次学生问题/返回锚点相关时选用，已有断点不再追问定位；用当前上下文的批准依据解释，不把资源引用当新增事实展示授权。一次相关自述或有效复述可结束本次补讲，不逐项确认。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04",
+          "FN-12",
+          "FN-13",
+          "FN-14"
+        ],
+        "inference_ids": [
+          "IF-09",
+          "IF-10"
+        ]
+      }
+    },
+    {
+      "resource_id": "RES12",
+      "kind": "diagnostic_probe",
+      "beat_ref": "BT-01",
+      "source": "authored",
+      "content": "可选诊断方向（不是必过步骤）：若卡在蝶形，只展开两组比例、夹角与 SAS。原诊断提示「学生选定一个最小下一步并返回原 Beat」仅用于选择解释方向，不作为额外作答门槛。只在与本次学生问题/返回锚点相关时选用，已有断点不再追问定位；用当前上下文的批准依据解释，不把资源引用当新增事实展示授权。一次相关自述或有效复述可结束本次补讲，不逐项确认。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-12",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21"
+        ],
+        "inference_ids": [
+          "IF-16",
+          "IF-17"
+        ]
+      }
+    }
+  ],
+  "build_provenance": {
+    "provider": "deterministic-rules",
+    "model_id": "none",
+    "workflow_version": "c1-teach-follow-along-candidate/1",
+    "run_id": "c1-teach-follow-along-v13",
+    "built_at": "2026-09-07T12:00:00Z",
+    "runtime_registry_version": "action-runtime-registry/v5@32f7ae75600a",
+    "compiler_version": "tutor-plan-compiler/v5@0.1.0",
+    "materializer_version": "tutor-plan-materializer/v5@0.1.0"
+  },
+  "content_hash": "sha256:a03d7e306a24781eda8bac9106ccb23a52277c0eee03e060927d150cad15edb5",
+  "artifact_uri": "artifact://tutor-plan/TP-SMV-009@v15",
+  "schema": "ai_teaching_tutor_plan_bundle/v8",
+  "resource_bindings": [
+    {
+      "binding_id": "VB-01",
+      "binding_kind": "geometry",
+      "purpose": "Teach BT-04 复用 RES7 构造 pt-O，不要求学生先填数",
+      "geometry_target": "pt-O",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "pt-O"
+      ]
+    },
+    {
+      "binding_id": "VB-02",
+      "binding_kind": "geometry",
+      "purpose": "Teach BT-04 复用 RES7 构造 seg-AO，不要求学生先填数",
+      "geometry_target": "seg-AO",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "seg-AO"
+      ]
+    },
+    {
+      "binding_id": "VB-03",
+      "binding_kind": "geometry",
+      "purpose": "Teach BT-04 复用 RES7 构造 seg-DO，不要求学生先填数",
+      "geometry_target": "seg-DO",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "seg-DO"
+      ]
+    },
+    {
+      "binding_id": "VB-04",
+      "binding_kind": "geometry",
+      "purpose": "Teach BT-04 复用 RES7 构造 seg-BO，不要求学生先填数",
+      "geometry_target": "seg-BO",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "seg-BO"
+      ]
+    },
+    {
+      "binding_id": "VB-05",
+      "binding_kind": "geometry",
+      "purpose": "Teach BT-04 复用 RES7 构造 seg-OE，不要求学生先填数",
+      "geometry_target": "seg-OE",
+      "semantic_role": "second-similarity-construction",
+      "allowed_template_ids": [
+        "seg-OE"
+      ]
+    },
+    {
+      "binding_id": "VB-06",
+      "binding_kind": "explanation",
+      "purpose": "BT-01 的当前讲解依据；限 Teach/当前范围，不代表学生已验证正确",
+      "basis_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04"
+        ],
+        "inference_ids": []
+      },
+      "presentation_resource": "RES1"
+    },
+    {
+      "binding_id": "VB-07",
+      "binding_kind": "explanation",
+      "purpose": "BT-02 的当前讲解依据；限 Teach/当前范围，不代表学生已验证正确",
+      "basis_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-05",
+          "FN-06"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      },
+      "presentation_resource": "RES2"
+    },
+    {
+      "binding_id": "VB-08",
+      "binding_kind": "explanation",
+      "purpose": "BT-03 的当前讲解依据；限 Teach/当前范围，不代表学生已验证正确",
+      "basis_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-06",
+          "FN-07",
+          "FN-08",
+          "FN-09",
+          "FN-10"
+        ],
+        "inference_ids": [
+          "IF-03",
+          "IF-04",
+          "IF-05",
+          "IF-06"
+        ]
+      },
+      "presentation_resource": "RES3"
+    },
+    {
+      "binding_id": "VB-09",
+      "binding_kind": "explanation",
+      "purpose": "BT-04 的当前讲解依据；限 Teach/当前范围，不代表学生已验证正确",
+      "basis_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-08",
+          "FN-10",
+          "FN-11",
+          "FN-12",
+          "FN-13",
+          "FN-14",
+          "FN-15",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-10",
+          "IF-11",
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      },
+      "presentation_resource": "RES4"
+    },
+    {
+      "binding_id": "VB-10",
+      "binding_kind": "explanation",
+      "purpose": "BT-05 的当前讲解依据；限 Teach/当前范围，不代表学生已验证正确",
+      "basis_refs": {
+        "fact_ids": [
+          "FN-08",
+          "FN-12",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-16",
+          "IF-17",
+          "IF-18",
+          "IF-19"
+        ]
+      },
+      "presentation_resource": "RES5"
+    },
+    {
+      "binding_id": "VB-11",
+      "binding_kind": "explanation",
+      "purpose": "BT-06 的当前讲解依据；限 Teach/当前范围，不代表学生已验证正确",
+      "basis_refs": {
+        "fact_ids": [
+          "FN-06",
+          "FN-08",
+          "FN-10",
+          "FN-14",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-19"
+        ]
+      },
+      "presentation_resource": "RES6"
+    },
+    {
+      "binding_id": "VB-101",
+      "binding_kind": "geometry_visual",
+      "purpose": "$\\angle DAC=\\angle ACD$",
+      "relation": {
+        "type": "angle-equality",
+        "angles": [
+          {
+            "vertex": "A",
+            "ray_points": [
+              "D",
+              "C"
+            ],
+            "sector": "minor"
+          },
+          {
+            "vertex": "C",
+            "ray_points": [
+              "A",
+              "D"
+            ],
+            "sector": "minor"
+          }
+        ]
+      },
+      "basis_refs": [
+        "FN-03"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-01"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [],
+      "allowed_forms": [
+        "angle-arcs"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-102",
+      "binding_kind": "geometry_visual",
+      "purpose": "$\\angle ACD=\\angle ACB$ 且 $\\angle DAC=\\angle ABC$",
+      "relation": {
+        "type": "angle-equality",
+        "angles": [
+          {
+            "vertex": "C",
+            "ray_points": [
+              "A",
+              "D"
+            ],
+            "sector": "minor"
+          },
+          {
+            "vertex": "C",
+            "ray_points": [
+              "A",
+              "B"
+            ],
+            "sector": "minor"
+          }
+        ]
+      },
+      "basis_refs": [
+        "FN-05"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-02"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [],
+      "allowed_forms": [
+        "angle-arcs"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-103",
+      "binding_kind": "geometry_visual",
+      "purpose": "$\\angle ACD=\\angle ACB$ 且 $\\angle DAC=\\angle ABC$",
+      "relation": {
+        "type": "angle-equality",
+        "angles": [
+          {
+            "vertex": "A",
+            "ray_points": [
+              "D",
+              "C"
+            ],
+            "sector": "minor"
+          },
+          {
+            "vertex": "B",
+            "ray_points": [
+              "A",
+              "C"
+            ],
+            "sector": "minor"
+          }
+        ]
+      },
+      "basis_refs": [
+        "FN-05"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-02"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [],
+      "allowed_forms": [
+        "angle-arcs"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-104",
+      "binding_kind": "geometry_visual",
+      "purpose": "$\\triangle CAD\\sim\\triangle CBA$（第一组子母型相似）",
+      "relation": {
+        "type": "similarity",
+        "left": [
+          "C",
+          "A",
+          "D"
+        ],
+        "right": [
+          "C",
+          "B",
+          "A"
+        ],
+        "proof_angle_bindings": [
+          "VB-102",
+          "VB-103"
+        ]
+      },
+      "basis_refs": [
+        "FN-06"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-02"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [],
+      "allowed_forms": [
+        "paired-sides"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-105",
+      "binding_kind": "geometry_visual",
+      "purpose": "$CA:CB=AD:BA=CD:CA=2:3$",
+      "relation": {
+        "type": "directed-ratio",
+        "numerator": "segment-AC",
+        "denominator": "segment-BC",
+        "expression_ref": "FN-07"
+      },
+      "basis_refs": [
+        "FN-07"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-03"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [],
+      "allowed_forms": [
+        "ratio-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-106",
+      "binding_kind": "geometry_visual",
+      "purpose": "$AD=\\frac{8}{3}$",
+      "relation": {
+        "type": "segment-measure",
+        "segment": "segment-AD",
+        "expression_ref": "FN-08"
+      },
+      "basis_refs": [
+        "FN-08"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-03"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [],
+      "allowed_forms": [
+        "length-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-107",
+      "binding_kind": "geometry_visual",
+      "purpose": "$CD=\\frac{8}{3}$",
+      "relation": {
+        "type": "segment-measure",
+        "segment": "segment-DC",
+        "expression_ref": "FN-09"
+      },
+      "basis_refs": [
+        "FN-09"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-03"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [],
+      "allowed_forms": [
+        "length-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-108",
+      "binding_kind": "geometry_visual",
+      "purpose": "$BD=\\frac{10}{3}$",
+      "relation": {
+        "type": "segment-measure",
+        "segment": "segment-BD",
+        "expression_ref": "FN-10"
+      },
+      "basis_refs": [
+        "FN-10"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-03"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [],
+      "allowed_forms": [
+        "length-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-109",
+      "binding_kind": "geometry_visual",
+      "purpose": "$\\angle DAO=\\angle DBA$ 且 $\\angle ADO=\\angle BDA$",
+      "relation": {
+        "type": "angle-equality",
+        "angles": [
+          {
+            "vertex": "A",
+            "ray_points": [
+              "D",
+              "pt-O"
+            ],
+            "sector": "minor"
+          },
+          {
+            "vertex": "B",
+            "ray_points": [
+              "D",
+              "A"
+            ],
+            "sector": "minor"
+          }
+        ]
+      },
+      "basis_refs": [
+        "FN-13"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-04"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01"
+      ],
+      "allowed_forms": [
+        "angle-arcs"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-110",
+      "binding_kind": "geometry_visual",
+      "purpose": "$\\angle DAO=\\angle DBA$ 且 $\\angle ADO=\\angle BDA$",
+      "relation": {
+        "type": "angle-equality",
+        "angles": [
+          {
+            "vertex": "D",
+            "ray_points": [
+              "A",
+              "pt-O"
+            ],
+            "sector": "minor"
+          },
+          {
+            "vertex": "D",
+            "ray_points": [
+              "B",
+              "A"
+            ],
+            "sector": "minor"
+          }
+        ]
+      },
+      "basis_refs": [
+        "FN-13"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-04"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01"
+      ],
+      "allowed_forms": [
+        "angle-arcs"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-111",
+      "binding_kind": "geometry_visual",
+      "purpose": "$\\triangle DAO\\sim\\triangle DBA$（第二组子母型相似）",
+      "relation": {
+        "type": "similarity",
+        "left": [
+          "D",
+          "A",
+          "pt-O"
+        ],
+        "right": [
+          "D",
+          "B",
+          "A"
+        ],
+        "proof_angle_bindings": [
+          "VB-109",
+          "VB-110"
+        ]
+      },
+      "basis_refs": [
+        "FN-14"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-04"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01"
+      ],
+      "allowed_forms": [
+        "paired-sides"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-112",
+      "binding_kind": "geometry_visual",
+      "purpose": "$DO=\\frac{32}{15}$",
+      "relation": {
+        "type": "segment-measure",
+        "segment": "seg-DO",
+        "expression_ref": "FN-16"
+      },
+      "basis_refs": [
+        "FN-16"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-04"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01",
+        "VB-03"
+      ],
+      "allowed_forms": [
+        "length-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-113",
+      "binding_kind": "geometry_visual",
+      "purpose": "$AO=\\frac{16}{5}$",
+      "relation": {
+        "type": "segment-measure",
+        "segment": "seg-AO",
+        "expression_ref": "FN-17"
+      },
+      "basis_refs": [
+        "FN-17"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-04"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01",
+        "VB-02"
+      ],
+      "allowed_forms": [
+        "length-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-114",
+      "binding_kind": "geometry_visual",
+      "purpose": "$BO=\\frac65$",
+      "relation": {
+        "type": "segment-measure",
+        "segment": "seg-BO",
+        "expression_ref": "FN-18"
+      },
+      "basis_refs": [
+        "FN-18"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-04"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01",
+        "VB-04"
+      ],
+      "allowed_forms": [
+        "length-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-115",
+      "binding_kind": "geometry_visual",
+      "purpose": "$OE=\\frac45$",
+      "relation": {
+        "type": "segment-measure",
+        "segment": "seg-OE",
+        "expression_ref": "FN-19"
+      },
+      "basis_refs": [
+        "FN-19"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-04"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01",
+        "VB-05"
+      ],
+      "allowed_forms": [
+        "length-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-116",
+      "binding_kind": "geometry_visual",
+      "purpose": "$BO:AO=OE:OD=3:8$，且 $\\angle BOE=\\angle AOD$",
+      "relation": {
+        "type": "angle-equality",
+        "angles": [
+          {
+            "vertex": "pt-O",
+            "ray_points": [
+              "B",
+              "E"
+            ],
+            "sector": "minor"
+          },
+          {
+            "vertex": "pt-O",
+            "ray_points": [
+              "A",
+              "D"
+            ],
+            "sector": "minor"
+          }
+        ]
+      },
+      "basis_refs": [
+        "FN-20"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-05"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01"
+      ],
+      "allowed_forms": [
+        "angle-arcs"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-117",
+      "binding_kind": "geometry_visual",
+      "purpose": "$\\triangle BOE\\sim\\triangle AOD$（蝶形相似）",
+      "relation": {
+        "type": "similarity",
+        "left": [
+          "B",
+          "pt-O",
+          "E"
+        ],
+        "right": [
+          "A",
+          "pt-O",
+          "D"
+        ],
+        "proof_angle_bindings": [
+          "VB-116"
+        ]
+      },
+      "basis_refs": [
+        "FN-21"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-05"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01"
+      ],
+      "allowed_forms": [
+        "paired-sides"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-118",
+      "binding_kind": "geometry_visual",
+      "purpose": "$BE:AD=3:8$",
+      "relation": {
+        "type": "directed-ratio",
+        "numerator": "segment-BE",
+        "denominator": "segment-AD",
+        "expression_ref": "FN-22"
+      },
+      "basis_refs": [
+        "FN-22"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-05"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [
+        "VB-01"
+      ],
+      "allowed_forms": [
+        "ratio-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-119",
+      "binding_kind": "geometry_visual",
+      "purpose": "$BE=1$",
+      "relation": {
+        "type": "segment-measure",
+        "segment": "segment-BE",
+        "expression_ref": "FN-23"
+      },
+      "basis_refs": [
+        "FN-23"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-05"
+        }
+      ],
+      "reveal_scope": "final_result",
+      "required_constructions": [
+        "VB-01"
+      ],
+      "allowed_forms": [
+        "length-label"
+      ],
+      "max_lifetime": "teaching-scope"
+    },
+    {
+      "binding_id": "VB-120",
+      "binding_kind": "geometry_visual",
+      "purpose": "由 AB=AC，等腰三角形 ABC 的底角 ∠ABC=∠ACB。",
+      "relation": {
+        "type": "angle-equality",
+        "angles": [
+          {
+            "vertex": "B",
+            "ray_points": [
+              "A",
+              "C"
+            ],
+            "sector": "minor"
+          },
+          {
+            "vertex": "C",
+            "ray_points": [
+              "A",
+              "B"
+            ],
+            "sector": "minor"
+          }
+        ]
+      },
+      "basis_refs": [
+        "FN-01"
+      ],
+      "allowed_scopes": [
+        {
+          "kind": "approved",
+          "protocol_id": "PR-SMV-001",
+          "beat_id": "BT-01"
+        }
+      ],
+      "reveal_scope": "intermediate_result",
+      "required_constructions": [],
+      "allowed_forms": [
+        "angle-arcs"
+      ],
+      "max_lifetime": "teaching-scope"
+    }
+  ],
+  "visual_requirements": [
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-01"
+      },
+      "binding_ref": "VB-101",
+      "forms": [
+        "angle-arcs"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-02"
+      },
+      "binding_ref": "VB-102",
+      "forms": [
+        "angle-arcs"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-02"
+      },
+      "binding_ref": "VB-103",
+      "forms": [
+        "angle-arcs"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-02"
+      },
+      "binding_ref": "VB-104",
+      "forms": [
+        "paired-sides"
+      ],
+      "required_pair_indices": [
+        0,
+        1,
+        2
+      ],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-03"
+      },
+      "binding_ref": "VB-105",
+      "forms": [
+        "ratio-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-03"
+      },
+      "binding_ref": "VB-106",
+      "forms": [
+        "length-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-03"
+      },
+      "binding_ref": "VB-107",
+      "forms": [
+        "length-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-03"
+      },
+      "binding_ref": "VB-108",
+      "forms": [
+        "length-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      },
+      "binding_ref": "VB-109",
+      "forms": [
+        "angle-arcs"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      },
+      "binding_ref": "VB-110",
+      "forms": [
+        "angle-arcs"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      },
+      "binding_ref": "VB-111",
+      "forms": [
+        "paired-sides"
+      ],
+      "required_pair_indices": [
+        0,
+        1,
+        2
+      ],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      },
+      "binding_ref": "VB-112",
+      "forms": [
+        "length-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      },
+      "binding_ref": "VB-113",
+      "forms": [
+        "length-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      },
+      "binding_ref": "VB-114",
+      "forms": [
+        "length-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-04"
+      },
+      "binding_ref": "VB-115",
+      "forms": [
+        "length-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-05"
+      },
+      "binding_ref": "VB-116",
+      "forms": [
+        "angle-arcs"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-05"
+      },
+      "binding_ref": "VB-117",
+      "forms": [
+        "paired-sides"
+      ],
+      "required_pair_indices": [
+        0,
+        1,
+        2
+      ],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-05"
+      },
+      "binding_ref": "VB-118",
+      "forms": [
+        "ratio-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-05"
+      },
+      "binding_ref": "VB-119",
+      "forms": [
+        "length-label"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    },
+    {
+      "scope": {
+        "kind": "approved",
+        "protocol_id": "PR-SMV-001",
+        "beat_id": "BT-01"
+      },
+      "binding_ref": "VB-120",
+      "forms": [
+        "angle-arcs"
+      ],
+      "required_pair_indices": [],
+      "trigger": "introduce"
+    }
+  ]
+}

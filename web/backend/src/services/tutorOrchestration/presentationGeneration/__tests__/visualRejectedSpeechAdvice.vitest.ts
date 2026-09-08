@@ -1,0 +1,13 @@
+import {it,expect} from 'vitest';
+import {createHash} from 'node:crypto';
+import {createVisualRepairAdvisor} from '../VisualRepairAdvice';
+import {VISUAL_PRESENTER_PROMPT_VERSION,V12_VISUAL_PRESENTER_PROMPT_VERSION,V12_VISUAL_PRESENTER_SYSTEM_PROMPT} from '../PresenterPrompts';
+const identity=(version=VISUAL_PRESENTER_PROMPT_VERSION)=>({request_id:'GR-1',input_digest:'d',attempt:1,epoch:2,presenter_pin:{prompt_version:version}});
+const issue={binding_ref:'VB-104',code:'missing-focus' as const,draft_item_index:7};
+const text='两对角分别相等，按 AA 判定，就有相似。';
+it('v13 directly pairs rejected speech with the exact issue and Chinese repair instruction',()=>{const a=createVisualRepairAdvisor(),i=identity();a.remember(i,[issue],[{draft_item_index:7,basis_refs:['FN-06','IF-02','VB-07'],text},{draft_item_index:10,text:'wrong item'}]);const f=a.take({...i,attempt:2,epoch:3})!;expect(f.corrections).toEqual([{source:'rejected_uncommitted_candidate',draft_item_index:7,binding_ref:'VB-104',code:'missing-focus',rejected_speech:{text,truncated:false,basis_refs:['FN-06','IF-02','VB-07']},instruction:expect.stringContaining('board binding不是geometry focus')}]);expect(JSON.stringify(f)).not.toContain('wrong item');});
+it('bounds rejected text and corrections while excluding unknown private properties',()=>{const a=createVisualRepairAdvisor(),i=identity();a.remember(i,Array.from({length:40},()=>({...issue,stack:'secret'})),[{draft_item_index:7,text:'x'.repeat(1000),basis_refs:Array.from({length:50},()=> 'FN-06')}]);const f=a.take({...i,attempt:2,epoch:3})!;expect(f.corrections).toHaveLength(8);expect(f.corrections![0].rejected_speech).toMatchObject({text:'x'.repeat(400),truncated:true});expect(f.corrections![0].rejected_speech!.basis_refs).toHaveLength(32);expect(JSON.stringify(f)).not.toContain('secret');});
+it('missing matching speech never invents rejected text',()=>{const a=createVisualRepairAdvisor(),i=identity();a.remember(i,[issue],[]);expect(a.take({...i,attempt:2,epoch:3})!.corrections![0].rejected_speech).toBeUndefined();});
+it('v12 advice preserves exact old shape and index without rejected speech',()=>{const a=createVisualRepairAdvisor(),i=identity(V12_VISUAL_PRESENTER_PROMPT_VERSION);a.remember(i,[issue],[{draft_item_index:7,text,basis_refs:['FN-06']}]);const f=a.take({...i,attempt:2,epoch:3})!;expect(f.issues).toEqual([issue]);expect(f.corrections).toBeUndefined();expect(f.previous_speech_items).toEqual([{draft_item_index:7,basis_refs:['FN-06']}]);expect(JSON.stringify(f)).not.toContain(text);});
+
+it('v12 prompt bytes remain frozen',()=>expect(createHash('sha256').update(V12_VISUAL_PRESENTER_SYSTEM_PROMPT).digest('hex')).toBe('8135be65dc103ba2daacdd9d7bc6bbffe664238b8fdc49001b7b2e97e631c196'));

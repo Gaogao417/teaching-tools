@@ -1,3 +1,4 @@
+import type {GenerationCompanion} from '../../tutorSession/GenerationCompanionStore';
 /**
  * GenerationCoordinator（F7 RT4 — 异步生成生命周期引擎；生成生命周期执行规格）。
  *
@@ -49,12 +50,14 @@ export interface GenerationKernelAccess {
   readonly sessionId: string;
   readonly revision: number;
   readonly state: Pick<TutorRuntimeStateV9, "generation_slot" | "generation_requests" | "presentation_cursor" | "pinned_plan">;
-  append(expectedRevision: number, events: PendingV9Event[]): { revision: number; appendedSequences: number[] };
+  append(expectedRevision: number, events: PendingV9Event[],companion?:GenerationCompanion): { revision: number; appendedSequences: number[] };
 }
 
 /** 单次内容管线（RT2 上下文复算 + RT3 提示词/模型/编译/预演；由 Orchestrator 组装）。 */
 export interface PresenterAttemptPipeline {
   buildAndRun(request: GenerationRequestView): Promise<{ readonly candidate: CompiledPresentationCandidate }>;
+  /** Local advisory notification only after the owned retry transition commits. */
+  onRetryScheduled?(request: GenerationRequestView, error: PresenterGenerationError): void;
 }
 
 /** 驱动循环读取的请求视图（GenerationRequestRecord 同构）。 */
@@ -309,9 +312,10 @@ export async function driveGeneration(
   };
 
   /** 查证路径的 committed 视图：优先返回持有候选（id 相同=本 worker 的候选已入库）；他人先交的序列只回身份/成因摘要（交付层按 sequence_id 从 committed 流重读正文）。 */
+  const withoutCompanion=(candidate:CompiledPresentationCandidate):CompiledPresentationCandidate=>{const {internalCompanion: _audit,...plan}=candidate;return plan;};
   const verifiedSequence = (record: PendingRequestView, candidate: CompiledPresentationCandidate): CompiledPresentationCandidate => {
     if (record.sequence_id !== undefined && record.sequence_id === candidate.sequence_id
-      && record.epoch === candidate.generation?.epoch && record.attempt === candidate.generation?.attempt) return candidate;
+      && record.epoch === candidate.generation?.epoch && record.attempt === candidate.generation?.attempt) return withoutCompanion(candidate);
     return {
       sequence_id: record.sequence_id ?? "",
       decision_id: record.decision_id,
@@ -400,6 +404,7 @@ export async function driveGeneration(
           { event_type: "presentation_generation_retry_scheduled", payload: retryPayload, occurred_at: nowIso(), causation_sequence: deps.causationSequence, idempotency_key: `gen:${access.sessionId}:${snapshot.request_id}:retry:${snapshot.attempt}` },
         ], snapshot as PendingRequestView, owned);
         if (appended === "superseded") return { kind: "superseded" };
+        pipeline.onRetryScheduled?.(snapshot,error);
         continue;
       }
       const errorClass = error.retryable && snapshot.attempt >= snapshot.max_attempts ? "RETRY_EXHAUSTED" : error.failureClass;
@@ -434,7 +439,7 @@ export async function driveGeneration(
     let submitted = false;
     for (let round = 0; round < 2 && !submitted; round += 1) {
       try {
-        access.append(access.revision, [plannedEvent]);
+        access.append(access.revision, [plannedEvent],candidate.internalCompanion);
         submitted = true;
       } catch (error) {
         submitFailure = error;
@@ -451,7 +456,7 @@ export async function driveGeneration(
       }
     }
     if (!submitted) throw submitFailure;
-    return { kind: "committed", sequence: candidate };
+    return { kind: "committed", sequence: withoutCompanion(candidate) };
   }
   } finally {
     if (heartbeat) clearInterval(heartbeat);

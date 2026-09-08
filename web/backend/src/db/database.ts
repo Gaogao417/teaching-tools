@@ -329,3 +329,17 @@ const tutorSessionEventColumns = db.prepare("PRAGMA table_info(tutor_session_eve
 if (!tutorSessionEventColumns.some((column) => column.name === "causation_sequence")) {
   db.exec("ALTER TABLE tutor_session_events ADD COLUMN causation_sequence INTEGER");
 }
+
+// Server-private immutable generation audit; no canonical/View consumer.
+db.exec(`
+ CREATE TABLE IF NOT EXISTS tutor_generation_companions (
+  session_id TEXT NOT NULL, sequence_id TEXT NOT NULL, request_id TEXT NOT NULL,
+  attempt INTEGER NOT NULL, epoch INTEGER NOT NULL, planned_event_sequence INTEGER NOT NULL,
+  policy_version TEXT NOT NULL, input_digest TEXT NOT NULL, presenter_pin_json TEXT NOT NULL,
+  companion_json TEXT NOT NULL,
+  PRIMARY KEY(session_id, sequence_id), UNIQUE(session_id, request_id, attempt, epoch),
+  FOREIGN KEY(session_id, planned_event_sequence) REFERENCES tutor_session_events(session_id, sequence)
+ );
+ CREATE TRIGGER IF NOT EXISTS tutor_generation_companions_immutable
+ BEFORE UPDATE ON tutor_generation_companions BEGIN SELECT RAISE(ABORT, 'immutable generation companion'); END;
+`);

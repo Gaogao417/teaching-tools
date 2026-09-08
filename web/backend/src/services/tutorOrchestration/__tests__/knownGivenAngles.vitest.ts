@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {selectGivenAngleMarks,projectGivenAngles} from '../KnownGivenAngleProjection';
 const plan=JSON.parse(readFileSync(join(__dirname,'../../planBuild/review/geometry-visual/candidate-v14/TP-SMV-009.v14.draft.json'),'utf8'));
 const binding=plan.resource_bindings.find((b:any)=>b.binding_id==='VB-101');
-const facts=[{fact_id:'FN-03',role:'given',reveals_answer:false}];
+const facts=[{fact_id:'FN-03',role:'given',reveals_answer:false,statement:'$\\angle DAC=\\angle ACD$'}];
 const geometry={points:['A','C','D'].map(id=>({id}))};
 it('copies explicit given rays without scope lease or transitive facts',()=>{const marks=selectGivenAngleMarks([binding],facts);expect(projectGivenAngles(marks,geometry)).toEqual([{id:'given-angle:VB-101',kind:'angle-equality',source:'problem-given',angles:[{vertex:'A',rayPoints:['D','C'],sector:'minor'},{vertex:'C',rayPoints:['A','D'],sector:'minor'}]}]);expect(JSON.stringify(marks)).not.toMatch(/lease|outcome|degree|ABC/);});
 it.each(['derived','goal'])('rejects %s basis',role=>expect(selectGivenAngleMarks([binding],[{...facts[0],role}])).toEqual([]));
@@ -12,3 +12,6 @@ it('rejects answer or unknown or mixed basis',()=>{expect(selectGivenAngleMarks(
 it('rejects empty basis and malformed duplicate rays',()=>{expect(selectGivenAngleMarks([{...binding,basis_refs:[]}],facts)).toEqual([]);const b=structuredClone(binding);b.relation.angles[0].ray_points=['A','C'];expect(selectGivenAngleMarks([b],facts)).toEqual([]);});
 it('missing current geometry point removes whole relation',()=>{expect(projectGivenAngles(selectGivenAngleMarks([binding],facts),{points:[{id:'A'},{id:'C'}]})).toEqual([]);});
 it('returned data cannot mutate source or subsequent projection',()=>{const marks=selectGivenAngleMarks([binding],facts);const result=projectGivenAngles(marks,geometry);result[0].angles[0].rayPoints[0]='X';expect(projectGivenAngles(marks,geometry)[0].angles[0].rayPoints).toEqual(['D','C']);expect(binding.relation.angles[0].ray_points).toEqual(['D','C']);});
+
+it.each(['$AB=AC=4$','', '$\\angle ABC=\\angle ACB$', '若 $\\angle DAC=\\angle ACD$', '$\\angle DAC=\\angle ACD$ 且 $AB=AC$', '$\\angle DAC=30$'])('rejects unsupported or nonmatching given statement %s',statement=>expect(selectGivenAngleMarks([binding],[{...facts[0],statement}])).toEqual([]));
+it('missing statement fails closed',()=>expect(selectGivenAngleMarks([binding],[{fact_id:'FN-03',role:'given',reveals_answer:false}])).toEqual([]));

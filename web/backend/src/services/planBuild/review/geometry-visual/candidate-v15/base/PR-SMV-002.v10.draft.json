@@ -1,0 +1,103 @@
+{
+  "schema": "ai_teaching_teaching_protocol/v3",
+  "protocol_id": "PR-SMV-002",
+  "version": "v10",
+  "status": "Draft",
+  "question_ref": {
+    "artifact_id": "QT-SMV-001",
+    "version": "v3",
+    "content_hash": "sha256:e8dc1fb849904d7d388c8589516d1d833e60d28d255a8ff9b3eda540b80187c1"
+  },
+  "solution_graph_ref": {
+    "artifact_id": "RG-SMV-001",
+    "version": "v8",
+    "content_hash": "sha256:2bc516468e9cc8c4033f96277d810f96752a7cb41269f1f0eb0735c2da507c25"
+  },
+  "protocol_kind": "scaffold",
+  "entry_beat_id": "BT-01",
+  "beats": [
+    {
+      "beat_id": "BT-01",
+      "part_id": "1",
+      "role": "local_inquiry",
+      "purpose": "只针对本次学生问题与返回锚点补讲一个断点：从诊断资源选择相关方向，不依次讲完四项。已明确断点直接解释；不明确时先简短澄清。接上即返回原拍，不追加同义确认。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-03",
+          "FN-04",
+          "FN-05",
+          "FN-06",
+          "FN-12",
+          "FN-13",
+          "FN-14",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21"
+        ],
+        "inference_ids": [
+          "IF-02",
+          "IF-10",
+          "IF-16",
+          "IF-17"
+        ]
+      },
+      "abstraction_level": "A3_structure",
+      "cognitive_process": "monitor",
+      "cognitive_activity": "explain",
+      "common_deviations": [
+        "只说不会，没有指出等角、对应边、点序或比例中的断点",
+        "把 A 对应 A，导致边比倒置",
+        "没有先确认 O 在线段 AE、BD 上就做线段加减",
+        "把 OE:OD 与 BO:AO 的对应方向写反"
+      ],
+      "completion_evidence": {
+        "evidence_kind": "student_confirmation",
+        "confirmation_target": "follow_along",
+        "gate": {
+          "gate_id": "GT-01",
+          "requirement": "只判断本次问题对应的断点是否接上，不要求逐项复述四个诊断方向。一次相关、无矛盾的自述或有效复述即可完成补讲，不追加同义确认；未解决的问题留在本拍澄清。仅判断当前讲解是否接上：无未解决矛盾时接受相关的明确自述，或关键关系正确的复述；若同时出现误解/没懂/问题先澄清补讲。沉默、超时、播放结束、旧拍确认和跳过不算理解；不要求独立计算或固定UI，不记为独立掌握。"
+        }
+      },
+      "participation": "confirm",
+      "pacing": {
+        "wait_policy": "student_driven"
+      },
+      "presentation_intent": {
+        "voice": [
+          "narrate",
+          "question"
+        ],
+        "workspace_surfaces": [
+          "geometry",
+          "solution_board"
+        ]
+      },
+      "support_boundary": {
+        "may_reveal_answer": false,
+        "may_reveal_intermediate": true,
+        "max_support": "provide_intermediate_conclusion"
+      },
+      "transitions": [
+        {
+          "to_beat": "BT-01",
+          "on": "evidence_collected"
+        }
+      ],
+      "accepted_alternatives": [
+        "针对刚才的问题明确表示已接上，且无待解决矛盾",
+        "用自己的话解释刚才卡住的关系，关键内容成立；直接结束补讲，不再要求说懂了"
+      ],
+      "resource_ids": [
+        "RES9",
+        "RES10",
+        "RES11",
+        "RES12"
+      ]
+    }
+  ],
+  "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef",
+  "artifact_uri": "artifact://teaching-protocol/PR-SMV-002@v10"
+}

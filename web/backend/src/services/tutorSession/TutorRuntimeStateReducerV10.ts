@@ -15,6 +15,7 @@ export interface V10FoldContext extends V9FoldContext {
     projectAt(events: readonly StoredSessionEvent[]): VisualView;
     prepareInvalidation?(events: readonly StoredSessionEvent[], reason: VisualInvalidation["reason"]): {invalidation:VisualInvalidation;target:VisualView;workspaceRevision:number};
     validateInvalidation(events: readonly StoredSessionEvent[], event: StoredSessionEvent): void;
+    validateGenerationCompanion?(body:import('./GenerationCompanionStore').GenerationCompanion,payload:any,history:readonly {sequence:number;event_type:string;payload:any;state_revision?:number}[]):void;
     validateTeachingAction?(events: readonly StoredSessionEvent[], event: StoredSessionEvent): void;
   };
 }

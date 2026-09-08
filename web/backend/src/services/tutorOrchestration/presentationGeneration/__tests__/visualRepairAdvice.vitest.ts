@@ -1,0 +1,12 @@
+import {it,expect} from 'vitest';
+import {createHash} from 'node:crypto';
+import {createVisualRepairAdvisor} from '../VisualRepairAdvice';
+import {V10_VISUAL_PRESENTER_SYSTEM_PROMPT,VISUAL_PRESENTER_SYSTEM_PROMPT,usesVisualRepairAdvice} from '../PresenterPrompts';
+const source={request_id:'GR-1',input_digest:'digest1',attempt:1,epoch:3,presenter_pin:{prompt_version:'v11'}};
+const next={...source,attempt:2,epoch:4};
+const issue={binding_ref:'VB-1',code:'missing-focus' as const};
+it('only immediately adjacent owned attempt receives detached allowlisted advice',()=>{const a=createVisualRepairAdvisor();a.remember(source,[{...issue,message:'do not forward'} as typeof issue],[{draft_item_index:3,basis_refs:['FN-1']}]);const f=a.take(next)!;expect(f).toMatchObject({source_attempt:1,source_epoch:3,issues:[issue],previous_speech_items:[{draft_item_index:3,basis_refs:['FN-1']}]});expect(JSON.stringify(f)).not.toContain('do not forward');expect(a.take(next)).toBeUndefined();});
+it.each([{request_id:'other'},{input_digest:'other'},{attempt:3},{epoch:5},{epoch:3},{presenter_pin:{prompt_version:'v10'}}])('rejects identity/attempt/epoch drift %j',delta=>{const a=createVisualRepairAdvisor();a.remember(source,[issue],[]);expect(a.take({...next,...delta})).toBeUndefined();expect(a.take(next)).toBeUndefined();});
+it('a restarted driver has no advisory and cannot recover it from unrelated input',()=>{const old=createVisualRepairAdvisor();old.remember(source,[issue],[]);expect(createVisualRepairAdvisor().take(next)).toBeUndefined();});
+it('bounded advice never includes full draft or arbitrary exception properties',()=>{const a=createVisualRepairAdvisor();a.remember(source,Array.from({length:80},()=>issue),Array.from({length:60},(_,i)=>({draft_item_index:i,basis_refs:Array.from({length:50},()=> 'FN-1')})));const f=a.take(next)!;expect(f.issues).toHaveLength(32);expect(f.previous_speech_items).toHaveLength(32);expect(f.previous_speech_items[0].basis_refs).toHaveLength(32);});
+it('v10 real prompt remains frozen; v11 removes visual order conflict and opts in only new pin',()=>{expect(createHash('sha256').update(V10_VISUAL_PRESENTER_SYSTEM_PROMPT).digest('hex')).toBe('773e0e20fcf95d730c71e8a8375ecbe2b594dba8d1ae58a0575a1dc223f6e9b9');expect(VISUAL_PRESENTER_SYSTEM_PROMPT).not.toContain('先说后做或边说边做均可');expect(VISUAL_PRESENTER_SYSTEM_PROMPT).toContain('repair_feedback');expect(usesVisualRepairAdvice('presenter-interleaved/v10-visual')).toBe(false);expect(usesVisualRepairAdvice('presenter-interleaved/v11-visual')).toBe(true);});

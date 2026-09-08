@@ -1,8 +1,9 @@
+import type {GenerationCompanion} from '../../tutorSession/GenerationCompanionStore';
 import { VisualBindingError } from "../../tutorSession/VisualBindingCatalog";
 import { VISUAL_MAX_ACTIONS } from "./VisualPresentationTools";
 import { presentationPlanV5Schema, type VisualRequirement, type VisualView } from "../../../../../shared/canonical/visualSchemas";
 import { VisualIntentCompiler, type VisualCompilerContext, type CompiledVisualAction } from "./VisualIntentCompiler";
-import { validateVisualCoverage, type VisualCoverageIssue } from "./VisualCoverageValidator";
+import { resolveVisualSpeechUses, validateVisualCoverage, type VisualCoverageIssue } from "./VisualCoverageValidator";
 import { VISUAL_CONTEXT_BUILDER_VERSION,VISUAL_TOOL_CATALOG_VERSION } from "./VisualPresentationTools";
 import type { VisibleVisualTool } from "./VisualPresentationTools";
 /**
@@ -25,7 +26,7 @@ import type { VisibleVisualTool } from "./VisualPresentationTools";
  * 提交仍由 kernel 事务（RT4 coordinator）唯一落库。
  */
 import type { z } from "zod";
-import { usesOnDemandVisualPolicy, PRESENTER_PROMPT_VERSION, usesVisualV7PresentationPolicy, isVisualPresenterPromptVersion, usesVisualFractionFormatGuard } from "./PresenterPrompts";
+import { usesBoundedVisualLowering, usesOnDemandVisualPolicy, PRESENTER_PROMPT_VERSION, usesVisualV7PresentationPolicy, isVisualPresenterPromptVersion, usesVisualFractionFormatGuard } from "./PresenterPrompts";
 
 import { presentationPlanV4Schema } from "../../../../../shared/canonical";
 import { WorldCommandError, type DomainCommand } from "../../../../../shared/actionWorld";
@@ -64,7 +65,7 @@ export interface VisualCompilationInput extends Omit<VisualCompilerContext, "ses
   visibleTools: readonly VisibleVisualTool[]; requirements: readonly VisualRequirement[]; alreadyPresented: VisualView;
 }
 export type CompiledPresentationPlanV5 = z.infer<typeof presentationPlanV5Schema>;
-export type CompiledPresentationCandidate = CompiledPresentationPlanV4 | CompiledPresentationPlanV5;
+export type CompiledPresentationCandidate = (CompiledPresentationPlanV4 | CompiledPresentationPlanV5) & {readonly internalCompanion?:GenerationCompanion};
 export interface IntentCompilerInput {
   readonly visual?: VisualCompilationInput;
   readonly sessionId: string;
@@ -154,7 +155,7 @@ function allowedSourceRefs(input: IntentCompilerInput): Set<string> {
   return refs;
 }
 
-function validateParams(
+export function validateParams(
   spec: VisibleToolInstance["spec"],
   params: Record<string, unknown> | undefined,
 ): { ok: true; values: Record<string, unknown> } | { ok: false; reason: string } {
@@ -299,7 +300,7 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
 
 /** H06 quality diagnostics are not authority/parameter/permission failures. */
 export class VisualObligationQualityError extends PresenterGenerationError {
-  constructor(readonly issues: readonly VisualCoverageIssue[]) {
+  constructor(readonly issues: readonly VisualCoverageIssue[], readonly previousSpeech: readonly {draft_item_index:number;basis_refs?:readonly string[];text?:string}[] = [], readonly previousCandidate: readonly PresentationDraftV2["items"][number][] = []) {
     super("draft_invalid", `visual obligation quality: ${JSON.stringify(issues)}`, true);
     this.name = "VisualObligationQualityError";
   }
@@ -309,6 +310,7 @@ export class VisualObligationQualityError extends PresenterGenerationError {
 export function compilePresentationIntentsForPreflight(input: IntentCompilerInput): {
   plan: CompiledPresentationPlanV4 | CompiledPresentationPlanV5;
   visualCoverageIssues: readonly VisualCoverageIssue[];
+  itemActionMapping:readonly {draft_item_index:number;action_ordinals:readonly number[]}[];
 } {
   let visualCoverageIssues: readonly VisualCoverageIssue[] = [];
   if(input.visual){
@@ -341,10 +343,14 @@ export function compilePresentationIntentsForPreflight(input: IntentCompilerInpu
 
   const visibleByTool = new Map(input.visibleTools.map((instance) => [instance.spec.tool_id, instance]));
 
-  for (const item of input.draft.items) {
+  const itemActionMapping:{draft_item_index:number;action_ordinals:number[]}[]=[];
+  for (const [draft_item_index,item] of input.draft.items.entries()) {
+    const firstAction=actions.length;
+    try {
     if (actions.length >= maxActions) {
       throw new IntentCompilerError("EMPTY_SEGMENT", `compiled segment exceeds the bounded cap (${maxActions} actions)`);
     }
+    if(usesBoundedVisualLowering(input.request.presenter_pin.prompt_version)&&item.type!=="speech"&&(item.basis_refs??[]).some(ref=>!allowedRefs.has(ref)))throw new IntentCompilerError("ILLEGAL_SOURCE_REF","v15 tool common basis refs must remain within frozen context");
     if (item.type === "speech") {
       if (item.basis_refs !== undefined) {
         for (const ref of item.basis_refs) {
@@ -567,14 +573,20 @@ export function compilePresentationIntentsForPreflight(input: IntentCompilerInpu
     }
 
     throw new IntentCompilerError("ILLEGAL_TOOL", `tool ${spec.tool_id} has no compiler binding for effect class ${spec.effect_class}`);
+    } finally {itemActionMapping.push({draft_item_index,action_ordinals:Array.from({length:actions.length-firstAction},(_,i)=>firstAction+i)});}
   }
 
   if (visualCompiler && input.visual) {
     for (const action of visualCompiler.finish(actions.length, `WSA-${input.sessionId}-${serial}-T${toolIndex++}`)) appendVisual(action);
     if (actions.length > maxActions) throw new IntentCompilerError("EMPTY_SEGMENT", `visual group closure exceeds ${maxActions} action cap`);
     const uses = actions.flatMap(a => (a.basis_refs ?? []).filter(ref => input.visual!.requirements.some(r => r.binding_ref === ref)).map(binding_ref => ({ ordinal:a.ordinal,binding_ref }))).filter(u => actions[u.ordinal].kind === "voice");
-    const issues = validateVisualCoverage(input.visual.requirements, visualActions, input.visual.alreadyPresented, uses, { requireEntryPulse: usesVisualV7PresentationPolicy(input.request.presenter_pin.prompt_version), requireCurrentPresentation: usesOnDemandVisualPolicy(input.request.presenter_pin.prompt_version) });
-    visualCoverageIssues = issues;
+    const resolvedUses = usesOnDemandVisualPolicy(input.request.presenter_pin.prompt_version)
+      ? resolveVisualSpeechUses({speeches:actions.filter(a=>a.kind === "voice"), bindings:input.visual.requirements.map(r=>input.visual!.catalog.get(r.binding_ref)), inferences:input.graph.inferences})
+      : {uses,issues:[]};
+    const issues = validateVisualCoverage(input.visual.requirements, visualActions, input.visual.alreadyPresented, resolvedUses.uses, { requireEntryPulse: usesVisualV7PresentationPolicy(input.request.presenter_pin.prompt_version), requireCurrentPresentation: usesOnDemandVisualPolicy(input.request.presenter_pin.prompt_version) });
+    const speechIndices=input.draft.items.flatMap((item,index)=>item.type==="speech"?[index]:[]);
+    const indexByOrdinal=new Map(actions.filter(a=>a.kind==="voice").map((a,index)=>[a.ordinal,speechIndices[index]]));
+    visualCoverageIssues = [...resolvedUses.issues,...issues].map(issue=>({...issue,...(issue.speech_ordinal!==undefined?{draft_item_index:indexByOrdinal.get(issue.speech_ordinal)}:{})}));
   }
   if (actions.length === 0) {
     throw new IntentCompilerError("EMPTY_SEGMENT", "draft compiles to zero actions (canonical requires at least one item)");
@@ -605,5 +617,5 @@ export function compilePresentationIntentsForPreflight(input: IntentCompilerInpu
         .join("; ")}`,
     );
   }
-  return { plan: parsed.data, visualCoverageIssues };
+  return { plan: parsed.data, visualCoverageIssues,itemActionMapping };
 }
