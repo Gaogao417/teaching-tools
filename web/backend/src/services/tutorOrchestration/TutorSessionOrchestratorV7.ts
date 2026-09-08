@@ -1,3 +1,4 @@
+import { projectionReadStamp, registerSnapshotProjection } from "./V7SnapshotProjectionContext";
 import { VISUAL_MAX_ACTIONS } from "./presentationGeneration/VisualPresentationTools";
 import { createHash } from "node:crypto";
 import { explanationFragmentContentHash } from "../tutorSession/WorkspaceExplanationFragmentsV5";
@@ -1159,7 +1160,17 @@ export class TutorSessionOrchestratorV7 {
 
   /** 服务层快照（fresh rebuild 投影；pending delivery 从 committed 事实构造）。 */
   snapshot(promptLatex = ""): V7SessionSnapshot {
-    const tutorState = this.navigator.rebuildState();
+    const projectionStamp = projectionReadStamp();
+    let tutorState = this.navigator.rebuildState();
+    // A long-lived source may have missed another process's committed Beat or
+    // owner change. Do not combine its cached currentBeat with fresh views.
+    if (this.navigator.state.state_revision !== tutorState.state_revision) {
+      this.refreshWrappers();
+      tutorState = this.navigator.rebuildState();
+      if (this.navigator.state.state_revision !== tutorState.state_revision || this.revision !== tutorState.state_revision) {
+        throw new VisualLifecycleError("REVISION_CONFLICT", "snapshot source changed during refresh; fresh verification required");
+      }
+    }
     const visualWorkspace=this.eventSchema === "v10" ? rebuildWorkspaceRuntimeStateV10(this.sessionId,this.catalog,visualRegistryProvider(this.resolver)) : undefined;
     const workspace = visualWorkspace ? this.visualWorkspaceDomainFold(visualWorkspace) : this.rebuildWorkspace();
     const events = this.events;
@@ -1194,7 +1205,7 @@ export class TutorSessionOrchestratorV7 {
       cursor: tutorState.presentation_cursor,
       revision: this.navigator.revision,
     });
-    return {
+    const snapshot: V7SessionSnapshot = {
       schema: "tutor-session-snapshot/v6-service",
       session_id: this.sessionId,
       task_id: this.binding.taskId,
@@ -1206,6 +1217,20 @@ export class TutorSessionOrchestratorV7 {
       ...(active !== undefined ? { active_action: active } : {}),
       ...(pending !== undefined ? { pending_presentation: pending } : {}),
     };
+    registerSnapshotProjection(snapshot, this, this.eventSchema, {
+      runtimeState: tutorState as unknown as Record<string, unknown>,
+      workspace: { state: { revision: workspace.state.revision }, context: { tutorCommands: workspace.context.tutorCommands } },
+      baseGeometry: this.catalog.baseGeometry,
+      ...(this.eventSchema === "v10" ? { visualLifecycle: {
+        presentation_execution_owner: (tutorState as unknown as TutorRuntimeStateV10).presentation_execution_owner,
+        visual_barrier: (tutorState as unknown as TutorRuntimeStateV10).visual_barrier,
+      } } : {}),
+    }, projectionStamp, () => stableVisualJson({
+      session: this.sessionId, revision: this.revision, schema: this.eventSchema,
+      plan: this.binding.plan.tutor_plan_ref, model: this.model.pin,
+      presenter: this.presenterGenerator?.pin, catalog: workspaceCatalogPin(this.catalog),
+    }));
+    return snapshot;
   }
 
   // ------------------------------------------------------------------ //

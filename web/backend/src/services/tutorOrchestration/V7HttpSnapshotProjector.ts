@@ -1,3 +1,4 @@
+import { consumeSnapshotProjection, projectionReadStamp, sameProjectionReadStamp, type ProjectionWorkspace } from "./V7SnapshotProjectionContext";
 /**
  * V7HttpSnapshotProjector（F7 Step 4 — 服务层快照 → HTTP application profile）。
  *
@@ -15,7 +16,6 @@
 import { tutorRuntimeStateV4Schema } from "../../../../shared/canonical";
 import { applyDomainCommands } from "../../../../shared/actionWorld";
 import { parseSessionSnapshotHttp, TUTOR_RUNTIME_HTTP_PROFILE, type SessionSnapshotHttpV1 } from "../../../../shared/tutorHttpProfile";
-import type { WorkspaceFold } from "../tutorSession/WorkspaceRuntimeReducerV5";
 import type { V7TurnResult } from "../tutorNavigator/NavigatorSessionV7";
 import type { TutorSessionOrchestratorV7 } from "./TutorSessionOrchestratorV7";
 import { projectGenerationSnapshotFields } from "./presentationGeneration/GenerationSnapshotProjection";
@@ -29,7 +29,7 @@ export class V7RenderProjectionError extends Error {
 }
 
 /** student-safe composed geometry（pinned base + committed tutor 命令；fail closed）。 */
-export function composeRenderGeometryV7(fold: WorkspaceFold, baseGeometry: unknown): Record<string, unknown> | null {
+export function composeRenderGeometryV7(fold: Pick<ProjectionWorkspace, "context">, baseGeometry: unknown): Record<string, unknown> | null {
   if (baseGeometry === undefined || baseGeometry === null) return null;
   const base = baseGeometry as Parameters<typeof applyDomainCommands>[0]["geometry"];
   if (fold.context.tutorCommands.length === 0) return base as unknown as Record<string, unknown>;
@@ -88,15 +88,23 @@ export function projectHttpSnapshotV1(args: {
   serviceSnapshot?: ReturnType<TutorSessionOrchestratorV7["snapshot"]>;
 }): SessionSnapshotHttpV1 {
   const { orchestrator } = args;
-  const service = args.serviceSnapshot ?? orchestrator.snapshot(args.promptLatex ?? orchestrator.question.stem);
+  let service = args.serviceSnapshot ?? orchestrator.snapshot(args.promptLatex ?? orchestrator.question.stem);
   if(service.session_id !== orchestrator.sessionId || service.revision !== orchestrator.revision) throw new V7RenderProjectionError("service snapshot does not match current session revision");
-  const fold = orchestrator.workspaceFold();
-  const geometry = composeRenderGeometryV7(fold, orchestrator.sessionCatalog.baseGeometry);
+  let context = consumeSnapshotProjection(service, orchestrator, orchestrator.eventSchema);
+  if (!context) {
+    // Unknown, changed or consumed DTOs are not authoritative snapshots.
+    service = orchestrator.snapshot(args.promptLatex ?? orchestrator.question.stem);
+    context = consumeSnapshotProjection(service, orchestrator, orchestrator.eventSchema);
+  }
+  if (!context) throw new V7RenderProjectionError("unable to verify a stable snapshot projection prefix");
+  const fold = context.material.workspace;
+  const geometry = composeRenderGeometryV7(fold, context.material.baseGeometry);
+  const visualLifecycle = context.material.visualLifecycle;
   const payload = {
     ...(orchestrator.eventSchema !== "v7"
-      ? projectGenerationSnapshotFields(tutorRuntimeStateV4Schema.parse((()=>{const {visual_barrier,scope_epoch,presentation_execution_owner,...state}=orchestrator.rebuildRuntimeState() as unknown as Record<string,unknown>; return {...state,schema:"ai_teaching_tutor_runtime_state/v4"};})()))
+      ? projectGenerationSnapshotFields(tutorRuntimeStateV4Schema.parse((()=>{const {visual_barrier,scope_epoch,presentation_execution_owner,...state}=context.material.runtimeState as unknown as Record<string,unknown>; return {...state,schema:"ai_teaching_tutor_runtime_state/v4"};})()))
       : {}),
-    ...orchestrator.visualLifecycle,
+    ...visualLifecycle,
     profile: TUTOR_RUNTIME_HTTP_PROFILE,
     session_id: service.session_id,
     task_id: service.task_id,
@@ -123,7 +131,7 @@ export function projectHttpSnapshotV1(args: {
       workspace_revision: fold.state.revision,
       geometry,
     },
-    ...(!orchestrator.visualLifecycle?.visual_barrier && service.active_action !== undefined
+    ...(!visualLifecycle?.visual_barrier && service.active_action !== undefined
       ? {
           active_action: {
             action_id: service.active_action.action_id,
@@ -137,7 +145,7 @@ export function projectHttpSnapshotV1(args: {
           },
         }
       : {}),
-    ...(service.pending_presentation !== undefined ? { pending_presentation: orchestrator.visualLifecycle ? {...service.pending_presentation,schema:"ai_teaching_presentation_delivery/v2",execution_owner:orchestrator.visualLifecycle.presentation_execution_owner} : service.pending_presentation } : {}),
+    ...(service.pending_presentation !== undefined ? { pending_presentation: visualLifecycle ? {...service.pending_presentation,schema:"ai_teaching_presentation_delivery/v2",execution_owner:visualLifecycle.presentation_execution_owner} : service.pending_presentation } : {}),
     ...(args.turn !== undefined ? { turn: projectTurn(args.turn, args.turnSource ?? "input") } : {}),
   };
   const parsed = parseSessionSnapshotHttp(payload);
@@ -145,6 +153,9 @@ export function projectHttpSnapshotV1(args: {
     throw new V7RenderProjectionError(
       `projected snapshot fails the HTTP profile gate (fail closed, not returned): ${parsed.errors.join("; ")}`,
     );
+  }
+  if (!sameProjectionReadStamp(context.stamp, projectionReadStamp())) {
+    throw new V7RenderProjectionError("database changed while projecting snapshot; fresh verification required");
   }
   return parsed.snapshot;
 }
