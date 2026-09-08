@@ -4,14 +4,14 @@ import { TutorRuntimeApplicationV7 } from '../../../../services/tutorOrchestrati
 import { TutorTaskBindingResolver } from '../../../../services/tutorOrchestration/TutorTaskBindingResolver';
 import { importVisualReviewCandidate } from '../../../../services/planBuild/visual/ImportVisualReviewCandidate';
 import { FixedResponseGateProvider } from '../../../../services/tutorNavigator/ModelGateAdjudicatorV5';
-import { f6Model } from '../../../../services/tutorOrchestration/__tests__/f6Support';
+import { f6Model, realCanonicalRoot } from '../../../../services/tutorOrchestration/__tests__/f6Support';
 import { createGenerationRecoveryScanner } from '../../../../services/tutorOrchestration/presentationGeneration/GenerationRecoveryWorker';
 import { VISUAL_PRESENTER_PROMPT_VERSION } from '../../../../services/tutorOrchestration/presentationGeneration/PresenterPrompts';
 import { VISUAL_TOOL_CATALOG_VERSION, VISUAL_CONTEXT_BUILDER_VERSION } from '../../../../services/tutorOrchestration/presentationGeneration/VisualPresentationTools';
 import type { PresenterGeneratorPort } from '../../../../services/tutorOrchestration/presentationGeneration/GeneratorPort';
 import { TutorSessionKernelV10 } from '../../../../services/tutorSession/TutorSessionKernelV10';
 import { db } from '../../../../db/database';
-const root='/Users/gaochong/develop/teaching-skills-mvp/artifacts/canonical-authoring';
+const root=realCanonicalRoot();
 const loaded=importVisualReviewCandidate({canonicalRoot:root,candidateDirectory:resolve('src/services/planBuild/review/geometry-visual/candidate-v14')});
 if(!loaded.ok)throw new Error(loaded.errors.join(';'));
 const resolver=new TutorTaskBindingResolver(root,(_deps,id)=>id===loaded.imported.plan.artifact_id?loaded:{ok:false,errors:['outside isolated review']});
@@ -46,7 +46,7 @@ async function main() {
   }
   process.exit(73);
  }
- const errors:Array<{code?:string;message:string}>=[];
+ const errors:Array<{code?:string;message:string;state?:unknown;events?:unknown}>=[];
  const application=visualHttpApplication();
  if(mode==='race') {
   const restore=application.restore.bind(application);
@@ -61,9 +61,9 @@ async function main() {
    return session;
   };
  }
- const scanner=createGenerationRecoveryScanner(()=>application,error=>errors.push({code:(error as {code?:string}).code,message:String(error)}));
+ const scanner=createGenerationRecoveryScanner(()=>application,error=>{const state=(application.restore(sessionId) as unknown as {navigator:{rebuildState():unknown}}).navigator.rebuildState();errors.push({code:(error as {code?:string}).code,message:String(error),state,events:db.prepare('SELECT sequence,event_type,payload_json,recorded_revision,causation_sequence FROM tutor_session_events WHERE session_id=? ORDER BY sequence').all(sessionId)});});
  await scanner.scanOnce();scanner.stop();
- const rows=db.prepare('SELECT event_type,payload_json FROM tutor_session_events WHERE session_id=? ORDER BY sequence').all(sessionId);
- process.send?.({events:rows,errors,pid:process.pid});
+ const rows=db.prepare('SELECT sequence,event_type,payload_json,recorded_revision,causation_sequence FROM tutor_session_events WHERE session_id=? ORDER BY sequence').all(sessionId);
+ const final=application.restore(sessionId);process.send?.({events:rows,errors,pid:process.pid,state:(final as unknown as {navigator:{rebuildState():unknown}}).navigator.rebuildState(),parity:final.assertReplayParity()});
 }
 main().then(()=>{db.close();process.disconnect?.();}).catch(error=>{console.error(error);process.exit(1);});
