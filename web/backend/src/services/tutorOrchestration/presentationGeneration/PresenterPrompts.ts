@@ -1,3 +1,6 @@
+import type { GraphFactNode } from "../../planBuild/canonicalInputs";
+import type { ProjectedVisualContext } from "./VisualContextProjection";
+import type { VisibleVisualTool } from "./VisualPresentationTools";
 /**
  * Presenter 版本化提示词（F7 RT3 §3.2 交付表——卡点定位 + Presenter prompt）。
  *
@@ -79,11 +82,41 @@ export const PRESENTER_SYSTEM_PROMPT = TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT +
   "19. 历史板书用于判断已呈现内容，不能扩张当前 tools/allowed_knowledge 权限；不得为补旧内容调用当前不可见 binding。数值作为其他推导的前提出现，不等于这个数值的计算过程已经板书。",
 ].join("\n");
 
+/** Explicit opt-in only; legacy v1-v4 bytes and default remain unchanged. */
+export const LEGACY_VISUAL_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v5-visual";
+export const LEGACY_VISUAL_PRESENTER_SYSTEM_PROMPT = PRESENTER_SYSTEM_PROMPT + "\n" + [
+  "20. visual.requirements 是本段必要视觉义务：先呈现指认对象再讲对应关系；所列 required_pair_indices 须逐对调用 geometry.emphasize。只有真实已呈现且仍可见的静态标注可以复用，明确再次指认不能拿历史闪烁抵扣。",
+  "21. geometry.annotate 只传 binding_ref 与 params{form,lifetime,group?}；geometry.emphasize 只传 binding_ref 与 params{group,pair_index?,mode}；geometry.clear-visual 只传 params{group}，不得传 binding_ref。group 是本段小写别名，最多一个活动组；结束组后不能重开同别名。",
+  "22. 不输出坐标、颜色、数学标签正文、计时、正式action/annotation/owner ID；数学内容只来自批准 binding。相似的第i个顶点对应第i个顶点，pair_index=0/1/2对应(0,1)/(1,2)/(2,0)。相等角只由等角binding授权。",
+  "23. required_constructions 必须先用批准geometry.construct完成，再标注或指认；local标注最长teaching-scope，不得延长到problem-part。reconcile为系统清理，不是模型工具。编译器在段尾补关闭活动组，预算须预留一项。",
+  "24. visual.already_presented仅是真实已确认且仍可见的数学标注。未在其中的标注不能声称画面已有；planned/applied不等于学生看过。数学板书义务仍需board.explain，角弧、语音、标签不能代替推导板书。",
+].join("\n");
+
+/** New sessions opt in; v5 prompt bytes and compiler behavior remain readable. */
+export const PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v6-visual";
+export const PREVIOUS_VISUAL_PRESENTER_SYSTEM_PROMPT = LEGACY_VISUAL_PRESENTER_SYSTEM_PROMPT + "\n" +
+  "25. speech 中的分数必须使用带数学分隔符的标准 LaTeX（$\\frac{n}{d}$），沿 allowed_knowledge 批准正文原样复制，保留原分子、分母与对应量，不得颠倒或自行换算；禁止手写中文或数字的‘X分之Y’读法。语音入口负责按分母、分之、分子正常化，不要替它口语化分数。";
+export const VISUAL_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v7-visual";
+export const VISUAL_PRESENTER_SYSTEM_PROMPT = PREVIOUS_VISUAL_PRESENTER_SYSTEM_PROMPT + "\n" + [
+  "26. fact_roles 是当前批准事实的权威角色。只有 role=given 可以称为题设、题给或已知条件；derived 是推导所得，不能因其已获批准而改称题给。说明推导时沿 allowed_knowledge 中批准 inference 的前提、推导说明和结论展开，不编造来源；缺少角色或推导依据时不得自行归为题设或补造证明。",
+  "27. visual.requirements 的 trigger=introduce 或 clarify-reference 时，每个 required_pair_indices 必须逐对 geometry.emphasize(mode=pulse)，先有限短脉冲再保持强调着讲，steady 不能抵扣本次指认义务。无需额外 steady 动作；脉冲时长、保持及 reduced-motion 由唯一呈现运行时负责，不要自行输出计时或替换动作。",
+].join("\n");
+export function usesVisualFractionFormatGuard(version: string): boolean {
+  return version === PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION || version === VISUAL_PRESENTER_PROMPT_VERSION;
+}
+export function isVisualPresenterPromptVersion(version: string): boolean {
+  return usesVisualFractionFormatGuard(version) || version === LEGACY_VISUAL_PRESENTER_PROMPT_VERSION;
+}
+
+export interface PresenterFactRole { readonly fact_id: string; readonly role: GraphFactNode["role"] }
+
 export interface PresentedBoardNote { readonly kind: string; readonly content: string }
 export interface RequiredBoardBinding { readonly binding_ref: string; readonly note_kind: "approved_math_note" }
 
 /** Presenter user payload（服务端组装；工具可见性交集已由目录计算）。 */
 export interface PresenterUserPayload {
+  readonly fact_roles?: readonly PresenterFactRole[];
+  readonly visual?: ProjectedVisualContext;
   readonly instructional_goal: string;
   readonly completion_target?: "follow_along";
   readonly allowed_knowledge: readonly { readonly ref: string; readonly kind: "fact" | "inference" | "resource"; readonly text: string }[];
@@ -103,6 +136,9 @@ export interface PresenterUserPayload {
 }
 
 export interface PresenterPromptInput {
+  readonly factRoles?: readonly PresenterFactRole[];
+  readonly visual?: ProjectedVisualContext;
+  readonly visualTools?: readonly VisibleVisualTool[];
   readonly context: BuiltPresentationContext;
   readonly instructionalGoal: string;
   readonly completionTarget?: "follow_along";
@@ -125,18 +161,19 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
 } {
   const payload: PresenterUserPayload = {
     instructional_goal: input.instructionalGoal,
+    ...(input.promptVersion === VISUAL_PRESENTER_PROMPT_VERSION ? { fact_roles: (input.factRoles ?? []).map(item => ({...item})) } : {}),
     ...(input.completionTarget ? { completion_target: input.completionTarget } : {}),
     allowed_knowledge: input.context.basis.map((item) => ({ ref: item.ref, kind: item.kind, text: item.text })),
     current_granularity: input.currentGranularity,
     already_presented: [...input.alreadyPresented],
-    ...(!input.promptVersion || input.promptVersion === PRESENTER_PROMPT_VERSION ? {
+    ...(!input.promptVersion || [PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION, PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION, LEGACY_VISUAL_PRESENTER_PROMPT_VERSION].includes(input.promptVersion) ? {
       presented_board: [...(input.presentedBoard ?? [])],
       required_board_bindings: [...(input.requiredBoardBindings ?? [])],
     } : {}),
     student_stuck_point: input.stuckPoint === null
       ? null
       : { text: input.stuckPoint.text, located_refs: [...input.stuckPoint.locatedRefs] },
-    tools: input.visibleTools.map((instance) => ({
+    tools: [...input.visibleTools.filter(instance => !(isVisualPresenterPromptVersion(input.promptVersion ?? "") && input.visualTools?.some(t => t.tool === instance.spec.tool_id))).map((instance) => ({
       tool: instance.spec.tool_id,
       description: instance.spec.description,
       parameters: instance.spec.parameters.map((parameter) => ({
@@ -151,16 +188,17 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
         ...(binding.binding_kind === "geometry" ? { geometry_target: binding.geometry_target, allowed_template_ids: [...binding.allowed_template_ids] } : {}),
         ...(binding.binding_kind === "explanation" ? { basis_refs: binding.basis_refs } : {}),
       })) } : {}),
-    })),
+    })), ...(isVisualPresenterPromptVersion(input.promptVersion ?? "") ? (input.visualTools ?? []) : [])],
+    ...(isVisualPresenterPromptVersion(input.promptVersion ?? "") && input.visual ? { visual: input.visual } : {}),
     output_budget: { max_items: input.maxItems, max_speech_chars: input.maxSpeechChars },
   };
   const legacy = input.promptVersion === LEGACY_PRESENTER_PROMPT_VERSION;
   const previous = input.promptVersion === PREVIOUS_PRESENTER_PROMPT_VERSION;
   const toolInvocation = input.promptVersion === TOOL_INVOCATION_PRESENTER_PROMPT_VERSION;
-  if (input.promptVersion && !legacy && !previous && !toolInvocation && input.promptVersion !== PRESENTER_PROMPT_VERSION) {
+  if (input.promptVersion && !legacy && !previous && !toolInvocation && input.promptVersion !== PRESENTER_PROMPT_VERSION && !isVisualPresenterPromptVersion(input.promptVersion)) {
     throw new Error(`unsupported Presenter prompt version: ${input.promptVersion}`);
   }
   if (legacy && input.completionTarget) throw new Error("follow_along requires the current Presenter prompt");
-  return { systemPrompt: legacy ? LEGACY_PRESENTER_SYSTEM_PROMPT : previous ? PREVIOUS_PRESENTER_SYSTEM_PROMPT : toolInvocation ? TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT : PRESENTER_SYSTEM_PROMPT,
-    promptVersion: legacy ? LEGACY_PRESENTER_PROMPT_VERSION : previous ? PREVIOUS_PRESENTER_PROMPT_VERSION : toolInvocation ? TOOL_INVOCATION_PRESENTER_PROMPT_VERSION : PRESENTER_PROMPT_VERSION, userPayload: payload };
+  return { systemPrompt: isVisualPresenterPromptVersion(input.promptVersion ?? "") ? (input.promptVersion === LEGACY_VISUAL_PRESENTER_PROMPT_VERSION ? LEGACY_VISUAL_PRESENTER_SYSTEM_PROMPT : input.promptVersion === PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION ? PREVIOUS_VISUAL_PRESENTER_SYSTEM_PROMPT : VISUAL_PRESENTER_SYSTEM_PROMPT) : legacy ? LEGACY_PRESENTER_SYSTEM_PROMPT : previous ? PREVIOUS_PRESENTER_SYSTEM_PROMPT : toolInvocation ? TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT : PRESENTER_SYSTEM_PROMPT,
+    promptVersion: isVisualPresenterPromptVersion(input.promptVersion ?? "") ? input.promptVersion! : legacy ? LEGACY_PRESENTER_PROMPT_VERSION : previous ? PREVIOUS_PRESENTER_PROMPT_VERSION : toolInvocation ? TOOL_INVOCATION_PRESENTER_PROMPT_VERSION : PRESENTER_PROMPT_VERSION, userPayload: payload };
 }

@@ -1,0 +1,53 @@
+{
+  "schema": "ai_teaching_geometry_visual_command/v1",
+  "op": "focus",
+  "group_id": "PS-4242/g/0",
+  "owner": {
+    "scope": {
+      "kind": "approved",
+      "protocol_id": "PR-SMV-001",
+      "beat_id": "BT-01"
+    },
+    "scope_epoch": 1,
+    "part_ref": "part-1",
+    "group_id": "PS-4242/g/0"
+  },
+  "binding_ref": "VB-20",
+  "pair_index": 0,
+  "mode": "pulse",
+  "resolved_targets": {
+    "entity_ids": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+    ],
+    "triangles": {
+      "left": [
+        "A",
+        "B",
+        "C"
+      ],
+      "right": [
+        "A",
+        "D",
+        "E"
+      ]
+    },
+    "paired_sides": [
+      {
+        "endpoints": [
+          "A",
+          "A"
+        ]
+      },
+      {
+        "endpoints": [
+          "A",
+          "D"
+        ]
+      }
+    ]
+  }
+}

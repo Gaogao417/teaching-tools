@@ -18,6 +18,10 @@ export const SUPPORTED_PRESENTATION_CAPABILITIES: readonly string[] = [
   "voice",
   "geometry:geometry.construct",
   "geometry:geometry.emphasize",
+  "geometry:geometry.visual.upsert",
+  "geometry:geometry.visual.focus",
+  "geometry:geometry.visual.close-group",
+  "geometry:geometry.visual.reconcile",
   "solution_board:board.reveal-entry",
   "solution_board:board.explain",
 ];

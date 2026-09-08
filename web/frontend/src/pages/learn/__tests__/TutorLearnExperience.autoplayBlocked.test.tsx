@@ -1,11 +1,9 @@
 /**
  * F7 P3（FM-3-2 autoplay 受阻）：组件级证据。
  *
- * 如实登记（为什么不是 L3 浏览器证据）：本机 Playwright headless Chromium
- * 无法通过启动策略强制 autoplay 阻塞——`--autoplay-policy=user-gesture-required`
- * 与 `--autoplay-policy=document-user-activation-required` 下 headless 播放仍
- * 放行（probe 实测，见 p3-media-autoplay.spec.ts 头注）；伪造 play() 拒绝冒充
- * 浏览器证据被任务纪律禁止。本文件在组件级锁定 UI 接线：
+ * 此处用 mock play() 拒绝锁定组件接线，不计真实浏览器证据。
+ * 浏览器策略与真实恢复单列于 p3-media-autoplay.spec.ts：完整 Chromium、
+ * 有效 MP3、无 trace 激活干扰，只有真实 NotAllowedError 才满足前置条件。
  * - pending voice 呈现时 play() 被拒 → awaiting-gesture 状态 + 「开始播放」
  *   手势恢复入口（不误报 presentation failure / 协议错误 / 学生错误）；
  * - 点击恢复 → 同一播放链继续（presenting，MediaSource/audio 元素复用——
@@ -122,4 +120,48 @@ describe("TutorLearnExperience：autoplay 受阻 UI 接线（FM-3-2 组件级）
     // 恢复后仍零 failure 误报。
     expect(container!.querySelector('[data-testid="tutor-presentation-failure"]')).toBeNull();
   });
+});
+
+it("outcome network failure exposes retry button; click resends receipt without replay",async()=>{
+ const {client,mocks}=makeClient();
+ mocks.start.mockResolvedValue(validRuntimeSnapshot({pendingPresentation:true,revision:12}));
+ mocks.reportPresentationOutcome.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+ let acknowledge!: (value:unknown)=>void;
+ mocks.reportPresentationOutcome.mockImplementationOnce(()=>new Promise(resolve=>acknowledge=resolve));
+ const play=vi.fn(function(this:HTMLMediaElement){queueMicrotask(()=>this.dispatchEvent(new Event("ended")));return Promise.resolve();});
+ HTMLMediaElement.prototype.play=play;
+ mountExperience(client);
+ await waitForDom(()=>container!.querySelector('[data-testid="tutor-outcome-retry"]')!==null);
+ expect(container!.querySelector('[data-testid="tutor-protocol-error"]')).toBeNull();
+ const first=structuredClone(mocks.reportPresentationOutcome.mock.calls[0]);
+ await act(async()=>{(container!.querySelector('[data-testid="tutor-outcome-retry"]') as HTMLButtonElement).click();});
+ await waitForDom(()=>mocks.reportPresentationOutcome.mock.calls.length===2);
+ expect(container!.querySelector('[data-testid="tutor-outcome-retry"]')).toBeNull();
+ expect(mocks.reportPresentationOutcome.mock.calls[1]).toEqual(first);
+ await act(async()=>acknowledge(validRuntimeSnapshot({revision:13})));
+ expect(play).toHaveBeenCalledTimes(1);expect(mocks.restore).not.toHaveBeenCalled();
+});
+
+
+it("restored confirm kind cannot expose mainline input until pending presentation is acknowledged", async () => {
+  const { client, mocks } = makeClient();
+  mocks.start.mockResolvedValue(validRuntimeSnapshot({ pendingPresentation: true, participationKind: "confirm_input", revision: 12 }));
+  let nativeAudio: HTMLMediaElement | undefined;
+  HTMLMediaElement.prototype.play = vi.fn(function (this: HTMLMediaElement) {
+    nativeAudio = this;
+    return Promise.resolve();
+  });
+  let acknowledge!: (value: unknown) => void;
+  mocks.reportPresentationOutcome.mockImplementation(() => new Promise(resolve => { acknowledge = resolve; }));
+  mountExperience(client);
+  await waitForDom(() => nativeAudio !== undefined);
+  expect(container!.querySelector('[data-testid="tutor-confirm-input"]')).toBeNull();
+  expect(container!.querySelector('[aria-label="理解反馈输入"]')).toBeNull();
+  await act(async () => { nativeAudio!.dispatchEvent(new Event("ended")); });
+  await waitForDom(() => mocks.reportPresentationOutcome.mock.calls.length === 1);
+  // ended alone does not enable confirmation: the acknowledgement is still pending.
+  expect(container!.querySelector('[data-testid="tutor-confirm-input"]')).toBeNull();
+  await act(async () => { acknowledge(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 13 })); });
+  await waitForDom(() => container!.querySelector('[data-testid="tutor-confirm-input"]') !== null);
+  expect(mocks.submitStudentInput).not.toHaveBeenCalled();
 });

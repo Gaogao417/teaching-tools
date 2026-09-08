@@ -133,9 +133,14 @@ function classifyFailures(events: readonly StoredV5Event[]): FailureFact | undef
   let latestIncorrectGate: string | undefined;
   for (const event of events) {
     if (event.event_type === "runtime_failure") {
-      const payload = event.payload as { failure_class: string; message?: string };
-      const category: F6FailureCategory = payload.failure_class === "revision_conflict" ? "revision_conflict_failure" : "model_runtime_failure";
+      const payload = event.payload as { failure_class: string; message?: string; related_event_sequence?: number };
+      const deliveryFailure = payload.failure_class === "internal_error" && events.some(source =>
+        source.sequence === payload.related_event_sequence && String(source.event_type) === "presentation_sequence_planned");
+      const category: F6FailureCategory = deliveryFailure ? "presentation_action_failure"
+        : payload.failure_class === "revision_conflict" ? "revision_conflict_failure" : "model_runtime_failure";
       latest = { sequence: event.sequence, category, event_type: event.event_type, failure_class: payload.failure_class, message: payload.message };
+    } else if (String(event.event_type) === "presentation_action_delivered" && latest?.category === "presentation_action_failure") {
+      latest = undefined; // A successfully delivered recovery clears the presentation failure.
     } else if (event.event_type === "policy_failed") {
       const payload = event.payload as { failure_class: string; fallback_beat_id?: string };
       latest = { sequence: event.sequence, category: "policy_failure", event_type: event.event_type, failure_class: payload.failure_class };

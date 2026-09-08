@@ -1,0 +1,460 @@
+{
+  "status": "DRAFT_NOT_APPROVED",
+  "release_ready": false,
+  "c0_decision": "protocol/v3 + confirmation_target=follow_along 已裁定；当前 Beat 已有 Context 允许目标 fact；动态 board.explain 仍受现有工具可见性/权限约束，不新增最终答案展示政策，不扩大 support_boundary。待 C4 真实板书验证。",
+  "context_budget_audit": [
+    {
+      "protocol_id": "PR-SMV-002",
+      "beat_id": "BT-01",
+      "budget": {
+        "facts": 13,
+        "inferences": 4,
+        "approx_chars": 1261
+      },
+      "context_truncated": false
+    },
+    {
+      "protocol_id": "PR-SMV-001",
+      "beat_id": "BT-01",
+      "budget": {
+        "facts": 4,
+        "inferences": 0,
+        "approx_chars": 120
+      },
+      "context_truncated": false
+    },
+    {
+      "protocol_id": "PR-SMV-001",
+      "beat_id": "BT-02",
+      "budget": {
+        "facts": 5,
+        "inferences": 2,
+        "approx_chars": 299
+      },
+      "context_truncated": false
+    },
+    {
+      "protocol_id": "PR-SMV-001",
+      "beat_id": "BT-03",
+      "budget": {
+        "facts": 7,
+        "inferences": 4,
+        "approx_chars": 381
+      },
+      "context_truncated": false
+    },
+    {
+      "protocol_id": "PR-SMV-001",
+      "beat_id": "BT-04",
+      "budget": {
+        "facts": 12,
+        "inferences": 6,
+        "approx_chars": 1148
+      },
+      "context_truncated": false
+    },
+    {
+      "protocol_id": "PR-SMV-001",
+      "beat_id": "BT-05",
+      "budget": {
+        "facts": 10,
+        "inferences": 4,
+        "approx_chars": 459
+      },
+      "context_truncated": false
+    },
+    {
+      "protocol_id": "PR-SMV-001",
+      "beat_id": "BT-06",
+      "budget": {
+        "facts": 11,
+        "inferences": 1,
+        "approx_chars": 321
+      },
+      "context_truncated": false
+    }
+  ],
+  "source_refs": [
+    {
+      "artifact_id": "TP-SMV-009",
+      "version": "v11",
+      "content_hash": "sha256:5224d6164198c074e5aa50a0072eebbb01e07f35e14a212c3914315e7e950bd2"
+    },
+    {
+      "artifact_id": "PR-SMV-001",
+      "version": "v10",
+      "content_hash": "sha256:b43b5f2e54bffe96d36fd61c554502225db2eb155672f3f0e828fba15a1fdfcf"
+    },
+    {
+      "artifact_id": "PR-SMV-002",
+      "version": "v9",
+      "content_hash": "sha256:f798dbc953f401a59ab6000c3c7d2a1dda82a04c81341356ca7b5624428b19b1"
+    },
+    {
+      "artifact_id": "RG-SMV-001",
+      "version": "v8",
+      "content_hash": "sha256:2bc516468e9cc8c4033f96277d810f96752a7cb41269f1f0eb0735c2da507c25"
+    }
+  ],
+  "proposed_publish_order": [
+    {
+      "artifact_id": "PR-SMV-002",
+      "version": "v10",
+      "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+    },
+    {
+      "artifact_id": "PR-SMV-001",
+      "version": "v11",
+      "content_hash": "sha256:8da11a9977c2da199a58f2e47cdf62e9106f6ddf38cc3c4a5a42b64b986a7acd"
+    },
+    {
+      "artifact_id": "TP-SMV-009",
+      "version": "v13",
+      "content_hash": "sha256:560bda35c0212d0a3980bbbb819f5cc210b7db93aa864827a1e949ca9bd5b000"
+    }
+  ],
+  "review_rule": "三件候选共同审核各自精确 hash，不继承 v12 或来源 approval；C0 按 protocol/v3 裁定，真实批准后整包验证并协调切换，禁止边发布边服务混装版本。",
+  "inquiry_revision": {
+    "source_protocol": {
+      "artifact_id": "PR-SMV-002",
+      "version": "v9",
+      "content_hash": "sha256:f798dbc953f401a59ab6000c3c7d2a1dda82a04c81341356ca7b5624428b19b1"
+    },
+    "source_diagnostic_beats": [
+      {
+        "beat_id": "BT-01",
+        "part_id": "1",
+        "role": "local_inquiry",
+        "purpose": "先定位学生卡在主线的哪一个细图区域",
+        "solution_refs": {
+          "fact_ids": [
+            "FN-01",
+            "FN-02",
+            "FN-03",
+            "FN-04"
+          ],
+          "inference_ids": []
+        },
+        "abstraction_level": "A3_structure",
+        "cognitive_process": "monitor",
+        "cognitive_activity": "explain",
+        "common_deviations": [
+          "只说不会，没有指出等角、对应边、点序或比例中的断点"
+        ],
+        "completion_evidence": {
+          "evidence_kind": "student_answer",
+          "gate": {
+            "gate_id": "GT-01",
+            "requirement": "学生指出当前卡住的细图事实或推理依据"
+          }
+        },
+        "participation": "answer",
+        "pacing": {
+          "wait_policy": "bounded_wait",
+          "max_wait_seconds": 120
+        },
+        "presentation_intent": {
+          "voice": [
+            "question"
+          ],
+          "workspace_surfaces": [
+            "geometry",
+            "solution_board"
+          ]
+        },
+        "support_boundary": {
+          "may_reveal_answer": false,
+          "may_reveal_intermediate": false,
+          "max_support": "orient"
+        },
+        "transitions": [
+          {
+            "to_beat": "BT-02",
+            "on": "evidence_collected"
+          }
+        ]
+      },
+      {
+        "beat_id": "BT-02",
+        "part_id": "1",
+        "role": "local_inquiry",
+        "purpose": "若卡在第一组相似，只展开两对角与 AA",
+        "solution_refs": {
+          "fact_ids": [
+            "FN-01",
+            "FN-02",
+            "FN-03",
+            "FN-05",
+            "FN-06"
+          ],
+          "inference_ids": [
+            "IF-01",
+            "IF-02"
+          ]
+        },
+        "abstraction_level": "A1_relation",
+        "cognitive_process": "match",
+        "cognitive_activity": "relate",
+        "accepted_alternatives": [
+          "用两组对应角直接说明 AA",
+          "先写顶点对应再列角"
+        ],
+        "common_deviations": [
+          "把 A 对应 A，导致边比倒置"
+        ],
+        "completion_evidence": {
+          "evidence_kind": "student_confirmation",
+          "gate": {
+            "gate_id": "GT-02",
+            "requirement": "学生能指出一组正确对应角或对应顶点"
+          }
+        },
+        "participation": "confirm",
+        "pacing": {
+          "wait_policy": "student_driven"
+        },
+        "presentation_intent": {
+          "voice": [
+            "question"
+          ],
+          "workspace_surfaces": [
+            "geometry"
+          ]
+        },
+        "support_boundary": {
+          "may_reveal_answer": false,
+          "may_reveal_intermediate": true,
+          "max_support": "foreground"
+        },
+        "transitions": [
+          {
+            "to_beat": "BT-03",
+            "on": "evidence_collected"
+          }
+        ]
+      },
+      {
+        "beat_id": "BT-03",
+        "part_id": "1",
+        "role": "local_inquiry",
+        "purpose": "若卡在第二组相似，只展开两对角与 AA",
+        "solution_refs": {
+          "fact_ids": [
+            "FN-01",
+            "FN-02",
+            "FN-03",
+            "FN-04",
+            "FN-12",
+            "FN-13",
+            "FN-14"
+          ],
+          "inference_ids": [
+            "IF-09",
+            "IF-10"
+          ]
+        },
+        "abstraction_level": "A1_relation",
+        "cognitive_process": "match",
+        "cognitive_activity": "relate",
+        "common_deviations": [
+          "没有先确认 O 在线段 AE、BD 上就做线段加减"
+        ],
+        "completion_evidence": {
+          "evidence_kind": "student_confirmation",
+          "gate": {
+            "gate_id": "GT-03",
+            "requirement": "学生能说出 △DAO 与 △DBA 的两组对应角"
+          }
+        },
+        "participation": "confirm",
+        "pacing": {
+          "wait_policy": "student_driven"
+        },
+        "presentation_intent": {
+          "voice": [
+            "question"
+          ],
+          "workspace_surfaces": [
+            "geometry"
+          ]
+        },
+        "support_boundary": {
+          "may_reveal_answer": false,
+          "may_reveal_intermediate": true,
+          "max_support": "name_strategy"
+        },
+        "transitions": [
+          {
+            "to_beat": "BT-04",
+            "on": "evidence_collected"
+          }
+        ]
+      },
+      {
+        "beat_id": "BT-04",
+        "part_id": "1",
+        "role": "local_inquiry",
+        "purpose": "若卡在蝶形，只展开两组比例、夹角与 SAS",
+        "solution_refs": {
+          "fact_ids": [
+            "FN-12",
+            "FN-16",
+            "FN-17",
+            "FN-18",
+            "FN-19",
+            "FN-20",
+            "FN-21"
+          ],
+          "inference_ids": [
+            "IF-16",
+            "IF-17"
+          ]
+        },
+        "abstraction_level": "A2_strategy",
+        "cognitive_process": "match",
+        "cognitive_activity": "apply",
+        "accepted_alternatives": [
+          "用 SAS 判定后写任一等价对应边比例"
+        ],
+        "common_deviations": [
+          "把 OE:OD 与 BO:AO 的对应方向写反"
+        ],
+        "completion_evidence": {
+          "evidence_kind": "student_confirmation",
+          "gate": {
+            "gate_id": "GT-04",
+            "requirement": "学生选定一个最小下一步并返回原 Beat"
+          }
+        },
+        "participation": "confirm",
+        "pacing": {
+          "wait_policy": "bounded_wait",
+          "max_wait_seconds": 120
+        },
+        "presentation_intent": {
+          "voice": [
+            "question"
+          ],
+          "workspace_surfaces": [
+            "geometry",
+            "solution_board"
+          ]
+        },
+        "support_boundary": {
+          "may_reveal_answer": false,
+          "may_reveal_intermediate": true,
+          "max_support": "name_strategy"
+        },
+        "transitions": [
+          {
+            "to_beat": "BT-04",
+            "on": "evidence_collected"
+          }
+        ]
+      }
+    ],
+    "mapping": [
+      {
+        "source_beat_id": "BT-01",
+        "diagnostic_resource": "RES9"
+      },
+      {
+        "source_beat_id": "BT-02",
+        "diagnostic_resource": "RES10"
+      },
+      {
+        "source_beat_id": "BT-03",
+        "diagnostic_resource": "RES11"
+      },
+      {
+        "source_beat_id": "BT-04",
+        "diagnostic_resource": "RES12"
+      }
+    ],
+    "rule": "四个诊断方向改为单拍可选资源；只补当前断点，一次有效证据结束 Inquiry 并沿既有保存锚点返回，不代填主线 gate。未解决问题可留本拍继续澄清。"
+  },
+  "preserved_practice": {
+    "source_plan": {
+      "artifact_id": "TP-SMV-009",
+      "version": "v11",
+      "content_hash": "sha256:5224d6164198c074e5aa50a0072eebbb01e07f35e14a212c3914315e7e950bd2"
+    },
+    "source_protocol": {
+      "artifact_id": "PR-SMV-001",
+      "version": "v10",
+      "content_hash": "sha256:b43b5f2e54bffe96d36fd61c554502225db2eb155672f3f0e828fba15a1fdfcf"
+    },
+    "resource": {
+      "resource_id": "RES8",
+      "kind": "action_template",
+      "beat_ref": "BT-04",
+      "source": "authored",
+      "content": "{\"actionId\":\"tp:TP-SMV-009:1:mark-segment-values-bt04\",\"sourceStepId\":\"BT-04\",\"kind\":\"mark-segment-values\",\"version\":1,\"title\":\"标注第二组子母型的四段长度\",\"instruction\":\"在画布上依次选中 AO、DO、BO、OE，并填入由 △DAO∽△DBA 求得的长。\",\"input\":{\"labels\":[],\"availableSegmentIds\":[\"seg-AO\",\"seg-DO\",\"seg-BO\",\"seg-OE\"],\"requiredCount\":4,\"autoFocusSequence\":true},\"teachingInput\":{\"labels\":[{\"segmentId\":\"seg-AO\",\"displayName\":\"AO\",\"valueLatex\":\"\\\\frac{16}{5}\"},{\"segmentId\":\"seg-DO\",\"displayName\":\"DO\",\"valueLatex\":\"\\\\frac{32}{15}\"},{\"segmentId\":\"seg-BO\",\"displayName\":\"BO\",\"valueLatex\":\"\\\\frac{6}{5}\"},{\"segmentId\":\"seg-OE\",\"displayName\":\"OE\",\"valueLatex\":\"\\\\frac{4}{5}\"}]},\"capabilities\":[\"similarity.mark-known-segments\"],\"answerSlots\":[{\"id\":\"values\",\"label\":\"四段长度\",\"kind\":\"text\",\"required\":true,\"placeholder\":\"选中线段并填入长度\"}],\"submitOnComplete\":true}",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      }
+    },
+    "evidence_requirements": [
+      {
+        "beat_id": "BT-02",
+        "completion_evidence": {
+          "evidence_kind": "student_answer",
+          "gate": {
+            "gate_id": "GT-02",
+            "requirement": "学生说出这是子母型并指出 △CAD∽△CBA；不要求复述共线或射线术语",
+            "graph_fact_id": "FN-06"
+          }
+        },
+        "participation": "answer"
+      },
+      {
+        "beat_id": "BT-03",
+        "completion_evidence": {
+          "evidence_kind": "student_answer",
+          "gate": {
+            "gate_id": "GT-03",
+            "requirement": "学生写出相似比并得到 AD=CD=8/3、BD=10/3",
+            "graph_fact_id": "FN-10"
+          }
+        },
+        "participation": "answer"
+      },
+      {
+        "beat_id": "BT-04",
+        "completion_evidence": {
+          "evidence_kind": "workspace_command",
+          "gate": {
+            "gate_id": "GT-04",
+            "requirement": "学生在画布上正确标注 AO、DO、BO、OE 四段长度（typed evaluator 判正确）",
+            "capability": "similarity.mark-known-segments"
+          }
+        },
+        "participation": "operate"
+      },
+      {
+        "beat_id": "BT-05",
+        "completion_evidence": {
+          "evidence_kind": "student_answer",
+          "gate": {
+            "gate_id": "GT-05",
+            "requirement": "学生指出 △BOE∽△AOD 的蝶形结构，并得到 BE=1",
+            "graph_fact_id": "FN-23"
+          }
+        },
+        "participation": "answer"
+      }
+    ],
+    "note": "只读历史验证要求，未接入本 Teach bundle；选择练习必须用明确验证任务，听懂不替代其正确性。C1 不发明练习入口。"
+  }
+}

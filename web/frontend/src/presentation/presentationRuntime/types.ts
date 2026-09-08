@@ -8,6 +8,7 @@
  * 的 typed delivery（spec §4.7），不接收模型自由 JSON。
  */
 import type { ValidatedSessionSnapshot } from "../../api/tutorRuntimeClient";
+import type { VisualExecutionOwner } from "../../../../shared/canonical/visualSchemas";
 
 /** 快照 pending_presentation（canonical presentation_delivery/v1 全形状）。 */
 export type PendingPresentationDelivery = NonNullable<ValidatedSessionSnapshot["pending_presentation"]>;
@@ -61,7 +62,7 @@ export type PresentationRuntimePhase =
   | { phase: "idle" }
   | { phase: "presenting"; kind: "voice" | "geometry" | "board"; actionId: string; interruptible: boolean }
   | { phase: "awaiting-gesture"; actionId: string }
-  | { phase: "outcome-pending"; actionId: string }
+  | { phase: "outcome-pending"; actionId: string; networkFailed?: boolean }
   | {
       phase: "paused";
       reason: "real-signal-unavailable" | "failure";
@@ -72,6 +73,8 @@ export type PresentationRuntimePhase =
 
 /** outcome 上报请求（幂等 token 的完整载荷；重试同 key 同 payload）。 */
 export interface PendingPresentationOutcomeRequest {
+  executionOwner?: VisualExecutionOwner;
+  holdForControl?: { client_request_id: string };
   sessionId: string;
   actionId: string;
   sequenceId: string;
@@ -84,6 +87,11 @@ export interface PendingPresentationOutcomeRequest {
 }
 
 export interface PresentationRuntimePorts {
+  /** Present only for the owner-aware profile; legacy delivery semantics stay unchanged. */
+  clientInstanceId?: string;
+  prepareVisualSnapshot?(snapshot: ValidatedSessionSnapshot, abort: AbortSignal): Promise<boolean>;
+  visualSnapshotReady?(snapshot: ValidatedSessionSnapshot): boolean;
+  suppressVisualSnapshot?(snapshot: ValidatedSessionSnapshot): void;
   reportOutcome(request: PendingPresentationOutcomeRequest): Promise<ValidatedSessionSnapshot>;
   /** outcome 响应快照经同一 adopt 门禁采用（epoch/revision/身份由 hook 把关；
    *  expectedSessionId 供 hook 拒绝跨会话迟到响应）。 */

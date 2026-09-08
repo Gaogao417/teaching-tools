@@ -71,7 +71,7 @@ async function finish(s:TutorSessionOrchestratorV7){
  throw Error('receipt loop exceeded');
 }
 const response=(gate:string)=>JSON.stringify({response_kind:'understanding_confirmation',matched_gate_id:gate,verdict:'pass',reasoning_location:'unknown',grounding_refs:[]});
-async function bt04(mode:'fix'|'omit'|'wrong_binding'|'prose'|'final_leak') {
+async function bt04(mode:'fix'|'omit'|'wrong_binding'|'prose'|'final_leak'|'missing_board_basis'|'missing_board_params'|'missing_board_dependency') {
  const gate=new FixedResponseGateProvider([response('GT-01'),response('GT-02'),response('GT-03')],'v4-proof-gates');
  let calls=0;let before=0;let s:TutorSessionOrchestratorV7;
  const observed:PresenterUserPayload[]=[];
@@ -87,6 +87,9 @@ async function bt04(mode:'fix'|'omit'|'wrong_binding'|'prose'|'final_leak') {
    if(mode==='wrong_binding')items.push(board('VB-06'));
    else if(mode==='prose'){items[5]={type:'speech',text:proof,basis_refs:[ref]};items.push(board('VB-09','explanation_text'));}
    else if(mode==='final_leak'){items[5]={type:'speech',text:'最终答案。',basis_refs:['FN-23']};items.push(board());}
+   else if(mode==='missing_board_basis')items[5]={type:'speech',text:'最终答案。',basis_refs:['FN-23']};
+   else if(mode==='missing_board_params')items[0].args.params.forbidden='unapproved';
+   else if(mode==='missing_board_dependency')items.splice(0,5,...items.slice(0,5).reverse());
    else if(mode==='fix'&&calls>1)for(const b of p.required_board_bindings??[])items.push(board(b.binding_ref));
   }else for(const b of p.required_board_bindings??[])items.push(board(b.binding_ref));
   return {latencyMs:1,draft:{schema:'ai_teaching_presentation_draft/v2',request_id:r.request_id,items}};
@@ -106,12 +109,20 @@ describe('real kernel bounded retry and all-or-nothing sequence',()=>{
   const planned=r.delta.find(e=>e.event_type==='presentation_sequence_planned')!.payload as any;
   expect(planned.actions.filter((a:any)=>a.workspace_action?.capability==='geometry.construct')).toHaveLength(5);
   expect(planned.explanation_fragments.some((f:any)=>proofBinding.basis_refs.inference_ids.every(id=>f.basis_refs.includes(id))&&f.content.includes('∴'))).toBe(true);
-  await finish(r.s);expect(r.app().restore(r.s.sessionId).assertReplayParity().equal).toBe(true);
+  await finish(r.s);const committedEvents=structuredClone(r.s.events);
+  await r.s.drivePendingGeneration();expect(r.observed).toHaveLength(2);expect(r.s.events).toEqual(committedEvents);
+  expect(r.app().restore(r.s.sessionId).assertReplayParity().equal).toBe(true);
  },15000);
- it.each(['omit','wrong_binding','prose'] as const)('%s exhausts exactly three attempts, with zero partial geometry/board/voice commit',async mode=>{
+ it.each(['omit','prose'] as const)('%s exhausts exactly three attempts, with zero partial geometry/board/voice commit',async mode=>{
   const r=await bt04(mode);expect(r.calls).toBe(3);expect(r.outcome).toMatchObject({kind:'failed',errorClass:'RETRY_EXHAUSTED'});
   expect(r.delta.some(e=>e.event_type==='presentation_sequence_planned'||e.event_type==='presentation_action_applied')).toBe(false);
   expect(r.delta.filter(e=>String(e.event_type)==='presentation_generation_retry_scheduled')).toHaveLength(2);
+ },15000);
+ it.each(['wrong_binding','missing_board_basis','missing_board_params','missing_board_dependency'] as const)('%s is terminal even when the required board is omitted',async mode=>{
+  const r=await bt04(mode);expect(r.calls).toBe(1);expect(r.outcome).toMatchObject({kind:'failed'});
+  expect(['draft_invalid','preflight_failed']).toContain((r.outcome as {errorClass:string}).errorClass);
+  expect(r.delta.filter(e=>String(e.event_type)==='presentation_generation_retry_scheduled')).toHaveLength(0);
+  expect(r.delta.some(e=>['presentation_sequence_planned','presentation_action_applied','presentation_action_delivered'].includes(e.event_type))).toBe(false);
  },15000);
  it('adding the required board cannot authorize a final-answer basis; remains terminal and commits no partial actions',async()=>{
   const r=await bt04('final_leak');expect(r.calls).toBe(1);expect(r.outcome).toMatchObject({kind:'failed',errorClass:'draft_invalid'});

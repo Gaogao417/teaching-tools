@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ai-teaching.dev/state/v3/workspace-runtime-state.schema.json",
+  "title": "ai_teaching_workspace_runtime_state/v3",
+  "description": "Geometry visual lifecycle; historical readers remain unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "session_id",
+    "revision",
+    "geometry",
+    "solution_board"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ai_teaching_workspace_runtime_state/v3"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^TS-[0-9]{4,}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "唯一 workspace revision：Geometry 与 Board 共用（跨 surface 转移由同一 Action Runtime 推进）。"
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "committed_element_ids",
+        "draft_element_ids",
+        "visual_state"
+      ],
+      "properties": {
+        "committed_element_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "已提交构图元素（Geometry world adapter 维护；跨恢复保留）。"
+        },
+        "draft_element_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "持久草稿（可恢复的未提交构图）；preview/hover 不是 draft，不进本合同。"
+        },
+        "interaction_mode": {
+          "enum": [
+            "free",
+            "construction",
+            "locked"
+          ],
+          "description": "locked=完成态/review 只读。"
+        },
+        "visual_state": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/visual_state"
+        }
+      }
+    },
+    "solution_board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entries"
+      ],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "entry_id",
+              "visibility",
+              "attempt_state"
+            ],
+            "properties": {
+              "entry_id": {
+                "type": "string",
+                "pattern": "^BE-[0-9]{1,3}$",
+                "description": "Board 语义条目（对应 ReviewedSolutionGraph 节点的呈现物，由 materializer 分配）。"
+              },
+              "visibility": {
+                "enum": [
+                  "hidden",
+                  "visible",
+                  "active"
+                ],
+                "description": "hidden=未揭示（内容不随 state 下发）；visible=已呈现；active=当前焦点。"
+              },
+              "attempt_state": {
+                "enum": [
+                  "none",
+                  "attempted",
+                  "confirmed"
+                ],
+                "description": "学生尝试与确认生命周期（attempted≠confirmed：不确认不产生完成事实）。"
+              },
+              "presentation_group": {
+                "type": "string",
+                "pattern": "^PG-[0-9]{1,3}$"
+              }
+            }
+          }
+        },
+        "canonical_path_entry_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^BE-[0-9]{1,3}$"
+          },
+          "description": "标准解法呈现顺序（review 模式排列依据）。"
+        },
+        "explanation_fragments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "fragment_id",
+              "kind",
+              "content",
+              "basis_refs",
+              "visible"
+            ],
+            "properties": {
+              "fragment_id": {
+                "type": "string",
+                "pattern": "^EF-[A-Za-z0-9._:-]{4,}$",
+                "description": "id-registry EF（session runtime；编译器分配，模型不填）。"
+              },
+              "kind": {
+                "enum": [
+                  "approved_math_note",
+                  "relation_note",
+                  "explanation_text"
+                ],
+                "description": "approved_math_note=批准公式引用笔记；relation_note=批准关系引用；explanation_text=纯解释文本。数学表达第一版以批准公式/关系引用为主，自由改写数学式需另行等价性验证。"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "description": "呈现文本（含批准表达引用的渲染形式）。"
+              },
+              "basis_refs": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "批准依据引用（FN-/IF-/RES-/VB-；来源与支持等级审计对象）。"
+              },
+              "origin_generation": {
+                "type": "string",
+                "pattern": "^GR-[A-Za-z0-9._:-]{4,}$",
+                "description": "来源生成请求（GR-）；确定性 fragment 可缺省。"
+              },
+              "attach_to_entry": {
+                "type": "string",
+                "pattern": "^BE-[0-9]{1,3}$",
+                "description": "附着到已有 Board 条目（布局语义；非像素坐标）。"
+              },
+              "visible": {
+                "type": "boolean",
+                "description": "student-safe View 只投影 visible=true 的 fragment。"
+              }
+            }
+          },
+          "description": "解释板书片段（session-owned）。与既有 entries 共用 renderer、以类型区分，不创建第二块白板。"
+        }
+      }
+    }
+  }
+}

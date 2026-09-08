@@ -25,6 +25,8 @@
  *   （revision_conflict 等）是 committed 事实，随 turn.failure 透出（HTTP 200）；
  * - 错误保持稳定 error.code（spec §2.1 表）；4xx/5xx 不构造学生 correct/wrong。
  */
+import { VisualLifecycleError } from "../../services/tutorSession/TutorRuntimeStateReducerV10";
+import { TutorSessionEventStoreV9Error, TutorSessionIntegrityV9Error } from "../../services/tutorSession/TutorSessionEventV9";
 import { Router } from "express";
 import { z } from "zod";
 
@@ -131,6 +133,9 @@ function toHttpError(error: unknown, res: { status: (code: number) => { json: (b
     emit(400, "BAD_REQUEST", error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
     return;
   }
+  if (error instanceof VisualLifecycleError || error instanceof TutorSessionEventStoreV9Error || error instanceof TutorSessionIntegrityV9Error) {
+    emit(error.code === "SESSION_NOT_FOUND" ? 404 : 409,error.code,error.message); return;
+  }
   if (error instanceof TutorRuntimeApplicationV7Error) {
     emit(400, "BAD_REQUEST", error.message);
     return;
@@ -218,6 +223,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       const outcome = application.start({
         task_id: body.task_id,
         student_id: body.student_id,
+        ...(body.client_instance_id?{client_instance_id:body.client_instance_id}:{}),
         ...(body.assessment !== undefined ? { assessment: body.assessment } : {}),
         client_request_id: body.client_request_id,
       });
@@ -256,6 +262,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       const orchestrator = application.restore(sessionId);
       const result = await application.submitStudentInput(orchestrator, {
         input: body.input,
+        execution_owner:body.execution_owner,
         client_request_id: body.client_request_id,
       }, { expectedRevision: body.expected_revision });
       notifyPendingGeneration(orchestrator, generationWake);
@@ -273,6 +280,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       const orchestrator = application.restore(sessionId);
       const submission = application.submitActionEvidence(orchestrator, body.evidence, {
         expectedRevision: body.expected_revision,
+        execution_owner:body.execution_owner,
         client_request_id: body.client_request_id,
       });
       // 组合响应（snapshot + action_submission）经共享组合 parser + 一致性门禁
@@ -309,6 +317,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       const orchestrator = application.restore(sessionId);
       const result = application.submitWorkspaceCommand(orchestrator, command, {
         expectedRevision: body.expected_revision,
+        execution_owner:body.execution_owner,
       });
       notifyPendingGeneration(orchestrator, generationWake);
       res.json(projectHttpSnapshotV1({ orchestrator, turn: result.turn, turnSource: "command" }));
@@ -324,7 +333,9 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       const body = presentationOutcomeRequestHttpV1Schema.parse(req.body);
       const application = applicationFactory();
       const orchestrator = application.restore(sessionId);
-      application.reportPresentationOutcome(orchestrator, {
+      const result = application.reportPresentationOutcome(orchestrator, {
+        execution_owner:body.execution_owner,
+        hold_for_control:body.hold_for_control,
         sequence_id: body.sequence_id,
         ordinal: body.ordinal,
         action_id: actionId,
@@ -334,7 +345,7 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
         expected_revision: body.expected_revision,
         client_request_id: body.client_request_id,
       });
-      res.json(projectHttpSnapshotV1({ orchestrator }));
+      res.json(projectHttpSnapshotV1({ orchestrator, serviceSnapshot:result.snapshot }));
     } catch (error) {
       toHttpError(error, res);
     }
@@ -359,17 +370,22 @@ export function createVNextTutorRoutes(options: VNextTutorRoutesOptions = {}): R
       // observe-only：restore 零模型调用取 observed_revision；ASR 只转写，零教学事实。
       const application = applicationFactory();
       const orchestrator = application.restore(sessionId);
+      orchestrator.assertVisualWrite(body.execution_owner);
       const transcript = await transcribe({
         dataUrl: body.audio.data_url,
         ...(body.audio.duration_ms !== undefined ? { durationMs: body.audio.duration_ms } : {}),
       });
+      // A takeover while ASR is running fences its eventual response too.
+      const current=application.restore(sessionId);
+      current.assertVisualWrite(body.execution_owner);
       if (!transcript.transcript.trim()) {
         res.status(422).json(errorEnvelopeHttpV1Schema.parse({ error: { code: "EMPTY_TRANSCRIPT", message: "transcription returned an empty transcript" } }));
         return;
       }
       res.json({
         session_id: sessionId,
-        observed_revision: orchestrator.revision,
+        observed_revision: current.revision,
+        ...(current.visualLifecycle?{execution_owner:current.visualLifecycle.presentation_execution_owner}:{}),
         transcript: transcript.transcript,
         model: transcript.model,
       });

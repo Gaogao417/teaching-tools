@@ -1,0 +1,19 @@
+{
+  "schema": "ai_teaching_tutor_session_event/v10",
+  "session_id": "TS-4242",
+  "sequence": 43,
+  "state_revision": 9,
+  "occurred_at": "2026-09-07T09:00:00Z",
+  "event_type": "workspace_visual_owners_invalidated",
+  "payload": {
+    "reason": "barge-in",
+    "owner_keys": [],
+    "group_ids": [],
+    "lease_ids": [],
+    "rollback_action_keys": [],
+    "resulting_visual_revision": 0,
+    "resulting_workspace_revision": 2
+  },
+  "idempotency_key": "idem-20260907-0001",
+  "causation_sequence": 42
+}

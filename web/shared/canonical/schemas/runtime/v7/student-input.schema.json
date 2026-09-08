@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ai-teaching.dev/runtime/v7/student-input.schema.json",
+  "title": "ai_teaching_student_input/v2",
+  "description": "Geometry visual lifecycle; historical readers remain unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "session_id",
+    "expected_revision",
+    "client_request_id",
+    "input",
+    "execution_owner"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ai_teaching_student_input/v2"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^TS-[0-9]{4,}$"
+    },
+    "expected_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "ADR-010 §4：Handle 先验证 session/revision；stale 拒绝。"
+    },
+    "client_request_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{4,128}$",
+      "description": "幂等键：同 id 重复提交返回同结果。"
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "utterance",
+            "control"
+          ]
+        },
+        "channel": {
+          "enum": [
+            "mainline",
+            "assistance"
+          ],
+          "description": "用户选择的交互入口：主线作答入口或 Coach Assistance 入口；不是语义理解结果。"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "utterance 必填（trim 后非空）；control 禁带。"
+        },
+        "command": {
+          "enum": [
+            "confirm",
+            "continue",
+            "request_scaffold",
+            "request_rephrase",
+            "barge_in",
+            "return_to_mainline",
+            "retry_recovery",
+            "claim_presentation"
+          ],
+          "description": "显式 control（封闭枚举）；utterance 禁带。"
+        },
+        "not_started_delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sequence_id",
+            "ordinal",
+            "action_id"
+          ],
+          "properties": {
+            "sequence_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ordinal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "action_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "utterance"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "channel",
+              "text"
+            ],
+            "not": {
+              "required": [
+                "command"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "control"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "command"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "channel"
+                  ]
+                },
+                {
+                  "required": [
+                    "text"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "not_started_delivery"
+            ]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "const": "control"
+              },
+              "command": {
+                "const": "barge_in"
+              }
+            }
+          }
+        }
+      ],
+      "description": "判别联合：utterance{channel,text} | control{command}；交叉字段互斥由 allOf if/then 强制。"
+    },
+    "execution_owner": {
+      "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/execution_owner"
+    }
+  }
+}

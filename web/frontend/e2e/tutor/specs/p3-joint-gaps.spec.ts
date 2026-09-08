@@ -6,7 +6,7 @@
  * - US-04 confirm 唯一 typed control：点击唯一 CTA → POST student-inputs
  *   携带 input.kind=control + command=confirm（前端不产语义猜测）；
  * - US-09 assistance/mainline 分离：coach 提问走 assistance 通道，主线 Beat 不漂移
- *   （合成链若支持 inquiry 则断言 return point；否则断言补讲后主线继续）；
+ *   （必须实际进入 inquiry、点击 return 并验证主线恢复）；
  * - D1 Voice×录音互斥：播放中开 coach mic → 真实停播 + interrupted outcome 回执。
  */
 import * as fs from "node:fs";
@@ -70,16 +70,13 @@ test("JR5-a US-03/US-04：呈现期零主线输入面 + confirm 唯一 typed con
   await expect(page.getByTestId("tutor-confirm-input").or(page.getByTestId("tutor-submit-answer")).first()).toBeVisible({ timeout: 60_000 });
   // US-04：confirm CTA 唯一且点击后是 typed control（非文本猜测）
   const confirm = page.getByTestId("tutor-confirm-input");
-  if (await confirm.isVisible().catch(() => false)) {
-    await expect(confirm).toHaveCount(1);
-    const before = posts.length;
-    await confirm.click();
-    await page.waitForTimeout(2_000);
-    const added = posts.slice(before);
-    expect(added.length, "confirm 恰产生一个输入请求").toBe(1);
-    expect(added[0].kind, "confirm 是 typed control").toBe("control");
-    expect(added[0].command, "control 命令为 confirm").toBe("confirm");
-  }
+  await expect(confirm).toBeVisible({ timeout: 60_000 });
+  await expect(confirm).toHaveCount(1);
+  const before = posts.length;
+  await confirm.click();
+  await expect.poll(() => posts.length).toBe(before + 1);
+  const added = posts.slice(before);
+  expect(added).toEqual([{ kind: "control", command: "confirm", channel: undefined }]);
 });
 
 test("JR5-b US-09：assistance 提问走独立通道、主线 Beat 不漂移", async ({ page }) => {
@@ -91,7 +88,7 @@ test("JR5-b US-09：assistance 提问走独立通道、主线 Beat 不漂移", a
   await expect(page.getByTestId("coach-prompt")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId("tutor-presentation")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId("tutor-confirm-input").or(page.getByTestId("tutor-submit-answer")).first()).toBeVisible({ timeout: 60_000 });
-  const progressBefore = await page.getByTestId("coach-progress").textContent().catch(() => "");
+  const progressBefore = await mainlineIdentity(page);
   const ask = page.getByPlaceholder("文字或语音问老师");
   await ask.fill("这一步为什么要作辅助线？");
   await ask.press("Enter");
@@ -103,17 +100,16 @@ test("JR5-b US-09：assistance 提问走独立通道、主线 Beat 不漂移", a
     await page.waitForTimeout(500);
   }
   expect(assistancePosted, "coach 提问以 assistance 通道提交").toBe(true);
-  // 主线不因提问漂移：完成后进度区可回到原教学位（inquiry 行出现则验证 return point）
+  // 必须实际进入 inquiry 并返回，缺失该状态即失败，不以仍可见的 coach prompt 兜底。
   const inquiryRow = page.getByTestId("tutor-inquiry-row");
-  if (await inquiryRow.first().isVisible({ timeout: 30_000 }).catch(() => false)) {
-    const ret = page.getByTestId("tutor-inquiry-return").first();
-    await expect(ret).toBeVisible();
-    await ret.click();
-    await page.waitForTimeout(3_000);
-  }
-  await expect(page.getByTestId("tutor-confirm-input").or(page.getByTestId("tutor-submit-answer")).or(page.getByTestId("coach-prompt")).first()).toBeVisible({ timeout: 60_000 });
-  const progressAfter = await page.getByTestId("coach-progress").textContent().catch(() => "");
-  expect(progressAfter, "提问/返回不漂移主线进度").toBe(progressBefore);
+  await expect(inquiryRow.first()).toBeVisible({ timeout: 90_000 });
+  const ret = page.getByTestId("tutor-inquiry-return").first();
+  await expect(ret).toBeEnabled({ timeout: 60_000 });
+  await ret.click();
+  await expect(inquiryRow).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.getByTestId("tutor-confirm-input").or(page.getByTestId("tutor-submit-answer")).first()).toBeVisible({ timeout: 60_000 });
+  const progressAfter = await mainlineIdentity(page);
+  expect(progressAfter, "提问/返回不漂移主线进度").toEqual(progressBefore);
 });
 
 test("JR5-c D1：播放中开 coach mic → 真实停播 + interrupted outcome 回执（先握手后录音）", async ({ page }) => {
@@ -151,3 +147,14 @@ test("JR5-c D1：播放中开 coach mic → 真实停播 + interrupted outcome �
   await page.waitForTimeout(5_000);
   expect(asrCalls, "停止后 ASR 恰一次").toBe(1);
 });
+
+async function mainlineIdentity(page: Page): Promise<unknown> {
+  const session = new URL(page.url()).searchParams.get("session");
+  expect(session).toMatch(/^TS-/);
+  const response = await page.request.get(`http://127.0.0.1:${process.env.TUTOR_E2E_BACKEND_PORT || 3101}/api/vnext/tutor-sessions/${session}`);
+  expect(response.ok()).toBe(true);
+  const snapshot = await response.json();
+  const mainline = snapshot.views?.coach_panel_view?.mainline;
+  expect(mainline?.beat_id, "server mainline identity must exist; absent progress text cannot pass").toMatch(/^BT-/);
+  return mainline;
+}

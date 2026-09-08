@@ -1,0 +1,21 @@
+{
+  "schema": "ai_teaching_visual_barrier_view/v1",
+  "execution_owner": {
+    "client_instance_id": "browser-visual-0001",
+    "epoch": 1
+  },
+  "barrier": {
+    "barrier_id": "TS-4242/event/12",
+    "cause": "barge-in",
+    "status": "awaiting-cleanup",
+    "execution_owner": {
+      "client_instance_id": "browser-visual-0001",
+      "epoch": 1
+    },
+    "cleanup_sequence_id": "PS-4243",
+    "target_event_sequence": 11,
+    "catalog_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "target_visual_revision": 3,
+    "target_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  }
+}

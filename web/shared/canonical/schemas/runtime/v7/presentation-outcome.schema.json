@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ai-teaching.dev/runtime/v7/presentation-outcome.schema.json",
+  "title": "ai_teaching_presentation_outcome/v2",
+  "description": "Geometry visual lifecycle; historical readers remain unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "session_id",
+    "sequence_id",
+    "ordinal",
+    "action_id",
+    "outcome",
+    "expected_revision",
+    "client_request_id",
+    "execution_owner"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ai_teaching_presentation_outcome/v2"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^TS-[0-9]{4,}$"
+    },
+    "sequence_id": {
+      "type": "string",
+      "pattern": "^PS-[0-9]{4,}$"
+    },
+    "ordinal": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "action_id": {
+      "type": "string",
+      "pattern": "^(VA|WSA)-[A-Za-z0-9._:-]{4,}$"
+    },
+    "outcome": {
+      "enum": [
+        "presented",
+        "interrupted",
+        "failed"
+      ],
+      "description": "presented=浏览器完成物理呈现；interrupted=barge-in 中断（剩余 sequence 由服务端废止）；failed=presentation/system failure（不推进、不跳过）。"
+    },
+    "failure_class": {
+      "enum": [
+        "validation_failure",
+        "capability_unsupported",
+        "illegal_target",
+        "stale_revision",
+        "truth_boundary_violation",
+        "provider_failure",
+        "timeout",
+        "internal_error"
+      ],
+      "description": "封闭失败分类（同 ai_teaching_action_outcome/v1 failure taxonomy）；仅 outcome=failed 时允许。"
+    },
+    "message": {
+      "type": "string",
+      "description": "学生可见/日志消息；仅 outcome=failed 时允许。"
+    },
+    "expected_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "回报时学生端持有的 session state revision；不匹配按 stale 拒绝。"
+    },
+    "client_request_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{4,128}$",
+      "description": "幂等键：同 id 重复回报返回同结果。"
+    },
+    "execution_owner": {
+      "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/execution_owner"
+    },
+    "hold_for_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client_request_id"
+      ],
+      "properties": {
+        "client_request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "failed"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "failure_class"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "failure_class"
+              ]
+            },
+            {
+              "required": [
+                "message"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

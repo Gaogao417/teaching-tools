@@ -236,9 +236,10 @@ describe("useCoachRecorder Step 8 media wiring", () => {
     const harness = await renderOptionsHarness({ disabled: false, media, onRecordingStart: started, onAudio, onError: vi.fn() });
     await harness.click();
     expect(started).toHaveBeenCalledTimes(1);
-    // 停止 → onstop（微任务）→ onAudio 携带 recorder 封装 MIME。
+    // onstop is a microtask, but the real FileReader completes in a later task.
+    // Wait for that observable result rather than one zero-delay timer turn.
     await harness.click();
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    await act(async () => { await vi.waitFor(() => expect(onAudio).toHaveBeenCalledTimes(1)); });
     expect(onAudio).toHaveBeenCalledTimes(1);
     expect(onAudio.mock.calls[0][0]).toMatchObject({ mimeType: "audio/webm;codecs=opus" });
     expect(typeof onAudio.mock.calls[0][0].dataUrl).toBe("string");

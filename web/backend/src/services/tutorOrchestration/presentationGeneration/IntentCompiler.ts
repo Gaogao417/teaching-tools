@@ -1,3 +1,10 @@
+import { VisualBindingError } from "../../tutorSession/VisualBindingCatalog";
+import { VISUAL_MAX_ACTIONS } from "./VisualPresentationTools";
+import { presentationPlanV5Schema, type VisualRequirement, type VisualView } from "../../../../../shared/canonical/visualSchemas";
+import { VisualIntentCompiler, type VisualCompilerContext, type CompiledVisualAction } from "./VisualIntentCompiler";
+import { validateVisualCoverage } from "./VisualCoverageValidator";
+import { VISUAL_CONTEXT_BUILDER_VERSION,VISUAL_TOOL_CATALOG_VERSION } from "./VisualPresentationTools";
+import type { VisibleVisualTool } from "./VisualPresentationTools";
 /**
  * IntentCompiler（F7 RT3 — draft → canonical 候选序列编译；fail closed）。
  *
@@ -18,10 +25,10 @@
  * 提交仍由 kernel 事务（RT4 coordinator）唯一落库。
  */
 import type { z } from "zod";
-import { PRESENTER_PROMPT_VERSION } from "./PresenterPrompts";
+import { PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION, isVisualPresenterPromptVersion, usesVisualFractionFormatGuard } from "./PresenterPrompts";
 
 import { presentationPlanV4Schema } from "../../../../../shared/canonical";
-import type { DomainCommand } from "../../../../../shared/actionWorld";
+import { WorldCommandError, type DomainCommand } from "../../../../../shared/actionWorld";
 import { constructionOutputId } from "../WorkspaceActionAdjudication";
 import type { GraphFactNode, GraphInferenceNode, PlanResourceV5 } from "../../planBuild/canonicalInputs";
 import type { BuiltPresentationContext } from "./ContextBuilder";
@@ -53,7 +60,12 @@ export interface TeachingScopeRef {
   readonly beat_id: string;
 }
 
+export interface VisualCompilationInput extends Omit<VisualCompilerContext, "sessionId" | "sequenceId"> {
+  visibleTools: readonly VisibleVisualTool[]; requirements: readonly VisualRequirement[]; alreadyPresented: VisualView;
+}
+export type CompiledPresentationPlanV5 = z.infer<typeof presentationPlanV5Schema>;
 export interface IntentCompilerInput {
+  readonly visual?: VisualCompilationInput;
   readonly sessionId: string;
   /** 会话内 presentation sequence 单调序号（committed planned 计数 +1）。 */
   readonly sequenceSerial: number;
@@ -137,6 +149,7 @@ function allowedSourceRefs(input: IntentCompilerInput): Set<string> {
   for (const instance of input.visibleTools) {
     for (const binding of instance.bindings) refs.add(binding.binding_id);
   }
+  for (const tool of input.visual?.visibleTools ?? []) for (const ref of tool.binding_refs) refs.add(ref);
   return refs;
 }
 
@@ -238,15 +251,66 @@ export function renderFragmentContent(
   return lines.join("\n").trim();
 }
 
+/** v7 voice-only format normalization; no arithmetic or language repair.
+ * Only isolated unsigned integer n/d tokens outside existing math are admitted.
+ * Signs/operators stay in the surrounding text. Ambiguous slash syntax fails closed.
+ */
+export function normalizeVisualVoiceFractions(text: string): string {
+  const math = /(\$\$[\s\S]*?\$\$|\$[^$]*\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\])/g;
+  const plain = (value: string): string => {
+    const result = value.replace(/(?<![A-Za-z0-9_.^{}()\/\\])([0-9]+)\s*\/\s*([0-9]+)(?![A-Za-z0-9_.^{}()\/])/g,
+      (match, numerator: string, denominator: string, offset: number) => {
+        const before = value.slice(0, offset).trimEnd();
+        const after = value.slice(offset + match.length).trimStart();
+        if (/[\^{}()\/]$/.test(before) || /^[\^{}()\/]/.test(after)) {
+          throw new IntentCompilerError("ILLEGAL_PARAM", "ambiguous voice slash grouping: use approved delimited LaTeX fractions");
+        }
+        return String.raw`$\frac{${numerator}}{${denominator}}$`;
+      });
+    if (result.includes('/')) throw new IntentCompilerError("ILLEGAL_PARAM", "ambiguous voice slash: use approved delimited LaTeX fractions");
+    return result;
+  };
+  let end = 0;
+  let result = "";
+  for (const match of text.matchAll(math)) {
+    result += plain(text.slice(end, match.index));
+    if (match[0].includes('/')) throw new IntentCompilerError("ILLEGAL_PARAM", "slash inside existing math: use approved LaTeX fractions");
+    result += match[0];
+    end = match.index! + match[0].length;
+  }
+  result += plain(text.slice(end));
+  return result;
+}
+
 /**
  * 编译：validated draft + 冻结上下文 + 可见工具目录 → canonical 候选序列。
  * 纯函数；任何非法项 ⇒ IntentCompilerError（整段拒绝，零部分产物）。
  */
-export function compilePresentationIntents(input: IntentCompilerInput): CompiledPresentationPlanV4 {
+export function compilePresentationIntents(input: IntentCompilerInput & { visual: VisualCompilationInput }): CompiledPresentationPlanV5;
+export function compilePresentationIntents(input: IntentCompilerInput): CompiledPresentationPlanV4;
+export function compilePresentationIntents(input: IntentCompilerInput): CompiledPresentationPlanV4 | CompiledPresentationPlanV5 {
+  if(input.visual){
+    const pin=input.request.presenter_pin;
+    if(!isVisualPresenterPromptVersion(pin.prompt_version)||pin.context_builder_version!==VISUAL_CONTEXT_BUILDER_VERSION||pin.tool_catalog_version!==VISUAL_TOOL_CATALOG_VERSION)throw new IntentCompilerError("COMPILE_VALIDATION_FAILED","visual compiler requires the frozen visual presenter/context/tool pins");
+  }
+  // Repairable board quality is checked by the orchestrator only after this
+  // complete authority check and isolated execution preflight have both passed.
+  const maxActions = input.visual ? VISUAL_MAX_ACTIONS : 12;
   const allowedRefs = allowedSourceRefs(input);
   const serial = String(input.sequenceSerial).padStart(4, "0");
   const sequenceId = `PS-${serial}`;
+  const visualCompiler = input.visual ? new VisualIntentCompiler({ ...input.visual, sessionId: input.sessionId, sequenceId }) : undefined;
+  const visualActions: CompiledVisualAction[] = [];
   const actions: CompiledAction[] = [];
+  const appendVisual = (a: CompiledVisualAction) => {
+    visualActions.push(a);
+    const binding = "binding_ref" in a.command ? input.visual!.catalog.get(a.command.binding_ref) : undefined;
+    actions.push({ ordinal: a.ordinal, kind: "workspace", basis_refs: a.basis_refs, workspace_action: {
+      action_id: a.action_id, decision_id: input.decisionId, surface: "geometry", capability: a.capability, origin: "tutor",
+      command_payload: JSON.stringify(a.command), reveal_scope: binding?.reveal_scope ?? "none",
+      ...("resolved_targets" in a.command ? { target_ids: a.command.resolved_targets.entity_ids } : {}),
+    } });
+  };
   const fragments: CompiledFragment[] = [];
   let voiceIndex = 0;
   let toolIndex = 0;
@@ -256,8 +320,8 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
   const visibleByTool = new Map(input.visibleTools.map((instance) => [instance.spec.tool_id, instance]));
 
   for (const item of input.draft.items) {
-    if (actions.length >= 12) {
-      throw new IntentCompilerError("EMPTY_SEGMENT", "compiled segment exceeds the bounded short-segment cap (12 actions)");
+    if (actions.length >= maxActions) {
+      throw new IntentCompilerError("EMPTY_SEGMENT", `compiled segment exceeds the bounded cap (${maxActions} actions)`);
     }
     if (item.type === "speech") {
       if (item.basis_refs !== undefined) {
@@ -274,6 +338,11 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
         // canonical 判定已保证 speech 必带 text；此处只收窄类型（防御性 fail closed）。
         throw new IntentCompilerError("ILLEGAL_PARAM", "speech item carries no text (draft shape violated)");
       }
+      // Format-only gate: never infer/correct the mathematical value or touch old pins.
+      if (usesVisualFractionFormatGuard(input.request.presenter_pin.prompt_version)
+        && /[零〇一二两三四五六七八九十百千万亿点负正壹贰叁肆伍陆柒捌玖拾佰仟0-9０-９]+\s*分\s*之\s*[零〇一二两三四五六七八九十百千万亿点负正壹贰叁肆伍陆柒捌玖拾佰仟0-9０-９]+/u.test(item.text)) {
+        throw new IntentCompilerError("ILLEGAL_PARAM", "speech fractions require approved LaTeX; handwritten X分之Y is forbidden for this presenter pin");
+      }
       const actionId = `VA-${input.sessionId}-${serial}-G${voiceIndex}`;
       actions.push({
         ordinal: actions.length,
@@ -282,7 +351,8 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
         voice_action: {
           action_id: actionId,
           decision_id: input.decisionId,
-          text: item.text,
+          text: input.request.presenter_pin.prompt_version === VISUAL_PRESENTER_PROMPT_VERSION
+            ? normalizeVisualVoiceFractions(item.text) : item.text,
           source: "model-generated",
           generation_id: `VG-${input.sessionId}-${serial}-G${voiceIndex}`,
           interruptible: true,
@@ -297,6 +367,17 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
     // tool_intent：目录内工具 + 绑定 + 参数三重校验。
     if (item.tool === undefined) {
       throw new IntentCompilerError("ILLEGAL_TOOL", "tool_intent carries no tool id (draft shape violated)");
+    }
+    const visualTool = input.visual?.visibleTools.find(t => t.tool === item.tool);
+    if (visualTool && visualCompiler) {
+      if (item.args?.binding_ref !== undefined && !visualTool.binding_refs.includes(item.args.binding_ref)) throw new IntentCompilerError("ILLEGAL_TARGET", "visual binding outside frozen tool catalog");
+      try {
+        appendVisual(visualCompiler.compile({ tool_id: item.tool, binding_ref: item.args?.binding_ref, params: item.args?.params }, actions.length, `WSA-${input.sessionId}-${serial}-T${toolIndex++}`));
+      } catch (error) {
+        if (error instanceof VisualBindingError) throw new IntentCompilerError("COMPILE_VALIDATION_FAILED", `${error.code}: ${error.message}`);
+        throw error;
+      }
+      continue;
     }
     const instance = visibleByTool.get(item.tool);
     if (!instance) {
@@ -334,7 +415,7 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
       }
       const content = noteKind === "explanation_text"
         ? lastSpeechText
-        : renderFragmentContent(noteKind, explainBinding, input.graph, [...(input.alreadyPresentedBoardContent ?? []), ...fragments.filter(fragment => fragment.kind !== "explanation_text").map(fragment => fragment.content)], input.request.presenter_pin.prompt_version === PRESENTER_PROMPT_VERSION);
+        : renderFragmentContent(noteKind, explainBinding, input.graph, [...(input.alreadyPresentedBoardContent ?? []), ...fragments.filter(fragment => fragment.kind !== "explanation_text").map(fragment => fragment.content)], (input.request.presenter_pin.prompt_version === PRESENTER_PROMPT_VERSION || isVisualPresenterPromptVersion(input.request.presenter_pin.prompt_version)));
       // The exact approved proof is already visible: do not append another copy
       // merely because the teacher answered a follow-up. Speech remains in order.
       if (content === "" && noteKind !== "explanation_text") continue;
@@ -441,6 +522,16 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
           reveal_scope: "none",
         },
       });
+      try {
+        visualCompiler?.advanceConstruction(geometryBinding.binding_id, stamped);
+      } catch (error) {
+        // Candidate domain rejection must terminate this generation durably;
+        // escaping it as an infrastructure error makes recovery reclaim it.
+        if (error instanceof WorldCommandError) {
+          throw new IntentCompilerError("ILLEGAL_TARGET", `construct ${geometryBinding.binding_id}: ${error.code}: ${error.message}`);
+        }
+        throw error;
+      }
       continue;
     }
 
@@ -456,6 +547,13 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
     throw new IntentCompilerError("ILLEGAL_TOOL", `tool ${spec.tool_id} has no compiler binding for effect class ${spec.effect_class}`);
   }
 
+  if (visualCompiler && input.visual) {
+    for (const action of visualCompiler.finish(actions.length, `WSA-${input.sessionId}-${serial}-T${toolIndex++}`)) appendVisual(action);
+    if (actions.length > maxActions) throw new IntentCompilerError("EMPTY_SEGMENT", `visual group closure exceeds ${maxActions} action cap`);
+    const uses = actions.flatMap(a => (a.basis_refs ?? []).filter(ref => input.visual!.requirements.some(r => r.binding_ref === ref)).map(binding_ref => ({ ordinal:a.ordinal,binding_ref }))).filter(u => actions[u.ordinal].kind === "voice");
+    const issues = validateVisualCoverage(input.visual.requirements, visualActions, input.visual.alreadyPresented, uses, { requireEntryPulse: input.request.presenter_pin.prompt_version === VISUAL_PRESENTER_PROMPT_VERSION });
+    if (issues.length) throw new IntentCompilerError("COMPILE_VALIDATION_FAILED", `visual coverage: ${JSON.stringify(issues)}`);
+  }
   if (actions.length === 0) {
     throw new IntentCompilerError("EMPTY_SEGMENT", "draft compiles to zero actions (canonical requires at least one item)");
   }
@@ -476,7 +574,7 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
     actions,
     ...(fragments.length > 0 ? { explanation_fragments: fragments } : {}),
   };
-  const parsed = presentationPlanV4Schema.safeParse(plan);
+  const parsed = input.visual ? presentationPlanV5Schema.safeParse({ ...plan, schema: "ai_teaching_presentation_plan/v5", purpose: "teaching" }) : presentationPlanV4Schema.safeParse(plan);
   if (!parsed.success) {
     throw new IntentCompilerError(
       "COMPILE_VALIDATION_FAILED",

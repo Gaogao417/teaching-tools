@@ -14,6 +14,9 @@ import type { InteractionView } from "../interaction/interaction-view";
 import type { InteractionRuntime } from "../interaction/runtime";
 import { mountGeometryBoard, type BoardHandles } from "./jsxgraph-board";
 import { useGeometryInteraction } from "./use-geometry-interaction";
+import { VisualEffectRegistry } from "./VisualEffectRegistry";
+import { projectVisualScene } from "./projectVisualScene";
+import type { VisualRendererPort } from "../../presentation/presentationRuntime/visualRendererPort";
 
 export interface GeometryCanvasProps {
   model: GeometryModel;
@@ -41,10 +44,12 @@ export interface GeometryCanvasSurfaceProps {
    */
   onRenderCommit?: () => void;
   renderExecutionKey?: string;
+  visualRenderer?: VisualRendererPort;
+  onVisualSourceActive?: () => void;
 }
 
 /** Renderer-only entry used by the page Action Runtime. */
-export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion, onRenderCommit, renderExecutionKey }: GeometryCanvasSurfaceProps) {
+export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion, onRenderCommit, renderExecutionKey, visualRenderer, onVisualSourceActive }: GeometryCanvasSurfaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const handlesRef = useRef<BoardHandles | null>(null);
   // Runtime acknowledgment removes emphasis on the next animation frame. Keep
@@ -122,12 +127,62 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
       onPointerMove: (pos) => setPointer(pos),
     });
     handlesRef.current = handles;
+    const visualHost = containerRef.current;
+    let effects: VisualEffectRegistry | undefined;
+    let currentVisual: Parameters<typeof projectVisualScene>[0] | undefined;
+    const sceneOf = (visual: Parameters<typeof projectVisualScene>[0]) => {
+      const width = visualHost.clientWidth, height = visualHost.clientHeight;
+      const box = handles.board.getBoundingBox();
+      const origin = visualHost.getBoundingClientRect();
+      const labelObstacles = handles.board.objectsList.flatMap(element => {
+        const point = element as { elType?: string; label?: { rendNode?: Element }; rendNode?: Element };
+        if (point.elType !== "point") return [];
+        return [point.rendNode, point.label?.rendNode].flatMap(node => {
+          if (!node) return [];
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 ? [{ x: rect.left-origin.left, y: rect.top-origin.top, width: rect.width, height: rect.height }] : [];
+        });
+      });
+      return projectVisualScene(visual, model, { width, height, labelObstacles,
+        project: p => ({ x: (p.x - box[0]) * width / (box[2] - box[0]), y: (box[1] - p.y) * height / (box[1] - box[3]) }) });
+    };
+    const visualBinding = visualRenderer?.attach({
+      async render(visualView, execution) {
+        if (!effects) throw new Error("visual renderer has not mounted");
+        currentVisual = visualView;
+        const scene = sceneOf(visualView);
+        return execution.operation === "removed" ? effects.reconcile(scene, execution) : effects.install(scene, execution);
+      },
+      suppress: owner => effects?.suppress(owner),
+    });
+    if (visualBinding) {
+      effects = new VisualEffectRegistry(visualHost, { surfaceGeneration: visualBinding.generation });
+      onVisualSourceActive?.();
+    }
+    let layoutFrame: number | undefined;
+    const reflow = () => {
+      if (layoutFrame !== undefined) cancelAnimationFrame(layoutFrame);
+      layoutFrame = requestAnimationFrame(() => {
+        layoutFrame = undefined;
+        if (!currentVisual || !effects) return;
+        try { effects.reflow(sceneOf(currentVisual)); visualRenderer?.setLayoutValid(true); setInvalidHint(null); }
+        catch { visualRenderer?.setLayoutValid(false); setInvalidHint("几何标注暂时无法在当前视口清晰显示，请调整画布大小或缩放。"); }
+      });
+    };
+    const visualResize = visualBinding && typeof ResizeObserver !== "undefined" ? new ResizeObserver(reflow) : undefined;
+    visualResize?.observe(visualHost);
+    if (visualBinding) handles.board.on("boundingbox", reflow);
     scheduleRenderCommit();
     return () => {
+      visualResize?.disconnect();
+      if (visualBinding) handles.board.off("boundingbox", reflow);
+      if (layoutFrame !== undefined) cancelAnimationFrame(layoutFrame);
+      visualBinding?.detach();
+      effects?.dispose();
       handles.destroy();
       handlesRef.current = null;
     };
-  }, [model]);
+  }, [model, visualRenderer]);
   // 模型/销毁路径上的信号随通道取消（迟到结果不结算）。
   useEffect(() => () => {
     if (renderCommitTimerRef.current !== undefined) {

@@ -32,6 +32,8 @@ import {
   type TutorPresentationRuntime,
 } from "../../presentation/presentationRuntime/createTutorPresentationRuntime";
 import type { PresentationRuntimePhase } from "../../presentation/presentationRuntime/types";
+import { confirmPresentationAuthority, PresentationExecutionOwner, presentationClientInstanceId, sameExecutionOwner, type CapturedPresentationOwner } from "../../presentation/presentationRuntime/PresentationExecutionOwner";
+import type { VisualExecutionOwner } from "../../../../shared/canonical/visualSchemas";
 import type {
   ActionEvaluationRequest,
   ActionEvaluationResponse,
@@ -55,6 +57,7 @@ import {
   TutorRuntimeHttpError,
   type StudentBrowserInput,
   type StudentControlCommand,
+  type StudentControlInput,
   type TutorRuntimeClient,
   type ValidatedSessionSnapshot,
 } from "../../api/tutorRuntimeClient";
@@ -167,6 +170,7 @@ export const CONFUSED_MESSAGE = "我没听懂这一步，请换一种说法，�
 /** 录音开始时锁定的通道与快照身份（不可变捕获——录音开始后 outcome/control
  *  导致的 revision 变化不得悄悄更新捕获值；ASR 结果按此核对后才可自动提交）。 */
 export interface RecordingChannelCapture {
+  readonly executionOwner?: VisualExecutionOwner;
   readonly captureId: string;
   readonly channel: "mainline" | "assistance";
   readonly sessionId: string;
@@ -243,6 +247,7 @@ export type PlaybackControlsVm =
     interrupt: () => void;
     /** autoplay 解锁（用户手势恢复；与 failure 的 retrySync/retry_recovery 分离）。 */
     resume: () => void;
+    retryOutcome: () => void;
     /** 纯回放缓存（零上报）。 */
     replay: () => void;
   };
@@ -449,6 +454,11 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   /** evidence 系统失败的瞬时提示（非 committed turn 失败——那类随快照 turn 派生）。 */
   const [runtimeFailureNotice, setRuntimeFailureNotice] = useState<string | undefined>();
   const runtimeSnapshotRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
+  const revokePresentationRef = useRef<() => void>(() => undefined);
+  const executionOwnerGuard = useMemo(() => new PresentationExecutionOwner(presentationClientInstanceId(), () => revokePresentationRef.current()), []);
+  const [ownerRevoked, setOwnerRevoked] = useState(false);
+  const visualWaitersRef = useRef(new Set<() => void>());
+  const wakeVisualWaiters = () => { for (const wake of [...visualWaitersRef.current]) wake(); };
   const runtimeEpochRef = useRef(0);
   const runtimeScopeRef = useRef({ taskId, studentId, runtimeClient });
   if (runtimeScopeRef.current.taskId !== taskId || runtimeScopeRef.current.studentId !== studentId || runtimeScopeRef.current.runtimeClient !== runtimeClient) {
@@ -467,7 +477,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  创建 key；同 payload 重试复用同 key（网络断开时服务端可能已提交——同键
    *  幂等回放，不产生第二份事实）；只有确定响应（成功 / 4xx 含 drift）才释放。
    *  adapter 只传输 key，不决定其生命周期。 */
-  interface PendingRuntimeInput { input: StudentBrowserInput; clientRequestId: string; sessionId: string; revision: number }
+  interface PendingRuntimeInput { input: StudentBrowserInput; clientRequestId: string; sessionId: string; revision: number; executionOwner?: VisualExecutionOwner }
   const pendingInputRef = useRef<PendingRuntimeInput | undefined>(undefined);
 
   /** actor-first 暂存的 evidence 采用记录（复核 P0-5）：绑定提交身份，consume-once，
@@ -511,23 +521,29 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       return false;
     }
     runtimeSnapshotRef.current = snapshot;
+    if (snapshot.presentation_execution_owner) {
+      executionOwnerGuard.observe(snapshot.session_id, snapshot.presentation_execution_owner);
+      setOwnerRevoked(!executionOwnerGuard.capture());
+    }
     setProtocolError(undefined);
     setError(undefined);
     setRuntimeFailureNotice(undefined);
     setRuntimeSnapshot(snapshot);
     setSessionId(snapshot.session_id);
     setRevision(snapshot.revision);
+    queueMicrotask(wakeVisualWaiters);
     return true;
-  }, [taskId]);
+  }, [taskId, executionOwnerGuard]);
 
   /** 协议/HTTP 失败：ProtocolParseError 保留最后合法快照（recoverable）；其余走瞬时 error。 */
   const handleRuntimeError = useCallback((failure: unknown) => {
+    if (failure instanceof TutorRuntimeHttpError && failure.code === "PRESENTATION_OWNER_STALE") executionOwnerGuard.reset();
     if (failure instanceof ProtocolParseError) {
       setProtocolError(failure.message);
       return;
     }
     setError(failure instanceof Error ? failure.message : String(failure));
-  }, []);
+  }, [executionOwnerGuard]);
 
   /** 确定性失败（4xx，含 payload drift）释放输入 token；5xx/网络/协议解析失败保留
    *  （服务端可能已提交——同 payload 重试必须同键幂等回放）。 */
@@ -550,10 +566,12 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     | "busy" // 上一输入结果未确认且非同输入重试（不得叠加第二输入）
     | "stale" // 会话代际已换（提示不覆盖新会话；本次结果作废）
     | "skipped"; // 无 canonical client/快照（legacy 链等，无门语义）
-  const submitRuntimeInputSettled = useCallback(async (input: StudentBrowserInput): Promise<RuntimeInputSettlement> => {
+  const submitRuntimeInputSettled = useCallback(async (input: StudentBrowserInput, stableRequestId?: string): Promise<RuntimeInputSettlement> => {
     if (!runtimeClient) return "skipped";
     const current = runtimeSnapshotRef.current;
     if (!current) return "skipped";
+    const capturedOwner = executionOwnerGuard.capture();
+    if (current.presentation_execution_owner && !capturedOwner) return "stale";
     const pending = pendingInputRef.current;
     const retry = pending && pending.sessionId === current.session_id && sameBrowserInput(pending.input, input);
     if (pending && !retry) {
@@ -562,18 +580,23 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     }
     const clientRequestId = retry
       ? pending.clientRequestId
-      : newRuntimeRequestId();
-    const operation = retry ? pending : { input, clientRequestId, sessionId: current.session_id, revision: current.revision };
+      : stableRequestId ?? newRuntimeRequestId();
+    const operation = retry ? pending : { input, clientRequestId, sessionId: current.session_id, revision: current.revision,
+      ...(capturedOwner ? { executionOwner: capturedOwner.owner } : {}) };
+    if (operation.executionOwner && !executionOwnerGuard.permits({ sessionId: operation.sessionId, owner: operation.executionOwner })) return "stale";
     pendingInputRef.current = operation;
     const epoch = runtimeEpochRef.current;
     setTurnPending(true);
     try {
-      const response = await runtimeClient.submitStudentInput(operation.sessionId, operation.input, operation.revision, clientRequestId);
+      const response = await runtimeClient.submitStudentInput(operation.sessionId, operation.input, operation.revision, clientRequestId,
+        ...(operation.executionOwner ? [operation.executionOwner] : []));
       if (!runtimeMountedRef.current || epoch !== runtimeEpochRef.current) return "stale";
+      if (operation.executionOwner && !executionOwnerGuard.permits({ sessionId: operation.sessionId, owner: operation.executionOwner })) return "stale";
       const latest = runtimeSnapshotRef.current;
       const confirmedOlder = response.session_id === operation.sessionId && response.task_id === taskId
         && latest?.session_id === response.session_id && response.revision < latest.revision;
       const adopted = adoptRuntimeSnapshot(response, operation.sessionId, epoch);
+      if (operation.executionOwner && !executionOwnerGuard.permits({ sessionId: operation.sessionId, owner: operation.executionOwner })) return "stale";
       // Transport settlement and snapshot adoption are distinct. A valid late
       // response must release its logical input token without rolling back state.
       if ((adopted || confirmedOlder) && pendingInputRef.current === operation) {
@@ -591,7 +614,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     } finally {
       if (runtimeMountedRef.current && epoch === runtimeEpochRef.current) setTurnPending(false);
     }
-  }, [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError, taskId]);
+  }, [runtimeClient, adoptRuntimeSnapshot, handleRuntimeError, taskId, executionOwnerGuard]);
 
   const submitRuntimeInput = useCallback(async (input: StudentBrowserInput): Promise<void> => {
     await submitRuntimeInputSettled(input);
@@ -686,6 +709,14 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   const [presentationRuntime, setPresentationRuntime] = useState<TutorPresentationRuntime | undefined>(undefined);
   const presentationRuntimeRef = useRef<TutorPresentationRuntime | undefined>(undefined);
   presentationRuntimeRef.current = presentationRuntime;
+  revokePresentationRef.current = () => {
+    setOwnerRevoked(true);
+    pendingInputRef.current = undefined;
+    presentationRuntimeRef.current?.controller.revokeExecution();
+    narration.stop(); media.stop("narration");
+    activeSpeechCaptureRef.current = undefined;
+    wakeVisualWaiters();
+  };
   const lastPresentationAdoptedRef = useRef<ValidatedSessionSnapshot | undefined>(undefined);
   // Text handshake adopts revisions normally, but must not start the delivery
   // returned by an old outcome while barge-in/text is still using that revision.
@@ -708,7 +739,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       },
       onProtocolAnomaly: (message) => { setProtocolError(message); },
       onNotice: (message) => { setRuntimeFailureNotice(message); },
-      onStateChanged: (state) => { setPresentationPhase(state); },
+      onStateChanged: (state) => { setPresentationPhase(state); queueMicrotask(wakeVisualWaiters); },
     });
     setPresentationRuntime(runtime);
     return () => {
@@ -736,6 +767,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     const port = presentationRuntime.commitPort;
     return {
       registerRealCommitSource: port.registerRealCommitSource,
+      visualRenderer: port.visualRenderer,
       notifyRealCommitted: port.notifyRealCommitted,
       notifyRealSourceActive: () => presentationRuntime.controller.retryAwaitingRealSignal(),
     };
@@ -745,11 +777,115 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
   // 快照对象（StrictMode effect 重放）不重复 adopt；新对象由状态机按去重键
   // 分派（单次执行 / 幂等重发 / 暂停规则见 PresentationRuntimeController）。
   useEffect(() => {
-    if (!runtimeClient || !presentationRuntime || !runtimeSnapshot || textHandshakeRef.current) return;
+    if (!runtimeClient || !presentationRuntime || !runtimeSnapshot || textHandshakeRef.current && !runtimeSnapshot.presentation_execution_owner) return;
     if (lastPresentationAdoptedRef.current === runtimeSnapshot) return;
     lastPresentationAdoptedRef.current = runtimeSnapshot;
     presentationRuntime.controller.adopt(runtimeSnapshot);
   }, [runtimeClient, presentationRuntime, runtimeSnapshot, textHandshakeRelease]);
+
+  const visualHandshakeRef = useRef<{ requestId: string; captured: CapturedPresentationOwner; input?: StudentControlInput } | undefined>(undefined);
+  const waitForVisualCleanup = useCallback((captured: CapturedPresentationOwner): Promise<boolean> => new Promise(resolve => {
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true; clearTimeout(timer); clearInterval(readinessPoll); visualWaitersRef.current.delete(check); resolve(ok);
+    };
+    const check = () => {
+      if (!runtimeMountedRef.current || !executionOwnerGuard.permits(captured)) return finish(false);
+      const snapshot = runtimeSnapshotRef.current;
+      if (!snapshot || snapshot.visual_barrier?.status === "failed") return finish(false);
+      if (snapshot.visual_barrier) return;
+      const workspace = snapshot.views.student_workspace_view;
+      if (workspace.schema === "ai_teaching_student_workspace_view/v3" && presentationRuntimeRef.current?.commitPort.visualRenderer.isReady(workspace.canvas.visual)) finish(true);
+    };
+    const timer = setTimeout(() => { setRuntimeFailureNotice("几何清理尚未确认，录音和讲解保持暂停；请重新同步后重试。"); finish(false); }, 10_000);
+    // A Canvas reflow can become ready without a new snapshot/controller phase.
+    // Poll only the real identity-checked readiness; elapsed time never completes it.
+    const readinessPoll = setInterval(check, 50);
+    visualWaitersRef.current.add(check); check();
+  }), [executionOwnerGuard]);
+
+  // A delayed cleanup 200 is not a fresh owner observation. This GET is a
+  // point-in-time check, not a revocation subscription or a microphone lease.
+  const confirmVisualAuthority = useCallback(async (captured: CapturedPresentationOwner): Promise<boolean> => {
+    if (!runtimeClient || !executionOwnerGuard.permits(captured)) return false;
+    try {
+      const current = await confirmPresentationAuthority(executionOwnerGuard, captured,
+        id => runtimeClient.restore(id),
+        fresh => runtimeMountedRef.current && adoptRuntimeSnapshot(fresh, captured.sessionId));
+      return current && await waitForVisualCleanup(captured) && executionOwnerGuard.permits(captured);
+    } catch (error) { handleRuntimeError(error); return false; }
+  }, [runtimeClient, executionOwnerGuard, adoptRuntimeSnapshot, waitForVisualCleanup, handleRuntimeError]);
+
+  const runVisualInterruption = useCallback(async (): Promise<boolean> => {
+    const current = runtimeSnapshotRef.current;
+    const captured = executionOwnerGuard.capture();
+    const controller = presentationRuntimeRef.current?.controller;
+    if (!current?.presentation_execution_owner || !captured || !controller) return false;
+    if (current.visual_barrier?.status === "failed") { setRuntimeFailureNotice("几何清理失败，请重试恢复后再继续。"); return false; }
+    let handshake = visualHandshakeRef.current;
+    if (!handshake || !executionOwnerGuard.permits(handshake.captured)) {
+      handshake = { requestId: current.visual_barrier?.control_request_id ?? newRuntimeRequestId(), captured };
+      visualHandshakeRef.current = handshake;
+    }
+    controller.holdForControl(handshake.requestId);
+    if (current.visual_barrier?.status !== "awaiting-cleanup") {
+      if (!handshake.input) {
+        const settled = await controller.interruptCurrentSettled();
+        if (!executionOwnerGuard.permits(handshake.captured)) return false;
+        if (settled.status === "failed") { setRuntimeFailureNotice("呈现回执尚未确认，请重新同步后重试。"); return false; }
+        const latest = runtimeSnapshotRef.current;
+        if (!latest) return false;
+        controller.adopt(latest); // hold retains the new delivery without starting it
+        const notStarted = controller.notStartedDelivery();
+        handshake.input = { kind: "control", command: "barge_in", ...(notStarted ? { not_started_delivery: notStarted } : {}) };
+      }
+      const result = await submitRuntimeInputSettled(handshake.input, handshake.requestId);
+      if (result !== "adopted" || !executionOwnerGuard.permits(handshake.captured)) return false;
+    }
+    const ready = await waitForVisualCleanup(handshake.captured);
+    if (!ready || !await confirmVisualAuthority(handshake.captured)) return false;
+    controller.releaseControlHold(handshake.requestId);
+    if (visualHandshakeRef.current === handshake) visualHandshakeRef.current = undefined;
+    return true;
+  }, [executionOwnerGuard, submitRuntimeInputSettled, waitForVisualCleanup, confirmVisualAuthority]);
+
+  // Text and microphone share one control/outcome handshake, never two cursors.
+  const visualInterruptionFlight = useRef<Promise<boolean> | undefined>(undefined);
+  const prepareVisualInterruption = useCallback((): Promise<boolean> => {
+    if (visualInterruptionFlight.current) return visualInterruptionFlight.current;
+    const flight = runVisualInterruption().finally(() => {
+      if (visualInterruptionFlight.current === flight) visualInterruptionFlight.current = undefined;
+    });
+    visualInterruptionFlight.current = flight;
+    return flight;
+  }, [runVisualInterruption]);
+
+  const claimRef = useRef<{ sessionId: string; revision: number; requestId: string; owner: VisualExecutionOwner } | undefined>(undefined);
+  const [claimBusy, setClaimBusy] = useState(false);
+  const claimPresentation = useCallback(async (): Promise<boolean> => {
+    const snapshot = runtimeSnapshotRef.current;
+    if (!runtimeClient || !snapshot?.presentation_execution_owner || claimBusy) return false;
+    // Claim carries the observed epoch as request metadata. Only the server
+    // grants its new epoch; this does not authorize any ordinary input.
+    const request = (claimRef.current?.sessionId === snapshot.session_id ? claimRef.current : undefined) ?? { sessionId: snapshot.session_id, revision: snapshot.revision,
+      requestId: newRuntimeRequestId(), owner: { client_instance_id: presentationClientInstanceId(), epoch: snapshot.presentation_execution_owner.epoch } };
+    claimRef.current = request; setClaimBusy(true);
+    try {
+      const response = await runtimeClient.submitStudentInput(request.sessionId, { kind: "control", command: "claim_presentation" }, request.revision, request.requestId, request.owner);
+      if (!runtimeMountedRef.current || runtimeSnapshotRef.current?.session_id !== request.sessionId) return false;
+      const adopted = adoptRuntimeSnapshot(response, request.sessionId);
+      claimRef.current = undefined; // a later explicit click may make a new claim
+      const captured = executionOwnerGuard.capture();
+      if (!adopted || response.turn && response.turn.status !== "committed" || !captured) {
+        setRuntimeFailureNotice("本次接管未生效或已被其他页面替代，请确认后重新接管。"); return false;
+      }
+      return await waitForVisualCleanup(captured) && await confirmVisualAuthority(captured);
+    } catch (error) {
+      if (isDefinitiveInputFailure(error)) claimRef.current = undefined;
+      handleRuntimeError(error); return false;
+    } finally { if (runtimeMountedRef.current) setClaimBusy(false); }
+  }, [runtimeClient, claimBusy, adoptRuntimeSnapshot, executionOwnerGuard, waitForVisualCleanup, confirmVisualAuthority, handleRuntimeError]);
 
   // ---- F7 P2（S1 R8 + s1-http-media-handshake 规格 Interfaces）：generation
   // pending 只读轮询。snapshot GET 只读（verified rebuild、零模型调用）；仅
@@ -1075,20 +1211,24 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         // An uncertain utterance reuses its original key/revision directly. A
         // repeated barge-in here would collide with that input's pending token.
         if (!retryingInput) {
-          const retryingBargeIn = pending?.input.kind === "control" && pending.input.command === "barge_in";
-          if (pending && !retryingBargeIn) {
-            await submitRuntimeInputSettled(input); // existing busy notice, no new request
-            return false;
-          }
-          const settled = retryingBargeIn ? undefined : await presentationRuntimeRef.current?.controller.interruptCurrentSettled();
-          if (settled?.status === "failed") {
-            setRuntimeFailureNotice("呈现结果尚未确认，问题未发送；请先重新同步后重试。");
-            return false;
-          }
-          if (retryingBargeIn || (settled?.status === "reported" && (settled.outcome === "interrupted" || settled.outcome === "presented"))) {
-            // Only accepted-and-adopted opens the next step, as with the mic gate.
-            const control = await submitRuntimeInputSettled({ kind: "control", command: "barge_in" });
-            if (control !== "adopted") return false;
+          if (runtimeSnapshotRef.current?.presentation_execution_owner) {
+            if (!await prepareVisualInterruption()) return false;
+          } else {
+            const retryingBargeIn = pending?.input.kind === "control" && pending.input.command === "barge_in";
+            if (pending && !retryingBargeIn) {
+              await submitRuntimeInputSettled(input); // existing busy notice, no new request
+              return false;
+            }
+            const settled = retryingBargeIn ? undefined : await presentationRuntimeRef.current?.controller.interruptCurrentSettled();
+            if (settled?.status === "failed") {
+              setRuntimeFailureNotice("呈现结果尚未确认，问题未发送；请先重新同步后重试。");
+              return false;
+            }
+            if (retryingBargeIn || (settled?.status === "reported" && (settled.outcome === "interrupted" || settled.outcome === "presented"))) {
+              // Only accepted-and-adopted opens the next step, as with the mic gate.
+              const control = await submitRuntimeInputSettled({ kind: "control", command: "barge_in" });
+              if (control !== "adopted") return false;
+            }
           }
         }
         const result = await submitRuntimeInputSettled({ kind: "utterance", channel, text: trimmed });
@@ -1098,16 +1238,28 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         if (runtimeMountedRef.current) setTextHandshakeRelease(value => value + 1);
       }
     },
-    [submitRuntimeInputSettled],
+    [submitRuntimeInputSettled, prepareVisualInterruption],
   );
 
   /** canonical 显式控制（confirm/continue/barge_in/return_to_mainline/retry_recovery/
    *  request_scaffold/request_rephrase——七值 typed control）。 */
   const submitControl = useCallback(
     async (command: StudentControlCommand): Promise<void> => {
+      const snapshot = runtimeSnapshotRef.current;
+      if (snapshot?.presentation_execution_owner && command === "retry_recovery" && snapshot.visual_barrier?.status === "failed") {
+        const captured = executionOwnerGuard.capture();
+        if (!captured) return;
+        if (await submitRuntimeInputSettled({ kind: "control", command }) !== "adopted") return;
+        if (await waitForVisualCleanup(captured) && executionOwnerGuard.permits(captured)) {
+          const previous = visualHandshakeRef.current;
+          if (previous) presentationRuntimeRef.current?.controller.releaseControlHold(previous.requestId);
+          visualHandshakeRef.current = undefined;
+        }
+        return;
+      }
       await submitRuntimeInput({ kind: "control", command });
     },
-    [submitRuntimeInput],
+    [submitRuntimeInput, submitRuntimeInputSettled, executionOwnerGuard, waitForVisualCleanup],
   );
 
   // ---- F7 Step 8：录音 + 通道锁定 + ASR（canonical 链；spec §2.9/§4.8）----
@@ -1127,7 +1279,13 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       if (!runtimeClient) return undefined;
       const current = runtimeSnapshotRef.current;
       if (!current || !recordingChannelLegal(channel, current)) return undefined;
-      const capture = { captureId: newRuntimeRequestId(), channel, sessionId: current.session_id, revision: current.revision };
+      const owner = executionOwnerGuard.capture();
+      if (current.presentation_execution_owner && (!owner || current.visual_barrier)) return undefined;
+      const workspace = current.views.student_workspace_view;
+      if (workspace.schema === "ai_teaching_student_workspace_view/v3"
+        && !presentationRuntimeRef.current?.commitPort.visualRenderer.isReady(workspace.canvas.visual)) return undefined;
+      const capture = { captureId: newRuntimeRequestId(), channel, sessionId: current.session_id, revision: current.revision,
+        ...(owner ? { executionOwner: owner.owner } : {}) };
       activeSpeechCaptureRef.current = capture;
       speechParticipationRef.current = current.views.participation.kind;
       consumedSpeechCaptureRef.current = undefined;
@@ -1150,11 +1308,13 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     async (capture: RecordingChannelCapture, audio: { dataUrl: string; mimeType?: string; durationMs?: number }): Promise<void> => {
       if (!runtimeClient || activeSpeechCaptureRef.current !== capture || consumedSpeechCaptureRef.current === capture) return;
       consumedSpeechCaptureRef.current = capture;
-      const isCurrentCapture = () => runtimeMountedRef.current && activeSpeechCaptureRef.current === capture;
+      const isCurrentCapture = () => runtimeMountedRef.current && activeSpeechCaptureRef.current === capture
+        && (!capture.executionOwner || executionOwnerGuard.permits({ sessionId: capture.sessionId, owner: capture.executionOwner }));
       setSpeechAsrBusy(true);
       setSpeechNotice(undefined);
       try {
         const asr = await runtimeClient.transcribe(capture.sessionId, {
+          ...(capture.executionOwner ? { executionOwner: capture.executionOwner } : {}),
           audio: {
             dataUrl: audio.dataUrl,
             mimeType: audio.mimeType ?? "audio/webm",
@@ -1175,6 +1335,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
           || current.revision !== capture.revision
           || asr.sessionId !== capture.sessionId
           || asr.observedRevision !== capture.revision
+          || !!capture.executionOwner && !sameExecutionOwner(capture.executionOwner, asr.executionOwner)
           || !recordingChannelLegal(capture.channel, current)
           || (capture.channel === "mainline" && current.views.participation.kind !== speechParticipationRef.current);
         if (stale) {
@@ -1253,6 +1414,9 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         if (runtimeClient) {
           const current = runtimeSnapshotRef.current;
           if (!current) throw new Error("runtime 会话未启动");
+          if (current.presentation_execution_owner && (!executionOwnerGuard.capture() || current.visual_barrier)) {
+            throw new ProtocolParseError(["当前页面尚未取得可提交操作的呈现授权"]);
+          }
           const evidence = request.evidence[request.evidence.length - 1];
           const active = current.active_action;
           if (!evidence || request.sessionId !== current.session_id || !active || evidence.actionId !== active.action_id
@@ -1276,11 +1440,13 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
               values,
             },
             expectedRevision: current.revision,
+            ...(current.presentation_execution_owner ? { executionOwner: current.presentation_execution_owner } : {}),
             clientRequestId,
           });
           const submission = result.actionSubmission;
           const latest = runtimeSnapshotRef.current;
           if (!runtimeMountedRef.current || epoch !== runtimeEpochRef.current || latest?.session_id !== current.session_id
+            || !!current.presentation_execution_owner && !executionOwnerGuard.permits({ sessionId: current.session_id, owner: current.presentation_execution_owner })
             || latest.active_action?.action_id !== evidence.actionId || latest.revision !== current.revision
             || lastEvidenceSubmissionRef.current?.clientRequestId !== clientRequestId) {
             throw new ProtocolParseError(["过期的 evidence 响应，禁止评价当前 actor"]);
@@ -1348,6 +1514,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  不伪造 interrupted（生成取消语义未冻结，本阶段不做）。 */
   const bargeIn = useCallback(async () => {
     if (runtimeClient) {
+      if (runtimeSnapshotRef.current?.presentation_execution_owner) { await prepareVisualInterruption(); return; }
       const controller = presentationRuntime?.controller;
       if (!controller) return;
       const settle = await controller.interruptCurrentSettled();
@@ -1373,7 +1540,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     if (activeSession && pending) {
       await api.completeTutorVoice(activeSession, pending.action_id, "interrupted").catch(() => null);
     }
-  }, [media, narration, runtimeClient, presentationRuntime, submitControl]);
+  }, [media, narration, runtimeClient, presentationRuntime, submitControl, prepareVisualInterruption]);
 
   const resumeFromInterrupt = useCallback(() => setInterrupted(false), []);
 
@@ -1397,6 +1564,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    */
   const prepareRecordingStart = useCallback(async (): Promise<boolean> => {
     if (!runtimeClient) return true;
+    if (runtimeSnapshotRef.current?.presentation_execution_owner) return prepareVisualInterruption();
     const controller = presentationRuntime?.controller;
     if (!controller) return true;
     const settle = await controller.interruptCurrentSettled();
@@ -1415,7 +1583,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       return false;
     }
     return true;
-  }, [runtimeClient, presentationRuntime, submitRuntimeInputSettled]);
+  }, [runtimeClient, presentationRuntime, submitRuntimeInputSettled, prepareVisualInterruption]);
 
   const adoptExperience = useCallback(
     (next: TutorExperienceResponse, generation: number) => {
@@ -1464,6 +1632,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
             taskId,
             studentId,
             clientRequestId: runtimeStartKeyRef.current,
+            clientInstanceId: presentationClientInstanceId(),
           }), undefined, epoch);
         } catch (startError) {
           handleRuntimeError(startError);
@@ -1680,6 +1849,14 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     if (runtimeClient) {
       const kind = runtimeSnapshot?.views.participation.kind ?? "listen_only";
       if (runtimeSnapshot?.completed || kind === "read_only_completed") return { kind: "completed" };
+      // A restored/claimed snapshot may retain the Beat's confirm/answer kind
+      // while its presentation is still being acknowledged. Admission follows
+      // the existing runtime delivery/generation state, not that historical kind.
+      const executionUnsettled = !!runtimeSnapshot?.pending_presentation
+        || !!runtimeSnapshot?.visual_barrier
+        || runtimeSnapshot?.generation?.status === "pending"
+        || presentationPhase.phase !== "idle";
+      if (executionUnsettled && (kind === "confirm_input" || kind === "continue_input" || kind === "answer_input")) return { kind: "listen" };
       switch (kind) {
         case "confirm_input":
           return { kind: "cta", label: "确认", onSubmit: () => { void submitControl("confirm"); }, testId: "tutor-confirm-input", understoodDisabled: turnPending,
@@ -1691,7 +1868,12 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
         case "temporarily_paused_for_inquiry":
           return {
             kind: "inquiry",
-            canReturn: runtimeSnapshot?.views.coach_panel_view.inquiry.kind === "ready_to_return",
+            canReturn: runtimeSnapshot !== undefined
+              && runtimeSnapshot.views.coach_panel_view.inquiry.kind !== "no_inquiry"
+              && !runtimeSnapshot.pending_presentation && !runtimeSnapshot.visual_barrier
+              && runtimeSnapshot.generation?.status !== "pending"
+              && presentationPhase.phase === "idle" && !turnPending && !ownerRevoked
+              && (!runtimeSnapshot.presentation_execution_owner || runtimeSnapshot.presentation_execution_owner.client_instance_id === presentationClientInstanceId()),
             onReturn: () => { void submitControl("return_to_mainline"); },
           };
         case "workspace_input":
@@ -1714,7 +1896,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       confused: () => { void submitStudentInput({ input_kind: "question_asked", text: CONFUSED_MESSAGE }); },
       ...(answerVisible ? { answer: { onSubmit: (text: string) => { void submitStudentInput({ input_kind: "reasoning_utterance", text }); } } } : {}),
     };
-  }, [runtimeClient, runtimeSnapshot, mergedCompleted, operateActive, presentation.playing, presentation.awaitingContinue, presentation.reviewing, turnPending, error, sessionId, submitControl, submitUtterance, submitStudentInput, advancePresentation]);
+  }, [runtimeClient, runtimeSnapshot, presentationPhase.phase, ownerRevoked, mergedCompleted, operateActive, presentation.playing, presentation.awaitingContinue, presentation.reviewing, turnPending, error, sessionId, submitControl, submitUtterance, submitStudentInput, advancePresentation]);
 
   /** 讲解播放组（统一 view-model：legacy 本地管线 / canonical PresentationRuntime
    *  执行状态投影——F7 Step 6 填补增补 18 调整点 6 登记的 canonical 挂点）。 */
@@ -1733,6 +1915,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
           && runtimeSnapshot?.views.coach_panel_view.replay_available !== false,
         interrupt: () => controller.interruptCurrent(),
         resume: () => { void controller.resumeAfterGesture(); },
+        retryOutcome: () => { setRuntimeFailureNotice(undefined);void controller.retryPendingOutcome(); },
         replay: () => {
           if (replayActionId !== undefined) controller.replayVoice(replayActionId);
         },
@@ -1788,7 +1971,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
    *  F7 Step 8：canonical 录音接通（coach mic=assistance 通道锁定；ASR 经当前
    *  client 的 /asr），mic 不再整体禁用（Step 5 迁移期 micSuppressed 退场）。 */
   const coachControls = useMemo(() => ({
-    canHelp: !mergedCompleted && Boolean(sessionId) && (!runtimeClient || runtimeSnapshot?.views.coach_panel_view.assistance_available !== false),
+    canHelp: !mergedCompleted && !ownerRevoked && !runtimeSnapshot?.visual_barrier && Boolean(sessionId) && (!runtimeClient || runtimeSnapshot?.views.coach_panel_view.assistance_available !== false),
     ask: async (text: string): Promise<boolean> => {
       const trimmed = text.trim();
       if (!trimmed) return false;
@@ -1796,7 +1979,7 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
       await submitStudentInput({ input_kind: "question_asked", text: trimmed });
       return false; // Preserve legacy composer behavior; only canonical gives an explicit confirmation.
     },
-  }), [mergedCompleted, sessionId, runtimeClient, runtimeSnapshot, submitUtterance, submitStudentInput]);
+  }), [mergedCompleted, ownerRevoked, sessionId, runtimeClient, runtimeSnapshot, submitUtterance, submitStudentInput]);
 
   /** ActionRuntimeFrame 绑定。 */
   const activeActionFrame: ActiveActionFrameVm = useMemo(() => ({
@@ -1821,6 +2004,10 @@ export function useTutorLearning({ taskId, studentId, restoreSessionId, runtimeC
     : phase === "speaking" && !presentation.awaitingContinue && !presentation.reviewing;
 
   return {
+    runtimeOwnerRequired: !!runtimeSnapshot?.presentation_execution_owner && (ownerRevoked || runtimeSnapshot.presentation_execution_owner.client_instance_id !== presentationClientInstanceId()),
+    runtimeVisualBarrier: runtimeSnapshot?.visual_barrier,
+    claimPresentation,
+    claimBusy,
     phase,
     sessionId,
     revision,

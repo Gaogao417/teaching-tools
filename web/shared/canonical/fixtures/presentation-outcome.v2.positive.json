@@ -1,0 +1,19 @@
+{
+  "schema": "ai_teaching_presentation_outcome/v2",
+  "session_id": "TS-4242",
+  "sequence_id": "PS-0001",
+  "ordinal": 1,
+  "action_id": "VA-20260903-0001",
+  "outcome": "failed",
+  "failure_class": "provider_failure",
+  "message": "TTS playback failed",
+  "expected_revision": 7,
+  "client_request_id": "cri-20260903-0011",
+  "execution_owner": {
+    "client_instance_id": "browser-visual-0001",
+    "epoch": 1
+  },
+  "hold_for_control": {
+    "client_request_id": "control-visual-0001"
+  }
+}

@@ -74,4 +74,6 @@ export interface SessionKernelCodec<S, C = undefined> {
   readonly resolveFoldContext: (sessionStartedPayload: Record<string, unknown>) => C;
   /** G2 对账语义比较（在线缓存 vs 全量重建）。 */
   readonly compareStates: (left: S, right: S) => SessionStateComparison;
+  /** Whole transaction invariants; runs inside SQLite transaction before commit. */
+  readonly validateBatchEnd?: (before: S, events: readonly StoredSessionEvent[], after: S, context: C) => void;
 }

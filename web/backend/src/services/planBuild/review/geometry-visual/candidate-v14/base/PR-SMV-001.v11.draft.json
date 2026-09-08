@@ -1,0 +1,496 @@
+{
+  "schema": "ai_teaching_teaching_protocol/v3",
+  "protocol_id": "PR-SMV-001",
+  "version": "v11",
+  "status": "Draft",
+  "question_ref": {
+    "artifact_id": "QT-SMV-001",
+    "version": "v3",
+    "content_hash": "sha256:e8dc1fb849904d7d388c8589516d1d833e60d28d255a8ff9b3eda540b80187c1"
+  },
+  "solution_graph_ref": {
+    "artifact_id": "RG-SMV-001",
+    "version": "v8",
+    "content_hash": "sha256:2bc516468e9cc8c4033f96277d810f96752a7cb41269f1f0eb0735c2da507c25"
+  },
+  "protocol_kind": "mainline",
+  "entry_beat_id": "BT-01",
+  "beats": [
+    {
+      "beat_id": "BT-01",
+      "part_id": "1",
+      "role": "orientation",
+      "purpose": "Teach：帮助学生接上等腰、等角、翻折三类题设与目标线段 BE。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-04"
+        ],
+        "inference_ids": []
+      },
+      "abstraction_level": "A0_object",
+      "cognitive_process": "retrieve",
+      "cognitive_activity": "attend",
+      "completion_evidence": {
+        "evidence_kind": "student_confirmation",
+        "confirmation_target": "follow_along",
+        "gate": {
+          "gate_id": "GT-01",
+          "requirement": "当前关键关系：知道 AB=AC、D 在 BC 上、给定角相等和 C 翻折至 E，并能定位目标 BE。仅判断当前讲解是否接上：无未解决矛盾时接受相关的明确自述，或关键关系正确的复述；若同时出现误解/没懂/问题先澄清补讲。沉默、超时、播放结束、旧拍确认和跳过不算理解；不要求独立计算或固定UI，不记为独立掌握。"
+        }
+      },
+      "participation": "confirm",
+      "pacing": {
+        "wait_policy": "student_driven"
+      },
+      "presentation_intent": {
+        "voice": [
+          "narrate",
+          "question"
+        ],
+        "workspace_surfaces": [
+          "geometry"
+        ]
+      },
+      "resource_ids": [
+        "RES1"
+      ],
+      "support_boundary": {
+        "may_reveal_answer": false,
+        "may_reveal_intermediate": false,
+        "max_support": "orient"
+      },
+      "transitions": [
+        {
+          "to_beat": "BT-02",
+          "on": "evidence_collected"
+        }
+      ],
+      "inquiry_branch": {
+        "inquiry_protocol_ref": {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        },
+        "return_beat_id": "BT-01",
+        "expand_region_id": "SR-01",
+        "trigger": "ask_question"
+      },
+      "accepted_alternatives": [
+        "这一步听懂了，可以继续（相关、无未解决矛盾）",
+        "我知道是把 C 沿 AD 翻到 E，最后看 BE。"
+      ],
+      "common_deviations": [
+        "E 是随便在线段 BC 上取的点。",
+        "只说跳过或把播放完成当作听懂"
+      ]
+    },
+    {
+      "beat_id": "BT-02",
+      "part_id": "1",
+      "role": "reasoning",
+      "purpose": "Teach：讲清 △CAD∽△CBA 的对应关系与 AA 依据，确认学生跟得上，不要求独立证明。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-03",
+          "FN-05",
+          "FN-06"
+        ],
+        "inference_ids": [
+          "IF-01",
+          "IF-02"
+        ]
+      },
+      "abstraction_level": "A2_strategy",
+      "cognitive_process": "monitor",
+      "cognitive_activity": "relate",
+      "accepted_alternatives": [
+        "这一步听懂了，可以继续（相关、无未解决矛盾）",
+        "是两组角对应相等，所以可以用相似把已知边和 AD 连起来。"
+      ],
+      "common_deviations": [
+        "把 △CAD 写成对应 △CAB",
+        "懂了，相似就是所有对应边都一样长。",
+        "只说跳过或把播放完成当作听懂"
+      ],
+      "completion_evidence": {
+        "evidence_kind": "student_confirmation",
+        "confirmation_target": "follow_along",
+        "gate": {
+          "gate_id": "GT-02",
+          "requirement": "当前关键关系：两组对应角支持 AA；C-A-D 对应 C-B-A，相似关系用于连接已知边和待求边。仅判断当前讲解是否接上：无未解决矛盾时接受相关的明确自述，或关键关系正确的复述；若同时出现误解/没懂/问题先澄清补讲。沉默、超时、播放结束、旧拍确认和跳过不算理解；不要求独立计算或固定UI，不记为独立掌握。"
+        }
+      },
+      "participation": "confirm",
+      "pacing": {
+        "wait_policy": "student_driven"
+      },
+      "presentation_intent": {
+        "voice": [
+          "narrate",
+          "question"
+        ],
+        "workspace_surfaces": [
+          "geometry",
+          "solution_board"
+        ]
+      },
+      "resource_ids": [
+        "RES2"
+      ],
+      "support_boundary": {
+        "may_reveal_answer": false,
+        "may_reveal_intermediate": true,
+        "max_support": "provide_intermediate_conclusion"
+      },
+      "transitions": [
+        {
+          "to_beat": "BT-03",
+          "on": "evidence_collected"
+        }
+      ],
+      "inquiry_branch": {
+        "inquiry_protocol_ref": {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        },
+        "return_beat_id": "BT-02",
+        "expand_region_id": "SR-01",
+        "trigger": "unclear"
+      }
+    },
+    {
+      "beat_id": "BT-03",
+      "part_id": "1",
+      "role": "reasoning",
+      "purpose": "Teach：老师演示第一组相似比与 AD、CD、BD 的求法，确认比例和线段差已接上。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-02",
+          "FN-06",
+          "FN-07",
+          "FN-08",
+          "FN-09",
+          "FN-10"
+        ],
+        "inference_ids": [
+          "IF-03",
+          "IF-04",
+          "IF-05",
+          "IF-06"
+        ]
+      },
+      "abstraction_level": "A1_relation",
+      "cognitive_process": "monitor",
+      "cognitive_activity": "relate",
+      "common_deviations": [
+        "相似比方向混用",
+        "求 BD 时误把 CD 加到 BC",
+        "BD 应该用 BC 加 CD。",
+        "只说跳过或把播放完成当作听懂"
+      ],
+      "completion_evidence": {
+        "evidence_kind": "student_confirmation",
+        "confirmation_target": "follow_along",
+        "gate": {
+          "gate_id": "GT-03",
+          "requirement": "当前关键关系：相似比方向统一；AD、CD 来自对应边比例，BD 是 BC 减 CD。仅判断当前讲解是否接上：无未解决矛盾时接受相关的明确自述，或关键关系正确的复述；若同时出现误解/没懂/问题先澄清补讲。沉默、超时、播放结束、旧拍确认和跳过不算理解；不要求独立计算或固定UI，不记为独立掌握。"
+        }
+      },
+      "participation": "confirm",
+      "pacing": {
+        "wait_policy": "student_driven"
+      },
+      "presentation_intent": {
+        "voice": [
+          "narrate",
+          "question"
+        ],
+        "workspace_surfaces": [
+          "solution_board"
+        ]
+      },
+      "resource_ids": [
+        "RES3"
+      ],
+      "support_boundary": {
+        "may_reveal_answer": false,
+        "may_reveal_intermediate": true,
+        "max_support": "provide_intermediate_conclusion"
+      },
+      "transitions": [
+        {
+          "to_beat": "BT-04",
+          "on": "evidence_collected"
+        }
+      ],
+      "inquiry_branch": {
+        "inquiry_protocol_ref": {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        },
+        "return_beat_id": "BT-03",
+        "expand_region_id": "SR-02",
+        "trigger": "request_scaffold"
+      },
+      "accepted_alternatives": [
+        "这一步听懂了，可以继续（相关、无未解决矛盾）",
+        "先按对应顺序求 AD、CD，再用 BC 减 CD 求 BD。"
+      ]
+    },
+    {
+      "beat_id": "BT-04",
+      "part_id": "1",
+      "role": "reasoning",
+      "purpose": "Teach：老师演示 O、第二组相似及四段长度的来源，确认对应关系和点序接上，不强制画布填数。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-01",
+          "FN-08",
+          "FN-10",
+          "FN-11",
+          "FN-12",
+          "FN-13",
+          "FN-14",
+          "FN-15",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19"
+        ],
+        "inference_ids": [
+          "IF-10",
+          "IF-11",
+          "IF-12",
+          "IF-13",
+          "IF-14",
+          "IF-15"
+        ]
+      },
+      "abstraction_level": "A2_strategy",
+      "cognitive_process": "monitor",
+      "cognitive_activity": "relate",
+      "accepted_alternatives": [
+        "这一步听懂了，可以继续（相关、无未解决矛盾）",
+        "AO、DO 用相似比例求，BO、OE 再根据点的顺序做减法。"
+      ],
+      "common_deviations": [
+        "忽略点序导致 BO、OE 的加减号错误",
+        "懂了，OE 应该是 AE 加 AO。",
+        "只说跳过或把播放完成当作听懂"
+      ],
+      "completion_evidence": {
+        "evidence_kind": "student_confirmation",
+        "confirmation_target": "follow_along",
+        "gate": {
+          "gate_id": "GT-04",
+          "requirement": "当前关键关系：△DAO∽△DBA 的对应关系；先由比例得 AO、DO，再依 B-O-D-C 与 A-O-E 求 BO、OE。仅判断当前讲解是否接上：无未解决矛盾时接受相关的明确自述，或关键关系正确的复述；若同时出现误解/没懂/问题先澄清补讲。沉默、超时、播放结束、旧拍确认和跳过不算理解；不要求独立计算或固定UI，不记为独立掌握。"
+        }
+      },
+      "participation": "confirm",
+      "pacing": {
+        "wait_policy": "student_driven"
+      },
+      "presentation_intent": {
+        "voice": [
+          "narrate",
+          "question"
+        ],
+        "workspace_surfaces": [
+          "geometry",
+          "solution_board"
+        ]
+      },
+      "resource_ids": [
+        "RES4",
+        "RES7"
+      ],
+      "support_boundary": {
+        "may_reveal_answer": false,
+        "may_reveal_intermediate": true,
+        "max_support": "provide_intermediate_conclusion"
+      },
+      "transitions": [
+        {
+          "to_beat": "BT-05",
+          "on": "evidence_collected"
+        }
+      ],
+      "inquiry_branch": {
+        "inquiry_protocol_ref": {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        },
+        "return_beat_id": "BT-04",
+        "expand_region_id": "SR-03",
+        "trigger": "unclear"
+      }
+    },
+    {
+      "beat_id": "BT-05",
+      "part_id": "1",
+      "role": "reasoning",
+      "purpose": "Teach：讲清蝶形相似和 BE 的求法，确认学生理解比例链；最终结论只在当前 Teach 批准 Beat 的受限展示许可下演示。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-08",
+          "FN-12",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-20",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-16",
+          "IF-17",
+          "IF-18",
+          "IF-19"
+        ]
+      },
+      "abstraction_level": "A2_strategy",
+      "cognitive_process": "monitor",
+      "cognitive_activity": "relate",
+      "accepted_alternatives": [
+        "这一步听懂了，可以继续（相关、无未解决矛盾）",
+        "需要两边成比例和夹角相等，得到蝶形相似后再接 BE 与 AD。"
+      ],
+      "common_deviations": [
+        "只看到对顶角，没有核对夹边比例",
+        "关键词相似但最终比例方向错误",
+        "只要有一组对顶角就一定相似。",
+        "只说跳过或把播放完成当作听懂"
+      ],
+      "completion_evidence": {
+        "evidence_kind": "student_confirmation",
+        "confirmation_target": "follow_along",
+        "gate": {
+          "gate_id": "GT-05",
+          "requirement": "当前关键关系：BO:AO 与 OE:OD 同向相等且夹角相等，得到 △BOE∽△AOD，再由 BE:AD 求 BE。仅判断当前讲解是否接上：无未解决矛盾时接受相关的明确自述，或关键关系正确的复述；若同时出现误解/没懂/问题先澄清补讲。沉默、超时、播放结束、旧拍确认和跳过不算理解；不要求独立计算或固定UI，不记为独立掌握。",
+          "graph_fact_id": "FN-23"
+        }
+      },
+      "participation": "confirm",
+      "pacing": {
+        "wait_policy": "student_driven"
+      },
+      "presentation_intent": {
+        "voice": [
+          "narrate",
+          "question"
+        ],
+        "workspace_surfaces": [
+          "geometry",
+          "solution_board"
+        ]
+      },
+      "resource_ids": [
+        "RES5"
+      ],
+      "support_boundary": {
+        "may_reveal_answer": false,
+        "may_reveal_intermediate": true,
+        "max_support": "provide_intermediate_conclusion"
+      },
+      "transitions": [
+        {
+          "to_beat": "BT-06",
+          "on": "evidence_collected"
+        }
+      ],
+      "inquiry_branch": {
+        "inquiry_protocol_ref": {
+          "artifact_id": "PR-SMV-002",
+          "version": "v10",
+          "content_hash": "sha256:948745ad4f2f59be44d6af5d5c6e4e2e6c469ca53ac8405133fbb3c16c39baef"
+        },
+        "return_beat_id": "BT-05",
+        "expand_region_id": "SR-04",
+        "trigger": "request_scaffold"
+      }
+    },
+    {
+      "beat_id": "BT-06",
+      "part_id": "1",
+      "role": "summary",
+      "purpose": "Teach：把两组子母型与蝶形连接成解题地图，接受相关自述或复述，不把总结升级为独立掌握测验。",
+      "solution_refs": {
+        "fact_ids": [
+          "FN-06",
+          "FN-08",
+          "FN-10",
+          "FN-14",
+          "FN-16",
+          "FN-17",
+          "FN-18",
+          "FN-19",
+          "FN-21",
+          "FN-22",
+          "FN-23"
+        ],
+        "inference_ids": [
+          "IF-19"
+        ]
+      },
+      "abstraction_level": "A3_structure",
+      "cognitive_process": "monitor",
+      "cognitive_activity": "relate",
+      "completion_evidence": {
+        "evidence_kind": "student_confirmation",
+        "confirmation_target": "follow_along",
+        "gate": {
+          "gate_id": "GT-06",
+          "requirement": "当前关键关系：第一组给前置长度，第二组接入翻折和 O 的长度，蝶形把这些长度接到目标 BE。仅判断当前讲解是否接上：无未解决矛盾时接受相关的明确自述，或关键关系正确的复述；若同时出现误解/没懂/问题先澄清补讲。沉默、超时、播放结束、旧拍确认和跳过不算理解；不要求独立计算或固定UI，不记为独立掌握。"
+        }
+      },
+      "participation": "confirm",
+      "pacing": {
+        "wait_policy": "student_driven"
+      },
+      "presentation_intent": {
+        "voice": [
+          "narrate",
+          "question"
+        ],
+        "workspace_surfaces": [
+          "solution_board"
+        ]
+      },
+      "resource_ids": [
+        "RES6"
+      ],
+      "support_boundary": {
+        "may_reveal_answer": false,
+        "may_reveal_intermediate": true,
+        "max_support": "provide_intermediate_conclusion"
+      },
+      "transitions": [
+        {
+          "to_beat": "BT-06",
+          "on": "evidence_collected"
+        }
+      ],
+      "accepted_alternatives": [
+        "这一步听懂了，可以继续（相关、无未解决矛盾）",
+        "第一组准备长度，第二组处理翻折和 O，最后蝶形把这些关系接到 BE。"
+      ],
+      "common_deviations": [
+        "前两组和最后求 BE 没有什么关系。",
+        "只说跳过或把播放完成当作听懂"
+      ]
+    }
+  ],
+  "content_hash": "sha256:8da11a9977c2da199a58f2e47cdf62e9106f6ddf38cc3c4a5a42b64b986a7acd",
+  "artifact_uri": "artifact://teaching-protocol/PR-SMV-001@v11"
+}

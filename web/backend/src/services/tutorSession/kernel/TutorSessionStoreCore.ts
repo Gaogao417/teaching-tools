@@ -274,6 +274,8 @@ export function appendSessionEvents<S, C>(
     const committed = readSessionEvents(codec, sessionId);
     const foldContext = codec.resolveFoldContext(committed[0].payload);
     let candidateState = codec.foldCommitted(committed, foldContext);
+    const beforeState = candidateState;
+    const candidateBatch: StoredSessionEvent[] = [];
     const appended: number[] = [];
     let sequence = existingMax;
     events.forEach((event, index) => {
@@ -312,9 +314,11 @@ export function appendSessionEvents<S, C>(
       // 候选事件在落库前先经同一 reducer 纯折叠——reducer 拒绝（语义错误）则
       // 异常逃逸事务，整批回滚，任何行都未写入。错误原样透传，不吞码。
       candidateState = codec.applyEvent(candidateState, canonical.record as unknown as StoredSessionEvent, foldContext);
+      candidateBatch.push(canonical.record as unknown as StoredSessionEvent);
       insertEventRow(codec, sessionId, sequence, event, idempotencyKey, nextRevision, recordedAt, event.causation_sequence);
       appended.push(sequence);
     });
+    codec.validateBatchEnd?.(beforeState, candidateBatch, candidateState, foldContext);
     bumpRevisionStatement.run(sessionId);
     return { revision: nextRevision, appendedSequences: appended };
   });

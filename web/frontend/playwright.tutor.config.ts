@@ -42,7 +42,7 @@ const frontendPort = Number(process.env.TUTOR_E2E_FRONTEND_PORT || 5174);
 const realChain = process.env.TUTOR_E2E_REAL === "1";
 /**
  * F7 P3（FM-3-2）：TUTOR_E2E_AUTOPLAY_BLOCKED=1 时翻转启动策略为
- * user-gesture-required（默认不变——no-user-gesture-required）。test.use 的
+ * document-user-activation-required + 完整 Chromium（默认 no-user-gesture-required）。test.use 的
  * launchOptions 无法可靠覆盖 config 级参数（合并后 config 侧生效），故经
  * env 门控；只影响显式带该 env 的单独运行（p3-media-autoplay.spec.ts）。
  */
@@ -70,20 +70,21 @@ export default defineConfig({
   retries: 0,
   reporter: [["line"]],
   use: {
+    ...(autoplayBlocked ? { channel: "chromium" } : {}),
     baseURL: `http://127.0.0.1:${frontendPort}`,
     actionTimeout: 20_000,
     navigationTimeout: 30_000,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     video: "off",
-    launchOptions: { args: [autoplayBlocked ? "--autoplay-policy=user-gesture-required" : "--autoplay-policy=no-user-gesture-required"] },
+    launchOptions: { ...(autoplayBlocked ? { ignoreDefaultArgs: ["--autoplay-policy=no-user-gesture-required"] } : {}), args: [autoplayBlocked ? "--autoplay-policy=document-user-activation-required" : "--autoplay-policy=no-user-gesture-required"] },
   },
   webServer: [
     {
       command: "npx tsx src/index.ts",
       cwd: "../backend",
       url: `http://127.0.0.1:${backendPort}/api/health`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 60_000,
       env: {
         PORT: String(backendPort),
@@ -102,7 +103,7 @@ export default defineConfig({
     {
       command: `npx vite --host 127.0.0.1 --port ${frontendPort} --strictPort`,
       url: `http://127.0.0.1:${frontendPort}`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 60_000,
       env: { VITE_API_BASE_URL: `http://127.0.0.1:${backendPort}` },
     },

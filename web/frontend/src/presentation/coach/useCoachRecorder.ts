@@ -77,13 +77,41 @@ export function useCoachRecorder(options: {
   const timer = useRef<number | undefined>(undefined);
   const epoch = useRef(0);
   const starting = useRef(false);
+  const onError = useRef(options.onError);
+  onError.current = options.onError;
 
   const releaseLease = useCallback(() => {
     lease.current?.release();
     lease.current = null;
   }, []);
 
-  const stop = useCallback(() => { if (recorder.current?.state === "recording") recorder.current.stop(); }, []);
+  // Invalidate callbacks before stopping hardware: an error can be followed by
+  // dataavailable/onstop with a partial recording, and stop itself may throw.
+  const discard = useCallback((message?: string) => {
+    epoch.current += 1;
+    starting.current = false;
+    if (timer.current !== undefined) window.clearTimeout(timer.current);
+    timer.current = undefined;
+    const currentRecorder = recorder.current;
+    const currentStream = stream.current;
+    recorder.current = null;
+    stream.current = null;
+    if (currentRecorder) {
+      currentRecorder.onstop = null;
+      currentRecorder.ondataavailable = null;
+      currentRecorder.onerror = null;
+      try { if (currentRecorder.state === "recording") currentRecorder.stop(); } catch { /* discard still releases hardware/lease */ }
+    }
+    currentStream?.getTracks().forEach(track => track.stop());
+    releaseLease();
+    setRecording(false);
+    if (message) onError.current(message);
+  }, [releaseLease]);
+
+  const stop = useCallback(() => {
+    try { if (recorder.current?.state === "recording") recorder.current.stop(); }
+    catch { discard("录音没有保存成功，请再试一次或改用文字输入。"); }
+  }, [discard]);
   const toggle = useCallback(async () => {
     if (recorder.current?.state === "recording") { stop(); return; }
     if (starting.current || recorder.current) return;
@@ -91,7 +119,7 @@ export function useCoachRecorder(options: {
       options.onError("这个浏览器暂不支持录音，请先用文字提问。"); return;
     }
     starting.current = true;
-    const attemptEpoch = epoch.current;
+    const attemptEpoch = ++epoch.current;
     const live = () => attemptEpoch === epoch.current;
     let acquiredStream: MediaStream | undefined;
     try {
@@ -125,14 +153,22 @@ export function useCoachRecorder(options: {
         mediaStream.getTracks().forEach((track) => track.stop());
         return;
       }
+      stream.current = mediaStream;
       const mimeType = recordingMimeType();
       const mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
-      recorder.current = mediaRecorder; stream.current = mediaStream;
+      recorder.current = mediaRecorder;
       const chunks: Blob[] = [];
       const startedAt = Date.now();
-      mediaRecorder.ondataavailable = (event) => { if (live() && event.data.size) chunks.push(event.data); };
+      let settled = false;
+      mediaRecorder.ondataavailable = (event) => { if (live() && !settled && event.data.size) chunks.push(event.data); };
+      mediaRecorder.onerror = () => {
+        if (!live() || settled) return;
+        settled = true;
+        discard("录音过程中发生错误，请再试一次或改用文字输入。");
+      };
       mediaRecorder.onstop = () => {
-        if (!live()) return;
+        if (!live() || settled) return;
+        settled = true;
         const durationMs = Date.now() - startedAt;
         if (timer.current !== undefined) window.clearTimeout(timer.current);
         timer.current = undefined; setRecording(false); mediaStream.getTracks().forEach((track) => track.stop());
@@ -143,49 +179,36 @@ export function useCoachRecorder(options: {
         starting.current = true;
         const containerType = mediaRecorder.mimeType || "audio/webm";
         const blob = new Blob(chunks, { type: containerType });
+        if (blob.size === 0) {
+          discard("没有录到有效音频，请再试一次或改用文字输入。");
+          return;
+        }
         void blobDataUrl(blob)
           .then((dataUrl) => { if (live()) options.onAudio({ dataUrl, durationMs, mimeType: containerType }); })
           .catch(() => { if (live()) options.onError("录音没有保存成功，请再试一次。"); })
           .finally(() => { if (live()) starting.current = false; });
       };
-      mediaRecorder.start(250); setRecording(true);
+      mediaRecorder.start(250);
+      if (!live()) return;
+      setRecording(true);
       // F7 Step 8：录音真正开始——先锁定通道/捕获快照，再按互斥停掉当前
       // narration 播放（共享同一媒体 session；停止引发的 interrupted outcome
       // 由 Step 6 PresentationRuntime 链如实上报）。
       options.onRecordingStart?.();
       if (options.interruptPlaybackOnStart) options.media?.stop("narration");
-      timer.current = window.setTimeout(stop, MAX_RECORDING_MS);
+      timer.current = window.setTimeout(() => { if (live()) stop(); }, MAX_RECORDING_MS);
     } catch (failure) {
       // Permission denied / device error: release the lease so the mic is free
       // and surface a user-facing message without throwing into the training path.
-      acquiredStream?.getTracks().forEach((track) => track.stop());
       if (!live()) return;
-      if (recorder.current) {
-        recorder.current.onstop = null;
-        recorder.current.ondataavailable = null;
-        stop();
-      }
-      recorder.current = null;
-      stream.current = null;
-      setRecording(false);
-      releaseLease();
-      options.onError(recorderStartErrorMessage(failure));
+      discard(acquiredStream
+        ? "录音无法启动，请再试一次或改用文字输入。"
+        : recorderStartErrorMessage(failure));
     } finally {
       if (live()) starting.current = false;
     }
-  }, [options, releaseLease, stop]);
+  }, [options, releaseLease, stop, discard]);
 
-  useEffect(() => () => {
-    // Invalidate permission and FileReader continuations before releasing hardware.
-    epoch.current += 1;
-    starting.current = false;
-    if (timer.current !== undefined) window.clearTimeout(timer.current);
-    if (recorder.current) recorder.current.onstop = null;
-    stop(); stream.current?.getTracks().forEach((track) => track.stop());
-    recorder.current = null;
-    stream.current = null;
-    timer.current = undefined;
-    releaseLease();
-  }, [stop, releaseLease]);
+  useEffect(() => () => { discard(); }, [discard]);
   return { recording, toggle, stop };
 }

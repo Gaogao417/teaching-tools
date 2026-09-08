@@ -1,3 +1,5 @@
+import { tutorPlanBundleV8Schema, workspaceRuntimeStateV3Schema, studentWorkspaceViewV3Schema, tutorRuntimeStateV5Schema, presentationPlanV5Schema, presentationDeliveryV2Schema, presentationOutcomeV2Schema, studentInputV2Schema, tutorSessionEventV10Schema, geometryVisualCommandSchema, visualBarrierViewSchema } from './visualSchemas';
+export * from './visualSchemas';
 /**
  * ai_teaching canonical contracts 的 TypeScript validation adapter（P1-05）。
  *
@@ -79,6 +81,18 @@ export * from "./artifactUri";
 export * from "./publication";
 
 const SCHEMA_CONST_TO_ZOD: Record<string, z.ZodTypeAny> = {
+  "ai_teaching_tutor_plan_bundle/v8": tutorPlanBundleV8Schema,
+  "ai_teaching_workspace_runtime_state/v3": workspaceRuntimeStateV3Schema,
+  "ai_teaching_student_workspace_view/v3": studentWorkspaceViewV3Schema,
+  "ai_teaching_tutor_runtime_state/v5": tutorRuntimeStateV5Schema,
+  "ai_teaching_presentation_plan/v5": presentationPlanV5Schema,
+  "ai_teaching_presentation_delivery/v2": presentationDeliveryV2Schema,
+  "ai_teaching_presentation_outcome/v2": presentationOutcomeV2Schema,
+  "ai_teaching_student_input/v2": studentInputV2Schema,
+  "ai_teaching_tutor_session_event/v10": tutorSessionEventV10Schema,
+  "ai_teaching_geometry_visual_command/v1": geometryVisualCommandSchema,
+  "ai_teaching_visual_barrier_view/v1": visualBarrierViewSchema,
+
   "ai_teaching_tutor_plan_bundle/v7": tutorPlanBundleV7Schema,
   "ai_teaching_tutor_runtime_state/v4": tutorRuntimeStateV4Schema,
   "ai_teaching_presentation_plan/v4": presentationPlanV4Schema,

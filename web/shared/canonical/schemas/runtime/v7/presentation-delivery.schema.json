@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ai-teaching.dev/runtime/v7/presentation-delivery.schema.json",
+  "title": "ai_teaching_presentation_delivery/v2",
+  "description": "Geometry visual lifecycle; historical readers remain unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "session_id",
+    "sequence_id",
+    "ordinal",
+    "action_id",
+    "action",
+    "session_revision",
+    "execution_owner"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ai_teaching_presentation_delivery/v2"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^TS-[0-9]{4,}$"
+    },
+    "sequence_id": {
+      "type": "string",
+      "pattern": "^PS-[0-9]{4,}$"
+    },
+    "ordinal": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "本 action 在 presentation-plan/v2 actions[] 中的下标。"
+    },
+    "action_id": {
+      "type": "string",
+      "pattern": "^(VA|WSA)-[A-Za-z0-9._:-]{4,}$",
+      "description": "被交付 action 的 id；必须等于 action.voice_action.action_id 或 action.workspace_action.action_id（JSON Schema draft 2020-12 无法表达跨属性相等，由 TS/Python canonical mirror 强制）；outcome 回报必须与同一三元组匹配（服务端 cursor 对账，孤儿/越序 fail closed——Step 2 服务端义务）。"
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "voice",
+            "workspace"
+          ]
+        },
+        "voice_action": {
+          "$ref": "#/$defs/voice_action_body"
+        },
+        "workspace_action": {
+          "$ref": "#/$defs/workspace_action_body"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "voice"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "voice_action"
+            ],
+            "not": {
+              "required": [
+                "workspace_action"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "workspace"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "workspace_action"
+            ],
+            "not": {
+              "required": [
+                "voice_action"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "判别联合（同 presentation-plan/v2 的 action 成员，ordinal 由本对象顶层承载）。"
+    },
+    "session_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "交付时的 session state revision（09-target-architecture PresentationDelivery.sessionRevision）。"
+    },
+    "workspace_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "仅 kind=workspace：该 action 经服务端 validator/reducer 应用后的 WorkspaceRuntimeState.revision（应用回执）；kind=voice 禁带。"
+    },
+    "execution_owner": {
+      "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/execution_owner"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "properties": {
+              "kind": {
+                "const": "workspace"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "required": [
+          "workspace_revision"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "workspace_revision"
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "voice_action_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "decision_id",
+        "text",
+        "source"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "pattern": "^VA-[A-Za-z0-9._:-]{4,}$"
+        },
+        "decision_id": {
+          "type": "string",
+          "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "enum": [
+            "approved-resource",
+            "model-generated",
+            "deterministic-scaffold"
+          ]
+        },
+        "resource_ref": {
+          "type": "string",
+          "pattern": "^RES[0-9]{1,3}$"
+        },
+        "generation_id": {
+          "type": "string",
+          "pattern": "^VG-[A-Za-z0-9._:-]{4,}$"
+        },
+        "interruptible": {
+          "type": "boolean"
+        },
+        "intent": {
+          "enum": [
+            "narrate",
+            "question",
+            "feedback"
+          ]
+        }
+      },
+      "description": "与 ai_teaching_voice_action/v1 的 body 同构（无外层 schema/session_id）。"
+    },
+    "workspace_action_body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "decision_id",
+        "surface",
+        "capability",
+        "origin",
+        "reveal_scope"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "pattern": "^WSA-[A-Za-z0-9._:-]{4,}$"
+        },
+        "decision_id": {
+          "type": "string",
+          "pattern": "^TD-[A-Za-z0-9._:-]{4,}$"
+        },
+        "surface": {
+          "enum": [
+            "geometry",
+            "solution_board"
+          ]
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "const": "tutor"
+        },
+        "target_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "command_payload": {
+          "type": "string"
+        },
+        "reveal_scope": {
+          "enum": [
+            "none",
+            "target_highlight",
+            "step_narration",
+            "intermediate_result",
+            "final_result"
+          ]
+        },
+        "presentation_only": {
+          "type": "boolean"
+        }
+      },
+      "description": "与 ai_teaching_workspace_surface_action/v1 的 body 同构（无外层 schema/session_id）。"
+    }
+  }
+}

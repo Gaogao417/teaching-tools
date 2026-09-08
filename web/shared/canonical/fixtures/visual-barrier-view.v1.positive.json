@@ -1,0 +1,8 @@
+{
+  "schema": "ai_teaching_visual_barrier_view/v1",
+  "execution_owner": {
+    "client_instance_id": "browser-visual-0001",
+    "epoch": 1
+  },
+  "barrier": null
+}

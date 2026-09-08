@@ -29,6 +29,10 @@ import type { V6RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV6
 import type { V7RegistryProvider } from "../tutorSession/RuntimeStateRebuilderV7";
 import type { WorkspacePresentationCatalogV5 } from "../tutorSession/WorkspacePresentationCatalogV5";
 
+import { createVisualRegistryProvider } from "../tutorSession/VisualViewProjector";
+import { importVisualBindings } from "../planBuild/visual/ImportVisualBindings";
+import { visualAuthorityAt } from "../tutorSession/VisualBindingAuthority";
+
 export type TutorTaskBindingErrorCode =
   | "UNKNOWN_TASK"
   | "PLAN_IMPORT_FAILED"
@@ -55,6 +59,7 @@ export interface TutorTaskBinding {
   readonly tpId: string;
   readonly scenarioId: string;
   readonly imported: ImportedApprovedPlanV5;
+  readonly reviewContext?: "draft-local-review";
   readonly plan: NavigatorPlanV5;
   readonly golden: GoldenWorkspaceCatalog;
   readonly registry: SessionPinnedCapabilityRegistry;
@@ -117,6 +122,7 @@ function resolveBinding(canonicalRoot: string, taskId: string, importer: typeof 
     tpId: entry.tpId,
     scenarioId: entry.scenarioId,
     imported: imported.imported,
+    ...((imported as {reviewContext?:unknown}).reviewContext === "draft-local-review" ? {reviewContext: "draft-local-review" as const} : {}),
     plan,
     golden,
     registry,
@@ -201,6 +207,19 @@ export class TutorTaskBindingResolver {
    *   （{...golden.catalog, initialInteractionMode:"locked"}——V5 语义镜像：
    *   locked 交互、教学工具禁用，但仍收集独立作答）。任一不符 fail closed。
    */
+  readonly v10RegistryProvider = createVisualRegistryProvider(
+    payload => this.v7RegistryProvider(payload),
+    payload => {
+      const binding = this.resolveForRestore(String(payload.task_id), payload);
+      const workspaceCatalog = payload.session_mode === "assessment" ? assessmentCatalogVariant(binding) : binding.golden.catalog;
+      const visual = importVisualBindings({plan: binding.imported.plan, imported: binding.imported, workspaceCatalog,
+        ...(binding.reviewContext ? {reviewContext: binding.reviewContext} : {})});
+      return {catalog: visual.catalog, catalogHash: workspaceCatalogPin(workspaceCatalog).content_hash,
+        workspaceCatalog, imported: binding.imported,
+        authorityAt: events => visualAuthorityAt(events, binding.imported)};
+    },
+  );
+
   readonly v7RegistryProvider: V7RegistryProvider = (sessionStartedPayload): SessionPinnedCapabilityRegistry => {
     const taskId = sessionStartedPayload.task_id;
     if (typeof taskId !== "string" || taskId === "") {

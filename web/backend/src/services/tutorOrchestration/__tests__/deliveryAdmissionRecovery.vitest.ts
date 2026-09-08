@@ -135,7 +135,8 @@ describe('delivery admission and missing generation recovery',()=>{
    const event=before.find(e=>e.event_type==='presentation_action_outcome_recorded')!;
    expect(status.last_failure).toMatchObject({category:'presentation_action_failure',event_type:event.event_type,sequence:event.sequence,failure_class:'provider_failure',message:'voice playback ended in media error'});
    await restored.submitStudentInput({input:{kind:'control',command:'retry_recovery'},client_request_id:'failed-delivery-recover'});
-   expect(restored.hasPendingGeneration()).toBe(true);
+   expect(restored.hasPendingGeneration()).toBe(false);
+   expect(restored.rebuildRuntimeState().presentation_cursor.status).toBe("awaiting_browser");
   } else expect(status.last_failure).toBeUndefined();
  });
  it('completed retry_recovery replays as a read while its new delivery awaits the browser',async()=>{
@@ -146,14 +147,15 @@ describe('delivery admission and missing generation recovery',()=>{
   await f.app().restore(f.session.sessionId).submitStudentInput(request,{expectedRevision:0});
   expect(f.app().restore(f.session.sessionId).events).toEqual(before);
  });
- it('retry_recovery resumes a crash after superseding the failed sequence without another supersede or decision',async()=>{
+ it('retry_recovery resumes before the atomic recovery plan without another decision or generation',async()=>{
   const f=setup();await f.session.drivePendingGeneration();settle(f.session,'failed');
   const request={input:{kind:'control' as const,command:'retry_recovery' as const},client_request_id:'recovery-reserve-crash'};
-  const fault=vi.spyOn(f.session,'presentCurrentBeat').mockImplementationOnce(()=>{throw Error('after supersede');});
-  await expect(f.session.submitStudentInput(request)).rejects.toThrow('after supersede');fault.mockRestore();
-  const before=f.session.events;expect(before.at(-1)?.event_type).toBe('presentation_sequence_superseded');
+  const fault=vi.spyOn(f.session as any,'recoverCommittedPresentation').mockImplementationOnce(()=>{throw Error('before atomic recovery');});
+  await expect(f.session.submitStudentInput(request)).rejects.toThrow('before atomic recovery');fault.mockRestore();
+  const before=f.session.events;expect(before.at(-1)?.event_type).toBe('student_input_recorded');
+  expect(f.session.rebuildRuntimeState().presentation_cursor.status).toBe('failed');
   const restored=f.app().restore(f.session.sessionId);await restored.submitStudentInput(request,{expectedRevision:0});
-  expect(restored.events.slice(before.length).map(e=>e.event_type)).toEqual(['presentation_generation_requested']);
+  expect(restored.events.slice(before.length).map(e=>e.event_type)).toEqual(['presentation_sequence_superseded','presentation_sequence_planned','presentation_action_validated','presentation_action_delivered']);
  });
  it('a retry that originally resumed pending generation cannot later recycle its failed budget',async()=>{
   const f=setup();const request={input:{kind:'control' as const,command:'retry_recovery' as const},client_request_id:'resume-pending-budget'};

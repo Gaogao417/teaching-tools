@@ -1,0 +1,1234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json",
+  "title": "GeometryVisualCommand v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "op",
+        "annotation_id",
+        "semantic_key",
+        "expected_version",
+        "binding_ref",
+        "form",
+        "role_key",
+        "resolved_targets",
+        "owner",
+        "lifetime"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ai_teaching_geometry_visual_command/v1"
+        },
+        "op": {
+          "const": "upsert"
+        },
+        "annotation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "semantic_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "binding_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "form": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/form"
+        },
+        "role_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolved_targets": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/targets"
+        },
+        "owner": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/owner"
+        },
+        "lifetime": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/lifetime"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "op",
+        "group_id",
+        "owner",
+        "binding_ref",
+        "mode",
+        "resolved_targets"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ai_teaching_geometry_visual_command/v1"
+        },
+        "op": {
+          "const": "focus"
+        },
+        "group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/owner"
+        },
+        "binding_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pair_index": {
+          "enum": [
+            0,
+            1,
+            2
+          ]
+        },
+        "mode": {
+          "enum": [
+            "steady",
+            "pulse"
+          ]
+        },
+        "resolved_targets": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/targets"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "op",
+        "group_id",
+        "owner"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ai_teaching_geometry_visual_command/v1"
+        },
+        "op": {
+          "const": "close-group"
+        },
+        "group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/owner"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "op",
+        "barrier_id",
+        "target_visual_revision",
+        "target_digest"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ai_teaching_geometry_visual_command/v1"
+        },
+        "op": {
+          "const": "reconcile"
+        },
+        "barrier_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_visual_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "action_key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "sequence_id",
+        "ordinal",
+        "action_id"
+      ],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "execution_owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client_instance_id",
+        "epoch"
+      ],
+      "properties": {
+        "client_instance_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "protocol_id",
+            "beat_id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "approved"
+            },
+            "protocol_id": {
+              "type": "string",
+              "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+            },
+            "beat_id": {
+              "type": "string",
+              "pattern": "^BT-[0-9]{1,3}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "inquiry_id",
+            "local_protocol_id",
+            "local_beat_id",
+            "anchor"
+          ],
+          "properties": {
+            "kind": {
+              "const": "local"
+            },
+            "inquiry_id": {
+              "type": "string",
+              "pattern": "^IQ-[A-Za-z0-9._:-]{4,}$"
+            },
+            "local_protocol_id": {
+              "type": "string",
+              "pattern": "^LPR-[A-Za-z0-9._:-]{4,}$"
+            },
+            "local_beat_id": {
+              "type": "string",
+              "pattern": "^LBT-[0-9]{1,3}$"
+            },
+            "anchor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "protocol_id",
+                "beat_id"
+              ],
+              "properties": {
+                "protocol_id": {
+                  "type": "string",
+                  "pattern": "^PR-[A-Z0-9]+-[0-9]{3,}$"
+                },
+                "beat_id": {
+                  "type": "string",
+                  "pattern": "^BT-[0-9]{1,3}$"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "TeachingScopeRef（与 state/v3、runtime/v8 同构）。"
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "scope_epoch",
+        "part_ref"
+      ],
+      "properties": {
+        "scope": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/scope"
+        },
+        "scope_epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "part_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "group_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "angle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vertex",
+        "ray_points",
+        "sector"
+      ],
+      "properties": {
+        "vertex": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ray_points": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "sector": {
+          "const": "minor"
+        }
+      }
+    },
+    "relation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "angles"
+          ],
+          "properties": {
+            "type": {
+              "const": "angle-equality"
+            },
+            "angles": {
+              "type": "array",
+              "items": {
+                "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/angle"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "left",
+            "right",
+            "proof_angle_bindings"
+          ],
+          "properties": {
+            "type": {
+              "const": "similarity"
+            },
+            "left": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "uniqueItems": true
+            },
+            "right": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "uniqueItems": true
+            },
+            "proof_angle_bindings": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "segment",
+            "expression_ref"
+          ],
+          "properties": {
+            "type": {
+              "const": "segment-measure"
+            },
+            "segment": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expression_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "numerator",
+            "denominator",
+            "expression_ref"
+          ],
+          "properties": {
+            "type": {
+              "const": "directed-ratio"
+            },
+            "numerator": {
+              "type": "string",
+              "minLength": 1
+            },
+            "denominator": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expression_ref": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "form": {
+      "enum": [
+        "angle-arcs",
+        "paired-sides",
+        "triangle-outline",
+        "length-label",
+        "ratio-label"
+      ]
+    },
+    "lifetime": {
+      "enum": [
+        "explanation-group",
+        "teaching-scope",
+        "problem-part"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "binding_kind",
+        "purpose",
+        "relation",
+        "basis_refs",
+        "allowed_scopes",
+        "reveal_scope",
+        "required_constructions",
+        "allowed_forms",
+        "max_lifetime"
+      ],
+      "properties": {
+        "binding_id": {
+          "type": "string",
+          "pattern": "^VB-[0-9]{1,3}$"
+        },
+        "binding_kind": {
+          "const": "geometry_visual"
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "relation": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/relation"
+        },
+        "basis_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "allowed_scopes": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/scope"
+          },
+          "minItems": 1
+        },
+        "reveal_scope": {
+          "enum": [
+            "target_highlight",
+            "intermediate_result",
+            "final_result"
+          ]
+        },
+        "required_constructions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "allowed_forms": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/form"
+          },
+          "minItems": 1
+        },
+        "max_lifetime": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/lifetime"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "properties": {
+                  "type": {
+                    "const": "angle-equality"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "allowed_forms": {
+                "items": {
+                  "enum": [
+                    "angle-arcs"
+                  ]
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "properties": {
+                  "type": {
+                    "const": "similarity"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "allowed_forms": {
+                "items": {
+                  "enum": [
+                    "paired-sides",
+                    "triangle-outline"
+                  ]
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "properties": {
+                  "type": {
+                    "const": "segment-measure"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "allowed_forms": {
+                "items": {
+                  "enum": [
+                    "length-label"
+                  ]
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "properties": {
+                  "type": {
+                    "const": "directed-ratio"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "allowed_forms": {
+                "items": {
+                  "enum": [
+                    "ratio-label"
+                  ]
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "binding_ref",
+        "forms",
+        "required_pair_indices",
+        "trigger"
+      ],
+      "properties": {
+        "scope": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/scope"
+        },
+        "binding_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "forms": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/form"
+          },
+          "minItems": 1
+        },
+        "required_pair_indices": {
+          "type": "array",
+          "items": {
+            "enum": [
+              0,
+              1,
+              2
+            ]
+          },
+          "minItems": 0
+        },
+        "trigger": {
+          "enum": [
+            "introduce",
+            "use-in-reasoning",
+            "clarify-reference"
+          ]
+        }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity_ids"
+      ],
+      "properties": {
+        "entity_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "angles": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/angle"
+          },
+          "minItems": 0
+        },
+        "triangles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "left",
+            "right"
+          ],
+          "properties": {
+            "left": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "uniqueItems": true
+            },
+            "right": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "uniqueItems": true
+            }
+          }
+        },
+        "paired_sides": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "endpoints"
+            ],
+            "properties": {
+              "endpoints": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "uniqueItems": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lease_id",
+        "owner",
+        "lifetime",
+        "status",
+        "version",
+        "introduced_by",
+        "last_changed_by"
+      ],
+      "properties": {
+        "lease_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/owner"
+        },
+        "lifetime": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/lifetime"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "suspended",
+            "retired"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "introduced_by": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/action_key"
+        },
+        "last_changed_by": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/action_key"
+        }
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotation_id",
+        "semantic_key",
+        "binding_ref",
+        "form",
+        "role_key",
+        "resolved_targets",
+        "version",
+        "leases",
+        "introduced_by",
+        "last_changed_by"
+      ],
+      "properties": {
+        "annotation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "semantic_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binding_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "form": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/form"
+        },
+        "role_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolved_targets": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/targets"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "leases": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/lease"
+          },
+          "minItems": 1
+        },
+        "introduced_by": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/action_key"
+        },
+        "last_changed_by": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/action_key"
+        }
+      }
+    },
+    "focus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_ref",
+        "mode",
+        "resolved_targets"
+      ],
+      "properties": {
+        "binding_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pair_index": {
+          "enum": [
+            0,
+            1,
+            2
+          ]
+        },
+        "mode": {
+          "enum": [
+            "steady",
+            "pulse"
+          ]
+        },
+        "resolved_targets": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/targets"
+        }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_id",
+        "owner",
+        "status",
+        "focus",
+        "opened_by"
+      ],
+      "properties": {
+        "group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/owner"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "closed"
+          ]
+        },
+        "focus": {
+          "anyOf": [
+            {
+              "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/focus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "opened_by": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/action_key"
+        },
+        "closed_by": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/action_key"
+        }
+      }
+    },
+    "visual_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "visual_revision",
+        "annotations",
+        "groups",
+        "active_group_id"
+      ],
+      "properties": {
+        "visual_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/annotation"
+          },
+          "minItems": 0
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/group"
+          },
+          "minItems": 0
+        },
+        "active_group_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "annotation_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotation_id",
+        "binding_ref",
+        "form",
+        "role_key",
+        "resolved_targets",
+        "version",
+        "owner_keys"
+      ],
+      "properties": {
+        "annotation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binding_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "form": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/form"
+        },
+        "role_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolved_targets": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/targets"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "owner_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "focus_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_id",
+        "binding_ref",
+        "mode",
+        "resolved_targets",
+        "owner_key"
+      ],
+      "properties": {
+        "group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binding_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pair_index": {
+          "enum": [
+            0,
+            1,
+            2
+          ]
+        },
+        "mode": {
+          "enum": [
+            "steady",
+            "pulse"
+          ]
+        },
+        "resolved_targets": {
+          "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/targets"
+        },
+        "owner_key": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "visual_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "visual_revision",
+        "annotations",
+        "focus",
+        "digest"
+      ],
+      "properties": {
+        "visual_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/annotation_view"
+          },
+          "minItems": 0
+        },
+        "focus": {
+          "anyOf": [
+            {
+              "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/focus_view"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "barrier": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "barrier_id",
+            "cause",
+            "execution_owner",
+            "control_request_id",
+            "status"
+          ],
+          "properties": {
+            "barrier_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cause": {
+              "enum": [
+                "barge-in",
+                "scope-transition",
+                "completion",
+                "recovery",
+                "claim"
+              ]
+            },
+            "execution_owner": {
+              "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/execution_owner"
+            },
+            "control_request_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "supersedes_barrier_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "const": "awaiting-control"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "barrier_id",
+            "cause",
+            "execution_owner",
+            "status",
+            "cleanup_sequence_id",
+            "target_event_sequence",
+            "catalog_hash",
+            "target_visual_revision",
+            "target_digest"
+          ],
+          "properties": {
+            "barrier_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "cause": {
+              "enum": [
+                "barge-in",
+                "scope-transition",
+                "completion",
+                "recovery",
+                "claim"
+              ]
+            },
+            "execution_owner": {
+              "$ref": "https://contracts.ai-teaching.dev/runtime/v10/geometry-visual-command.schema.json#/$defs/execution_owner"
+            },
+            "control_request_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "supersedes_barrier_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "enum": [
+                "awaiting-cleanup",
+                "failed"
+              ]
+            },
+            "cleanup_sequence_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "target_event_sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "catalog_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "target_visual_revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "target_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "description": "Strict visual commands. Mirrors additionally enforce distinct vertex/ray points, unique state identities, matching active group, lease identity uniqueness, and plan requirement references. Catalog/compiler enforce authorized relationship, resolved target and lifetime; a parsed command alone is not execution authority."
+}

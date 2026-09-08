@@ -26,6 +26,8 @@
  * 保持连续。
  */
 import type { z } from "zod";
+import { isDeepStrictEqual } from "node:util";
+import { explanationFragmentContentHash } from "./WorkspaceExplanationFragmentsV5";
 
 import { tutorRuntimeStateV4Schema } from "../../../../shared/canonical";
 import { applyV7Event, initialStateFromSessionStartedV7, adoptV7Lineage, type TutorRuntimeStateV7, type V7FoldContext } from "./TutorRuntimeStateReducerV7";
@@ -35,6 +37,62 @@ import {
   type V9GenerationEventPayload,
   type V9PresentationSequencePlannedPayload,
 } from "./TutorSessionEventV9";
+
+/** Ephemeral integrity index, reconstructed only from the authoritative event stream. */
+interface RecoveryLineage {
+  plans: ReadonlyMap<string,V9PresentationSequencePlannedPayload>;
+  events: readonly StoredV9Event[];
+  previous?: StoredV9Event;
+  failedBeforePrevious?: TutorRuntimeStateV9["presentation_cursor"];
+}
+const recoveryLineage = new WeakMap<object, RecoveryLineage>();
+function verifiedRecoveryReference(state:TutorRuntimeStateV9,event:StoredV9Event,payload:V9PresentationSequencePlannedPayload):boolean {
+  const index=recoveryLineage.get(state), previous=index?.previous;
+  if (!payload.generation || recordOf(state,payload.generation.request_id)?.status !== "committed") return false;
+  const fail=():never=>{throw new RuntimeStateReducerV9Error("GENERATION_REQUEST_STATE_INVALID","recovery delivery must be an exact committed suffix with same-transaction failed retry causation",event.sequence);};
+  if (event.schema !== "ai_teaching_tutor_session_event/v9") return fail();
+  const superseded=previous?.payload as {sequence_id?:string;reason?:string;pending_ordinal?:number;pending_action_id?:string}|undefined;
+  const cursor=index?.failedBeforePrevious;
+  const cause=index?.events.find(e=>e.sequence===previous?.causation_sequence);
+  const failure=cause?.payload as {sequence_id?:string;ordinal?:number;action_id?:string;outcome?:string;failure_class?:string;related_event_sequence?:number}|undefined;
+  const sourceEvent=index?.events.find(e=>e.sequence===failure?.related_event_sequence && e.event_type==="presentation_sequence_planned");
+  const sourcePayload=sourceEvent?.payload as unknown as V9PresentationSequencePlannedPayload|undefined;
+  const presented=new Set(index?.events.filter(e=>e.event_type==="presentation_action_outcome_recorded"
+    && (e.payload as {sequence_id?:string}).sequence_id===superseded?.sequence_id && (e.payload as {outcome?:string}).outcome==="presented")
+    .map(e=>(e.payload as {ordinal:number}).ordinal));
+  const next=sourcePayload?.actions.find(a=>!presented.has(a.ordinal));
+  const browserFailure=cursor?.status==="failed" && cause?.event_type==="presentation_action_outcome_recorded" && failure?.outcome==="failed"
+    && failure.sequence_id===cursor.sequence_id && failure.ordinal===cursor.ordinal && failure.action_id===cursor.action_id;
+  const systemFailure=cursor?.status==="idle" && cause?.event_type==="runtime_failure" && failure?.failure_class==="internal_error"
+    && sourcePayload?.sequence_id===superseded?.sequence_id && next?.ordinal===superseded?.pending_ordinal
+    && (next?.voice_action??next?.workspace_action)?.action_id===superseded?.pending_action_id
+    && !index?.events.some(e=>e.sequence>cause.sequence && e.event_type==="presentation_action_delivered" && (e.payload as {sequence_id:string}).sequence_id===sourcePayload?.sequence_id);
+  if(previous?.event_type!=="presentation_sequence_superseded" || previous.state_revision!==event.state_revision
+    || event.causation_sequence!==previous.sequence || superseded?.reason!=="retry_recovery" || (!browserFailure&&!systemFailure)) return fail();
+  const failed={sequence_id:superseded.sequence_id!,ordinal:superseded.pending_ordinal!,action_id:superseded.pending_action_id!};
+  if(browserFailure && cursor && (failed.sequence_id!==cursor.sequence_id || failed.ordinal!==cursor.ordinal || failed.action_id!==cursor.action_id))return fail();
+  const source=index!.plans.get(failed.sequence_id);
+  if(!source || !isDeepStrictEqual(source.generation,payload.generation) || source.decision_id!==payload.decision_id
+    || !isDeepStrictEqual(source.scope,payload.scope) || payload.explanation_fragments?.length) return fail();
+  const normalize=(action:V9PresentationSequencePlannedPayload["actions"][number])=>{
+    const {ordinal:_ordinal,...body}=action;
+    const clean=(value:Record<string,unknown>)=>{const {action_id:_id,...content}=value;return content;};
+    return {...body,...(body.voice_action?{voice_action:clean(body.voice_action)}:{}),...(body.workspace_action?{workspace_action:clean(body.workspace_action)}:{})};
+  };
+  const suffix=source.actions.slice(failed.ordinal);
+  if(!isDeepStrictEqual(suffix.map(normalize),payload.actions.map(normalize))) return fail();
+  const oldIds=new Set([...index!.plans.values()].flatMap(p=>p.actions.map(a=>(a.voice_action??a.workspace_action)!.action_id)));
+  if(payload.actions.some(a=>oldIds.has((a.voice_action??a.workspace_action)!.action_id))) return fail();
+  const used=new Set(suffix.flatMap(a=>a.workspace_action?.capability==="board.explain"?[String(a.workspace_action.command_payload)]:[]));
+  const refs=[...used].map(fragment_id=>{
+    const origin=[...index!.plans.values()].find(p=>p.explanation_fragments?.some(f=>f.fragment_id===fragment_id));
+    const fragment=origin?.explanation_fragments?.find(f=>f.fragment_id===fragment_id);
+    if(!origin||!fragment)return fail();
+    return {fragment_id,source_sequence_id:origin.sequence_id,content_hash:explanationFragmentContentHash(fragment)};
+  });
+  if(!isDeepStrictEqual(refs,payload.existing_fragment_refs??[])) return fail();
+  return true;
+}
 
 /** state/v4 TutorRuntimeState（canonical Zod 推导类型，唯一形状）。 */
 export type TutorRuntimeStateV9 = z.infer<typeof tutorRuntimeStateV4Schema>;
@@ -296,6 +354,13 @@ function settleGenerationOnPlanned(state: TutorRuntimeStateV9, event: StoredV9Ev
 /** 单事件归约（纯函数）。事件须已过 canonical v9 判定。 */
 export function applyV9Event(state: TutorRuntimeStateV9, event: StoredV9Event, context: V9FoldContext): TutorRuntimeStateV9 {
   const eventType = event.event_type;
+  const prior=recoveryLineage.get(state)??{plans:new Map(),events:[]};
+  const track=(next:TutorRuntimeStateV9):TutorRuntimeStateV9=>{
+    const plans=new Map(prior.plans);
+    if(eventType==="presentation_sequence_planned") {const p=event.payload as unknown as V9PresentationSequencePlannedPayload;plans.set(p.sequence_id,p);}
+    recoveryLineage.set(next,{plans,events:[...prior.events,event],previous:event,failedBeforePrevious:state.presentation_cursor});
+    return next;
+  };
   if (
     eventType === "presentation_generation_requested"
     || eventType === "presentation_generation_attempt_started"
@@ -303,15 +368,16 @@ export function applyV9Event(state: TutorRuntimeStateV9, event: StoredV9Event, c
     || eventType === "presentation_generation_failed"
     || eventType === "presentation_generation_invalidated"
   ) {
-    return applyGenerationEventV9(state, event);
+    return track(applyGenerationEventV9(state, event));
   }
   // 共享事件：委托 V7 fold（lineage/capability/交付门禁同链）。cloneState 的
   // spread 保留 v4 增量字段；随后按 v9 语义收口 planned 的生成态。
+  const recovery=eventType === "presentation_sequence_planned" && verifiedRecoveryReference(state,event,event.payload as unknown as V9PresentationSequencePlannedPayload);
   const folded = applyV7Event(state as unknown as TutorRuntimeStateV7, event as never, context) as unknown as TutorRuntimeStateV9;
   if (eventType === "presentation_sequence_planned") {
-    return settleGenerationOnPlanned(folded, event, event.payload as unknown as V9PresentationSequencePlannedPayload);
+    return track(recovery ? folded : settleGenerationOnPlanned(folded, event, event.payload as unknown as V9PresentationSequencePlannedPayload));
   }
-  return folded;
+  return track(folded);
 }
 
 /** 全量折叠（session_started 起步 + 逐事件归约；在线预折叠与重建共用）。 */

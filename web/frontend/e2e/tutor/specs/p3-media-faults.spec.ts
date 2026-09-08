@@ -114,12 +114,33 @@ async function waitForCall(calls: CanonicalCall[], kind: CanonicalCall["kind"], 
   throw new Error(`canonical call ${kind} 未在 ${timeout}ms 内出现`);
 }
 
+/** Observe native output before ASR fault injection; never manufacture audio. */
+async function observeNativeRecorder(page: Page): Promise<void> {
+  // Observe native recorder output; an immediate stop can produce an empty Blob,
+  // which must not reach ASR. Do not synthesize dataavailable or fixture chunks.
+  await page.evaluate(() => {
+    const telemetry = { bytes: 0 };
+    Object.assign(window, { __mediaFaultRecording: telemetry });
+    window.MediaRecorder = new Proxy(window.MediaRecorder, { construct(target, args) {
+      const recorder = Reflect.construct(target, args) as MediaRecorder;
+      recorder.addEventListener("dataavailable", event => { telemetry.bytes += event.data.size; });
+      return recorder;
+    } });
+  });
+}
+
+async function waitForNativeRecorderData(page: Page): Promise<void> {
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __mediaFaultRecording: { bytes: number } }).__mediaFaultRecording.bytes)).toBeGreaterThan(0);
+}
+
 /** 录音并停止（fake media device 提供真实音频轨），返回录音激活期。 */
 async function recordAndStop(page: Page): Promise<void> {
+  await observeNativeRecorder(page);
   const mic = page.locator("button[aria-label='语音提问']");
   await expect(mic).toBeVisible();
   await mic.click();
   await expect(page.locator("button[aria-label='结束录音']")).toBeVisible({ timeout: 15_000 });
+  await waitForNativeRecorderData(page);
   await page.locator("button[aria-label='结束录音']").click();
 }
 
@@ -204,6 +225,7 @@ test.describe("F7 P3 媒体故障 L3：模拟麦克风 + 故障注入", () => {
     await openCanonicalTask(page, "?acceptance=1");
     await waitForParticipation(page);
     // 确认拍静息（开场讲解已 presented，无活跃可中断交付）——录音门直接放行。
+    await observeNativeRecorder(page);
     const mic = page.locator("button[aria-label='语音提问']");
     await mic.click();
     await expect(page.locator("button[aria-label='结束录音']")).toBeVisible({ timeout: 20_000 });
@@ -225,6 +247,7 @@ test.describe("F7 P3 媒体故障 L3：模拟麦克风 + 故障注入", () => {
         body: JSON.stringify({ session_id: snapshot!.session_id, observed_revision: capturedRevision, transcript: "为什么这一步是相似的？", model: "e2e-fake-asr" }),
       });
     });
+    await waitForNativeRecorderData(page);
     const driftStart = Date.now();
     await page.locator("button[aria-label='结束录音']").click();
     // ASR 在途时推进 revision：确认回执（playback 完成回执的同构漂移源——

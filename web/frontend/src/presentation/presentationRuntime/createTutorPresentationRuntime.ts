@@ -22,6 +22,9 @@ import { createCapabilityRegistry } from "./capabilityRegistry";
 import { PresentationRuntimeController } from "./PresentationRuntimeController";
 import type { PendingPresentationOutcomeRequest, PresentationRuntimePhase, PresentationRuntimePorts } from "./types";
 import { createWorkspaceCommitPort, type WorkspaceCommitPort } from "./workspaceCommitPort";
+import { createGeometryVisualPresentationAdapter } from "./adapters/geometryVisualPresentationAdapter";
+import { presentationClientInstanceId } from "./PresentationExecutionOwner";
+import { visualRuntimeSnapshot } from "./visualRuntimeSnapshot";
 
 export interface TutorPresentationRuntimeDependencies {
   client: TutorRuntimeClient;
@@ -57,10 +60,29 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
   // F7 P3（FM-7-5）：geometry.emphasize（既有实体高亮）——同一 commitPort/
   // visualState 渲染链；服务端 capability 注册前不进模型可见集（B 轨前置）。
   const geometryEmphasize = createGeometryEmphasizePresentationAdapter({ commitPort });
-  const adapters = [voice, geometry, board, boardExplain, geometryEmphasize];
+  const adapters = [voice, geometry, board, boardExplain, geometryEmphasize, createGeometryVisualPresentationAdapter(commitPort)];
   const registry = createCapabilityRegistry(adapters);
 
   const ports: PresentationRuntimePorts = {
+    clientInstanceId: presentationClientInstanceId(),
+    visualSnapshotReady: snapshot => {
+      const visual = visualRuntimeSnapshot(snapshot);
+      return !visual || commitPort.visualRenderer.isReady(visual.view);
+    },
+    prepareVisualSnapshot: async (snapshot, abort) => {
+      const visual = visualRuntimeSnapshot(snapshot);
+      if (!visual) return true;
+      if (!commitPort.visualRenderer.hasSurface()) return false;
+      await commitPort.visualRenderer.render(visual.view, {
+        sessionId: snapshot.session_id, executionKey: `baseline:${snapshot.session_id}:${visual.view.visual_revision}:${visual.view.digest}`,
+        visualRevision: visual.view.visual_revision, targetDigest: visual.view.digest, operation: "installed", abort,
+      });
+      return true;
+    },
+    suppressVisualSnapshot: snapshot => {
+      const visual = visualRuntimeSnapshot(snapshot);
+      if (visual?.view.focus) commitPort.visualRenderer.suppress(visual.view.focus.owner_key);
+    },
     reportOutcome: (request: PendingPresentationOutcomeRequest) =>
       deps.client.reportPresentationOutcome(request.sessionId, request.actionId, {
         sequenceId: request.sequenceId,
@@ -70,6 +92,8 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
         ...(request.message !== undefined ? { message: request.message } : {}),
         clientRequestId: request.clientRequestId,
         expectedRevision: request.expectedRevision,
+        ...(request.executionOwner ? { executionOwner: request.executionOwner } : {}),
+        ...(request.holdForControl ? { holdForControl: request.holdForControl } : {}),
       }),
     adoptOutcomeSnapshot: (snapshot, expectedSessionId) => deps.adoptOutcomeSnapshot(snapshot, expectedSessionId),
     onProtocolAnomaly: deps.onProtocolAnomaly,

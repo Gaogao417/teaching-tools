@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     // +tutor_plan_bundle/v6、tutor_runtime_state/v3、tutor_session_event/v8、tutor_policy_decision/v2、
     // presentation_plan/v3、presentation_draft/v1、presentation_tool_spec/v1、workspace_runtime_state/v2、
     // student_workspace_view/v2。
-    assert.equal(bySchema.size, 64); // C0: +teaching_protocol/v3
+    assert.equal(bySchema.size, 75); // C0: +teaching_protocol/v3
     for (const [schemaConst, outcomes] of bySchema) {
       assert.ok(outcomes.has("valid"), `${schemaConst}: no positive fixture`);
       assert.ok(outcomes.has("invalid"), `${schemaConst}: no negative fixture`);
@@ -348,6 +348,38 @@ async function main(): Promise<void> {
       "validateForPublication",
       "validatePayload",
     ]);
+    allowed.add("visualActionKeySchema");
+    allowed.add("visualExecutionOwnerSchema");
+    allowed.add("visualScopeSchema");
+    allowed.add("visualOwnerSchema");
+    allowed.add("visualAngleSchema");
+    allowed.add("visualRelationSchema");
+    allowed.add("visualFormSchema");
+    allowed.add("visualLifetimeSchema");
+    allowed.add("visualBindingSchema");
+    allowed.add("visualRequirementSchema");
+    allowed.add("visualTargetsSchema");
+    allowed.add("visualLeaseSchema");
+    allowed.add("visualAnnotationSchema");
+    allowed.add("visualFocusSchema");
+    allowed.add("visualGroupSchema");
+    allowed.add("visualStateSchema");
+    allowed.add("visualAnnotationViewSchema");
+    allowed.add("visualFocusViewSchema");
+    allowed.add("visualViewSchema");
+    allowed.add("visualBarrierSchema");
+    allowed.add("visualBarrierViewSchema");
+    allowed.add("geometryVisualCommandSchema");
+    allowed.add("tutorPlanBundleV8Schema");
+    allowed.add("workspaceRuntimeStateV3Schema");
+    allowed.add("studentWorkspaceViewV3Schema");
+    allowed.add("tutorRuntimeStateV5Schema");
+    allowed.add("presentationPlanV5Schema");
+    allowed.add("presentationDeliveryV2Schema");
+    allowed.add("presentationOutcomeV2Schema");
+    allowed.add("studentInputV2Schema");
+    allowed.add("visualInvalidationSchema");
+    allowed.add("tutorSessionEventV10Schema");
     const exported = Object.keys(require("../../../../../shared/canonical/index") as object);
     for (const name of exported) {
       assert.ok(allowed.has(name), `未登记的公开导出: ${name}（新增需先改白名单并评审）`);

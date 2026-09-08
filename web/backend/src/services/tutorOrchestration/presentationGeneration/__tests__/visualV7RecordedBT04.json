@@ -1,0 +1,287 @@
+{
+  "schema": "ai_teaching_presentation_draft/v2",
+  "request_id": "GR-TS-178881766677401-0004",
+  "items": [
+    {
+      "type": "speech",
+      "text": "接下来我们看第二组子母型相似。先构造 AE 与 BC 的交点 O，并画出 AO、DO、BO、OE 这几段。",
+      "basis_refs": [
+        "FN-12"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.construct",
+      "args": {
+        "binding_ref": "VB-01",
+        "params": {
+          "template_id": "pt-O"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.construct",
+      "args": {
+        "binding_ref": "VB-02",
+        "params": {
+          "template_id": "seg-AO"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.construct",
+      "args": {
+        "binding_ref": "VB-03",
+        "params": {
+          "template_id": "seg-DO"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.construct",
+      "args": {
+        "binding_ref": "VB-04",
+        "params": {
+          "template_id": "seg-BO"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.construct",
+      "args": {
+        "binding_ref": "VB-05",
+        "params": {
+          "template_id": "seg-OE"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "点 O 是 AE 与 BC 的交点，点序为 B-O-D-C 与 A-O-E。",
+      "basis_refs": [
+        "FN-12"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-109",
+        "params": {
+          "form": "angle-arcs",
+          "lifetime": "teaching-scope",
+          "group": "sim2"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-110",
+        "params": {
+          "form": "angle-arcs",
+          "lifetime": "teaching-scope",
+          "group": "sim2"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "看这两个角：∠DAO 等于 ∠DBA，∠ADO 等于 ∠BDA。",
+      "basis_refs": [
+        "FN-13"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-109",
+        "params": {
+          "group": "sim2",
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-110",
+        "params": {
+          "group": "sim2",
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "两对角分别相等，按 AA 判定相似，得到 △DAO 相似于 △DBA。",
+      "basis_refs": [
+        "FN-14",
+        "IF-10"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-111",
+        "params": {
+          "form": "paired-sides",
+          "lifetime": "teaching-scope",
+          "group": "sim2"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-111",
+        "params": {
+          "group": "sim2",
+          "pair_index": 0,
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-111",
+        "params": {
+          "group": "sim2",
+          "pair_index": 1,
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.emphasize",
+      "args": {
+        "binding_ref": "VB-111",
+        "params": {
+          "group": "sim2",
+          "pair_index": 2,
+          "mode": "pulse"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "对应边成比例：DA:DB = AO:BA = DO:DA = 4:5。",
+      "basis_refs": [
+        "FN-15",
+        "IF-11"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "board.explain",
+      "args": {
+        "binding_ref": "VB-09",
+        "params": {
+          "note_kind": "approved_math_note"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "由 DO:DA = 4:5，且 DA = 8/3，计算得 DO = 32/15。",
+      "basis_refs": [
+        "FN-16",
+        "IF-12"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-112",
+        "params": {
+          "form": "length-label",
+          "lifetime": "teaching-scope",
+          "group": "sim2"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "由 AO:BA = 4:5，且 BA = 4，计算得 AO = 16/5。",
+      "basis_refs": [
+        "FN-17",
+        "IF-13"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-113",
+        "params": {
+          "form": "length-label",
+          "lifetime": "teaching-scope",
+          "group": "sim2"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "由点序 B-O-D，BO = BD - DO = 10/3 - 32/15 = 6/5。",
+      "basis_refs": [
+        "FN-18",
+        "IF-14"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-114",
+        "params": {
+          "form": "length-label",
+          "lifetime": "teaching-scope",
+          "group": "sim2"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "由点序 A-O-E，OE = AE - AO = 4 - 16/5 = 4/5。",
+      "basis_refs": [
+        "FN-19",
+        "IF-15"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-115",
+        "params": {
+          "form": "length-label",
+          "lifetime": "teaching-scope",
+          "group": "sim2"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "这样我们就得到了 DO、AO、BO、OE 四段长度。你跟上这一步了吗？",
+      "basis_refs": [
+        "FN-16",
+        "FN-17",
+        "FN-18",
+        "FN-19"
+      ]
+    }
+  ]
+}

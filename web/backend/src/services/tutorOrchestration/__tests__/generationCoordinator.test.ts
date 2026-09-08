@@ -420,6 +420,48 @@ test("B2 lost commit acknowledgement: the drive verifies and returns the committ
   assert.equal(record.sequence_id, outcome.sequence.sequence_id);
 });
 
+test("B2 unknown commit plus unavailable refresh pauses; restored committed identity is reused without regeneration", async () => {
+  const sessionId = freshSessionId();
+  const kernel = startKernel(sessionId);
+  const requestId = reserve(kernel).request.request_id;
+  let calls = 0;
+  let submittedSequence: string | undefined;
+  const unavailable = new Error("injected verification store unavailable");
+  const wrapped = {
+    ...accessOf(kernel),
+    get revision() { return kernel.revision; },
+    get state() { return kernel.state; },
+    append(expectedRevision: number, events: PendingV9Event[]) {
+      const result = kernel.append(expectedRevision, events);
+      if (events[0].event_type === "presentation_sequence_planned") {
+        submittedSequence = (events[0].payload as {sequence_id: string}).sequence_id;
+        throw new Error("injected commit result unknown to caller");
+      }
+      return result;
+    },
+  };
+  const pipeline = { buildAndRun: async (request: {request_id: string}) => {
+    calls += 1;
+    return {candidate: candidateFor(kernel, request.request_id) as never};
+  }};
+  await assert.rejects(driveGeneration(wrapped, pipeline, {
+    causationSequence: 1, sleep: noWaitSleep, refresh: () => { throw unavailable; },
+  }), (error: unknown) => error === unavailable);
+  assert.equal(calls, 1, "unverifiable storage error pauses without model retry");
+  const resumed = TutorSessionKernelV9.resume(sessionId, registryProvider());
+  const record = resumed.state.generation_requests.find(entry => entry.request_id === requestId)!;
+  assert.equal(record.status, "committed", "ack/verification failures cannot overwrite durable truth");
+  assert.equal(record.sequence_id, submittedSequence);
+  const revision = resumed.revision;
+  const recovered = reserve(resumed);
+  assert.equal(recovered.kind, "existing");
+  assert.equal(recovered.request.request_id, requestId);
+  assert.equal(recovered.request.status, "committed");
+  await driveGeneration(accessOf(resumed), pipeline, {causationSequence: 1, sleep: noWaitSleep});
+  assert.equal(calls, 1, "restored committed request must not regenerate");
+  assert.equal(resumed.revision, revision, "verification creates no failure, retry or duplicate planned event");
+});
+
 test("B2 cancel during the in-flight model call: the late candidate never commits and the drive classifies superseded (no throw)", async () => {
   const sessionId = freshSessionId();
   const kernel = startKernel(sessionId);
