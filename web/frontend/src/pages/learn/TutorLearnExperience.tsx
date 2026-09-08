@@ -191,10 +191,30 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
     onError: (message) => setNotice(message),
   });
 
-  /** mainline answer mic（canonical answer_input 独立入口）：提取为
-   *  MainlineAnswerComposer 子组件——仅 canonical answer 拍挂载（legacy 无此
-   *  形态）；录音开始即锁定 mainline 通道（spec §4.8，与 Coach mic 分离，
-   *  不共用一个 mic 后猜意图）。 */
+  // Keep capture ownership outside participation UI: barge-in temporarily renders
+  // listen while its real cleanup is pending, and must not dispose beforeStart.
+  const mainlineCaptureRef = useRef<RecordingChannelCapture | undefined>(undefined);
+  const mainlineRecorder = useCoachRecorder({
+    owner: "answer", disabled: tutor.phase === "thinking" || tutor.runtimeOwnerRequired,
+    media: tutor.mediaSession,
+    beforeStart: runtimeClient ? () => tutor.prepareRecordingStart() : undefined,
+    interruptPlaybackOnStart: true,
+    captureBusyMessage: "已有录音进行中，请先停止当前录音。",
+    onRecordingStart: () => { mainlineCaptureRef.current = tutor.lockRecordingChannel("mainline"); },
+    onAudio: audio => {
+      const capture = mainlineCaptureRef.current; mainlineCaptureRef.current = undefined;
+      if (!capture) { setNotice("当前不能提交这段语音，请用文字输入。"); return; }
+      void tutor.transcribeRecording(capture, audio);
+    },
+    onError: setNotice,
+  });
+  useEffect(() => () => {
+    mainlineCaptureRef.current = undefined;
+    mainlineRecorder.cancel();
+  }, [tutor.sessionId, mainlineRecorder.cancel]);
+  useEffect(() => {
+    if (tutor.runtimeOwnerRequired) { mainlineCaptureRef.current = undefined; mainlineRecorder.cancel(); }
+  }, [tutor.runtimeOwnerRequired, mainlineRecorder.cancel]);
 
   /** stale transcript（S1 交叉规则）：只填入录音开始时锁定的对应通道草稿并
    *  提示用户确认——不自动提交、不移花接木到其他通道。 */
@@ -490,11 +510,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
               onDraftChange={setAnswerDraft}
               onSubmit={controls.feedback.onSubmit}
               busy={busy}
-              media={tutor.mediaSession}
-              beforeStart={() => tutor.prepareRecordingStart()}
-              lockChannel={() => tutor.lockRecordingChannel("mainline")}
-              transcribe={(capture, audio) => tutor.transcribeRecording(capture, audio)}
-              onNotice={setNotice}
+              recorder={mainlineRecorder}
             />
             <button type="button" className="btn btn-primary" data-testid={controls.testId ?? "tutor-confirm-input"} disabled={controls.understoodDisabled ?? busy} onClick={controls.onSubmit}>{controls.label}</button>
           </div>
@@ -508,11 +524,7 @@ export function TutorLearnExperience({ taskId, studentId, restoreSessionId, init
             onDraftChange={setAnswerDraft}
             onSubmit={controls.onSubmit}
             busy={busy}
-            media={tutor.mediaSession}
-            beforeStart={runtimeClient ? () => tutor.prepareRecordingStart() : undefined}
-            lockChannel={() => tutor.lockRecordingChannel("mainline")}
-            transcribe={(capture, audio) => tutor.transcribeRecording(capture, audio)}
-            onNotice={setNotice}
+              recorder={mainlineRecorder}
           />
         );
       case "inquiry":
@@ -694,40 +706,15 @@ function studentNameSafe(studentId: string): string {
  *   （录音互斥 + 录音打断播放）；
  * - 仅 canonical participation=answer/confirm 时挂载（legacy 链无此形态）。
  */
-function MainlineAnswerComposer({ purpose = "answer", draft, onDraftChange, onSubmit, busy, media, beforeStart, lockChannel, transcribe, onNotice }: {
+function MainlineAnswerComposer({ purpose = "answer", draft, onDraftChange, onSubmit, busy, recorder }: {
   purpose?: "answer" | "feedback";
   draft: string;
   onDraftChange: (value: string) => void;
   onSubmit: (text: string) => void;
   busy: boolean;
-  media: MediaSessionController;
-  /** R5 裁定时序（F7 P2）：先 barge-in 再录音（等待失败不开录）。 */
-  beforeStart?: () => Promise<boolean>;
-  lockChannel: () => RecordingChannelCapture | undefined;
-  transcribe: (capture: RecordingChannelCapture, audio: { dataUrl: string; mimeType?: string; durationMs?: number }) => Promise<void>;
-  onNotice: (message: string) => void;
+  recorder: ReturnType<typeof useCoachRecorder>;
 }) {
   const feedback = purpose === "feedback";
-  const captureRef = useRef<RecordingChannelCapture | undefined>(undefined);
-  const recorder = useCoachRecorder({
-    owner: "answer", // 同一主线录音 owner；purpose 不改变通道或媒体状态机。
-    disabled: busy,
-    media,
-    beforeStart,
-    interruptPlaybackOnStart: true,
-    captureBusyMessage: "已有录音进行中，请先停止当前录音。",
-    onRecordingStart: () => { captureRef.current = lockChannel(); },
-    onAudio: (audio) => {
-      const capture = captureRef.current;
-      captureRef.current = undefined; // consume-once：下一次录音必须重新捕获
-      if (!capture) {
-        onNotice("当前不能提交这段语音，请用文字输入。");
-        return;
-      }
-      void transcribe(capture, audio);
-    },
-    onError: onNotice,
-  });
   return (
     <form
       className="tutor-participation"

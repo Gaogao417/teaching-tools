@@ -49,7 +49,7 @@ vi.mock("../../../presentation/narration/NarrationController", () => ({
   },
 }));
 vi.mock("../../../presentation/coach/useCoachRecorder", () => ({
-  useCoachRecorder: () => ({ recording: false, toggle: vi.fn() }),
+  useCoachRecorder: () => ({ recording: false, toggle: vi.fn(), cancel: vi.fn() }),
 }));
 vi.mock("../../../geometry/react/GeometryCanvas", () => ({
   GeometryCanvasSurface: (props: { view: { entities: Record<string, { enabled: boolean }> } }) => (

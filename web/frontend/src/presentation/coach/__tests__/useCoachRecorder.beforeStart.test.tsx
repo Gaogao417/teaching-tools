@@ -41,8 +41,9 @@ async function setup(beforeStart?: () => Promise<boolean>) {
   const stream = { getTracks: () => [{ stop: stopped }] } as unknown as MediaStream;
   const onAudio = vi.fn(); const onError = vi.fn(); const onRecordingStart = vi.fn();
   let toggle!: () => Promise<void>;
+  let cancel!: () => void;
   function Harness() {
-    ({ toggle } = useCoachRecorder({
+    ({ toggle, cancel } = useCoachRecorder({
       disabled: false,
       media,
       ...(beforeStart !== undefined ? { beforeStart } : {}),
@@ -59,6 +60,7 @@ async function setup(beforeStart?: () => Promise<boolean>) {
   return {
     media, stopped, started, onAudio, onError, onRecordingStart, getUserMedia,
     start: () => { void toggle(); },
+    cancel: () => { cancel(); },
     resolve: async () => { await act(async () => { resolve(stream); }); },
     unmount: async () => { await act(async () => { root.unmount(); }); },
   };
@@ -119,4 +121,13 @@ it("beforeStart=true → 既有链路不变：lease → getUserMedia → start �
     globalThis.Audio = original;
   }
   h.media.dispose();
+});
+
+it("explicit session/owner cancellation fences a pending beforeStart without acquiring devices",async()=>{
+ let finish!: (value:boolean)=>void;const h=await setup(()=>new Promise(resolve=>finish=resolve));
+ await act(async()=>h.start());await act(async()=>h.cancel());await act(async()=>finish(true));
+ expect(h.getUserMedia).not.toHaveBeenCalled();expect(h.started).not.toHaveBeenCalled();expect(h.onAudio).not.toHaveBeenCalled();expect(h.media.getCaptureOwner()).toBeUndefined();await h.unmount();h.media.dispose();
+});
+it("explicit cancellation during permission acquisition releases a late device and submits nothing",async()=>{
+ const h=await setup(async()=>true);await act(async()=>h.start());expect(h.getUserMedia).toHaveBeenCalledOnce();await act(async()=>h.cancel());await h.resolve();expect(h.stopped).toHaveBeenCalledOnce();expect(h.started).not.toHaveBeenCalled();expect(h.onAudio).not.toHaveBeenCalled();expect(h.media.getCaptureOwner()).toBeUndefined();await h.unmount();h.media.dispose();
 });

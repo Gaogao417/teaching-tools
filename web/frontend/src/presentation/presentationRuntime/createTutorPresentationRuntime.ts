@@ -85,18 +85,7 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
       const visual = visualRuntimeSnapshot(snapshot);
       if (visual) commitPort.visualRenderer.suppress("*");
     },
-    reportOutcome: (request: PendingPresentationOutcomeRequest) =>
-      deps.client.reportPresentationOutcome(request.sessionId, request.actionId, {
-        sequenceId: request.sequenceId,
-        ordinal: request.ordinal,
-        outcome: request.outcome,
-        ...(request.failureClass !== undefined ? { failureClass: request.failureClass } : {}),
-        ...(request.message !== undefined ? { message: request.message } : {}),
-        clientRequestId: request.clientRequestId,
-        expectedRevision: request.expectedRevision,
-        ...(request.executionOwner ? { executionOwner: request.executionOwner } : {}),
-        ...(request.holdForControl ? { holdForControl: request.holdForControl } : {}),
-      }),
+    reportOutcome: request => reportOutcomeWithVoiceAuthority(deps.client, request),
     adoptOutcomeSnapshot: (snapshot, expectedSessionId) => deps.adoptOutcomeSnapshot(snapshot, expectedSessionId),
     onProtocolAnomaly: deps.onProtocolAnomaly,
     onNotice: deps.onNotice,
@@ -119,4 +108,25 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
       controller.dispose();
     },
   };
+}
+
+/** A committed ACK can be delayed behind another page's claim. Before it starts
+ * voice, read current authority; workspace-only outcomes do not add a read. */
+export async function reportOutcomeWithVoiceAuthority(client: TutorRuntimeClient, request: PendingPresentationOutcomeRequest): Promise<ValidatedSessionSnapshot> {
+  const snapshot = await client.reportPresentationOutcome(request.sessionId, request.actionId, {
+    sequenceId: request.sequenceId, ordinal: request.ordinal, outcome: request.outcome,
+    ...(request.failureClass !== undefined ? { failureClass: request.failureClass } : {}),
+    ...(request.message !== undefined ? { message: request.message } : {}),
+    clientRequestId: request.clientRequestId, expectedRevision: request.expectedRevision,
+    ...(request.executionOwner ? { executionOwner: request.executionOwner } : {}),
+    ...(request.holdForControl ? { holdForControl: request.holdForControl } : {}),
+  });
+  if (!request.executionOwner || !snapshot.presentation_execution_owner
+    || snapshot.pending_presentation?.action.kind !== "voice"
+    || (snapshot.turn && snapshot.turn.status !== "committed")) return snapshot;
+  const fresh = await client.restore(request.sessionId);
+  if (fresh.session_id !== request.sessionId || fresh.revision < snapshot.revision) {
+    throw new Error("voice authority snapshot changed session or regressed revision");
+  }
+  return fresh;
 }

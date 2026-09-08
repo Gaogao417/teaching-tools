@@ -210,5 +210,5 @@ export function useCoachRecorder(options: {
   }, [options, releaseLease, stop, discard]);
 
   useEffect(() => () => { discard(); }, [discard]);
-  return { recording, toggle, stop };
+  return { recording, toggle, stop, cancel: discard };
 }

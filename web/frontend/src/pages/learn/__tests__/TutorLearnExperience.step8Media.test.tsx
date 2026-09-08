@@ -37,7 +37,7 @@ const recorderOptionsRegistry: Record<string, {
 vi.mock("../../../presentation/coach/useCoachRecorder", () => ({
   useCoachRecorder: (options: typeof recorderOptionsRegistry[string]) => {
     recorderOptionsRegistry[options.owner ?? "unknown"] = options;
-    return { recording: false, toggle: vi.fn(), stop: vi.fn() };
+    return { recording: false, toggle: vi.fn(), stop: vi.fn(), cancel: vi.fn() };
   },
 }));
 
@@ -198,7 +198,7 @@ describe("TutorLearnExperience Step 8：canonical 双 mic 接线", () => {
     mocks.transcribe.mockResolvedValue(asrResult("因为翻折保持对应边长度相等", 12));
     mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 13 }));
     const { container, unmount } = mountExperience(client);
-    await waitForDom(container, () => recorderOptionsRegistry["answer"] !== undefined);
+    await waitForDom(container, () => recorderOptionsRegistry["answer"] !== undefined && container.querySelector('[data-testid="tutor-answer-mic"]:not(:disabled)') !== null);
     const answer = recorderOptionsRegistry["answer"];
     await act(async () => { answer.onRecordingStart?.(); });
     await act(async () => {
@@ -346,4 +346,11 @@ describe("C3 Teach 语音理解反馈", () => {
     } finally { unmount(); }
   });
 
+});
+
+it("missing mainline capture reports a visible error and never calls ASR",async()=>{
+ const{client,mocks}=makeClient();mocks.start.mockResolvedValue(validRuntimeSnapshot({participationKind:"answer_input",revision:12}));const{container,unmount}=mountExperience(client);
+ await waitForDom(container,()=>container.querySelector('[data-testid="tutor-answer-mic"]:not(:disabled)')!==null);
+ await act(async()=>recorderOptionsRegistry.answer.onAudio({dataUrl:"data:audio/webm;base64,BBBB",durationMs:900}));
+ await waitForDom(container,()=>container.textContent?.includes("当前不能提交这段语音，请用文字输入。")===true);expect(mocks.transcribe).not.toHaveBeenCalled();expect(mocks.submitStudentInput).not.toHaveBeenCalled();unmount();
 });

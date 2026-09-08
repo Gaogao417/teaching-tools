@@ -52,9 +52,9 @@ const recorderState: { recording: boolean; toggle: ReturnType<typeof vi.fn> } = 
   toggle: vi.fn(() => { recorderState.recording = !recorderState.recording; }),
 };
 vi.mock("../../../presentation/coach/useCoachRecorder", () => ({
-  useCoachRecorder: (options: { onAudio: (audio: { dataUrl: string; durationMs?: number }) => void }) => {
-    recorderCallbacks.onAudio = options.onAudio;
-    return { recording: recorderState.recording, toggle: recorderState.toggle };
+  useCoachRecorder: (options: { owner?: string; onAudio: (audio: { dataUrl: string; durationMs?: number }) => void }) => {
+    if (options.owner === "coach") recorderCallbacks.onAudio = options.onAudio;
+    return { recording: recorderState.recording, toggle: recorderState.toggle, cancel: vi.fn() };
   },
 }));
 
