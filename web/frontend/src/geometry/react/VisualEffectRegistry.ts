@@ -116,6 +116,8 @@ export class VisualEffectRegistry {
         const group = node("g", { "data-visual-id": glyph.id, "aria-label": glyph.description });
         (isPulsed(glyph.id) ? pulse : layer).appendChild(group);
         this.draw(group, glyph, scene, textRects);
+        // A transient introduction temporarily takes attention from the prior group.
+        if (execution.transientReveal && glyph.id.startsWith("focus:")) group.style.visibility = "hidden";
         nextOwners.set(glyph.id, [...glyph.ownerKeys]);
       }
       this.check(execution, serial);
@@ -145,6 +147,7 @@ export class VisualEffectRegistry {
         if (this.animation === animation) this.animation = undefined;
       }
       this.check(execution, serial);
+      if (execution.transientReveal) for (const group of this.root.querySelectorAll<SVGElement>('[data-visual-id^="focus:"]')) group.style.visibility = "visible";
       this.verifyObjects(ids);
       if (execution.transientReveal) {
         this.hiddenIntroductionIds = [...(execution.presentationIds ?? [])];

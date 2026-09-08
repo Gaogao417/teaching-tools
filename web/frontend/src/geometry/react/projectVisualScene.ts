@@ -105,7 +105,7 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
         else focusInformation.push(...inspectTargets(view.focus.resolved_targets,[view.focus.owner_key]));
       }
       for(const annotation of view.annotations) if(annotation.binding_ref===view.focus.binding_ref&&annotation.content) focusInformation.push(annotation.content);
-      teachingInformation.push(...focusInformation);
+      if (!policy.presentationIds?.length) teachingInformation.push(...focusInformation);
     }
   }
   const angleBindings = [...new Set(view.annotations.filter(a => a.form === "angle-arcs" && (!policy?.onDemand || policy.presentationIds?.includes(a.annotation_id))).map(a => a.binding_ref))].sort();

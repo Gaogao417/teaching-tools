@@ -58,7 +58,13 @@ it('finishing an upsert inside an active group preserves that group information'
  const t=mount();try{const view=v();view.focus={group_id:'g',binding_ref:'VB-104',mode:'steady',owner_key:'owner',resolved_targets:{entity_ids:['C','A','B'],paired_sides:[{endpoints:['C','A']},{endpoints:['C','B']}]}};
   const scene=projectVisualScene(view,model,viewport,{onDemand:true,presentationIds:['ann']});
   const pending=t.registry.install(scene,{...execution(),executionKey:'intro-in-group',operation:'entrance-complete',pulseIds:['ann'],presentationIds:['ann'],transientReveal:true});
-  await Promise.resolve();finish();await pending;expect(t.host.querySelectorAll('[data-visual-id]')).toHaveLength(2);expect(t.host.querySelector('[data-visual-information-card="teaching"]')?.textContent).toBe('对应边：CA ↔ CB');
+  await Promise.resolve();
+  for(const group of t.host.querySelectorAll<SVGElement>('[data-visual-id^="focus:"]')) expect(group.style.visibility).toBe('hidden');
+  t.registry.reflow(scene);
+  for(const group of t.host.querySelectorAll<SVGElement>('[data-visual-id^="focus:"]')) expect(group.style.visibility).toBe('hidden');
+  finish();await pending;
+  for(const group of t.host.querySelectorAll<SVGElement>('[data-visual-id^="focus:"]')) expect(group.style.visibility).toBe('visible');
+  expect(t.host.querySelectorAll('[data-visual-id]')).toHaveLength(2);expect(t.host.querySelector('[data-visual-information-card="teaching"]')?.textContent).toBe('对应边：CA ↔ CB');
  }finally{t.dispose();SVGElement.prototype.animate=previous;}
 });
 it('three historic angle bindings do not fail a quiet restore',()=>{
@@ -92,4 +98,26 @@ it('explicit problem-given angle mark enables only its given equality without cl
  const view={...v(),annotations:[]};const scene=projectVisualScene(view,geometry,viewport,{onDemand:true});expect(scene.glyphs).toHaveLength(0);expect(scene.inspectionTargets!.filter(t=>t.kind==='angle')).toHaveLength(2);expect(scene.inspectionTargets!.flatMap(t=>t.descriptions)).toEqual(['∠DAC = ∠ACD','∠DAC = ∠ACD']);expect(scene.inspectionTargets!.some(t=>t.label.includes('ABC'))).toBe(false);
  view.focus={group_id:'g',binding_ref:'VB-101',mode:'steady',owner_key:'owner',resolved_targets:{entity_ids:['A','D','C'],angles:[{vertex:'A',ray_points:['D','C'],sector:'minor'}]}};
  expect(projectVisualScene(view,geometry,viewport,{onDemand:true}).teachingInformation).toEqual(['∠DAC = ∠ACD']);
+});
+
+it('a new side introduction excludes the old angle information and restores it after completion',async()=>{
+ const previous=SVGElement.prototype.animate;let finish!:()=>void;SVGElement.prototype.animate=(()=>({finished:new Promise<void>(r=>finish=r),cancel:vi.fn()})) as never;
+ const t=mount();try{const view=v();view.annotations.push({annotation_id:'old-angle',binding_ref:'VB-102',form:'angle-arcs',role_key:'angle',owner_keys:['owner'],version:1,resolved_targets:{entity_ids:['A','B','C'],angles:[{vertex:'A',ray_points:['B','C'],sector:'minor'},{vertex:'B',ray_points:['A','C'],sector:'minor'}]}});
+  view.focus={group_id:'old',binding_ref:'VB-102',mode:'steady',owner_key:'owner',resolved_targets:view.annotations[1].resolved_targets};
+  const scene=projectVisualScene(view,model,viewport,{onDemand:true,presentationIds:['ann']});
+  expect(scene.teachingInformation!.join()).not.toContain('∠');expect(scene.focusInformation!.join()).toContain('∠');
+  const pending=t.registry.install(scene,{...execution(),executionKey:'new-side',operation:'entrance-complete',pulseIds:['ann'],presentationIds:['ann'],transientReveal:true});
+  await Promise.resolve();expect(t.host.querySelector('[role="tooltip"]')?.textContent).not.toContain('∠');
+  document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));expect(t.host.querySelector('[role="tooltip"]')?.textContent).not.toContain('∠');
+  finish();await pending;expect(t.host.querySelector('[role="tooltip"]')?.textContent).toBe('∠BAC = ∠ABC');
+ }finally{t.dispose();SVGElement.prototype.animate=previous;}
+});
+it('aborted introduction cannot restore prior focus after a replacement install',async()=>{
+ const previous=SVGElement.prototype.animate;let finish!:()=>void;SVGElement.prototype.animate=(()=>({finished:new Promise<void>(r=>finish=r),cancel:vi.fn()})) as never;
+ const t=mount();try{const view=v();view.focus={group_id:'old',binding_ref:'VB-104',mode:'steady',owner_key:'owner',resolved_targets:{entity_ids:['C','A','B'],paired_sides:[{endpoints:['C','A']},{endpoints:['C','B']}]}};
+  const abort=new AbortController();const pending=t.registry.install(projectVisualScene(view,model,viewport,{onDemand:true,presentationIds:['ann']}),{...execution(),abort:abort.signal,executionKey:'cancelled-intro',operation:'entrance-complete',pulseIds:['ann'],presentationIds:['ann'],transientReveal:true});
+  const rejected=expect(pending).rejects.toThrow('cancelled');abort.abort();await rejected;
+  await t.registry.install(projectVisualScene({...v(),annotations:[]},model,viewport,{onDemand:true}),{...execution(),executionKey:'replacement'});finish();await Promise.resolve();
+  expect(t.host.querySelector('[data-visual-id]')).toBeNull();expect(t.host.querySelector('[role="tooltip"]')).toBeNull();
+ }finally{t.dispose();SVGElement.prototype.animate=previous;}
 });
