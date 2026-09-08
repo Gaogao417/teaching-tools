@@ -53,10 +53,18 @@ export class PresenterGenerationError extends Error {
     readonly failureClass: GenerationFailureClass,
     message: string,
     readonly retryable: boolean,
+    readonly diagnostic?: {stage:"draft_validation";issues:readonly {path:readonly (string|number)[];code:string;message:string}[]} | {stage:"provider";code:StructuredModelError["code"]},
   ) {
     super(message);
     this.name = "PresenterGenerationError";
   }
+}
+
+/** Explicitly allowlisted review diagnostics: never serialize arbitrary Error fields. */
+export function presenterFailureDiagnostic(error:unknown) {
+  return error instanceof PresenterGenerationError
+    ? {name:error.name,failure_class:error.failureClass,retryable:error.retryable,...(error.diagnostic?{diagnostic:error.diagnostic}:{})}
+    : {name:error instanceof Error?error.name:"Error"};
 }
 
 /** 端口接口（测试注入 scripted port；生产 = StructuredModelPort 包装）。 */
@@ -159,19 +167,20 @@ export function createPresenterModelPort(): StructuredModelPort {
 export function mapStructuredModelError(error: unknown): PresenterGenerationError {
   if (error instanceof PresenterGenerationError) return error;
   if (error instanceof StructuredModelError) {
+    const diagnostic={stage:"provider" as const,code:error.code};
     switch (error.code) {
       case "timeout":
-        return new PresenterGenerationError("timeout", error.message, true);
+        return new PresenterGenerationError("timeout", error.message, true, diagnostic);
       case "rate-limited":
       case "provider-error":
-        return new PresenterGenerationError("provider_failure", error.message, true);
+        return new PresenterGenerationError("provider_failure", error.message, true, diagnostic);
       case "not-configured":
       case "auth-error":
-        return new PresenterGenerationError("provider_failure", `${error.code}: ${error.message}`, false);
+        return new PresenterGenerationError("provider_failure", `${error.code}: ${error.message}`, false, diagnostic);
       case "invalid-json":
-        return new PresenterGenerationError("draft_invalid", error.message, false);
+        return new PresenterGenerationError("draft_invalid", error.message, false, diagnostic);
       case "cancelled":
-        return new PresenterGenerationError("internal_error", error.message, false);
+        return new PresenterGenerationError("internal_error", error.message, false, diagnostic);
     }
   }
   return new PresenterGenerationError(
@@ -230,6 +239,7 @@ export function structuredPresenterGenerator(port: StructuredModelPort, options:
             .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
             .join("; ")}`,
           false,
+          {stage:"draft_validation",issues:parsed.error.issues.map(issue=>({path:issue.path,code:issue.code,message:issue.message}))},
         );
       }
       return { draft: parsed.data, latencyMs };

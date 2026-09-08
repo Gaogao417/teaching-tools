@@ -43,7 +43,7 @@ async function main() {
   const { TutorTaskBindingResolver } = await import("../src/services/tutorOrchestration/TutorTaskBindingResolver");
   const { TutorRuntimeApplicationV7 } = await import("../src/services/tutorOrchestration/TutorRuntimeApplicationV7");
   const { vNextGateModel } = await import("../src/services/tutorOrchestration/VNextGateModelFactory");
-  const { createPresenterGenerator } = await import("../src/services/tutorOrchestration/presentationGeneration/GeneratorPort");
+  const { createPresenterGenerator, presenterFailureDiagnostic } = await import("../src/services/tutorOrchestration/presentationGeneration/GeneratorPort");
   const resolver = new TutorTaskBindingResolver(canonicalRoot, (_deps, id) => id === loaded.imported.plan.artifact_id
     ? loaded : { ok: false, errors: ["Review importer is limited to the pinned candidate"] });
   const realModel = vNextGateModel();
@@ -73,7 +73,7 @@ async function main() {
         appendFileSync(join(runDir, "presenter.jsonl"), JSON.stringify({ kind: "result", request_id: request.request_id, ...result }) + "\n");
         return result;
       } catch (error) {
-        appendFileSync(join(runDir, "presenter.jsonl"), JSON.stringify({ kind: "error", request_id: request.request_id, name: error instanceof Error ? error.name : "Error" }) + "\n");
+        appendFileSync(join(runDir, "presenter.jsonl"), JSON.stringify({ kind: "error", request_id: request.request_id, ...presenterFailureDiagnostic(error) }) + "\n");
         throw error;
       }
     },
