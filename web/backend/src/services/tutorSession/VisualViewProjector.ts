@@ -175,7 +175,7 @@ export function createPinnedVisualWorkspaceBridge(input:PinnedVisualWorkspaceInp
   };
   type FoldSnapshot={workspace:import("./WorkspaceRuntimeReducerV5").WorkspaceFold;visual:WorkspaceVisualState;
     plans:Map<string,ReturnType<typeof presentationPlanV5Schema.parse>>;
-    applied:Map<string,{action:VisualActionKey;changes:VisualLeaseChange[];confirmed:boolean;revoked:boolean}>;history:Event[]};
+    applied:Map<string,{action:VisualActionKey;changes:VisualLeaseChange[];confirmed:boolean;revoked:boolean}>};
   // Derived acceleration only. Exact serialized event prefixes, not revision or
   // array identity, fence changed payloads and same-revision competing batches.
   // Never publish a failed fold or expose the cached mutable maps to callers.
@@ -190,9 +190,13 @@ export function createPinnedVisualWorkspaceBridge(input:PinnedVisualWorkspaceInp
     let visual=emptyVisualState();
     let plans=new Map<string, ReturnType<typeof presentationPlanV5Schema.parse>>();
     let applied=new Map<string,{action:VisualActionKey;changes:VisualLeaseChange[];confirmed:boolean;revoked:boolean}>();
-    let history:Event[]=[];
+    // History is private, read-only event input plus our own array. It is not
+    // part of the returned fold or cached mutable state. Exact value keys above
+    // validate every reused prefix; using this call's events avoids retaining
+    // caller-owned event aliases in a cache and repeated cloning of GEN payloads.
+    const history:Event[]=cached ? events.slice(0,cached.keys.length) : [];
     if(cached){
-      ({visual,plans,applied,history}=structuredClone({visual:cached.snapshot.visual,plans:cached.snapshot.plans,applied:cached.snapshot.applied,history:cached.snapshot.history}));
+      ({visual,plans,applied}=structuredClone({visual:cached.snapshot.visual,plans:cached.snapshot.plans,applied:cached.snapshot.applied}));
       workspace=cloneWorkspaceFoldV7(cached.snapshot.workspace);
     }
     for(const event of events.slice(history.length)){
@@ -243,7 +247,7 @@ export function createPinnedVisualWorkspaceBridge(input:PinnedVisualWorkspaceInp
       history.push(event);
     }
     if(!cached||cached.keys.length!==keys.length){
-      prefixes.push({keys,snapshot:{...structuredClone({visual,plans,applied,history}),workspace:cloneWorkspaceFoldV7(workspace)}});
+      prefixes.push({keys,snapshot:{...structuredClone({visual,plans,applied}),workspace:cloneWorkspaceFoldV7(workspace)}});
       if(prefixes.length>8)prefixes.shift();
     }
     return {workspace,visual,unconfirmed:[...applied.values()].filter(a=>!a.confirmed&&!a.revoked)};

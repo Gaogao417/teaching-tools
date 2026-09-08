@@ -2,7 +2,7 @@ import { VisualBindingError } from "../../tutorSession/VisualBindingCatalog";
 import { VISUAL_MAX_ACTIONS } from "./VisualPresentationTools";
 import { presentationPlanV5Schema, type VisualRequirement, type VisualView } from "../../../../../shared/canonical/visualSchemas";
 import { VisualIntentCompiler, type VisualCompilerContext, type CompiledVisualAction } from "./VisualIntentCompiler";
-import { validateVisualCoverage } from "./VisualCoverageValidator";
+import { validateVisualCoverage, type VisualCoverageIssue } from "./VisualCoverageValidator";
 import { VISUAL_CONTEXT_BUILDER_VERSION,VISUAL_TOOL_CATALOG_VERSION } from "./VisualPresentationTools";
 import type { VisibleVisualTool } from "./VisualPresentationTools";
 /**
@@ -32,7 +32,7 @@ import { WorldCommandError, type DomainCommand } from "../../../../../shared/act
 import { constructionOutputId } from "../WorkspaceActionAdjudication";
 import type { GraphFactNode, GraphInferenceNode, PlanResourceV5 } from "../../planBuild/canonicalInputs";
 import type { BuiltPresentationContext } from "./ContextBuilder";
-import type { PresentationDraftV2 } from "./GeneratorPort";
+import { PresenterGenerationError, type PresentationDraftV2 } from "./GeneratorPort";
 import type { PresentationResourceBinding, VisibleToolInstance } from "./PresentationToolCatalog";
 
 /** canonical presentation-plan/v4（编译产物合同形状）。 */
@@ -64,6 +64,7 @@ export interface VisualCompilationInput extends Omit<VisualCompilerContext, "ses
   visibleTools: readonly VisibleVisualTool[]; requirements: readonly VisualRequirement[]; alreadyPresented: VisualView;
 }
 export type CompiledPresentationPlanV5 = z.infer<typeof presentationPlanV5Schema>;
+export type CompiledPresentationCandidate = CompiledPresentationPlanV4 | CompiledPresentationPlanV5;
 export interface IntentCompilerInput {
   readonly visual?: VisualCompilationInput;
   readonly sessionId: string;
@@ -289,6 +290,27 @@ export function normalizeVisualVoiceFractions(text: string): string {
 export function compilePresentationIntents(input: IntentCompilerInput & { visual: VisualCompilationInput }): CompiledPresentationPlanV5;
 export function compilePresentationIntents(input: IntentCompilerInput): CompiledPresentationPlanV4;
 export function compilePresentationIntents(input: IntentCompilerInput): CompiledPresentationPlanV4 | CompiledPresentationPlanV5 {
+  const result = compilePresentationIntentsForPreflight(input);
+  // Standalone callers retain fail-closed admission; only the orchestrator may
+  // classify quality after isolated execution preflight has also succeeded.
+  if (result.visualCoverageIssues.length) throw new IntentCompilerError("COMPILE_VALIDATION_FAILED", `visual coverage: ${JSON.stringify(result.visualCoverageIssues)}`);
+  return result.plan;
+}
+
+/** H06 quality diagnostics are not authority/parameter/permission failures. */
+export class VisualObligationQualityError extends PresenterGenerationError {
+  constructor(readonly issues: readonly VisualCoverageIssue[]) {
+    super("draft_invalid", `visual obligation quality: ${JSON.stringify(issues)}`, true);
+    this.name = "VisualObligationQualityError";
+  }
+}
+
+/** Uncommitted candidate + diagnostics; requires execution preflight before quality retry. */
+export function compilePresentationIntentsForPreflight(input: IntentCompilerInput): {
+  plan: CompiledPresentationPlanV4 | CompiledPresentationPlanV5;
+  visualCoverageIssues: readonly VisualCoverageIssue[];
+} {
+  let visualCoverageIssues: readonly VisualCoverageIssue[] = [];
   if(input.visual){
     const pin=input.request.presenter_pin;
     if(!isVisualPresenterPromptVersion(pin.prompt_version)||pin.context_builder_version!==VISUAL_CONTEXT_BUILDER_VERSION||pin.tool_catalog_version!==VISUAL_TOOL_CATALOG_VERSION)throw new IntentCompilerError("COMPILE_VALIDATION_FAILED","visual compiler requires the frozen visual presenter/context/tool pins");
@@ -552,7 +574,7 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
     if (actions.length > maxActions) throw new IntentCompilerError("EMPTY_SEGMENT", `visual group closure exceeds ${maxActions} action cap`);
     const uses = actions.flatMap(a => (a.basis_refs ?? []).filter(ref => input.visual!.requirements.some(r => r.binding_ref === ref)).map(binding_ref => ({ ordinal:a.ordinal,binding_ref }))).filter(u => actions[u.ordinal].kind === "voice");
     const issues = validateVisualCoverage(input.visual.requirements, visualActions, input.visual.alreadyPresented, uses, { requireEntryPulse: input.request.presenter_pin.prompt_version === VISUAL_PRESENTER_PROMPT_VERSION });
-    if (issues.length) throw new IntentCompilerError("COMPILE_VALIDATION_FAILED", `visual coverage: ${JSON.stringify(issues)}`);
+    visualCoverageIssues = issues;
   }
   if (actions.length === 0) {
     throw new IntentCompilerError("EMPTY_SEGMENT", "draft compiles to zero actions (canonical requires at least one item)");
@@ -583,5 +605,5 @@ export function compilePresentationIntents(input: IntentCompilerInput): Compiled
         .join("; ")}`,
     );
   }
-  return parsed.data;
+  return { plan: parsed.data, visualCoverageIssues };
 }

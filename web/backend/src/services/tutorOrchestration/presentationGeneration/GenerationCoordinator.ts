@@ -25,7 +25,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { PendingV9Event, V9GenerationEventPayload } from "../../tutorSession/TutorSessionEventV9";
 import type { TutorRuntimeStateV9 } from "../../tutorSession/TutorRuntimeStateReducerV9";
-import type { CompiledPresentationPlanV4 } from "./IntentCompiler";
+import type { CompiledPresentationCandidate } from "./IntentCompiler";
 import { PresenterGenerationError } from "./GeneratorPort";
 import { claimGenerationLease, renewGenerationLease, releaseGenerationLease, GENERATION_LEASE_MS, GENERATION_HEARTBEAT_MS } from "./GenerationLease";
 
@@ -54,7 +54,7 @@ export interface GenerationKernelAccess {
 
 /** 单次内容管线（RT2 上下文复算 + RT3 提示词/模型/编译/预演；由 Orchestrator 组装）。 */
 export interface PresenterAttemptPipeline {
-  buildAndRun(request: GenerationRequestView): Promise<{ readonly candidate: CompiledPresentationPlanV4 }>;
+  buildAndRun(request: GenerationRequestView): Promise<{ readonly candidate: CompiledPresentationCandidate }>;
 }
 
 /** 驱动循环读取的请求视图（GenerationRequestRecord 同构）。 */
@@ -202,7 +202,7 @@ export interface DriveDeps {
 }
 
 export type DriveOutcome =
-  | { readonly kind: "committed"; readonly sequence: CompiledPresentationPlanV4 }
+  | { readonly kind: "committed"; readonly sequence: CompiledPresentationCandidate }
   | { readonly kind: "failed"; readonly errorClass: NonNullable<V9GenerationEventPayload["error_class"]> }
   | { readonly kind: "superseded" };
 
@@ -309,7 +309,7 @@ export async function driveGeneration(
   };
 
   /** 查证路径的 committed 视图：优先返回持有候选（id 相同=本 worker 的候选已入库）；他人先交的序列只回身份/成因摘要（交付层按 sequence_id 从 committed 流重读正文）。 */
-  const verifiedSequence = (record: PendingRequestView, candidate: CompiledPresentationPlanV4): CompiledPresentationPlanV4 => {
+  const verifiedSequence = (record: PendingRequestView, candidate: CompiledPresentationCandidate): CompiledPresentationCandidate => {
     if (record.sequence_id !== undefined && record.sequence_id === candidate.sequence_id
       && record.epoch === candidate.generation?.epoch && record.attempt === candidate.generation?.attempt) return candidate;
     return {
@@ -324,7 +324,7 @@ export async function driveGeneration(
         epoch: record.epoch,
       },
       actions: [],
-    } as unknown as CompiledPresentationPlanV4;
+    } as unknown as CompiledPresentationCandidate;
   };
 
   // 本驱动循环经 CAS attempt_started 认领到的 ownership token（attempt/epoch）。
@@ -386,7 +386,7 @@ export async function driveGeneration(
     }
     // —— 认领有效：事务外调用模型 ——
     const snapshot = request as unknown as V9GenerationEventPayload;
-    let candidate: CompiledPresentationPlanV4;
+    let candidate: CompiledPresentationCandidate;
     try {
       const result = await pipeline.buildAndRun(snapshot);
       candidate = result.candidate;

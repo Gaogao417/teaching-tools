@@ -44,7 +44,26 @@ it("real pinned bridge computes target and validates identical invalidation, rej
  let authorityCalls=0;
  const bridge=createPinnedVisualWorkspaceBridge({sessionId:"TS-8102",catalogHash:`sha256:${"a".repeat(64)}`,catalog,workspaceCatalog,imported,authorityAt:()=>{authorityCalls++;return {currentOwner:owner,activeOwners:[owner]};}});
  expect(bridge.projectAt(history).annotations).toHaveLength(1);
- const baseline=bridge.foldAt(history),calls=authorityCalls;
+ const baseline=bridge.foldAt(history);
+ // Prefix acceleration keeps history private; neither a public mutable result
+ // nor a caller changing its old input can poison an independently read prefix.
+ const pristine=structuredClone(history);
+ const publicFold=bridge.foldAt(history);
+ publicFold.visual.annotations[0].resolved_targets.entity_ids.push("caller-target");
+ expect(history).toEqual(pristine);
+ expect(bridge.foldAt(pristine)).toEqual(baseline);
+ const freezeDeep=(value:unknown):void=>{
+   if(value && typeof value==="object") {Object.freeze(value);for(const child of Object.values(value))freezeDeep(child);}
+ };
+ const frozenHistory=structuredClone(history);freezeDeep(frozenHistory);
+ expect(bridge.foldAt(frozenHistory)).toEqual(baseline);
+ const poisonedInput=structuredClone(history);
+ bridge.foldAt(poisonedInput);
+ poisonedInput.at(-1)!.payload.action_id="WSA-caller-input-mutation";
+ expect(()=>bridge.foldAt(poisonedInput)).toThrow(/identity|mismatch|WSA/i);
+ expect(bridge.foldAt(pristine)).toEqual(baseline);
+
+ const calls=authorityCalls;
  for(let i=0;i<20;i++)expect(bridge.foldAt(structuredClone(history))).toEqual(baseline);
  expect(authorityCalls).toBe(calls); // exact content prefix: zero re-executed visual authorization
  const mutated=bridge.foldAt(history);mutated.visual.annotations.length=0;mutated.workspace.state.revision=999;

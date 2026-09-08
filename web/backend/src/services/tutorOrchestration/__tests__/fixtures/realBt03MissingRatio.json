@@ -1,0 +1,107 @@
+{
+  "source_request_id": "GR-TS-178883780573901-0006",
+  "source_trace": "/var/folders/z7/4myn_jrj205ftftrfr_bvvhm0000gn/T/teach-live-review-FYRP8l/presenter.jsonl:24",
+  "items": [
+    {
+      "type": "speech",
+      "text": "好的，你已经理解了相似对应关系。接下来我们利用相似比来求 AD、CD 和 BD。",
+      "basis_refs": [
+        "FN-06",
+        "FN-07"
+      ]
+    },
+    {
+      "type": "speech",
+      "text": "由相似三角形对应边成比例，得到 $CA:CB=AD:BA=CD:CA=2:3$。",
+      "basis_refs": [
+        "FN-07",
+        "IF-03"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "board.explain",
+      "args": {
+        "binding_ref": "VB-08",
+        "params": {
+          "note_kind": "approved_math_note"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "先看 AD：因为 $AD:BA=2:3$，而 $BA=AB=4$，所以 $AD=\\frac{8}{3}$。",
+      "basis_refs": [
+        "FN-01",
+        "FN-07",
+        "FN-08",
+        "IF-04"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-106",
+        "params": {
+          "form": "length-label",
+          "lifetime": "teaching-scope",
+          "group": "seg"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "再看 CD：由 $CD:CA=2:3$，且 $CA=4$，所以 $CD=\\frac{8}{3}$。",
+      "basis_refs": [
+        "FN-01",
+        "FN-07",
+        "FN-09",
+        "IF-05"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-107",
+        "params": {
+          "form": "length-label",
+          "lifetime": "teaching-scope",
+          "group": "seg"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "最后求 BD：因为 D 在线段 BC 上，所以 $BD=BC-CD$，即 $BD=6-\\frac{8}{3}=\\frac{10}{3}$。",
+      "basis_refs": [
+        "FN-02",
+        "FN-09",
+        "FN-10",
+        "IF-06"
+      ]
+    },
+    {
+      "type": "tool_intent",
+      "tool": "geometry.annotate",
+      "args": {
+        "binding_ref": "VB-108",
+        "params": {
+          "form": "length-label",
+          "lifetime": "teaching-scope",
+          "group": "seg"
+        }
+      }
+    },
+    {
+      "type": "speech",
+      "text": "这样我们就得到了 AD、CD 和 BD 的长度。你跟上这一步了吗？",
+      "basis_refs": [
+        "FN-08",
+        "FN-09",
+        "FN-10"
+      ]
+    }
+  ]
+}

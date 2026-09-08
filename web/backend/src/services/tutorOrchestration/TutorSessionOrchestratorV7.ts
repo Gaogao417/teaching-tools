@@ -66,7 +66,7 @@ import type { StoredV9Event, V9GenerationEventPayload, V9PresentationSequencePla
 import { buildPresentationContext, DEFAULT_CONTEXT_POLICY, PresentationContextError, type BuiltPresentationContext } from "./presentationGeneration/ContextBuilder";
 import { PresenterGenerationError, type PresenterGeneratorPort } from "./presentationGeneration/GeneratorPort";
 import { cancelGeneration, driveGeneration, reserveGeneration, type DriveOutcome, type GenerationKernelAccess } from "./presentationGeneration/GenerationCoordinator";
-import { IntentCompilerError, compilePresentationIntents, type CompiledPresentationPlanV4 } from "./presentationGeneration/IntentCompiler";
+import { IntentCompilerError, compilePresentationIntentsForPreflight, VisualObligationQualityError, type CompiledPresentationCandidate, type CompiledPresentationPlanV4 } from "./presentationGeneration/IntentCompiler";
 import { buildPresenterPrompt, PRESENTER_PROMPT_VERSION, type PresentedBoardNote } from "./presentationGeneration/PresenterPrompts";
 import { requiredBoardBindings, assertRequiredBoardBindings } from "./presentationGeneration/BoardProofCompleteness";
 import { visiblePresentationTools, type PresentationResourceBinding } from "./presentationGeneration/PresentationToolCatalog";
@@ -1958,7 +1958,7 @@ export class TutorSessionOrchestratorV7 {
    * 单次内容管线（RT2 冻结上下文复算 + RT3 提示词/模型/编译/预演）。
    * 上下文不可复现 ⇒ context_irreproducible（不自动重试——非模型故障）。
    */
-  private async buildAndRunGeneration(request: V9GenerationEventPayload): Promise<CompiledPresentationPlanV4> {
+  private async buildAndRunGeneration(request: V9GenerationEventPayload): Promise<CompiledPresentationCandidate> {
     if (!this.presenterGenerator) throw new PresenterGenerationError("internal_error", "presenter port missing", false);
     const graph = this.binding.imported.graph;
     const factById = new Map(graph.facts.map((fact) => [fact.fact_id, fact]));
@@ -2085,7 +2085,7 @@ export class TutorSessionOrchestratorV7 {
       userPayload: prompt.userPayload,
       timeoutMs: request.timeout_ms,
     });
-    const compiled = compilePresentationIntents({
+    const {plan: compiled, visualCoverageIssues} = compilePresentationIntentsForPreflight({
       sessionId: this.sessionId,
       sequenceSerial: this.countPlanned() + 1,
       decisionId: request.decision_id,
@@ -2119,6 +2119,7 @@ export class TutorSessionOrchestratorV7 {
     preflightPresentationSequence({ fold: frozen?.source.workspace ?? this.rebuildWorkspace(), catalog: this.catalog, plan: compiled, ...(frozen?{visual:frozen.visual}:{}) });
     // Deterministic authority and execution failures must win over repairable
     // board omissions. Both checks remain pre-commit and have no live effects.
+    if (visualCoverageIssues.length) throw new VisualObligationQualityError(visualCoverageIssues);
     if (requireBoardProof) assertRequiredBoardBindings(draft, boardRequirements);
     return compiled;
   }
