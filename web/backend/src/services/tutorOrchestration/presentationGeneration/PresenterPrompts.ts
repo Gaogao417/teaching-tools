@@ -80,7 +80,7 @@ export const BOARD_PROOF_PRESENTER_SYSTEM_PROMPT = TOOL_INVOCATION_PRESENTER_SYS
   "19. 历史板书用于判断已呈现内容，不能扩张当前 tools/allowed_knowledge 权限；不得为补旧内容调用当前不可见 binding。数值作为其他推导的前提出现，不等于这个数值的计算过程已经板书。",
 ].join("\n");
 
-export const PRESENTER_SYSTEM_PROMPT = BOARD_PROOF_PRESENTER_SYSTEM_PROMPT + "\n20. student_context 给出学生所在地和年级，按该阶段常见知识与语言解释；它不证明学生已掌握某条定理，也不扩张 allowed_knowledge。";
+export const PRESENTER_SYSTEM_PROMPT = BOARD_PROOF_PRESENTER_SYSTEM_PROMPT.replace("基于教师已批准的推理依据", "基于已批准的推理依据").replace("需要教师补充", "还需要补充依据") + "\n20. student_context 给出学生所在地和年级，按该阶段常见知识与语言解释；它不证明学生已掌握某条定理，也不扩张 allowed_knowledge。";
 
 export interface PresentedBoardNote { readonly kind: string; readonly content: string }
 export interface RequiredBoardBinding { readonly binding_ref: string; readonly note_kind: "approved_math_note" }
