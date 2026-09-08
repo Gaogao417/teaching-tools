@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 async function main() {
   process.env.SQLITE_PATH = ':memory:';
   process.env.TUTOR_PRESENTER_PROVIDER = 'dashscope';
-  process.env.TUTOR_PRESENTER_MODEL = 'qwen-plus';
+
   const { importApprovedPlanV5 } = await import('../src/services/planBuild/v5/ImportApprovedPlanV5');
   const { buildPresentationContext, DEFAULT_CONTEXT_POLICY } = await import('../src/services/tutorOrchestration/presentationGeneration/ContextBuilder');
   const { createPresenterGenerator } = await import('../src/services/tutorOrchestration/presentationGeneration/GeneratorPort');
@@ -14,6 +14,7 @@ async function main() {
   const args=process.argv.slice(2);
   const arg=(key:string)=>{ const i=args.indexOf(key);if(i<0||!args[i+1])throw new Error(`${key} required`);return args[i+1]; };
   const root=resolve(arg('--canonical-root')); const job=JSON.parse(readFileSync(arg('--request'),'utf8'));
+  process.env.TUTOR_PRESENTER_MODEL = job.models?.presenter || 'qwen-plus';
   const result=importApprovedPlanV5({canonicalRoot:root,anchored:true},arg('--plan'),{workspaceCatalog:job.resource_catalog});
   if(!result.ok)throw new Error(result.errors.join('; '));
   const imported=result.imported;

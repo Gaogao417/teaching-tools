@@ -19,7 +19,7 @@ async function main() {
     const payload = { ...request, approved_inputs: source, canonical_schemas: schemas,
       asset_meanings: { QT: "题目事实：题干、条件、图、答案和解答", RG: "解法依据：事实、推理、目标和路线", TA: "一种教师讲法", AS: "各小问的讲法选择", Plan: "可执行教学任务", Protocol: "互动步骤、完成条件与合法转移" } };
     write("model-request.json", payload);
-    const model = process.env.TEACHING_PLAN_MODEL || "qwen-plus";
+    const model = request.model_id || process.env.TEACHING_PLAN_MODEL || "qwen-plus";
     const key = process.env.DASHSCOPE_API_KEY;
     if (!key) throw new Error("DASHSCOPE_API_KEY missing");
     const response = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
