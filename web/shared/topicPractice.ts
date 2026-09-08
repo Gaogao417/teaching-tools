@@ -70,6 +70,12 @@ export interface TopicGeometryParallelLine {
 export type TopicGeometryTeachingMark =
   | {
       id: string;
+      kind: "angle-equality";
+      angles: {vertex: string; rayPoints: [string, string]; sector: "minor"}[];
+      source: "problem-given";
+    }
+  | {
+      id: string;
       kind: "segment-label";
       segmentId: string;
       valueLatex: string;

@@ -86,6 +86,7 @@ export class GeometryModel {
     for (const c of seed.circles ?? []) this.circles.set(c.id, { ...c });
     this.teachingMarks = (seed.teachingMarks || []).map((mark) => mark.kind === "correspondence"
       ? { ...mark, segmentIds: [...mark.segmentIds] as [string, string] }
+      : mark.kind === "angle-equality" ? { ...mark, angles: mark.angles.map(angle => ({...angle, rayPoints: [...angle.rayPoints] as [string, string]})) }
       : mark.kind === "emphasis" ? { ...mark, entityIds: [...mark.entityIds] } : { ...mark });
   }
 
@@ -159,6 +160,7 @@ export class GeometryModel {
   teachingMarksList(): readonly TopicGeometryTeachingMark[] {
     return this.teachingMarks.map((mark) => mark.kind === "correspondence"
       ? { ...mark, segmentIds: [...mark.segmentIds] as [string, string] }
+      : mark.kind === "angle-equality" ? { ...mark, angles: mark.angles.map(angle => ({...angle, rayPoints: [...angle.rayPoints] as [string, string]})) }
       : mark.kind === "emphasis" ? { ...mark, entityIds: [...mark.entityIds] } : { ...mark });
   }
 

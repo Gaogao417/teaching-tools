@@ -608,6 +608,12 @@ function isAnswerSlot(value: unknown): value is AnswerSlotSpec {
 
 function isTeachingMark(value: unknown): boolean {
   if (!isRecord(value) || !hasString(value, "id") || !hasString(value, "kind")) return false;
+  if (value.kind === "angle-equality") {
+    return value.source === "problem-given" && Array.isArray(value.angles) && value.angles.length >= 2
+      && value.angles.every(angle => isRecord(angle) && hasString(angle, "vertex") && angle.sector === "minor"
+        && Array.isArray(angle.rayPoints) && angle.rayPoints.length === 2 && angle.rayPoints.every(p => typeof p === "string" && p.length > 0)
+        && new Set([angle.vertex, ...angle.rayPoints]).size === 3);
+  }
   if (value.kind === "segment-label") {
     return hasString(value, "segmentId") && hasString(value, "valueLatex")
       && ["length", "share"].includes(String(value.labelKind));
@@ -627,12 +633,15 @@ function isWorldProjection(value: unknown): value is WorldProjection {
   if (!isRecord(value.geometry) || !isRecord(value.geometry.viewBox)
     || typeof value.geometry.viewBox.width !== "number" || typeof value.geometry.viewBox.height !== "number"
     || !Array.isArray(value.geometry.points) || !Array.isArray(value.geometry.segments)) return false;
+  const pointIds = new Set(value.geometry.points.filter(isRecord).map(point => point.id));
   return value.geometry.points.every((point) => isRecord(point) && hasString(point, "id") && typeof point.x === "number" && typeof point.y === "number")
     && value.geometry.segments.every((line) => isRecord(line) && hasString(line, "id") && hasString(line, "from") && hasString(line, "to"))
     && (value.geometry.derivedLines === undefined || (Array.isArray(value.geometry.derivedLines)
       && value.geometry.derivedLines.every((line) => isRecord(line) && hasString(line, "id") && line.kind === "parallel-line" && hasString(line, "through") && hasString(line, "parallelTo"))))
     && (value.geometry.teachingMarks === undefined || (Array.isArray(value.geometry.teachingMarks)
-      && value.geometry.teachingMarks.every(isTeachingMark)));
+      && value.geometry.teachingMarks.every(mark => isTeachingMark(mark)
+        && (mark.kind !== "angle-equality" || mark.angles.every((angle: {vertex:string;rayPoints:string[]}) =>
+          [angle.vertex,...angle.rayPoints].every(id => pointIds.has(id)))))));
 }
 
 const LOCAL_TRUTH_KEYS = /^(acceptedAnswers|expectedValue|expectedValues|expectedOrder|expectedResult|throughPointId|referenceLineId|carrierPointIds|simplifiedRatio|shareValues|knownValueLatex)$/;

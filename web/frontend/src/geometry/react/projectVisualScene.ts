@@ -28,11 +28,12 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
     throw new VisualRenderError("identity", `visual label requires a bounded segment: ${id}`);
   };
   const inspection = new Map<string, VisualInspectionTarget>();
+  const physicalAngles = new Map<string, { id: string; names: string[] }>();
   const addInspection = (target: VisualInspectionTarget) => {
     const old = inspection.get(target.id);
-    inspection.set(target.id, old ? { ...old, descriptions: [...new Set([...old.descriptions, ...target.descriptions])], ownerKeys: [...new Set([...old.ownerKeys, ...target.ownerKeys])] } : target);
+    inspection.set(target.id, old ? { ...old, label: target.kind === "angle" ? target.label : old.label, descriptions: [...new Set([...old.descriptions, ...target.descriptions])], ownerKeys: [...new Set([...old.ownerKeys, ...target.ownerKeys])] } : target);
   };
-  const inspectTargets = (targets: VisualView["annotations"][number]["resolved_targets"], owners: readonly string[], content?: string) => {
+  const inspectTargets = (targets: VisualView["annotations"][number]["resolved_targets"], owners: readonly string[], content?: string, authorizedAngleEquality = false) => {
     const messages: string[] = [];
     const addSide = (ends: readonly [string,string], description: string) => {
       const ordered = [...ends].sort();
@@ -44,9 +45,24 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
       messages.push(description);
     }
     if (targets.angles?.length) {
-      const description = `角关系：${targets.angles.map(a=>`∠${name(a.ray_points[0])}${name(a.vertex)}${name(a.ray_points[1])}`).join("、")}`;
+      const angleName=(angle: NonNullable<typeof targets.angles>[number])=>`${name(angle.ray_points[0])}${name(angle.vertex)}${name(angle.ray_points[1])}`;
+      const description = targets.angles.map(a=>`∠${angleName(a)}`).join(authorizedAngleEquality ? " = " : "、");
       messages.push(description);
-
+      if(authorizedAngleEquality) for(const angle of targets.angles) {
+        const vertex=model.getPoint(angle.vertex);
+        if(!vertex)throw new VisualRenderError("identity","angle inspection vertex missing");
+        // Pixel/shape deduplication only. Never derive an angle value or relation.
+        const directions=angle.ray_points.map(id=>{
+          const ray=model.getPoint(id);if(!ray)throw new VisualRenderError("identity","angle inspection ray missing");
+          const length=Math.hypot(ray.x-vertex.x,ray.y-vertex.y);if(!length)throw new VisualRenderError("layout","degenerate inspection ray");
+          return `${((ray.x-vertex.x)/length).toFixed(8)},${((ray.y-vertex.y)/length).toFixed(8)}`;
+        }).sort();
+        const physicalKey=`${angle.vertex}:${directions.join(";")}:${angle.sector}`;
+        const rays=[...angle.ray_points].sort();
+        const alias=physicalAngles.get(physicalKey) ?? {id:`angle:${angle.vertex}|${rays.join("|")}|${angle.sector}`,names:[]};
+        if(!alias.names.includes(angleName(angle)))alias.names.push(angleName(angle));physicalAngles.set(physicalKey,alias);
+        addInspection({id:alias.id,kind:"angle",label:`查看角 ${alias.names.join(" / ")} 的已知关系`,descriptions:[description],ownerKeys:owners,vertex:point(angle.vertex),rays:[point(rays[0]),point(rays[1])]});
+      }
     }
     if(content) for(const id of targets.entity_ids) {
       const line=model.getLine(id);if(!line)continue;
@@ -59,6 +75,11 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
   const focusInformation: string[] = [];
   if(policy?.onDemand) {
     for(const mark of model.teachingMarksList()) {
+      if(mark.kind==="angle-equality") {
+        const angles=mark.angles.map(angle=>({vertex:angle.vertex,ray_points:angle.rayPoints,sector:angle.sector}));
+        inspectTargets({entity_ids:[...new Set(angles.flatMap(a=>[a.vertex,...a.ray_points]))],angles},[`geometry:${mark.id}`],undefined,true);
+        continue;
+      }
       if(mark.kind!=="segment-label"||mark.labelKind!=="length")continue;
       const line=model.getLine(mark.segmentId);
       if(!line || line.kind!=="segment")throw new VisualRenderError("identity","known length lacks a bounded segment");
@@ -66,11 +87,23 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
       addInspection({id:`segment:${ordered.join("|")}`,kind:"segment",label:`查看线段 ${ordered.map(name).join("")} 的已知边长`,descriptions:[`${name(line.from)}${name(line.to)} = ${mark.valueLatex}`],ownerKeys:[`geometry:${mark.id}`],points:[point(ordered[0]),point(ordered[1])]});
     }
     for(const annotation of view.annotations) {
-      const messages=inspectTargets(annotation.resolved_targets,annotation.owner_keys,["length-label","ratio-label"].includes(annotation.form) ? annotation.content : undefined);
+      const messages=inspectTargets(annotation.resolved_targets,annotation.owner_keys,["length-label","ratio-label"].includes(annotation.form) ? annotation.content : undefined, annotation.form === "angle-arcs");
       if(policy.presentationIds?.includes(annotation.annotation_id))teachingInformation.push(...messages);
     }
     if(view.focus) {
-      focusInformation.push(...inspectTargets(view.focus.resolved_targets,[view.focus.owner_key]));
+      const knownAngles=view.annotations.filter(a=>a.binding_ref===view.focus!.binding_ref&&a.form==="angle-arcs");
+      if(knownAngles.length) for(const annotation of knownAngles) focusInformation.push(...inspectTargets(annotation.resolved_targets,annotation.owner_keys,undefined,true));
+      else {
+        const key=(a:{vertex:string;ray_points:readonly string[];sector:string})=>`${a.vertex}|${[...a.ray_points].sort().join("|")}|${a.sector}`;
+        const focusKeys=view.focus.resolved_targets.angles?.map(key);
+        const givens=model.teachingMarksList().filter(mark=>mark.kind==="angle-equality" && focusKeys?.some(k=>mark.angles.some(a=>key({vertex:a.vertex,ray_points:a.rayPoints,sector:a.sector})===k)));
+        if(givens.length) for(const given of givens) {
+          if(given.kind!=="angle-equality")continue;
+          const angles=given.angles.map(a=>({vertex:a.vertex,ray_points:a.rayPoints,sector:a.sector}));
+          focusInformation.push(...inspectTargets({entity_ids:[...new Set(angles.flatMap(a=>[a.vertex,...a.ray_points]))],angles},[`geometry:${given.id}`],undefined,true));
+        }
+        else focusInformation.push(...inspectTargets(view.focus.resolved_targets,[view.focus.owner_key]));
+      }
       for(const annotation of view.annotations) if(annotation.binding_ref===view.focus.binding_ref&&annotation.content) focusInformation.push(annotation.content);
       teachingInformation.push(...focusInformation);
     }

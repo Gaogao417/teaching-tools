@@ -20,9 +20,9 @@ describe('on-demand information v2',()=>{
   view.focus={group_id:'g',binding_ref:'VB-104',mode:'steady',owner_key:'owner',resolved_targets:{entity_ids:['C','A','B'],paired_sides:[{endpoints:['C','A']},{endpoints:['C','B']}]}};
   const scene=projectVisualScene(view,model,viewport,{onDemand:true});expect(scene.glyphs).toHaveLength(2);expect(scene.teachingInformation).toEqual(['对应边：CA ↔ CB','$CA/CB=2/3$']);
  });
- it('does not expose generic angle relations while precise angle-query semantics are pending',()=>{
+ it('exposes explicit authorized equal angles at distinct sectors',()=>{
   const view=v();view.annotations=[{annotation_id:'angles',binding_ref:'VB-102',form:'angle-arcs',role_key:'angles',owner_keys:['owner'],version:1,resolved_targets:{entity_ids:['A','B','C','D'],angles:[{vertex:'A',ray_points:['B','C'],sector:'minor'},{vertex:'A',ray_points:['D','C'],sector:'minor'}]}}];
-  expect(projectVisualScene(view,model,viewport,{onDemand:true}).inspectionTargets).toHaveLength(0);
+  expect(projectVisualScene(view,model,viewport,{onDemand:true}).inspectionTargets).toHaveLength(2);
  });
  it('focus/hover/Escape and invalidation use one card; old callback cannot reopen it',async()=>{
   const t=mount();try{await t.registry.install(projectVisualScene(v(),model,viewport,{onDemand:true}),execution());
@@ -76,4 +76,20 @@ it('active tool physically disables inspection hit and keyboard entry',async()=>
  const t=mount();try{await t.registry.install(projectVisualScene(v(),model,viewport,{onDemand:true}),execution());t.registry.setInspectionEnabled(false);
   for(const hit of t.host.querySelectorAll<SVGElement>('[data-visual-inspect-id]')){expect(hit.style.pointerEvents).toBe('none');expect(hit.getAttribute('tabindex')).toBe('-1');}
  }finally{t.dispose();}
+});
+
+it('deduplicates same physical angle sector while preserving explicit alias names and equality',()=>{
+ const view=v();view.annotations=[{annotation_id:'angles',binding_ref:'VB-102',form:'angle-arcs',role_key:'angles',owner_keys:['owner'],version:1,resolved_targets:{entity_ids:['C','A','D','B'],angles:[{vertex:'C',ray_points:['A','D'],sector:'minor'},{vertex:'C',ray_points:['A','B'],sector:'minor'}]}}];
+ const scene=projectVisualScene(view,model,viewport,{onDemand:true});expect(scene.glyphs).toHaveLength(0);expect(scene.inspectionTargets).toHaveLength(1);expect(scene.inspectionTargets![0].label).toContain('ACD');expect(scene.inspectionTargets![0].label).toContain('ACB');expect(scene.inspectionTargets![0].descriptions).toEqual(['∠ACD = ∠ACB']);
+});
+it('focus alone and known side length never invent angle equality',()=>{
+ const view=v();view.focus={group_id:'g',binding_ref:'VB-102',mode:'steady',owner_key:'owner',resolved_targets:{entity_ids:['A','B','C'],angles:[{vertex:'A',ray_points:['B','C'],sector:'minor'}]}};
+ const scene=projectVisualScene(view,model,viewport,{onDemand:true});expect(scene.inspectionTargets!.filter(t=>t.kind==='angle')).toHaveLength(0);expect(scene.teachingInformation!.join()).not.toContain('=');
+});
+
+it('explicit problem-given angle mark enables only its given equality without closure',()=>{
+ const geometry=new GeometryModel({points:[...model.pointsList()],lines:[...model.linesList()],teachingMarks:[{id:'given-VB101',kind:'angle-equality',source:'problem-given',angles:[{vertex:'A',rayPoints:['D','C'],sector:'minor'},{vertex:'C',rayPoints:['A','D'],sector:'minor'}]}]});
+ const view={...v(),annotations:[]};const scene=projectVisualScene(view,geometry,viewport,{onDemand:true});expect(scene.glyphs).toHaveLength(0);expect(scene.inspectionTargets!.filter(t=>t.kind==='angle')).toHaveLength(2);expect(scene.inspectionTargets!.flatMap(t=>t.descriptions)).toEqual(['∠DAC = ∠ACD','∠DAC = ∠ACD']);expect(scene.inspectionTargets!.some(t=>t.label.includes('ABC'))).toBe(false);
+ view.focus={group_id:'g',binding_ref:'VB-101',mode:'steady',owner_key:'owner',resolved_targets:{entity_ids:['A','D','C'],angles:[{vertex:'A',ray_points:['D','C'],sector:'minor'}]}};
+ expect(projectVisualScene(view,geometry,viewport,{onDemand:true}).teachingInformation).toEqual(['∠DAC = ∠ACD']);
 });

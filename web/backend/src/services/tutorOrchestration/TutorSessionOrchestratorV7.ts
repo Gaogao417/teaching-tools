@@ -1,3 +1,4 @@
+import { selectGivenAngleMarks } from "./KnownGivenAngleProjection";
 import { projectionReadStamp, registerSnapshotProjection } from "./V7SnapshotProjectionContext";
 import { VISUAL_MAX_ACTIONS } from "./presentationGeneration/VisualPresentationTools";
 import { createHash } from "node:crypto";
@@ -1221,6 +1222,7 @@ export class TutorSessionOrchestratorV7 {
       runtimeState: tutorState as unknown as Record<string, unknown>,
       workspace: { state: { revision: workspace.state.revision }, context: { tutorCommands: workspace.context.tutorCommands } },
       baseGeometry: this.catalog.baseGeometry,
+      givenAngleMarks: selectGivenAngleMarks(this.binding.imported.plan.resource_bindings ?? [], this.binding.imported.graph.facts),
       givenLengthFacts: this.binding.imported.graph.facts.filter(fact => fact.role === "given" && fact.reveals_answer === false).map(fact => ({role:fact.role,reveals_answer:fact.reveals_answer,statement:fact.statement})),
       ...(this.eventSchema === "v10" ? { visualLifecycle: {
         presentation_execution_owner: (tutorState as unknown as TutorRuntimeStateV10).presentation_execution_owner,

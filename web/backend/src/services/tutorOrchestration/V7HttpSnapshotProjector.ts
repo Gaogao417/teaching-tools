@@ -1,3 +1,4 @@
+import { projectGivenAngles } from "./KnownGivenAngleProjection";
 import { projectKnownGivenLengths } from "./KnownGivenLengthProjection";
 import { consumeSnapshotProjection, projectionReadStamp, sameProjectionReadStamp, type ProjectionWorkspace } from "./V7SnapshotProjectionContext";
 /**
@@ -101,6 +102,7 @@ export function projectHttpSnapshotV1(args: {
   const fold = context.material.workspace;
   const geometry = composeRenderGeometryV7(fold, context.material.baseGeometry);
   const givenMarks = geometry ? projectKnownGivenLengths(context.material.givenLengthFacts ?? [], geometry) : [];
+  if (geometry) givenMarks.push(...projectGivenAngles(context.material.givenAngleMarks ?? [], geometry));
   if (geometry && givenMarks.length) geometry.teachingMarks = [...(Array.isArray(geometry.teachingMarks) ? geometry.teachingMarks : []), ...givenMarks];
   const visualLifecycle = context.material.visualLifecycle;
   const payload = {

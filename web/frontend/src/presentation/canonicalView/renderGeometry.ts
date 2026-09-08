@@ -96,6 +96,18 @@ function parseTeachingMark(value: unknown): NonNullable<TopicGeometryModel["teac
   const id = value["id"];
   if (!isString(id) || !isString(value["kind"])) return undefined;
   switch (value["kind"]) {
+    case "angle-equality": {
+      const rawAngles = value["angles"];
+      if(value["source"] !== "problem-given" || !Array.isArray(rawAngles) || rawAngles.length < 2) return undefined;
+      const angles: {vertex:string;rayPoints:[string,string];sector:"minor"}[] = [];
+      for(const angle of rawAngles) {
+        if(!isRecord(angle) || !isString(angle["vertex"]) || angle["sector"] !== "minor") return undefined;
+        const rays = angle["rayPoints"];
+        if(!Array.isArray(rays) || rays.length !== 2 || !isString(rays[0]) || !isString(rays[1]) || new Set([angle["vertex"],...rays]).size !== 3) return undefined;
+        angles.push({vertex:angle["vertex"],rayPoints:[rays[0],rays[1]],sector:"minor"});
+      }
+      return {id,kind:"angle-equality",source:"problem-given",angles};
+    }
     case "segment-label":
       if (!isString(value["segmentId"]) || !isString(value["valueLatex"])) return undefined;
       if (value["labelKind"] !== "length" && value["labelKind"] !== "share") return undefined;
@@ -167,6 +179,7 @@ export function parseRenderGeometryV1(value: Record<string, unknown> | null): To
     if (line.endPoint !== undefined && !pointIds.has(line.endPoint)) return undefined;
   }
   for (const mark of teachingMarks) {
+    if (mark.kind === "angle-equality" && mark.angles.some(angle => [angle.vertex,...angle.rayPoints].some(id => !pointIds.has(id)))) return undefined;
     if (mark.kind === "segment-label" && !lineIds.has(mark.segmentId)) return undefined;
     if (mark.kind === "correspondence" && (!lineIds.has(mark.segmentIds[0]) || !lineIds.has(mark.segmentIds[1]))) return undefined;
     if (mark.kind === "emphasis") {

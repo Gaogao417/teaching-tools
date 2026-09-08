@@ -1,0 +1,10 @@
+import {it,expect} from 'vitest';
+import {parseRenderGeometryV1} from '../../presentation/canonicalView/renderGeometry';
+import {buildGeometryModel} from '../adapters/topicGeometryModel';
+import {isActionEvaluationResponse} from '../../../../shared/actionRuntime';
+const mark={id:'given-angle:test',kind:'angle-equality',source:'problem-given',angles:[{vertex:'A',rayPoints:['D','C'],sector:'minor'},{vertex:'C',rayPoints:['A','D'],sector:'minor'}]};
+const geometry=()=>({viewBox:{width:300,height:300},points:['A','C','D'].map((id,i)=>({id,x:i*10,y:i*20})),segments:[],teachingMarks:[structuredClone(mark)]});
+const response=(g:unknown)=>({outcome:'accepted',evaluation:'progress',revision:1,nextIndex:0,phase:'answering',committedWorld:{revision:1,geometry:g}});
+it('both readers accept explicit given equality and nested model copies stay isolated',()=>{const raw=geometry();expect(isActionEvaluationResponse(response(raw))).toBe(true);const parsed=parseRenderGeometryV1(raw)!;expect(parsed).toBeDefined();const model=buildGeometryModel(parsed);raw.teachingMarks[0].angles[0].rayPoints[0]='X';const first=model.teachingMarksList()[0];if(first.kind!=='angle-equality')throw Error('missing angle');first.angles[0].rayPoints[0]='Y';expect(model.teachingMarksList()[0]).toEqual(mark);});
+it.each(['source','duplicate','sector','empty','unknownKind'])('both readers reject %s',fault=>{const g=geometry();if(fault==='source')g.teachingMarks[0].source='derived';if(fault==='duplicate')g.teachingMarks[0].angles[0].rayPoints[0]='A';if(fault==='sector')g.teachingMarks[0].angles[0].sector='major';if(fault==='empty')g.teachingMarks[0].angles=[];if(fault==='unknownKind')g.teachingMarks[0].kind='invented';expect(parseRenderGeometryV1(g)).toBeUndefined();expect(isActionEvaluationResponse(response(g))).toBe(false);});
+it('both readers reject unknown ray point',()=>{const g=geometry();g.teachingMarks[0].angles[0].rayPoints[0]='missing';expect(parseRenderGeometryV1(g)).toBeUndefined();expect(isActionEvaluationResponse(response(g))).toBe(false);});
