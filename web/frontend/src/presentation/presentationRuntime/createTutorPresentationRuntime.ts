@@ -63,7 +63,9 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
   const adapters = [voice, geometry, board, boardExplain, geometryEmphasize, createGeometryVisualPresentationAdapter(commitPort)];
   const registry = createCapabilityRegistry(adapters);
 
+  let baselineInstallation = 0;
   const ports: PresentationRuntimePorts = {
+    visualSurfaceGeneration: () => commitPort.visualRenderer.generation(),
     clientInstanceId: presentationClientInstanceId(),
     visualSnapshotReady: snapshot => {
       const visual = visualRuntimeSnapshot(snapshot);
@@ -74,7 +76,7 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
       if (!visual) return true;
       if (!commitPort.visualRenderer.hasSurface()) return false;
       await commitPort.visualRenderer.render(visual.view, {
-        sessionId: snapshot.session_id, executionKey: `baseline:${snapshot.session_id}:${visual.view.visual_revision}:${visual.view.digest}`,
+        sessionId: snapshot.session_id, executionKey: `baseline:${snapshot.session_id}:${visual.view.visual_revision}:${visual.view.digest}:${++baselineInstallation}`,
         visualRevision: visual.view.visual_revision, targetDigest: visual.view.digest, operation: "installed", abort,
       });
       return true;

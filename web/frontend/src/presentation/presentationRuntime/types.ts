@@ -90,6 +90,8 @@ export interface PresentationRuntimePorts {
   /** Present only for the owner-aware profile; legacy delivery semantics stay unchanged. */
   clientInstanceId?: string;
   prepareVisualSnapshot?(snapshot: ValidatedSessionSnapshot, abort: AbortSignal): Promise<boolean>;
+  /** Local canvas identity; repeated Board readiness is not a remount. */
+  visualSurfaceGeneration?(): number | undefined;
   visualSnapshotReady?(snapshot: ValidatedSessionSnapshot): boolean;
   suppressVisualSnapshot?(snapshot: ValidatedSessionSnapshot): void;
   reportOutcome(request: PendingPresentationOutcomeRequest): Promise<ValidatedSessionSnapshot>;

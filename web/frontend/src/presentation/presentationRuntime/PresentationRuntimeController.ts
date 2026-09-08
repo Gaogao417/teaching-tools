@@ -114,7 +114,7 @@ export class PresentationRuntimeController {
   private latestSnapshot?: ValidatedSessionSnapshot;
   private controlHold?: string;
   private observedOwnerKey?: string;
-  private visualPreparation?: { key: string; abort: AbortController };
+  private visualPreparation?: { key: string; abort: AbortController; surfaceGeneration?: number };
   private state: RuntimeState = { kind: "idle" };
   private acked: AckedOutcome | undefined;
   private disposed = false;
@@ -146,6 +146,11 @@ export class PresentationRuntimeController {
   adopt(snapshot: ValidatedSessionSnapshot): void {
     if (this.disposed) return;
     const previousSnapshot = this.latestSnapshot;
+    // A delayed poll cannot replace a newer baseline or revive stale effects.
+    if (previousSnapshot?.session_id === snapshot.session_id && previousSnapshot.revision > snapshot.revision) return;
+    if (this.visualPreparation && previousSnapshot !== snapshot) {
+      this.visualPreparation.abort.abort(); this.visualPreparation = undefined;
+    }
     this.latestSnapshot = snapshot;
     const pending = snapshot.pending_presentation;
     let visual: ReturnType<typeof visualRuntimeSnapshot>;
@@ -167,6 +172,11 @@ export class PresentationRuntimeController {
       if (visual.owner.client_instance_id !== this.ports.clientInstanceId) {
         this.discardExecution();
         this.setState({ kind: "idle" });
+        // Read-only restore may install a settled view, but must never expose
+        // an applied/unconfirmed delivery or perform owner-only execution.
+        if (!pending && !visual.barrier && !snapshot.views.status.last_failure && (!snapshot.generation || snapshot.generation.status === "idle")) {
+          this.prepareStaticVisual(snapshot, `observer:${ownerKey}:${snapshot.revision}:${visual.view.digest}`, false);
+        }
         return;
       }
       if (pending) {
@@ -200,20 +210,7 @@ export class PresentationRuntimeController {
       // Visual actions render through their adapter. Before voice/ordinary actions
       // (or an idle restore), rebuild the static baseline without replaying pulses.
       if (!pending?.action.workspace_action?.capability.startsWith("geometry.visual.") && this.ports.visualSnapshotReady?.(snapshot) === false) {
-        const key = `${ownerKey}:${visual.view.digest}:${visual.view.visual_revision}`;
-        if (this.visualPreparation?.key === key) return;
-        this.visualPreparation?.abort.abort();
-        const preparation = { key, abort: new AbortController() }; this.visualPreparation = preparation;
-        void this.ports.prepareVisualSnapshot?.(snapshot, preparation.abort.signal).then(ready => {
-          if (this.disposed || this.visualPreparation !== preparation) return;
-          this.visualPreparation = undefined;
-          if (ready && this.latestSnapshot) this.adopt(this.latestSnapshot);
-          else if (!ready) this.ports.onNotice("几何标注尚未完成真实恢复，讲解已暂停。");
-        }).catch(error => {
-          if (this.visualPreparation !== preparation) return;
-          this.visualPreparation = undefined;
-          this.ports.onNotice(`几何恢复失败：${String(error)}`);
-        });
+        this.prepareStaticVisual(snapshot, `${ownerKey}:${visual.view.digest}:${visual.view.visual_revision}`, true);
         return;
       }
       // A released server barrier permits static remount recovery, while the
@@ -422,11 +419,38 @@ export class PresentationRuntimeController {
     await execution.chain;
   }
 
+  /** One renderer baseline path. Observer completion is local only: no
+   * delivery adoption, outcome, execution claim or media operation. */
+  private prepareStaticVisual(snapshot: ValidatedSessionSnapshot, key: string, continueExecution: boolean): void {
+    if (this.ports.visualSnapshotReady?.(snapshot) !== false || !this.ports.prepareVisualSnapshot) return;
+    if (this.visualPreparation?.key === key) return;
+    this.visualPreparation?.abort.abort();
+    const preparation = { key, abort: new AbortController(), surfaceGeneration: this.ports.visualSurfaceGeneration?.() }; this.visualPreparation = preparation;
+    void this.ports.prepareVisualSnapshot(snapshot, preparation.abort.signal).then(ready => {
+      if (this.disposed || preparation.abort.signal.aborted || this.visualPreparation !== preparation || this.latestSnapshot !== snapshot) return;
+      this.visualPreparation = undefined;
+      if (ready && continueExecution) this.adopt(snapshot);
+      else if (!ready) this.ports.onNotice("几何标注尚未完成真实恢复，讲解已暂停。");
+    }).catch(error => {
+      if (preparation.abort.signal.aborted || this.visualPreparation !== preparation) return;
+      this.visualPreparation = undefined;
+      this.ports.onNotice(`几何恢复失败：${String(error)}`);
+    });
+  }
+
   /** F7 Step 7 返工（复验 P1-2）：真实完成信号源**后于** adapter 暂停接入的
    *  恢复路径——presentation surface 挂载注册信号源时通知本 runtime；处于
    *  awaiting-real-signal 的执行以原 delivery+snapshot 重新执行（workspace
    *  adapter 无副作用，重入安全）。非该状态时为 no-op。 */
   retryAwaitingRealSignal(): void {
+    // The newly mounted source can arrive before the old render promise
+    // rejects. Invalidate that pending baseline now so its same-key guard
+    // cannot swallow the only source-activation notification. Retry is driven
+    // by this real activation, never by a catch/retry loop.
+    if (this.visualPreparation) {
+      if (this.ports.visualSurfaceGeneration && this.visualPreparation.surfaceGeneration === this.ports.visualSurfaceGeneration()) return;
+      this.visualPreparation.abort.abort(); this.visualPreparation = undefined;
+    }
     if (this.latestSnapshot && visualRuntimeSnapshot(this.latestSnapshot) && this.state.kind === "idle") {
       this.adopt(this.latestSnapshot); return;
     }
