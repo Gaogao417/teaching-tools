@@ -338,8 +338,33 @@ db.exec(`
   policy_version TEXT NOT NULL, input_digest TEXT NOT NULL, presenter_pin_json TEXT NOT NULL,
   companion_json TEXT NOT NULL,
   PRIMARY KEY(session_id, sequence_id), UNIQUE(session_id, request_id, attempt, epoch),
-  FOREIGN KEY(session_id, planned_event_sequence) REFERENCES tutor_session_events(session_id, sequence)
+  FOREIGN KEY(session_id, planned_event_sequence) REFERENCES tutor_session_events(session_id, sequence) ON DELETE CASCADE
  );
  CREATE TRIGGER IF NOT EXISTS tutor_generation_companions_immutable
  BEFORE UPDATE ON tutor_generation_companions BEGIN SELECT RAISE(ABORT, 'immutable generation companion'); END;
 `);
+// Companion rows live and die with their session's event stream (test cleanup and any
+// future session removal must not orphan audit rows). Pre-cascade databases are rebuilt
+// in place; row contents are preserved verbatim and the immutability trigger recreated.
+// The IMMEDIATE transaction keeps concurrent initializers (test workers) from racing.
+const migrateCompanionsCascade = db.transaction(() => {
+  const companionForeignKeys = db.prepare("PRAGMA foreign_key_list(tutor_generation_companions)").all() as Array<{ on_delete: string }>;
+  if (companionForeignKeys.length > 0 && companionForeignKeys.every(key => key.on_delete !== "CASCADE")) {
+    db.exec(`
+     CREATE TABLE tutor_generation_companions_cascade (
+      session_id TEXT NOT NULL, sequence_id TEXT NOT NULL, request_id TEXT NOT NULL,
+      attempt INTEGER NOT NULL, epoch INTEGER NOT NULL, planned_event_sequence INTEGER NOT NULL,
+      policy_version TEXT NOT NULL, input_digest TEXT NOT NULL, presenter_pin_json TEXT NOT NULL,
+      companion_json TEXT NOT NULL,
+      PRIMARY KEY(session_id, sequence_id), UNIQUE(session_id, request_id, attempt, epoch),
+      FOREIGN KEY(session_id, planned_event_sequence) REFERENCES tutor_session_events(session_id, sequence) ON DELETE CASCADE
+     );
+     INSERT INTO tutor_generation_companions_cascade SELECT * FROM tutor_generation_companions;
+     DROP TABLE tutor_generation_companions;
+     ALTER TABLE tutor_generation_companions_cascade RENAME TO tutor_generation_companions;
+     CREATE TRIGGER IF NOT EXISTS tutor_generation_companions_immutable
+     BEFORE UPDATE ON tutor_generation_companions BEGIN SELECT RAISE(ABORT, 'immutable generation companion'); END;
+    `);
+  }
+});
+migrateCompanionsCascade.immediate();

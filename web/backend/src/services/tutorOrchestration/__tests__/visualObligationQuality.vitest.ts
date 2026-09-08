@@ -7,11 +7,12 @@ import {TutorTaskBindingResolver} from '../TutorTaskBindingResolver';
 import {importVisualReviewCandidate} from '../../planBuild/visual/ImportVisualReviewCandidate';
 import {FixedResponseGateProvider} from '../../tutorNavigator/ModelGateAdjudicatorV5';
 import {f6Model,realCanonicalRoot} from './f6Support';
-import {VISUAL_PRESENTER_PROMPT_VERSION} from '../presentationGeneration/PresenterPrompts';
+import {VISUAL_PRESENTER_PROMPT_VERSION,V14_VISUAL_PRESENTER_PROMPT_VERSION} from '../presentationGeneration/PresenterPrompts';
 import {VISUAL_CONTEXT_BUILDER_VERSION,VISUAL_TOOL_CATALOG_VERSION} from '../presentationGeneration/VisualPresentationTools';
 import type {PresenterGeneratorPort,PresentationDraftV2} from '../presentationGeneration/GeneratorPort';
 import {VisualObligationQualityError} from '../presentationGeneration/IntentCompiler';
 import * as preflightModule from '../presentationGeneration/SequencePreflight';
+import {db} from '../../../db/database';
 const original=JSON.parse(readFileSync(resolve('src/services/tutorOrchestration/__tests__/fixtures/realBt03MissingRatio.json'),'utf8')).items as PresentationDraftV2['items'];
 const annotate=(binding_ref:string,form:string)=>({type:'tool_intent' as const,tool:'geometry.annotate',args:{binding_ref,params:{form,lifetime:'teaching-scope',group:'seg'}}});
 // The recorded input remains immutable. The scripted corrected response now
@@ -25,10 +26,10 @@ const root=realCanonicalRoot();const loaded=importVisualReviewCandidate({canonic
 let serial=0;
 function legalItems(p:any){const items:PresentationDraftV2['items']=[];for(const req of p.visual.requirements){for(const form of req.forms)items.push(annotate(req.binding_ref,form));for(const pair of req.required_pair_indices)items.push({type:'tool_intent',tool:'geometry.emphasize',args:{binding_ref:req.binding_ref,params:{group:'seg',pair_index:pair,mode:'pulse'}}});}items.push({type:'speech',text:'我们依据当前批准关系看这一步。',basis_refs:[p.allowed_knowledge[0].ref]});for(const b of p.required_board_bindings??[])items.push({type:'tool_intent',tool:'board.explain',args:{binding_ref:b.binding_ref,params:{note_kind:'approved_math_note'}}});return items;}
 afterEach(()=>vi.restoreAllMocks());
-async function setup(reply:(call:number,payload:any)=>Promise<PresentationDraftV2['items']>|PresentationDraftV2['items'],targetBeat=3){
+async function setup(reply:(call:number,payload:any)=>Promise<PresentationDraftV2['items']>|PresentationDraftV2['items'],targetBeat=3,promptVersion:string=VISUAL_PRESENTER_PROMPT_VERSION){
  const seen:Array<{request_id:string;payload:unknown}>=[];
  const gate=new FixedResponseGateProvider([1,2].map(n=>JSON.stringify({response_kind:'understanding_confirmation',matched_gate_id:`GT-0${n}`,verdict:'pass',reasoning_location:'unknown',grounding_refs:[]})),'visual-quality');
- const presenter:PresenterGeneratorPort={provider:'visual-quality-test',modelId:'visual-quality-test',pin:{provider:'visual-quality-test',model_id:'visual-quality-test',prompt_version:VISUAL_PRESENTER_PROMPT_VERSION,context_builder_version:VISUAL_CONTEXT_BUILDER_VERSION,tool_catalog_version:VISUAL_TOOL_CATALOG_VERSION},async generatePresentationDraft(r){
+ const presenter:PresenterGeneratorPort={provider:'visual-quality-test',modelId:'visual-quality-test',pin:{provider:'visual-quality-test',model_id:'visual-quality-test',prompt_version:promptVersion,context_builder_version:VISUAL_CONTEXT_BUILDER_VERSION,tool_catalog_version:VISUAL_TOOL_CATALOG_VERSION},async generatePresentationDraft(r){
   const p=r.userPayload as any;let items:PresentationDraftV2['items'];
   if(p.visual.requirements.some((x:any)=>x.binding_ref===(targetBeat===3?'VB-105':'VB-104'))){seen.push({request_id:r.request_id,payload:structuredClone((({repair_feedback,...base})=>base)(p))});items=await reply(seen.length,p);}
   else items=legalItems(p);
@@ -53,9 +54,17 @@ describe('H06 visual obligation bounded repair',()=>{
   const eventCount=f.s.events.length;const restored=f.app().restore(f.s.sessionId);expect(restored.events).toHaveLength(eventCount);expect(f.seen).toHaveLength(2);expect(restored.assertReplayParity().equal).toBe(true);
  },15000);
 
- it('late visual introduction is repairable only after full candidate validation',async()=>{
-  const f=await setup(n=>{const items=fixed();if(n===1)items.unshift({type:'speech',text:'这里先看比例标注。',basis_refs:['VB-105']});return items;});
+ it('late visual introduction stays a bounded quality repair under the v14 pin (no lowering)',async()=>{
+  const f=await setup(n=>{const items=fixed();if(n===1)items.unshift({type:'speech',text:'这里先看比例标注。',basis_refs:['VB-105']});return items;},3,V14_VISUAL_PRESENTER_PROMPT_VERSION);
   expect((await f.s.drivePendingGeneration()).kind).toBe('committed');expect(f.seen).toHaveLength(2);expect(f.seen[1]).toEqual(f.seen[0]);
+  expect(f.s.events.filter(e=>String(e.event_type)==='presentation_generation_retry_scheduled')).toHaveLength(1);
+ },15000);
+ it('v15 bounded lowering repairs adjacent late visual in one model call without quality retry',async()=>{
+  const f=await setup(()=>{const items=fixed();items.unshift({type:'speech',text:'这里先看比例标注。',basis_refs:['VB-105']});return items;});
+  expect((await f.s.drivePendingGeneration()).kind).toBe('committed');expect(f.seen).toHaveLength(1);
+  expect(f.s.events.slice(f.before).filter(e=>String(e.event_type)==='presentation_generation_retry_scheduled')).toEqual([]);
+  const row=db.prepare('SELECT companion_json FROM tutor_generation_companions WHERE session_id=? ORDER BY planned_event_sequence DESC LIMIT 1').get(f.s.sessionId) as any;
+  expect(JSON.parse(row.companion_json).moves).toEqual([{speech_original_index:0,visual_original_indices:[1,2],reason:'adjacent-unique-visual-block'}]);
  },15000);
  it.each(['missing-pair','missing-pulse'] as const)('%s uses the same bounded quality path',async fault=>{
   const f=await setup((n,p)=>{const items=legalItems(p);if(n!==1)return items;return items.filter(item=>!(fault==='missing-pair'&&item.type==='tool_intent'&&item.tool==='geometry.emphasize'&&item.args?.params?.pair_index===2)).map(item=>fault==='missing-pulse'&&item.type==='tool_intent'&&item.tool==='geometry.emphasize'?{...item,args:{...item.args,params:{...item.args?.params,mode:'steady'}}}:item);},2);

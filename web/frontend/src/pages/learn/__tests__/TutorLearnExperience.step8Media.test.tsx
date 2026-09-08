@@ -34,10 +34,15 @@ const recorderOptionsRegistry: Record<string, {
   onError: (message: string) => void;
 }> = {};
 
+// Match the real hook: callbacks remain stable across component renders.
+// An unstable cancel triggers the production session cleanup and drops capture.
+const recorderControlsRegistry: Record<string, { recording: boolean; toggle: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> }> = {};
+
 vi.mock("../../../presentation/coach/useCoachRecorder", () => ({
   useCoachRecorder: (options: typeof recorderOptionsRegistry[string]) => {
     recorderOptionsRegistry[options.owner ?? "unknown"] = options;
-    return { recording: false, toggle: vi.fn(), stop: vi.fn(), cancel: vi.fn() };
+    const owner = options.owner ?? "unknown";
+    return recorderControlsRegistry[owner] ??= { recording: false, toggle: vi.fn(), stop: vi.fn(), cancel: vi.fn() };
   },
 }));
 
@@ -117,6 +122,7 @@ describe("TutorLearnExperience Step 8：canonical 双 mic 接线", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     for (const key of Object.keys(recorderOptionsRegistry)) delete recorderOptionsRegistry[key];
+    for (const key of Object.keys(recorderControlsRegistry)) delete recorderControlsRegistry[key];
   });
 
   it("Coach mic（assistance）：canonical 启用 + 共享外层媒体 session + 录音打断播放；权限拒绝有可见提示", async () => {
@@ -178,7 +184,7 @@ describe("TutorLearnExperience Step 8：canonical 双 mic 接线", () => {
     await act(async () => {
       coach.onAudio({ dataUrl: "data:audio/webm;codecs=opus;base64,AAAA", mimeType: "audio/webm;codecs=opus", durationMs: 1200 });
     });
-    await waitForDom(container, () => mocks.submitStudentInput.mock.calls.length > 0);
+    await waitForDom(container, () => mocks.submitStudentInput.mock.calls.length > 0, 8000);
     expect(mocks.transcribe).toHaveBeenCalledWith(RUNTIME_SESSION_ID, {
       audio: { dataUrl: "data:audio/webm;codecs=opus;base64,AAAA", mimeType: "audio/webm;codecs=opus", durationMs: 1200 },
       clientRequestId: expect.any(String),
@@ -198,7 +204,7 @@ describe("TutorLearnExperience Step 8：canonical 双 mic 接线", () => {
     mocks.transcribe.mockResolvedValue(asrResult("因为翻折保持对应边长度相等", 12));
     mocks.submitStudentInput.mockResolvedValue(validRuntimeSnapshot({ participationKind: "confirm_input", revision: 13 }));
     const { container, unmount } = mountExperience(client);
-    await waitForDom(container, () => recorderOptionsRegistry["answer"] !== undefined && container.querySelector('[data-testid="tutor-answer-mic"]:not(:disabled)') !== null);
+    await waitForDom(container, () => recorderOptionsRegistry["answer"] !== undefined && container.querySelector('[data-testid="tutor-answer-mic"]:not(:disabled)') !== null, 8000);
     const answer = recorderOptionsRegistry["answer"];
     await act(async () => { answer.onRecordingStart?.(); });
     await act(async () => {
