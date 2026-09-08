@@ -25,7 +25,7 @@ const auth=(own=owner)=>({...permission,currentOwner:own,ownerAuthorized:()=>tru
 const apply=(command:ReturnType<VisualIntentCompiler["compile"]>["command"],state=emptyVisualState(),own=owner,key=action())=>reduceVisual(state,command,new VisualBindingCatalog(source()),{...permission,owner:own,action:key});
 import { compilePresentationIntents, type IntentCompilerInput } from "../IntentCompiler";
 import { buildPresentationContext,DEFAULT_CONTEXT_POLICY } from "../ContextBuilder";
-import { VISUAL_PRESENTER_PROMPT_VERSION } from "../PresenterPrompts";
+import { V7_VISUAL_PRESENTER_PROMPT_VERSION as VISUAL_PRESENTER_PROMPT_VERSION } from "../PresenterPrompts";
 import { VISUAL_CONTEXT_BUILDER_VERSION,VISUAL_TOOL_CATALOG_VERSION } from "../VisualPresentationTools";
 import { prepareVisualInvalidation,foldVisualInvalidation } from "../../../tutorSession/WorkspaceVisualReducer";
 const compiledInput=():IntentCompilerInput=>{
@@ -81,4 +81,14 @@ it('v5/v6 exact prompts, factory pins and payload remain readable; only v7 carri
 it.each([PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION,VISUAL_PRESENTER_PROMPT_VERSION])('%s keeps the fraction guard',version=>{
  const input=candidate(version,'use-in-reasoning',['steady','steady','steady']);
  expect(()=>compilePresentationIntents({...input,draft:{...input.draft,items:[...input.draft.items,{type:'speech',text:'三十二分之十五'}]}})).toThrow(/handwritten/);
+});
+
+import {VISUAL_PRESENTER_PROMPT_VERSION as V8_VISUAL_PRESENTER_PROMPT_VERSION} from '../PresenterPrompts';
+it.each([VISUAL_PRESENTER_PROMPT_VERSION,V8_VISUAL_PRESENTER_PROMPT_VERSION])('%s keeps compiler pulse, fraction rejection and numeric normalization',version=>{
+ expect(()=>compilePresentationIntents(candidate(version,'introduce',['steady','steady','steady']))).toThrow(/missing-pulse/);
+ const valid=candidate(version,'introduce',['pulse','pulse','pulse']);
+ expect(()=>compilePresentationIntents(valid)).not.toThrow();
+ expect(()=>compilePresentationIntents({...valid,draft:{...valid.draft,items:[...valid.draft.items,{type:'speech',text:'十五分之三十二'}]}})).toThrow(/handwritten/);
+ const normalized=compilePresentationIntents({...valid,draft:{...valid.draft,items:[...valid.draft.items,{type:'speech',text:'32/15'}]}});
+ expect(normalized.actions.filter(a=>a.kind==='voice').map(a=>a.voice_action!.text)).toEqual([String.raw`$\frac{32}{15}$`]);
 });

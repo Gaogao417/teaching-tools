@@ -2,7 +2,7 @@ import { VISUAL_MAX_ACTIONS } from "./presentationGeneration/VisualPresentationT
 import { createHash } from "node:crypto";
 import { explanationFragmentContentHash } from "../tutorSession/WorkspaceExplanationFragmentsV5";
 import { frozenVisualGeneration, remainingVisualConstructionTools } from "./presentationGeneration/FrozenVisualGeneration";
-import { isVisualPresenterPromptVersion, VISUAL_PRESENTER_PROMPT_VERSION } from "./presentationGeneration/PresenterPrompts";
+import { isVisualPresenterPromptVersion, usesVisualV7PresentationPolicy } from "./presentationGeneration/PresenterPrompts";
 /**
  * TutorSessionOrchestratorV7（F7 Step 4 — V7 有序交付 + 两条输入因果链）。
  *
@@ -2061,7 +2061,7 @@ export class TutorSessionOrchestratorV7 {
       context,
       // Roles come only from the pinned graph and the reservation's selected
       // facts. Older prompt pins retain their exact payload shape.
-      ...(request.presenter_pin.prompt_version === VISUAL_PRESENTER_PROMPT_VERSION ? {
+      ...(usesVisualV7PresentationPolicy(request.presenter_pin.prompt_version) ? {
         factRoles: request.context.selected_fact_ids.map(fact_id => ({ fact_id, role: factById.get(fact_id)!.role })),
       } : {}),
       ...(frozen?{visual:frozen.context.visual,visualTools:frozen.visual.visibleTools}:{}),
