@@ -1,5 +1,5 @@
 import { visualMathLabel } from "./visualMathLabel";
-import { VisualRenderError, sameVisualRenderIdentity, type PixelPoint, type VisualGlyph, type VisualRenderExecution, type VisualRenderReceipt, type VisualRenderScene } from "./visualRenderTypes";
+import { VisualRenderError, sameVisualRenderIdentity, type PixelPoint, type VisualGlyph, type VisualRenderExecution, type VisualRenderReceipt, type VisualRenderScene, type VisualInspectionTarget } from "./visualRenderTypes";
 
 const SVG = "http://www.w3.org/2000/svg";
 const MARGIN = 6;
@@ -9,6 +9,7 @@ export interface VisualEffectRegistryOptions {
   /** Injection for renderer tests. Production always uses actual SVG measurement. */
   measureText?: (node: SVGTextElement) => Rect;
   reducedMotion?: () => boolean;
+  inspectionEnabled?: () => boolean;
 }
 
 function node<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string> = {}): SVGElementTagNameMap[K] {
@@ -57,12 +58,16 @@ export class VisualEffectRegistry {
   private readonly root: SVGSVGElement;
   private serial = 0;
   private disposed = false;
+  private suppressed = false;
   private animation?: Animation;
   private cancelPending?: () => void;
   private lastReceipt?: VisualRenderReceipt;
   private lastScene?: string;
   private currentScene?: VisualRenderScene;
   private lastIds: readonly string[] = [];
+  private informationCard?: HTMLDivElement;
+  private inspectionAbort?: AbortController;
+  private hiddenIntroductionIds: readonly string[] = [];
   private readonly owners = new Map<string, readonly string[]>();
 
   constructor(private readonly host: HTMLElement, private readonly options: VisualEffectRegistryOptions) {
@@ -86,6 +91,7 @@ export class VisualEffectRegistry {
       return this.lastReceipt;
     }
     this.cancelPending?.();
+    this.clearInspection(); this.hiddenIntroductionIds = []; this.suppressed = false;
     const serial = ++this.serial;
     this.check(execution, serial);
     if (!Number.isFinite(scene.width) || !Number.isFinite(scene.height) || scene.width <= 2 * MARGIN || scene.height <= 2 * MARGIN) {
@@ -119,10 +125,12 @@ export class VisualEffectRegistry {
       layer.style.visibility = "visible";
       this.root.style.visibility = "visible";
       this.currentScene = scene;
+      this.installInspection(scene);
+      if (scene.teachingInformation?.length) this.showInformation(scene.teachingInformation, true);
       const reduced = this.options.reducedMotion?.() ?? window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-      if (execution.operation === "entrance-complete" && execution.pulseIds?.length && !reduced) {
+      if (execution.operation === "entrance-complete" && execution.pulseIds?.length && (!reduced || execution.transientReveal)) {
         if (typeof pulse.animate !== "function") throw new VisualRenderError("layout", "finite visual animation is unavailable");
-        const animation = pulse.animate([{ opacity: 1 }, { opacity: 0.35 }, { opacity: 1 }], { duration: 900, iterations: 2 });
+        const animation = pulse.animate(reduced ? [{ opacity: 1 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0.35 }, { opacity: 1 }], { duration: 900, iterations: 2 });
         this.animation = animation;
         await new Promise<void>((resolve, reject) => {
           const cancel = () => { animation.cancel(); reject(new VisualRenderError("aborted", "visual animation cancelled")); };
@@ -138,13 +146,23 @@ export class VisualEffectRegistry {
       }
       this.check(execution, serial);
       this.verifyObjects(ids);
-      const { abort: _abort, pulseIds: _pulse, ...receipt } = execution;
+      if (execution.transientReveal) {
+        this.hiddenIntroductionIds = [...(execution.presentationIds ?? [])];
+        const hidden = (id: string) => this.hiddenIntroductionIds.some(prefix => id === prefix || id.startsWith(`${prefix}/`));
+        for (const element of this.root.querySelectorAll<SVGElement>("[data-visual-id]")) if (hidden(element.getAttribute("data-visual-id")!)) element.remove();
+        for (const id of [...ids]) if (hidden(id)) ids.delete(id);
+        this.currentScene = { ...scene, glyphs: scene.glyphs.filter(g=>!hidden(g.id)), teachingInformation: scene.focusInformation ?? [] };
+        this.closeInformation();
+        if(this.currentScene.teachingInformation?.length)this.showInformation(this.currentScene.teachingInformation,true);
+        this.verifyObjects(ids);
+      }
+      const { abort: _abort, pulseIds: _pulse, presentationIds: _presentations, transientReveal: _transient, ...receipt } = execution;
       this.lastReceipt = receipt;
-      this.lastScene = JSON.stringify(this.currentScene ?? scene);
+      this.lastScene = JSON.stringify(execution.transientReveal ? scene : this.currentScene ?? scene);
       this.lastIds = [...ids];
       return receipt;
     } catch (error) {
-      layer.remove();
+      layer.remove(); this.clearInspection();
       this.lastReceipt = undefined;
       throw error;
     }
@@ -153,7 +171,9 @@ export class VisualEffectRegistry {
   /** Reproject the same effects in place. Keep pulse group/Animation identity and
    * suppressed visibility; no install receipt, pulse restart, or HTTP outcome. */
   reflow(scene: VisualRenderScene): void {
-    if (this.disposed || !this.currentScene) return;
+    const requestedScene = scene;
+    if (this.hiddenIntroductionIds.length) scene = { ...scene, glyphs: scene.glyphs.filter(g=>!this.hiddenIntroductionIds.some(id=>g.id===id||g.id.startsWith(`${id}/`))), teachingInformation: scene.focusInformation ?? [] };
+    if (this.disposed || this.suppressed || !this.currentScene) return;
     const previous = this.currentScene;
     const semantic = (glyph: VisualGlyph) => {
       const { id, kind, ownerKeys, color, description } = glyph;
@@ -176,7 +196,9 @@ export class VisualEffectRegistry {
       this.root.setAttribute("viewBox", `0 0 ${scene.width} ${scene.height}`);
       this.root.style.visibility = "visible";
       this.currentScene = scene;
-      if (this.lastReceipt) this.lastScene = JSON.stringify(scene);
+      if (this.lastReceipt) this.lastScene = JSON.stringify(this.hiddenIntroductionIds.length ? requestedScene : scene);
+      this.installInspection(scene);
+      if(scene.teachingInformation?.length) this.showInformation(scene.teachingInformation,true);
     } catch (error) {
       // Never leave a stale overlay at old coordinates over a changed board.
       this.root.style.visibility = "hidden";
@@ -190,14 +212,16 @@ export class VisualEffectRegistry {
   }
 
   suppress(ownerKey: string): void {
-    if (![...this.owners.values()].some(owners => owners.length === 1 && owners.includes(ownerKey))) return;
+    if(ownerKey === "*")this.suppressed = true;
+    this.clearInspection();
+    if (ownerKey !== "*" && ![...this.owners.values()].some(owners => owners.length === 1 && owners.includes(ownerKey))) return;
     this.serial += 1;
     this.cancelPending?.();
     this.animation?.cancel();
     this.lastReceipt = undefined;
     for (const element of this.root.querySelectorAll<SVGElement>("[data-visual-id]")) {
       const owners = this.owners.get(element.getAttribute("data-visual-id")!);
-      if (owners?.includes(ownerKey) && owners.length === 1) element.style.visibility = "hidden";
+      if (ownerKey === "*" || owners?.includes(ownerKey) && owners.length === 1) element.style.visibility = "hidden";
     }
   }
 
@@ -215,9 +239,76 @@ export class VisualEffectRegistry {
     this.serial += 1;
     this.cancelPending?.();
     this.animation?.cancel();
+    this.clearInspection();
     this.root.remove();
     this.owners.clear();
     this.lastReceipt = undefined;
+  }
+
+  setInspectionEnabled(enabled: boolean): void {
+    for(const hit of this.root.querySelectorAll<SVGElement>("[data-visual-inspect-id]")) {
+      hit.style.pointerEvents=enabled ? "stroke" : "none";hit.setAttribute("tabindex",enabled ? "0" : "-1");
+    }
+    if(!enabled) {
+      this.closeInformation();
+      for(const mark of this.root.querySelectorAll<SVGElement>("[data-visual-inspect-focus]"))mark.style.visibility="hidden";
+    }
+  }
+
+  private closeInformation(): void {
+    this.informationCard?.remove(); this.informationCard = undefined;
+  }
+  private clearInspection(): void {
+    this.inspectionAbort?.abort(); this.inspectionAbort = undefined;
+    this.closeInformation(); this.root.querySelector("[data-visual-inspection-layer]")?.remove();
+  }
+  private dismissInspection(): void {
+    this.closeInformation();
+    const teaching=this.currentScene?.teachingInformation;
+    if(teaching?.length&&!this.disposed)this.showInformation(teaching,true);
+  }
+  private showInformation(lines: readonly string[], teaching = false): void {
+    this.closeInformation();
+    const card = document.createElement("div");
+    card.setAttribute("data-visual-information-card", teaching ? "teaching" : "inspection");card.setAttribute("role", "tooltip");
+    Object.assign(card.style,{position:"absolute",left:"8px",bottom:"8px",maxWidth:"calc(100% - 16px)",maxHeight:"calc(100% - 16px)",overflow:"auto",boxSizing:"border-box",padding:"10px 12px",background:"#fff",color:"#17202a",border:"1px solid #64748b",borderRadius:"8px",font:"14px/1.5 system-ui",zIndex:"5",pointerEvents:"auto",overflowWrap:"anywhere"});
+    const visibleLines=teaching ? lines : [...(this.currentScene?.teachingInformation ?? []),...lines];
+    for(const line of [...new Set(visibleLines)]) { const row=document.createElement("div");row.textContent=visualMathLabel(line);card.append(row); }
+    this.host.append(card);this.informationCard=card;
+    if(teaching) {
+      const rect=card.getBoundingClientRect(),host=this.host.getBoundingClientRect();
+      if(!this.options.measureText && (!(rect.width>0&&rect.height>0)||rect.width>host.width||rect.height>host.height||card.scrollHeight>card.clientHeight+1)) {
+        this.closeInformation();throw new VisualRenderError("layout","teaching information has no readable placement");
+      }
+    }
+    card.addEventListener("pointerleave",event=>{if(this.informationCard!==card||this.disposed)return;if(!teaching&&!(event.relatedTarget instanceof Element && event.relatedTarget.closest("[data-visual-inspect-id]")))this.dismissInspection();});
+  }
+  private installInspection(scene: VisualRenderScene): void {
+    this.clearInspection(); if(!scene.inspectionTargets) return;
+    this.root.setAttribute("role","group");
+    const lifecycle=new AbortController();this.inspectionAbort=lifecycle;
+    const layer=node("g",{"data-visual-inspection-layer":"true"});this.root.append(layer);
+    const close=()=>this.dismissInspection();
+    const open=(target:VisualInspectionTarget)=>{if(!lifecycle.signal.aborted&&!this.disposed&&this.options.inspectionEnabled?.()!==false)this.showInformation(target.descriptions);};
+    for(const target of scene.inspectionTargets) {
+      const hit=node("path",{"data-visual-inspect-id":target.id,"data-visual-inspect-kind":target.kind,role:"button",tabindex:"0","aria-label":target.label,fill:"none",stroke:"transparent","stroke-width":"16","vector-effect":"non-scaling-stroke"});
+      const d=target.kind==="segment"&&target.points ? `M ${target.points[0].x} ${target.points[0].y} L ${target.points[1].x} ${target.points[1].y}` : target.vertex&&target.rays ? minorAngleArc(target.vertex,target.rays,22) : undefined;
+      if(!d)throw new VisualRenderError("identity","inspection target lacks explicit geometry");
+      hit.setAttribute("d",d);hit.style.pointerEvents="stroke";hit.style.cursor="help";hit.style.outline="none";layer.append(hit);
+      const focusMark=node("path",{d,"data-visual-inspect-focus":target.id,fill:"none",stroke:"#0369a1","stroke-width":"4","vector-effect":"non-scaling-stroke"});
+      focusMark.style.pointerEvents="none";focusMark.style.visibility="hidden";layer.append(focusMark);
+      const emphasize=()=>{focusMark.style.visibility="visible";};
+      const quiet=()=>{if(document.activeElement!==hit)focusMark.style.visibility="hidden";};
+      hit.addEventListener("pointerenter",()=>{if(this.options.inspectionEnabled?.()!==false)emphasize();open(target);},{signal:lifecycle.signal});
+      hit.addEventListener("focus",()=>{if(this.options.inspectionEnabled?.()!==false)emphasize();open(target);},{signal:lifecycle.signal});
+      hit.addEventListener("click",()=>open(target),{signal:lifecycle.signal});
+      hit.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();open(target);}if(event.key==="Escape")close();},{signal:lifecycle.signal});
+      hit.addEventListener("pointerleave",event=>{quiet();if(!(event.relatedTarget instanceof Node && this.informationCard?.contains(event.relatedTarget)))close();},{signal:lifecycle.signal});
+      hit.addEventListener("blur",()=>{focusMark.style.visibility="hidden";close();},{signal:lifecycle.signal});
+    }
+    this.setInspectionEnabled(this.options.inspectionEnabled?.()!==false);
+    document.addEventListener("keydown",event=>{if(event.key==="Escape")close();},{signal:lifecycle.signal});
+    document.addEventListener("pointerdown",event=>{if(!(event.target instanceof Element && (event.target.closest("[data-visual-inspect-id]")||this.informationCard?.contains(event.target))))close();},{signal:lifecycle.signal});
   }
 
   private draw(group: SVGGElement, glyph: VisualGlyph, scene: VisualRenderScene, labels: Rect[]): void {

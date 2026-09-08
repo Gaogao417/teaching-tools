@@ -13,7 +13,8 @@ import {compilePresentationIntents, type IntentCompilerInput} from '../../../tut
 import {visiblePresentationTools} from '../../../tutorOrchestration/presentationGeneration/PresentationToolCatalog';
 import {requiredBoardBindings} from '../../../tutorOrchestration/presentationGeneration/BoardProofCompleteness';
 import {visibleVisualTools,VISUAL_CONTEXT_BUILDER_VERSION,VISUAL_TOOL_CATALOG_VERSION} from '../../../tutorOrchestration/presentationGeneration/VisualPresentationTools';
-import {VISUAL_PRESENTER_PROMPT_VERSION} from '../../../tutorOrchestration/presentationGeneration/PresenterPrompts';
+// Keep the historical v8 construction/cache lineage fixture fixed; this test does not validate current speech focus policy.
+import {V8_VISUAL_PRESENTER_PROMPT_VERSION as VISUAL_PRESENTER_PROMPT_VERSION} from '../../../tutorOrchestration/presentationGeneration/PresenterPrompts';
 import {emptyVisualState} from '../../../tutorSession/WorkspaceVisualReducer';
 import {createPinnedVisualWorkspaceBridge,projectVisualView} from '../../../tutorSession/VisualViewProjector';
 import type {PresentationResourceBinding} from '../../../tutorOrchestration/presentationGeneration/PresentationToolCatalog';

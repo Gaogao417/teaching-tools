@@ -16,6 +16,9 @@ export interface VisualRenderExecution extends VisualRenderIdentity {
   abort: AbortSignal;
   /** Only the currently delivered focus action may request entrance animation. */
   pulseIds?: readonly string[];
+  /** Local UI policy: a real upsert introduction, never a wire outcome. */
+  presentationIds?: readonly string[];
+  transientReveal?: boolean;
 }
 
 export interface PixelPoint { x: number; y: number }
@@ -35,10 +38,24 @@ export type VisualGlyph = GlyphBase & (
   | { kind: "label"; anchor: PixelPoint; text: string }
 );
 
+export interface VisualInspectionTarget {
+  id: string;
+  kind: "segment" | "angle";
+  label: string;
+  descriptions: readonly string[];
+  ownerKeys: readonly string[];
+  points?: readonly [PixelPoint, PixelPoint];
+  vertex?: PixelPoint;
+  rays?: readonly [PixelPoint, PixelPoint];
+}
+
 export interface VisualRenderScene {
   width: number;
   height: number;
   glyphs: readonly VisualGlyph[];
+  inspectionTargets?: readonly VisualInspectionTarget[];
+  teachingInformation?: readonly string[];
+  focusInformation?: readonly string[];
   /** Actual point/name occupancy and base geometry: renderer layout only. */
   labelObstacles?: readonly PixelRect[];
   protectedSegments?: readonly (readonly [PixelPoint, PixelPoint])[];

@@ -1,3 +1,4 @@
+import { projectKnownGivenLengths } from "./KnownGivenLengthProjection";
 import { consumeSnapshotProjection, projectionReadStamp, sameProjectionReadStamp, type ProjectionWorkspace } from "./V7SnapshotProjectionContext";
 /**
  * V7HttpSnapshotProjector（F7 Step 4 — 服务层快照 → HTTP application profile）。
@@ -99,6 +100,8 @@ export function projectHttpSnapshotV1(args: {
   if (!context) throw new V7RenderProjectionError("unable to verify a stable snapshot projection prefix");
   const fold = context.material.workspace;
   const geometry = composeRenderGeometryV7(fold, context.material.baseGeometry);
+  const givenMarks = geometry ? projectKnownGivenLengths(context.material.givenLengthFacts ?? [], geometry) : [];
+  if (geometry && givenMarks.length) geometry.teachingMarks = [...(Array.isArray(geometry.teachingMarks) ? geometry.teachingMarks : []), ...givenMarks];
   const visualLifecycle = context.material.visualLifecycle;
   const payload = {
     ...(orchestrator.eventSchema !== "v7"

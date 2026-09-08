@@ -1,7 +1,8 @@
+// Explicit historical v8 compatibility; current new-session policy is covered separately.
 import {it,expect,vi} from 'vitest';
 import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
-import {buildPresenterPrompt,V7_VISUAL_PRESENTER_PROMPT_VERSION,V7_VISUAL_PRESENTER_SYSTEM_PROMPT,VISUAL_PRESENTER_PROMPT_VERSION,VISUAL_PRESENTER_SYSTEM_PROMPT,LEGACY_VISUAL_PRESENTER_PROMPT_VERSION,PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION,usesVisualV7PresentationPolicy,usesVisualFractionFormatGuard,isVisualPresenterPromptVersion} from '../PresenterPrompts';
+import {buildPresenterPrompt,V7_VISUAL_PRESENTER_PROMPT_VERSION,V7_VISUAL_PRESENTER_SYSTEM_PROMPT,V8_VISUAL_PRESENTER_PROMPT_VERSION as VISUAL_PRESENTER_PROMPT_VERSION,V8_VISUAL_PRESENTER_SYSTEM_PROMPT as VISUAL_PRESENTER_SYSTEM_PROMPT,LEGACY_VISUAL_PRESENTER_PROMPT_VERSION,PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION,usesVisualV7PresentationPolicy,usesVisualFractionFormatGuard,isVisualPresenterPromptVersion} from '../PresenterPrompts';
 import {structuredPresenterGenerator,type PresenterGeneratorPort} from '../GeneratorPort';
 import type {StructuredModelPort} from '../../../tutorIntelligence/structuredModelPort';
 import {buildPresentationContext,DEFAULT_CONTEXT_POLICY} from '../ContextBuilder';

@@ -83,7 +83,7 @@ export function createTutorPresentationRuntime(deps: TutorPresentationRuntimeDep
     },
     suppressVisualSnapshot: snapshot => {
       const visual = visualRuntimeSnapshot(snapshot);
-      if (visual?.view.focus) commitPort.visualRenderer.suppress(visual.view.focus.owner_key);
+      if (visual) commitPort.visualRenderer.suppress("*");
     },
     reportOutcome: (request: PendingPresentationOutcomeRequest) =>
       deps.client.reportPresentationOutcome(request.sessionId, request.actionId, {

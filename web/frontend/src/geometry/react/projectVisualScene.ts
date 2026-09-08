@@ -1,6 +1,6 @@
 import type { VisualView } from "../../../../shared/canonical/visualSchemas";
 import type { GeometryModel } from "../domain/model";
-import { VisualRenderError, type PixelRect, type PixelPoint, type VisualGlyph, type VisualRenderScene } from "./visualRenderTypes";
+import { VisualRenderError, type PixelRect, type PixelPoint, type VisualGlyph, type VisualInspectionTarget, type VisualRenderScene } from "./visualRenderTypes";
 
 export interface VisualViewport {
   width: number;
@@ -13,7 +13,7 @@ const name = (id: string) => id.replace(/^pt-([A-Z](?:[0-9]+|['′])?)$/, "$1");
 
 /** Only geometry-to-pixels translation. The server has already decided visible
  * owners, authorized text and ordered targets; no binding resolution here. */
-export function projectVisualScene(view: VisualView, model: GeometryModel, viewport: VisualViewport): VisualRenderScene {
+export function projectVisualScene(view: VisualView, model: GeometryModel, viewport: VisualViewport, policy?: { onDemand: boolean; presentationIds?: readonly string[] }): VisualRenderScene {
   const glyphs: VisualGlyph[] = [];
   const point = (id: string) => {
     const p = model.getPoint(id);
@@ -27,7 +27,55 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
     if (line.endPoint) return [point(line.through), point(line.endPoint)];
     throw new VisualRenderError("identity", `visual label requires a bounded segment: ${id}`);
   };
-  const angleBindings = [...new Set(view.annotations.filter(a => a.form === "angle-arcs").map(a => a.binding_ref))].sort();
+  const inspection = new Map<string, VisualInspectionTarget>();
+  const addInspection = (target: VisualInspectionTarget) => {
+    const old = inspection.get(target.id);
+    inspection.set(target.id, old ? { ...old, descriptions: [...new Set([...old.descriptions, ...target.descriptions])], ownerKeys: [...new Set([...old.ownerKeys, ...target.ownerKeys])] } : target);
+  };
+  const inspectTargets = (targets: VisualView["annotations"][number]["resolved_targets"], owners: readonly string[], content?: string) => {
+    const messages: string[] = [];
+    const addSide = (ends: readonly [string,string], description: string) => {
+      const ordered = [...ends].sort();
+      addInspection({ id: `segment:${ordered.join("|")}`, kind: "segment", label: `查看线段 ${ordered.map(name).join("")} 的已知边长`, descriptions: [description], ownerKeys: owners, points: [point(ordered[0]),point(ordered[1])] });
+    };
+    const pairs = targets.paired_sides ? [targets.paired_sides] : targets.triangles ? [[0,1],[1,2],[2,0]].map(([a,b]) => [{endpoints:[targets.triangles!.left[a],targets.triangles!.left[b]] as [string,string]},{endpoints:[targets.triangles!.right[a],targets.triangles!.right[b]] as [string,string]}]) : [];
+    for (const pair of pairs) {
+      const description = `对应边：${pair[0].endpoints.map(name).join("")} ↔ ${pair[1].endpoints.map(name).join("")}`;
+      messages.push(description);
+    }
+    if (targets.angles?.length) {
+      const description = `角关系：${targets.angles.map(a=>`∠${name(a.ray_points[0])}${name(a.vertex)}${name(a.ray_points[1])}`).join("、")}`;
+      messages.push(description);
+
+    }
+    if(content) for(const id of targets.entity_ids) {
+      const line=model.getLine(id);if(!line)continue;
+      const ends: [string,string] | undefined = line.kind === "segment" ? [line.from,line.to] : line.endPoint ? [line.through,line.endPoint] : undefined;
+      if(ends){addSide(ends,content);messages.push(content);}
+    }
+    return messages;
+  };
+  const teachingInformation: string[] = [];
+  const focusInformation: string[] = [];
+  if(policy?.onDemand) {
+    for(const mark of model.teachingMarksList()) {
+      if(mark.kind!=="segment-label"||mark.labelKind!=="length")continue;
+      const line=model.getLine(mark.segmentId);
+      if(!line || line.kind!=="segment")throw new VisualRenderError("identity","known length lacks a bounded segment");
+      const ordered=[line.from,line.to].sort();
+      addInspection({id:`segment:${ordered.join("|")}`,kind:"segment",label:`查看线段 ${ordered.map(name).join("")} 的已知边长`,descriptions:[`${name(line.from)}${name(line.to)} = ${mark.valueLatex}`],ownerKeys:[`geometry:${mark.id}`],points:[point(ordered[0]),point(ordered[1])]});
+    }
+    for(const annotation of view.annotations) {
+      const messages=inspectTargets(annotation.resolved_targets,annotation.owner_keys,["length-label","ratio-label"].includes(annotation.form) ? annotation.content : undefined);
+      if(policy.presentationIds?.includes(annotation.annotation_id))teachingInformation.push(...messages);
+    }
+    if(view.focus) {
+      focusInformation.push(...inspectTargets(view.focus.resolved_targets,[view.focus.owner_key]));
+      for(const annotation of view.annotations) if(annotation.binding_ref===view.focus.binding_ref&&annotation.content) focusInformation.push(annotation.content);
+      teachingInformation.push(...focusInformation);
+    }
+  }
+  const angleBindings = [...new Set(view.annotations.filter(a => a.form === "angle-arcs" && (!policy?.onDemand || policy.presentationIds?.includes(a.annotation_id))).map(a => a.binding_ref))].sort();
   if (angleBindings.length > 2) throw new VisualRenderError("layout", "more than two simultaneous angle styles");
   const mergedAngles = new Map<string, Extract<VisualGlyph, { kind: "angle" }>>();
   const paired = (id: string, ownerKeys: readonly string[], pairs: NonNullable<VisualView["annotations"][number]["resolved_targets"]["paired_sides"]>, color: string) => {
@@ -40,6 +88,7 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
     });
   };
   for (const annotation of view.annotations) {
+    if (policy?.onDemand && !policy.presentationIds?.includes(annotation.annotation_id)) continue;
     const base = { id: annotation.annotation_id, ownerKeys: annotation.owner_keys, color: colors[0], description: annotation.content ?? annotation.role_key };
     if (annotation.form === "angle-arcs") {
       const angles = annotation.resolved_targets.angles;
@@ -151,7 +200,10 @@ export function projectVisualScene(view: VisualView, model: GeometryModel, viewp
       }
     }
   }
-  return { width: viewport.width, height: viewport.height, glyphs, protectedSegments,
+  // On-demand teaching uses one information card instead of duplicate endpoint labels.
+  const visibleGlyphs = policy?.onDemand ? glyphs.filter(g => g.kind !== "label" || !g.id.includes("/label/")) : glyphs;
+  return { width: viewport.width, height: viewport.height, glyphs: visibleGlyphs, protectedSegments,
+    ...(policy?.onDemand ? { inspectionTargets: [...inspection.values()], teachingInformation: [...new Set(teachingInformation)], focusInformation: [...new Set(focusInformation)] } : {}),
     labelObstacles: [...(viewport.labelObstacles ?? []), ...model.pointsList().map(p => {
       const pixel = viewport.project(p); return { x: pixel.x - 6, y: pixel.y - 6, width: 12, height: 12 };
     })] };

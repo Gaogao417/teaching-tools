@@ -1221,6 +1221,7 @@ export class TutorSessionOrchestratorV7 {
       runtimeState: tutorState as unknown as Record<string, unknown>,
       workspace: { state: { revision: workspace.state.revision }, context: { tutorCommands: workspace.context.tutorCommands } },
       baseGeometry: this.catalog.baseGeometry,
+      givenLengthFacts: this.binding.imported.graph.facts.filter(fact => fact.role === "given" && fact.reveals_answer === false).map(fact => ({role:fact.role,reveals_answer:fact.reveals_answer,statement:fact.statement})),
       ...(this.eventSchema === "v10" ? { visualLifecycle: {
         presentation_execution_owner: (tutorState as unknown as TutorRuntimeStateV10).presentation_execution_owner,
         visual_barrier: (tutorState as unknown as TutorRuntimeStateV10).visual_barrier,

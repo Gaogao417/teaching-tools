@@ -102,12 +102,21 @@ export const V7_VISUAL_PRESENTER_SYSTEM_PROMPT = PREVIOUS_VISUAL_PRESENTER_SYSTE
   "27. visual.requirements 的 trigger=introduce 或 clarify-reference 时，每个 required_pair_indices 必须逐对 geometry.emphasize(mode=pulse)，先有限短脉冲再保持强调着讲，steady 不能抵扣本次指认义务。无需额外 steady 动作；脉冲时长、保持及 reduced-motion 由唯一呈现运行时负责，不要自行输出计时或替换动作。",
 ].join("\n");
 /** New sessions only: preserve all v7 behavior and bytes for frozen session pins. */
-export const VISUAL_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v8-visual";
-export const VISUAL_PRESENTER_SYSTEM_PROMPT = V7_VISUAL_PRESENTER_SYSTEM_PROMPT + "\n" +
+export const V8_VISUAL_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v8-visual";
+export const V8_VISUAL_PRESENTER_SYSTEM_PROMPT = V7_VISUAL_PRESENTER_SYSTEM_PROMPT + "\n" +
   "28. 输出前逐条核对 visual.requirements：每条 forms 都是必须满足的静态标注形式。除 visual.already_presented 中真实已呈现且仍可见、按当前规则允许复用的同 binding/form 外，每个 form 都须输出该 binding_ref 的 geometry.annotate，params.form 使用该 form，lifetime/group 遵守目录与 binding 约束。required_pair_indices 为空只表示没有逐对强调义务，不能省略 forms；ratio-label 与 length-label 同样是独立义务。语音、数学板书、其他 binding/form 的标注不能抵扣。沿既有顺序要求先标注再讲对应关系，不得提前声称已呈现。先给必要构造、所有 forms、必要 pair pulse、必要板书和段尾清理留足预算，再组织语音；不新增未授权关系或工具。";
+/** New sessions: annotations retain history but are collapsed until actually shown. */
+export const VISUAL_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v9-visual";
+export const VISUAL_PRESENTER_SYSTEM_PROMPT = V8_VISUAL_PRESENTER_SYSTEM_PROMPT.split("\n").map(line => {
+  if (line.startsWith("20.")) return "20. visual.requirements 是本段必要视觉义务：本段先实际标注或指认对象再讲对应关系；required_pair_indices 须逐对调用 geometry.emphasize。历史标注即使仍可查看也不能抵扣本段展示或再次指认。";
+  if (line.startsWith("24.")) return "24. visual.already_presented 是截止冻结点真实已确认且当前仍获授权的历史数学标注，不证明现在展开或强调。安静态仅供学生悬浮、聚焦或点击查看，不得说画面正在展示历史内容；planned/applied不等于学生看过。本段通过合法动作实际展示后才可指称当前信息。数学板书义务仍需board.explain，角弧、语音、标签不能代替推导板书。";
+  if (line.startsWith("28.")) return "28. 输出前逐条核对 visual.requirements：每个 forms 都是本段实际展示义务，不能用 already_presented 的历史标注抵扣。每个 form 输出同 binding_ref 的 geometry.annotate(params.form=该form)，或该form支持的本段 geometry.emphasize，且在对应语音之前；length-label/ratio-label 必须 annotate。讲解引用该关系的每个speech之前，必须 geometry.emphasize 在当前group保持同binding信息到讲解结束再close；单次upsert短暂展示不能代替语音期间focus。一次只有一个当前binding，涉及不同binding须拆分speech并切换focus；同binding所需各form正文均须实际展示。required_pair_indices 为空不能省略forms，pair pulse仍按第27条。lifetime/group遵守目录与binding约束，组末清理收起信息但不删除历史数学事实。先为必要构造、forms、pair pulse、板书和清理预留原预算，再组织语音；不增加工具、关系或预算。";
+  return line;
+}).join("\n");
+export function usesOnDemandVisualPolicy(version: string): boolean { return version === VISUAL_PRESENTER_PROMPT_VERSION; }
 /** v7 introduced fact roles, exact given-role wording and entry pulses; v8 inherits them. */
 export function usesVisualV7PresentationPolicy(version: string): boolean {
-  return version === V7_VISUAL_PRESENTER_PROMPT_VERSION || version === VISUAL_PRESENTER_PROMPT_VERSION;
+  return version === V7_VISUAL_PRESENTER_PROMPT_VERSION || version === V8_VISUAL_PRESENTER_PROMPT_VERSION || version === VISUAL_PRESENTER_PROMPT_VERSION;
 }
 export function usesVisualFractionFormatGuard(version: string): boolean {
   return version === PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION || usesVisualV7PresentationPolicy(version);
@@ -174,7 +183,7 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
     allowed_knowledge: input.context.basis.map((item) => ({ ref: item.ref, kind: item.kind, text: item.text })),
     current_granularity: input.currentGranularity,
     already_presented: [...input.alreadyPresented],
-    ...(!input.promptVersion || [PRESENTER_PROMPT_VERSION, V7_VISUAL_PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION, PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION, LEGACY_VISUAL_PRESENTER_PROMPT_VERSION].includes(input.promptVersion) ? {
+    ...(!input.promptVersion || [PRESENTER_PROMPT_VERSION, V8_VISUAL_PRESENTER_PROMPT_VERSION, V7_VISUAL_PRESENTER_PROMPT_VERSION, VISUAL_PRESENTER_PROMPT_VERSION, PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION, LEGACY_VISUAL_PRESENTER_PROMPT_VERSION].includes(input.promptVersion) ? {
       presented_board: [...(input.presentedBoard ?? [])],
       required_board_bindings: [...(input.requiredBoardBindings ?? [])],
     } : {}),
@@ -207,6 +216,6 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
     throw new Error(`unsupported Presenter prompt version: ${input.promptVersion}`);
   }
   if (legacy && input.completionTarget) throw new Error("follow_along requires the current Presenter prompt");
-  return { systemPrompt: isVisualPresenterPromptVersion(input.promptVersion ?? "") ? (input.promptVersion === LEGACY_VISUAL_PRESENTER_PROMPT_VERSION ? LEGACY_VISUAL_PRESENTER_SYSTEM_PROMPT : input.promptVersion === PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION ? PREVIOUS_VISUAL_PRESENTER_SYSTEM_PROMPT : input.promptVersion === V7_VISUAL_PRESENTER_PROMPT_VERSION ? V7_VISUAL_PRESENTER_SYSTEM_PROMPT : VISUAL_PRESENTER_SYSTEM_PROMPT) : legacy ? LEGACY_PRESENTER_SYSTEM_PROMPT : previous ? PREVIOUS_PRESENTER_SYSTEM_PROMPT : toolInvocation ? TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT : PRESENTER_SYSTEM_PROMPT,
+  return { systemPrompt: isVisualPresenterPromptVersion(input.promptVersion ?? "") ? (input.promptVersion === LEGACY_VISUAL_PRESENTER_PROMPT_VERSION ? LEGACY_VISUAL_PRESENTER_SYSTEM_PROMPT : input.promptVersion === PREVIOUS_VISUAL_PRESENTER_PROMPT_VERSION ? PREVIOUS_VISUAL_PRESENTER_SYSTEM_PROMPT : input.promptVersion === V7_VISUAL_PRESENTER_PROMPT_VERSION ? V7_VISUAL_PRESENTER_SYSTEM_PROMPT : input.promptVersion === V8_VISUAL_PRESENTER_PROMPT_VERSION ? V8_VISUAL_PRESENTER_SYSTEM_PROMPT : VISUAL_PRESENTER_SYSTEM_PROMPT) : legacy ? LEGACY_PRESENTER_SYSTEM_PROMPT : previous ? PREVIOUS_PRESENTER_SYSTEM_PROMPT : toolInvocation ? TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT : PRESENTER_SYSTEM_PROMPT,
     promptVersion: isVisualPresenterPromptVersion(input.promptVersion ?? "") ? input.promptVersion! : legacy ? LEGACY_PRESENTER_PROMPT_VERSION : previous ? PREVIOUS_PRESENTER_PROMPT_VERSION : toolInvocation ? TOOL_INVOCATION_PRESENTER_PROMPT_VERSION : PRESENTER_PROMPT_VERSION, userPayload: payload };
 }

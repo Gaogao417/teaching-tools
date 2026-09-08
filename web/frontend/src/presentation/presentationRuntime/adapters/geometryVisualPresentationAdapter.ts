@@ -38,10 +38,12 @@ export function createGeometryVisualPresentationAdapter(commitPort: WorkspaceCom
           if (view.focus?.group_id !== command.group_id || view.focus.binding_ref !== command.binding_ref || view.focus.mode !== command.mode) throw new Error("visual focus not applied in the safe view");
         } else if (view.focus?.group_id === command.group_id) throw new Error("closed group remains focused");
         const pulse = command.op === "focus" && command.mode === "pulse";
+        const introduction = command.op === "upsert";
         await commitPort.visualRenderer.render(view, {
           sessionId: delivery.session_id, executionKey: presentationKeyOf(delivery), visualRevision: view.visual_revision,
-          targetDigest: view.digest, operation: command.op === "reconcile" || command.op === "close-group" ? "removed" : pulse ? "entrance-complete" : "installed",
+          targetDigest: view.digest, operation: command.op === "reconcile" || command.op === "close-group" ? "removed" : pulse || introduction ? "entrance-complete" : "installed",
           abort, ...(pulse ? { pulseIds: [`focus:${command.group_id}`] } : {}),
+          ...(introduction ? { pulseIds: [command.annotation_id], presentationIds: [command.annotation_id], transientReveal: true } : {}),
         });
         return { outcome: "presented" };
       } catch (error) {

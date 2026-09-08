@@ -33,6 +33,8 @@ export interface BoardHandles {
 }
 
 export interface BoardCallbacks {
+  /** v3 on-demand UI keeps facts in the model, not permanently on the board. */
+  hideTeachingMarks?: boolean;
   /**
    * Per-entity affordances for the current step. The hit-test considers ONLY
    * entities whose `enabled` is true; a wrong-but-relevant object stays enabled
@@ -267,7 +269,7 @@ export function mountGeometryBoard(
     // Per-entity affordances drive styling (available/selected/wrong/correct).
     // Read fresh each render so the board reflects the current step's view.
     const entities = callbacks.getEntities();
-    const teachingMarks = model.teachingMarksList();
+    const teachingMarks = callbacks.hideTeachingMarks ? [] : model.teachingMarksList();
     const emphasizedIds = new Set(teachingMarks.filter((mark) => mark.kind === "emphasis").flatMap((mark) => mark.entityIds));
     // Correspondence expresses a pairing, not equal length. Use shared color,
     // never equality ticks; existing selection/error affordances retain priority.

@@ -44,7 +44,8 @@ describe("production visual resolver/compiler/reducer",()=>{
 
 import { compilePresentationIntents, type IntentCompilerInput } from "../IntentCompiler";
 import { buildPresentationContext,DEFAULT_CONTEXT_POLICY } from "../ContextBuilder";
-import { VISUAL_PRESENTER_PROMPT_VERSION } from "../PresenterPrompts";
+// Historical v8 fixture: tests original compiler/context pipeline, not new-session default.
+import { V8_VISUAL_PRESENTER_PROMPT_VERSION as VISUAL_PRESENTER_PROMPT_VERSION } from "../PresenterPrompts";
 import { VISUAL_CONTEXT_BUILDER_VERSION,VISUAL_TOOL_CATALOG_VERSION } from "../VisualPresentationTools";
 import { prepareVisualInvalidation,foldVisualInvalidation } from "../../../tutorSession/WorkspaceVisualReducer";
 const compiledInput=():IntentCompilerInput=>{

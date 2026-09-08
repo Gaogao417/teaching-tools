@@ -25,7 +25,7 @@ import type { VisibleVisualTool } from "./VisualPresentationTools";
  * 提交仍由 kernel 事务（RT4 coordinator）唯一落库。
  */
 import type { z } from "zod";
-import { PRESENTER_PROMPT_VERSION, usesVisualV7PresentationPolicy, isVisualPresenterPromptVersion, usesVisualFractionFormatGuard } from "./PresenterPrompts";
+import { usesOnDemandVisualPolicy, PRESENTER_PROMPT_VERSION, usesVisualV7PresentationPolicy, isVisualPresenterPromptVersion, usesVisualFractionFormatGuard } from "./PresenterPrompts";
 
 import { presentationPlanV4Schema } from "../../../../../shared/canonical";
 import { WorldCommandError, type DomainCommand } from "../../../../../shared/actionWorld";
@@ -573,7 +573,7 @@ export function compilePresentationIntentsForPreflight(input: IntentCompilerInpu
     for (const action of visualCompiler.finish(actions.length, `WSA-${input.sessionId}-${serial}-T${toolIndex++}`)) appendVisual(action);
     if (actions.length > maxActions) throw new IntentCompilerError("EMPTY_SEGMENT", `visual group closure exceeds ${maxActions} action cap`);
     const uses = actions.flatMap(a => (a.basis_refs ?? []).filter(ref => input.visual!.requirements.some(r => r.binding_ref === ref)).map(binding_ref => ({ ordinal:a.ordinal,binding_ref }))).filter(u => actions[u.ordinal].kind === "voice");
-    const issues = validateVisualCoverage(input.visual.requirements, visualActions, input.visual.alreadyPresented, uses, { requireEntryPulse: usesVisualV7PresentationPolicy(input.request.presenter_pin.prompt_version) });
+    const issues = validateVisualCoverage(input.visual.requirements, visualActions, input.visual.alreadyPresented, uses, { requireEntryPulse: usesVisualV7PresentationPolicy(input.request.presenter_pin.prompt_version), requireCurrentPresentation: usesOnDemandVisualPolicy(input.request.presenter_pin.prompt_version) });
     visualCoverageIssues = issues;
   }
   if (actions.length === 0) {

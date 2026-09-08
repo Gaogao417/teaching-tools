@@ -14,6 +14,7 @@ export function sameProjectionReadStamp(a: ProjectionReadStamp, b: ProjectionRea
 export type ProjectionWorkspace = { state: Pick<WorkspaceFold["state"], "revision">; context: Pick<WorkspaceFold["context"], "tutorCommands"> };
 export type SnapshotProjectionMaterial = {
   runtimeState: Record<string, unknown>; workspace: ProjectionWorkspace; baseGeometry: unknown;
+  givenLengthFacts?: readonly import("./KnownGivenLengthProjection").GivenLengthFact[];
   visualLifecycle?: { presentation_execution_owner: VisualExecutionOwner; visual_barrier: VisualBarrier | null };
 };
 type RecordEntry = { source: object; eventSchema: string; digest: string; identity: string;

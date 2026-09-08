@@ -52,6 +52,7 @@ export interface GeometryCanvasSurfaceProps {
 export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion, onRenderCommit, renderExecutionKey, visualRenderer, onVisualSourceActive }: GeometryCanvasSurfaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const handlesRef = useRef<BoardHandles | null>(null);
+  const effectsRef = useRef<VisualEffectRegistry | undefined>(undefined);
   // Runtime acknowledgment removes emphasis on the next animation frame. Keep
   // the last non-empty key as the renderer's playback identity so acknowledgment
   // alone does not redraw JSXGraph and delete nodes whose animation is running.
@@ -106,6 +107,7 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   useEffect(() => {
     if (!containerRef.current) return;
     const handles = mountGeometryBoard(containerRef.current, model, {
+      hideTeachingMarks: visualRenderer !== undefined,
       getEntities: () => entitiesRef.current,
       getEmphasis: () => emphasisRef.current,
       onHit: (hit) => {
@@ -129,6 +131,7 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
     handlesRef.current = handles;
     const visualHost = containerRef.current;
     let effects: VisualEffectRegistry | undefined;
+    let currentPresentationIds: readonly string[] | undefined;
     let currentVisual: Parameters<typeof projectVisualScene>[0] | undefined;
     const sceneOf = (visual: Parameters<typeof projectVisualScene>[0]) => {
       const width = visualHost.clientWidth, height = visualHost.clientHeight;
@@ -144,11 +147,12 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
         });
       });
       return projectVisualScene(visual, model, { width, height, labelObstacles,
-        project: p => ({ x: (p.x - box[0]) * width / (box[2] - box[0]), y: (box[1] - p.y) * height / (box[1] - box[3]) }) });
+        project: p => ({ x: (p.x - box[0]) * width / (box[2] - box[0]), y: (box[1] - p.y) * height / (box[1] - box[3]) }) }, { onDemand: true, presentationIds: currentPresentationIds });
     };
     const visualBinding = visualRenderer?.attach({
       async render(visualView, execution) {
         if (!effects) throw new Error("visual renderer has not mounted");
+        currentPresentationIds = execution.presentationIds;
         currentVisual = visualView;
         const scene = sceneOf(visualView);
         return execution.operation === "removed" ? effects.reconcile(scene, execution) : effects.install(scene, execution);
@@ -156,7 +160,8 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
       suppress: owner => effects?.suppress(owner),
     });
     if (visualBinding) {
-      effects = new VisualEffectRegistry(visualHost, { surfaceGeneration: visualBinding.generation });
+      effects = new VisualEffectRegistry(visualHost, { surfaceGeneration: visualBinding.generation, inspectionEnabled: () => !Object.values(entitiesRef.current).some(entity=>entity.enabled) });
+      effectsRef.current = effects;
       onVisualSourceActive?.();
     }
     let layoutFrame: number | undefined;
@@ -179,6 +184,7 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
       if (layoutFrame !== undefined) cancelAnimationFrame(layoutFrame);
       visualBinding?.detach();
       effects?.dispose();
+      if(effectsRef.current===effects)effectsRef.current=undefined;
       handles.destroy();
       handlesRef.current = null;
     };
@@ -206,6 +212,7 @@ export function GeometryCanvasSurface({ model, view, onClickEntity, modelVersion
   }).join("|");
   useEffect(() => {
     handlesRef.current?.render();
+    effectsRef.current?.setInspectionEnabled(!Object.values(entitiesRef.current).some(entity=>entity.enabled));
     scheduleRenderCommit();
   }, [model, modelVersion, entityRenderKey, emphasisRenderKey, renderExecutionKey]);
 
