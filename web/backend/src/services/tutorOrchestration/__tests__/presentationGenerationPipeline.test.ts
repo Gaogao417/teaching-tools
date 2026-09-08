@@ -31,7 +31,7 @@ import {
   compilePresentationIntents,
   type IntentCompilerInput,
 } from "../presentationGeneration/IntentCompiler";
-import { PRESENTER_PROMPT_VERSION, STUCK_POINT_PROMPT_VERSION, buildPresenterPrompt } from "../presentationGeneration/PresenterPrompts";
+import { BOARD_PROOF_PRESENTER_PROMPT_VERSION, PRESENTER_PROMPT_VERSION, STUCK_POINT_PROMPT_VERSION, buildPresenterPrompt } from "../presentationGeneration/PresenterPrompts";
 import { PRESENTATION_TOOL_CATALOG, toolSpecById, type PresentationResourceBinding, type VisibleToolInstance } from "../presentationGeneration/PresentationToolCatalog";
 import { preflightPresentationSequence } from "../presentationGeneration/SequencePreflight";
 import { PRESENTER_QUALITY_CASES } from "../presentationGeneration/PresenterQualityCases";
@@ -166,7 +166,8 @@ function draftOf(items: unknown[]): { schema: "ai_teaching_presentation_draft/v2
 
 test("prompt versions are frozen and presenter payload carries tools/basis/budget", () => {
   assert.equal(STUCK_POINT_PROMPT_VERSION, "stuck-point-locator/v1");
-  assert.equal(PRESENTER_PROMPT_VERSION, "presenter-interleaved/v4-board-proof");
+  assert.equal(PRESENTER_PROMPT_VERSION, "presenter-interleaved/v5-student-stage");
+  assert.equal(BOARD_PROOF_PRESENTER_PROMPT_VERSION, "presenter-interleaved/v4-board-proof");
   const prompt = buildPresenterPrompt({
     context: builtContext(),
     instructionalGoal: "讲解第二组子母型相似",
@@ -574,3 +575,12 @@ test("frozen catalog is the visibility naming source used by compiler inputs", (
     assert.ok(ids.has(tool));
   }
 });
+
+ test("student stage is explicit in v5 and absent from historical v4", () => {
+   const input = {context:builtContext(),instructionalGoal:"解释",currentGranularity:"beat",alreadyPresented:[],stuckPoint:null,visibleTools:[],maxItems:6,maxSpeechChars:400,studentContext:{region:"上海市",grade:"八年级"}};
+   assert.deepEqual(buildPresenterPrompt(input).userPayload.student_context,input.studentContext);
+   const old=buildPresenterPrompt({...input,promptVersion:BOARD_PROOF_PRESENTER_PROMPT_VERSION});
+   assert.equal(old.userPayload.student_context,undefined);
+   assert.equal(old.systemPrompt.includes("student_context"),false);
+   assert.deepEqual(old.userPayload.presented_board,[]);
+ });

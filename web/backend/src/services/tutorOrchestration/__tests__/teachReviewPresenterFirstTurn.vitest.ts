@@ -50,7 +50,7 @@ function compile(result:Awaited<ReturnType<typeof generate>>, overrides:Partial<
 describe('Presenter first turn: prompt/adapter/compiler contract',()=>{
  it('new prompt reaches the provider with null stuck point and the actual closed board parameter catalog',async()=>{
   const result=await generate([speech,tool({note_kind:'explanation_text'})]);
-  expect(result.calls[0].promptVersion).toBe('presenter-interleaved/v4-board-proof');
+  expect(result.calls[0].promptVersion).toBe('presenter-interleaved/v5-student-stage');
   expect(result.calls[0].systemPrompt).toBe(prompt().systemPrompt);
   const payload=result.calls[0].userPayload as any;
   expect(payload.student_stuck_point).toBeNull();expect(payload.already_presented).toEqual([]);

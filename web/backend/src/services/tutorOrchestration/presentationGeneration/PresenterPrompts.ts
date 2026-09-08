@@ -17,7 +17,8 @@ export const STUCK_POINT_PROMPT_VERSION = "stuck-point-locator/v1";
 export const LEGACY_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v1";
 export const PREVIOUS_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v2-follow-along";
 export const TOOL_INVOCATION_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v3-tool-invocation";
-export const PRESENTER_PROMPT_VERSION = "presenter-interleaved/v4-board-proof";
+export const BOARD_PROOF_PRESENTER_PROMPT_VERSION = "presenter-interleaved/v4-board-proof";
+export const PRESENTER_PROMPT_VERSION = "presenter-interleaved/v5-student-stage";
 
 /** 卡点定位 system prompt（版本 STUCK_POINT_PROMPT_VERSION）。 */
 export const STUCK_POINT_SYSTEM_PROMPT = [
@@ -73,17 +74,20 @@ export const TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT = PREVIOUS_PRESENTER_SYSTEM
 ].join("\n");
 
 /** v4 requires visible approved proof notes; v1/v2/v3 bytes remain frozen above. */
-export const PRESENTER_SYSTEM_PROMPT = TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT + "\n" + [
+export const BOARD_PROOF_PRESENTER_SYSTEM_PROMPT = TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT + "\n" + [
   "17. required_board_bindings 是当前可见批准依据中尚未真正呈现的必要板书。每个 binding_ref 必须输出一次 board.explain，note_kind 用 approved_math_note（relation_note 也可）；仅语音或 explanation_text 不能代替数学推导板书。先给必要几何和板书留足 output_budget，再安排语音。",
   "18. presented_board 仅记录截止本次请求冻结时浏览器已确认呈现的板书正文。already_presented 是语音，不是板书。没有实际板书记录，不能声称已经写过、板书已有或让学生看未写出的推导；本段计划写的内容只能说接下来整理。",
   "19. 历史板书用于判断已呈现内容，不能扩张当前 tools/allowed_knowledge 权限；不得为补旧内容调用当前不可见 binding。数值作为其他推导的前提出现，不等于这个数值的计算过程已经板书。",
 ].join("\n");
+
+export const PRESENTER_SYSTEM_PROMPT = BOARD_PROOF_PRESENTER_SYSTEM_PROMPT + "\n20. student_context 给出学生所在地和年级，按该阶段常见知识与语言解释；它不证明学生已掌握某条定理，也不扩张 allowed_knowledge。";
 
 export interface PresentedBoardNote { readonly kind: string; readonly content: string }
 export interface RequiredBoardBinding { readonly binding_ref: string; readonly note_kind: "approved_math_note" }
 
 /** Presenter user payload（服务端组装；工具可见性交集已由目录计算）。 */
 export interface PresenterUserPayload {
+  readonly student_context?: { readonly region: string; readonly grade: string };
   readonly instructional_goal: string;
   readonly completion_target?: "follow_along";
   readonly allowed_knowledge: readonly { readonly ref: string; readonly kind: "fact" | "inference" | "resource"; readonly text: string }[];
@@ -104,6 +108,7 @@ export interface PresenterUserPayload {
 
 export interface PresenterPromptInput {
   readonly context: BuiltPresentationContext;
+  readonly studentContext?: { readonly region: string; readonly grade: string };
   readonly instructionalGoal: string;
   readonly completionTarget?: "follow_along";
   readonly promptVersion?: string;
@@ -124,12 +129,13 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
   readonly userPayload: PresenterUserPayload;
 } {
   const payload: PresenterUserPayload = {
+    ...(!input.promptVersion || input.promptVersion === PRESENTER_PROMPT_VERSION ? { student_context: input.studentContext ?? { region: process.env.TUTOR_STUDENT_REGION?.trim() || "上海市", grade: process.env.TUTOR_STUDENT_GRADE?.trim() || "九年级（初三）" } } : {}),
     instructional_goal: input.instructionalGoal,
     ...(input.completionTarget ? { completion_target: input.completionTarget } : {}),
     allowed_knowledge: input.context.basis.map((item) => ({ ref: item.ref, kind: item.kind, text: item.text })),
     current_granularity: input.currentGranularity,
     already_presented: [...input.alreadyPresented],
-    ...(!input.promptVersion || input.promptVersion === PRESENTER_PROMPT_VERSION ? {
+    ...(!input.promptVersion || input.promptVersion === PRESENTER_PROMPT_VERSION || input.promptVersion === BOARD_PROOF_PRESENTER_PROMPT_VERSION ? {
       presented_board: [...(input.presentedBoard ?? [])],
       required_board_bindings: [...(input.requiredBoardBindings ?? [])],
     } : {}),
@@ -157,10 +163,11 @@ export function buildPresenterPrompt(input: PresenterPromptInput): {
   const legacy = input.promptVersion === LEGACY_PRESENTER_PROMPT_VERSION;
   const previous = input.promptVersion === PREVIOUS_PRESENTER_PROMPT_VERSION;
   const toolInvocation = input.promptVersion === TOOL_INVOCATION_PRESENTER_PROMPT_VERSION;
-  if (input.promptVersion && !legacy && !previous && !toolInvocation && input.promptVersion !== PRESENTER_PROMPT_VERSION) {
+  const boardProof = input.promptVersion === BOARD_PROOF_PRESENTER_PROMPT_VERSION;
+  if (input.promptVersion && !boardProof && !legacy && !previous && !toolInvocation && input.promptVersion !== PRESENTER_PROMPT_VERSION) {
     throw new Error(`unsupported Presenter prompt version: ${input.promptVersion}`);
   }
   if (legacy && input.completionTarget) throw new Error("follow_along requires the current Presenter prompt");
-  return { systemPrompt: legacy ? LEGACY_PRESENTER_SYSTEM_PROMPT : previous ? PREVIOUS_PRESENTER_SYSTEM_PROMPT : toolInvocation ? TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT : PRESENTER_SYSTEM_PROMPT,
-    promptVersion: legacy ? LEGACY_PRESENTER_PROMPT_VERSION : previous ? PREVIOUS_PRESENTER_PROMPT_VERSION : toolInvocation ? TOOL_INVOCATION_PRESENTER_PROMPT_VERSION : PRESENTER_PROMPT_VERSION, userPayload: payload };
+  return { systemPrompt: legacy ? LEGACY_PRESENTER_SYSTEM_PROMPT : previous ? PREVIOUS_PRESENTER_SYSTEM_PROMPT : toolInvocation ? TOOL_INVOCATION_PRESENTER_SYSTEM_PROMPT : boardProof ? BOARD_PROOF_PRESENTER_SYSTEM_PROMPT : PRESENTER_SYSTEM_PROMPT,
+    promptVersion: legacy ? LEGACY_PRESENTER_PROMPT_VERSION : previous ? PREVIOUS_PRESENTER_PROMPT_VERSION : toolInvocation ? TOOL_INVOCATION_PRESENTER_PROMPT_VERSION : boardProof ? BOARD_PROOF_PRESENTER_PROMPT_VERSION : PRESENTER_PROMPT_VERSION, userPayload: payload };
 }

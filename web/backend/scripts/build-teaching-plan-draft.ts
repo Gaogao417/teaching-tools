@@ -16,7 +16,8 @@ async function main() {
     const source = loadPlanAuthoringInputs(root, request.question_id, request.graph_id, request.approach_set_id, request.profile_id);
     const schemas = { plan: JSON.parse(readFileSync(join(contracts, "schemas/planning/v7/tutor-plan-bundle.schema.json"), "utf8")),
       protocol: JSON.parse(readFileSync(join(contracts, "schemas/planning/v5/teaching-protocol.schema.json"), "utf8")) };
-    const payload = { ...request, approved_inputs: source, canonical_schemas: schemas };
+    const payload = { ...request, approved_inputs: source, canonical_schemas: schemas,
+      asset_meanings: { QT: "题目事实：题干、条件、图、答案和解答", RG: "解法依据：事实、推理、目标和路线", TA: "一种教师讲法", AS: "各小问的讲法选择", Plan: "可执行教学任务", Protocol: "互动步骤、完成条件与合法转移" } };
     write("model-request.json", payload);
     const model = process.env.TEACHING_PLAN_MODEL || "qwen-plus";
     const key = process.env.DASHSCOPE_API_KEY;
@@ -24,7 +25,7 @@ async function main() {
     const response = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
       method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(180000), body: JSON.stringify({ model, temperature: 0, response_format: { type: "json_object" },
-        messages: [{ role: "system", content: "生成待教师审核的教学计划，严格JSON {plan,protocols}，遵守提供的canonical schemas。只使用提供的Approved QT/RG/TA/AS、工具能力和资源目录。保持教师策略，不从答案猜节奏。Plan/Protocol均Draft且不含approval。只使用request提供的plan_id/plan_version和protocol_versions分配。content_hash允许留占位，程序将确定性计算；所有引用必须用输入中的实际ID与version。覆盖细图推理，完成门槛不把播放完成当学生掌握。不得编造资源target/geometry。" },
+        messages: [{ role: "system", content: `面向${request.student_context?.region ?? "上海市"}${request.student_context?.grade ?? "九年级（初三）"}学生，使用该阶段常见数学知识和表达。生成待独立AI验收的教学计划，严格JSON {plan,protocols}，遵守提供的canonical schemas。只使用提供的Approved题目、解法、讲法、讲法组合、工具能力和资源目录。保持教师策略，不从答案猜节奏。Plan/Protocol均Draft且不含approval。只使用request提供的plan_id/plan_version和protocol_versions分配。content_hash允许留占位，程序将确定性计算；所有引用必须用输入中的实际ID与version。覆盖细图推理，完成门槛不把播放完成当学生掌握。不得编造资源target/geometry。如有previous_candidate和validation_errors，修复这些问题并返回完整候选。` },
           { role: "user", content: JSON.stringify(payload) }] }) });
     if (!response.ok) throw new Error(`model HTTP ${response.status}`);
     const body = await response.json() as { choices: { message: { content: string } }[] };
@@ -67,7 +68,7 @@ async function main() {
     write("candidate.json", candidate);
     const result = reviewPlanDraft(root, candidate, request.resource_catalog);
     write("review.json", result);
-    (writeFileSync)(join(output, "review.md"), `# 教学计划待审\n\n状态：${result.ok ? "待教师确认" : "需返工"}。未批准、未发布。\n\n` +
+    (writeFileSync)(join(output, "review.md"), `# 教学计划待审\n\n状态：${result.ok ? "待 AI 验收" : "需返工"}。未批准、未发布。\n\n` +
       candidate.protocols.flatMap((p: any) => p.beats.map((b: any) => `- ${p.protocol_id}/${b.beat_id}: ${b.purpose}；参与：${b.participation}；完成条件：${JSON.stringify(b.gate ?? b.completion_evidence ?? null)}`)).join("\n") + "\n", { flag: "wx" });
     process.exitCode = result.ok ? 0 : 1;
   } catch (error) { write("failure.json", { status: "Failed", error_class: error instanceof Error ? error.name : "unknown" }); process.exitCode = 1; }
