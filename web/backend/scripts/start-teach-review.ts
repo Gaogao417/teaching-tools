@@ -6,6 +6,8 @@ import { mkdtempSync, writeFileSync, appendFileSync, readFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { spawn } from "node:child_process";
+import express from "express";
+import { createReviewMediaAudit } from "./lib/ReviewMediaAudit";
 
 async function main() {
   if (process.env.NODE_ENV === "production") throw new Error("Author review cannot run in production");
@@ -82,7 +84,10 @@ async function main() {
   const { createApp } = await import("../src/app");
   const { createGenerationWakeChannel } = await import("../src/services/tutorOrchestration/presentationGeneration/GenerationRecoveryWorker");
   const generationWake = createGenerationWakeChannel();
-  const app = createApp({ vnext: { applicationFactory, generationWake: generationWake.notify } });
+  const app = express();
+  app.use(createReviewMediaAudit(record => appendFileSync(join(runDir,"media-audit.jsonl"),JSON.stringify(record)+"\n"),
+    () => console.error("review media audit write failed")));
+  app.use(createApp({ vnext: { applicationFactory, generationWake: generationWake.notify } }));
   const metadata = { mode: "author-review", status: "Draft", publicationPerformed: false, runDir,
     plan: { artifact_id: loaded.imported.plan.artifact_id, version: loaded.imported.plan.version, content_hash: loaded.imported.plan.content_hash },
     gate: model.pin, presenter: presenter.pin, url: `http://127.0.0.1:${frontendPort}/learn/goldenMinhangFold2020` };
